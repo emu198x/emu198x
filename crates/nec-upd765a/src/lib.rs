@@ -272,6 +272,11 @@ pub struct Upd765a {
     /// Logical TS sample supplied by machine wiring, independent of image
     /// geometry. None retains the legacy input for existing chip consumers.
     two_side_inputs: [Option<bool>; 4],
+    /// Independent logical samples for SDS. None retains legacy media/head
+    /// fallbacks; these samples do not model multiplexed pin sampling timing.
+    track_zero_inputs: [Option<bool>; 4],
+    write_protect_inputs: [Option<bool>; 4],
+    fault_inputs: [Option<bool>; 4],
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -392,6 +397,9 @@ impl Upd765a {
             read_id_index: [0; 4],
             ready_inputs: [None; 4],
             two_side_inputs: [None; 4],
+            track_zero_inputs: [None; 4],
+            write_protect_inputs: [None; 4],
+            fault_inputs: [None; 4],
             ready_sampled: [false; 4],
             ready_poll_phase: 0,
             seek_attention_unacknowledged: false,
@@ -422,6 +430,46 @@ impl Upd765a {
         if let Some(input) = self.two_side_inputs.get_mut(drive) {
             *input = Some(two_side);
         }
+    }
+
+    /// Supply the asserted Track Zero sample for Sense Drive Status.
+    /// This is independent of PCN and media presence. Seek/recalibration retain
+    /// the current instantaneous sector-model motion, not pin-paced mechanics.
+    /// Invalid drives are ignored, matching READY/TS attachment.
+    pub fn set_track_zero(&mut self, drive: usize, track_zero: bool) {
+        if let Some(input) = self.track_zero_inputs.get_mut(drive) {
+            *input = Some(track_zero);
+        }
+    }
+
+    /// Supply the asserted Write Protect sample for Sense Drive Status.
+    /// Asserted protection also inhibits disk mutations. Deasserting this input
+    /// cannot override the host's read-only mount policy. Invalid drives are ignored.
+    pub fn set_write_protect(&mut self, drive: usize, protected: bool) {
+        if let Some(input) = self.write_protect_inputs.get_mut(drive) {
+            *input = Some(protected);
+        }
+    }
+
+    /// Supply the asserted Fault sample for Sense Drive Status.
+    /// This does not implement fault-reset signalling or mechanical failures.
+    /// Invalid drives are ignored, matching READY/TS attachment.
+    pub fn set_fault(&mut self, drive: usize, fault: bool) {
+        if let Some(input) = self.fault_inputs.get_mut(drive) {
+            *input = Some(fault);
+        }
+    }
+
+    /// Whether the sector model's physical head counter is at cylinder zero.
+    /// A machine adapter must separately establish that a mechanism exists;
+    /// an unused counter being zero is not an asserted Track Zero sensor.
+    #[must_use]
+    pub fn head_at_track_zero(&self, drive: usize) -> bool {
+        self.track.get(drive).is_some_and(|track| *track == 0)
+    }
+
+    fn writes_inhibited(&self, drive: usize) -> bool {
+        !self.writable[drive] || self.write_protect_inputs[drive] == Some(true)
     }
 
     /// The existing sector-model Write Protect level for a physical drive.
@@ -552,6 +600,9 @@ impl Upd765a {
         let drive_select_mask = self.drive_select_mask;
         let ready_inputs = self.ready_inputs;
         let two_side_inputs = self.two_side_inputs;
+        let track_zero_inputs = self.track_zero_inputs;
+        let write_protect_inputs = self.write_protect_inputs;
+        let fault_inputs = self.fault_inputs;
         let track = self.track;
         let pcn = self.pcn;
         *self = Self::new();
@@ -561,6 +612,9 @@ impl Upd765a {
         self.drive_select_mask = drive_select_mask;
         self.ready_inputs = ready_inputs;
         self.two_side_inputs = two_side_inputs;
+        self.track_zero_inputs = track_zero_inputs;
+        self.write_protect_inputs = write_protect_inputs;
+        self.fault_inputs = fault_inputs;
         self.track = track;
         self.pcn = pcn;
     }
@@ -862,10 +916,11 @@ impl Upd765a {
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
                 let disk_present = self.disks[drive].is_some();
                 self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
-                    | if self.track[drive] == 0 { 0x10 } else { 0 } // T0 (track 0)
+                    | if self.track_zero_inputs[drive].unwrap_or(self.head_at_track_zero(drive)) { 0x10 } else { 0 }
                     | if self.two_side_inputs[drive].unwrap_or(disk_present) { 0x08 } else { 0 }
                     | if self.drive_ready(drive) { 0x20 } else { 0 } // RY
-                    | if self.is_write_protected(drive) { 0x40 } else { 0 }; // WP
+                    | if self.write_protect_inputs[drive].unwrap_or(self.is_write_protected(drive)) { 0x40 } else { 0 }
+                    | if self.fault_inputs[drive].unwrap_or(false) { 0x80 } else { 0 };
                 self.head = head;
                 self.result_buf.clear();
                 self.result_buf.push(self.st3);
@@ -1426,7 +1481,7 @@ impl Upd765a {
             self.write_result(0, 0);
             return;
         };
-        if !self.writable[drive] {
+        if self.writes_inhibited(drive) {
             self.write_result(0x02, 0); // NW
             return;
         }
@@ -1503,7 +1558,7 @@ impl Upd765a {
             self.write_result(0, 0);
             return false;
         }
-        if !self.writable[drive] {
+        if self.writes_inhibited(drive) {
             self.write_result(0x02, 0);
             return false;
         }
@@ -1524,6 +1579,7 @@ impl Upd765a {
     fn accept_write_byte(&mut self, value: u8) {
         let mark = self.write_data_mark();
         let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+        let inhibited = self.writes_inhibited(drive);
         let Some(sector) = self.disks[drive]
             .as_mut()
             .and_then(|image| image.tracks.get_mut(self.head as usize))
@@ -1534,7 +1590,7 @@ impl Upd765a {
             self.write_result(0, 0);
             return;
         };
-        if !self.writable[drive] {
+        if inhibited {
             self.write_result(0x02, 0);
             return;
         }
@@ -1622,7 +1678,7 @@ impl Upd765a {
             self.format_result(0, true);
             return;
         };
-        if !self.writable[drive] {
+        if self.writes_inhibited(drive) {
             self.format_result(0x02, true);
             return;
         }
@@ -1684,6 +1740,11 @@ impl Upd765a {
     }
 
     fn accept_format_byte(&mut self, value: u8) {
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        if self.writes_inhibited(drive) {
+            self.format_result(0x02, true);
+            return;
+        }
         self.exec_buf[self.exec_pos] = value;
         self.exec_pos += 1;
         self.main_status &= !MSR_RQM;
@@ -1740,10 +1801,14 @@ impl Upd765a {
         if self.exec_timeout != 0 {
             return;
         }
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        if self.writes_inhibited(drive) {
+            self.format_result(0x02, true);
+            return;
+        }
         if self.main_status & MSR_RQM != 0 {
             self.format_result(0x10, true); // missed ID-byte service window
         } else if self.exec_pos == self.exec_buf.len() {
-            let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
             if let Some(track) = self.disks[drive]
                 .as_mut()
                 .and_then(|image| image.tracks.get_mut(usize::from(self.head)))
@@ -2426,6 +2491,68 @@ mod tests {
                 .data,
             vec![0xe5; 512]
         );
+    }
+
+    #[test]
+    fn external_protection_inhibits_writes_without_overriding_host_policy() {
+        for writable in [false, true] {
+            for protected in [false, true] {
+                let mut fdc = write_test_fdc(writable);
+                fdc.set_write_protect(0, protected);
+                let before = format!("{:?}", fdc.disks[0]);
+                send_write(&mut fdc, 0, 0, 0, 1, 1);
+                if !writable || protected {
+                    assert_eq!(result(&mut fdc)[1], 2, "NW independent of host permission");
+                    assert_eq!(format!("{:?}", fdc.disks[0]), before);
+                } else {
+                    assert_eq!(fdc.phase, Phase::Execution);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn external_protection_rechecks_each_accepted_write_byte() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        await_write_request(&mut fdc);
+        fdc.write_data(0x12);
+        await_write_request(&mut fdc);
+        let before = format!("{:?}", fdc.disks[0]);
+        fdc.set_write_protect(0, true);
+        fdc.write_data(0x34);
+        assert_eq!(result(&mut fdc)[1], 2);
+        assert_eq!(
+            format!("{:?}", fdc.disks[0]),
+            before,
+            "no byte accepted after WP assertion"
+        );
+    }
+
+    #[test]
+    fn external_protection_blocks_format_start_id_mutation_and_final_truncation() {
+        for stage in 0..3 {
+            let mut fdc = write_test_fdc(true);
+            if stage == 0 {
+                fdc.set_write_protect(0, true);
+            }
+            send_format(&mut fdc, 0, 2, 1, 0xa7);
+            if stage == 1 {
+                await_format_status(&mut fdc, 0xb0);
+                fdc.set_write_protect(0, true);
+            } else if stage == 2 {
+                transfer_ids(&mut fdc, &[0, 0, 9, 2]);
+                fdc.set_write_protect(0, true);
+            }
+            let before = format!("{:?}", fdc.disks[0]);
+            if stage == 1 {
+                fdc.write_data(0);
+            } else if stage == 2 {
+                await_format_status(&mut fdc, 0xd0);
+            }
+            assert_eq!(result(&mut fdc)[1], 2, "stage={stage}");
+            assert_eq!(format!("{:?}", fdc.disks[0]), before, "stage={stage}");
+        }
     }
 
     #[test]
@@ -3258,6 +3385,84 @@ mod tests {
         // T0 should be set (track == 0), RY clear (no disk).
         assert_eq!(st3 & 0x10, 0x10, "T0 set when track == 0");
         assert_eq!(st3 & 0x20, 0, "RY clear when no disk present");
+    }
+
+    #[test]
+    fn sds_inputs_are_independent_of_media_head_position_and_each_other() {
+        for mask in [1, 3] {
+            for mounted in [false, true] {
+                let mut fdc = Upd765a::new();
+                fdc.enabled = true;
+                fdc.set_drive_select_mask(mask);
+                if mounted {
+                    for drive in 0..4 {
+                        fdc.insert_disk(drive, marginal_image());
+                    }
+                }
+                for signals in 0_u8..32 {
+                    for drive in 0..4 {
+                        // Deliberately disagree with the supplied T0 sample.
+                        fdc.track[drive] = if signals & 2 != 0 { 7 } else { 0 };
+                        fdc.set_two_side(drive, signals & 1 != 0);
+                        fdc.set_track_zero(drive, signals & 2 != 0);
+                        fdc.set_ready(drive, signals & 4 != 0);
+                        fdc.set_write_protect(drive, signals & 8 != 0);
+                        fdc.set_fault(drive, signals & 16 != 0);
+                    }
+                    for selected in 0..8 {
+                        fdc.write_data(4);
+                        fdc.write_data(selected);
+                        let expected = selected | (signals << 3);
+                        assert_eq!(fdc.read_data(), expected, "mask={mask} mounted={mounted}");
+                        assert_eq!(fdc.read_status(), MSR_RQM, "exactly one result byte");
+                    }
+                    fdc.reset();
+                    fdc.enabled = true;
+                    fdc.write_data(4);
+                    fdc.write_data(0);
+                    assert_eq!(fdc.read_data(), signals << 3, "reset retains input samples");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sds_samples_selected_physical_inputs_and_latches_them() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        for (drive, bits) in [(0, 0x10_u8), (1, 0x40), (2, 0x80), (3, 0)] {
+            fdc.set_track_zero(drive, bits & 0x10 != 0);
+            fdc.set_write_protect(drive, bits & 0x40 != 0);
+            fdc.set_fault(drive, bits & 0x80 != 0);
+        }
+        for selected in 0..8 {
+            fdc.write_data(4);
+            fdc.write_data(selected);
+            let physical = usize::from(selected & 3);
+            let bits = [0x10, 0x40, 0x80, 0][physical];
+            assert_eq!(fdc.read_data(), selected | bits);
+        }
+        fdc.write_data(4);
+        fdc.write_data(1);
+        fdc.set_write_protect(1, false);
+        fdc.set_fault(1, true);
+        assert_eq!(
+            fdc.read_data(),
+            0x41,
+            "sampled result survives later changes"
+        );
+        for invalid in [4, usize::MAX] {
+            fdc.set_track_zero(invalid, true);
+            fdc.set_write_protect(invalid, true);
+            fdc.set_fault(invalid, true);
+            assert!(!fdc.head_at_track_zero(invalid));
+        }
+        fdc.set_drive_select_mask(1);
+        for selected in [1, 3, 5, 7] {
+            fdc.write_data(4);
+            fdc.write_data(selected);
+            assert_eq!(fdc.read_data(), selected | 0x80, "B aliases physical unit1");
+        }
     }
 
     /// SenseDriveStatus reports TS / RY when a disk is mounted, and
