@@ -68,6 +68,22 @@ import Testing
         #expect(aspect > 1.04 && aspect < 1.07, "7 MHz pixels on a PAL line: \(aspect)")
     }
 
+    @Test func autoloadWithoutATapeIsRefusedByTheRuntime() throws {
+        #expect {
+            try spectrum().autoloadTape()
+        } throws: { error in
+            let error = error as? EmulatorError
+            return error?.kind == .refused && error?.message.contains("tape") == true
+        }
+    }
+
+    @Test(.enabled(if: stagedSpectrumROM() != nil, "needs the 48K ROM (EMU198X_SPECTRUM_48K_ROM)"))
+    func autoloadTypesLoadAndPlaysTheTape() throws {
+        let machine = try spectrum(rom: try #require(stagedSpectrumROM()))
+        try machine.load(slot: "tape-1", data: printSevenTape())
+        #expect(try machine.autoloadTape() > 0, "it waited for the ROM to boot")
+    }
+
     @Test func machinesTearDownRepeatedly() throws {
         for _ in 0..<100 {
             let machine = try spectrum()

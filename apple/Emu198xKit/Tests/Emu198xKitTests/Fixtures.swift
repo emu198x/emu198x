@@ -62,3 +62,18 @@ func stagedSpectrumROM() -> Data? {
         ?? environment["HOME"].map { "\($0)/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom" }
     return path.flatMap { FileManager.default.contents(atPath: $0) }
 }
+
+/// A two-block tape holding `10 PRINT 7`, as in the runtime's own autoload
+/// test (`autoload_running_machine.rs`).
+func printSevenTape() -> Data {
+    func block(_ flag: UInt8, _ payload: [UInt8]) -> [UInt8] {
+        let length = UInt16(payload.count + 2)
+        let checksum = payload.reduce(flag, ^)
+        return [UInt8(length & 0xFF), UInt8(length >> 8), flag] + payload + [checksum]
+    }
+    let program: [UInt8] = [0x00, 0x0A, 0x09, 0x00, 0xF5, 0x37, 0x0E, 0x00, 0x00, 0x07, 0x00, 0x00, 0x0D]
+    let length = UInt16(program.count)
+    let header: [UInt8] = [0x00] + Array("probe     ".utf8)
+        + [UInt8(length & 0xFF), UInt8(length >> 8), 10, 0, UInt8(length & 0xFF), UInt8(length >> 8)]
+    return Data(block(0x00, header) + block(0xFF, program))
+}
