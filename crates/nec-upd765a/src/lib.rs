@@ -749,19 +749,14 @@ impl Upd765a {
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 self.track[drive] = 0;
                 self.pcn[unit] = 0;
-                // ST0 IC bits: 00 = Normal Termination (real drive
-                // present, seek to track 0 succeeded). 11 + EC bit
-                // (0xD0 | drive) = Abnormal due to Drive Not Ready —
-                // what the real µPD765A returns when a recalibrate is
-                // issued against a drive whose TRACK 0 signal never
-                // asserts (no drive connected). The +3 BIOS probes
-                // drives by recalibrating each in turn; falsely
-                // returning Normal Termination for non-existent drives
-                // makes it think every drive is real.
+                // Initially-not-ready Recalibrate terminates abnormally with
+                // NR and SE, as for Seek (NEC December 1978, pp. 15–16;
+                // MAME recalibrate_start). It is not a READY-change event or
+                // the distinct 77-step failure to find TRACK 0.
                 let st0 = if self.drive_ready(drive) {
                     0x20 | drive_echo // Seek End | drive
                 } else {
-                    0xD0 | drive_echo // Abnormal | Not Ready | EC | drive
+                    0x68 | drive_echo // Abnormal | Seek End | Not Ready | drive
                 };
                 self.st0 = st0;
                 // Stage the seek; the busy bit is read out of MSR via
@@ -2657,8 +2652,8 @@ mod tests {
         fdc.write_data(0x00); // Drive 0
 
         // Recalibrate is staged: track snaps to 0 immediately, but
-        // the interrupt is held until the seek-busy countdown expires
-        // and the drive-busy bit clears in MSR.
+        // the interrupt is held until the seek countdown expires.
+        // The logical busy bit remains until SIS reads ST0.
         assert_eq!(fdc.track[0], 0);
         assert!(!fdc.interrupt);
         assert_eq!(fdc.read_status() & 0x01, 0x01); // drive 0 busy
@@ -2667,7 +2662,11 @@ mod tests {
             <Upd765a as Peripheral>::tick(&mut fdc, 0);
         }
         assert!(fdc.interrupt);
-        assert_eq!(fdc.read_status() & 0x01, 0); // drive 0 idle
+        assert_eq!(fdc.read_status() & 0x01, 1); // completion awaits SIS ST0
+        fdc.write_data(0x08);
+        assert_eq!(fdc.read_data(), 0x68);
+        assert_eq!(fdc.read_status() & 0x01, 0); // ST0 acknowledges drive 0
+        assert_eq!(fdc.read_data(), 0);
     }
 
     #[test]
