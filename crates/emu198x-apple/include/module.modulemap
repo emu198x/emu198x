@@ -1,0 +1,4 @@
+module Emu198xCore {
+    header "emu198x.h"
+    export *
+}
