@@ -1,0 +1,89 @@
+{
+  "base": "df3ac52d6c145eea83f11edf6b3b0a834161b1d2",
+  "rustc": "1.99.0 (b940084d7 2026-09-28)",
+  "source_build": true,
+  "fresh_execution": true,
+  "environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/sis-busy-target",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0"
+  },
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "sis_busy"
+      ],
+      "log": "red.log",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 3
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--no-fail-fast"
+      ],
+      "log": "old-expectations.log",
+      "exit_code": 101,
+      "note": "legacy busy/phase assertions and helpers still assume busy means motion only"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--no-fail-fast"
+      ],
+      "log": "green.log",
+      "exit_code": 0,
+      "passed": 150,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "log": "clippy.log",
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "log": "fmt.log",
+      "exit_code": 0
+    }
+  ],
+  "log_normalization": "Trailing terminal blank lines removed; output retained.",
+  "log_sha256": {
+    "old-expectations.log": "9e7865561127945d42fe1269cf2b180c3dc6c6d9bdfe30d9092ce8e4f581abef",
+    "fmt.log": "474cc1eeed687c4fc3b98e49f70326e573b791d116765c32717b70efcbc8d087",
+    "red.log": "d80588cef08fd1c5929c875006072a08b2958e9a876db6208875af4877b3902f",
+    "green.log": "5cc01b1deec1ebc000f65f898454ab442d3d3fc1b8025ac6fb5591e150e73d3c",
+    "clippy.log": "2987387d9452c285670cb300fdbde6a9047c0191d59486044691eeb82e862547"
+  }
+}

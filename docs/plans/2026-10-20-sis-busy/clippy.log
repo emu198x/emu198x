@@ -1,0 +1,13 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/7a086198fcb2ea6e: Operation not permitted (os error 1)
+    Checking serde_core v1.0.229
+    Checking thiserror v2.0.20
+    Checking format-sinclair-zx-spectrum-snapshot v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/format-sinclair-zx-spectrum-snapshot)
+    Checking serde v1.0.229
+    Checking emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/emu198x-gi-ay-3-8910)
+    Checking serde-big-array v0.5.1
+    Checking emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/emu198x-zilog-z80)
+    Checking gi-ay-3-8912 v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/gi-ay-3-8912)
+    Checking common-tape v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/common-tape)
+    Checking common-sinclair-zx-spectrum v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/common-sinclair-zx-spectrum)
+    Checking nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/nec-upd765a)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.02s
