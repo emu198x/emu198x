@@ -1,0 +1,21 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/e19b4cb87a664ffa: Operation not permitted (os error 1)
+   Compiling serde_core v1.0.229
+   Compiling winnow v1.0.3
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling semver v1.0.28
+   Compiling nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/nec-upd765a)
+   Compiling rustc_version v0.4.1
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling format-amstrad-dsk v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/format-amstrad-dsk)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-sinclair-zx-spectrum-plus3)
+   Compiling machine-sinclair-zx-spectrum-plus2a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-sinclair-zx-spectrum-plus2a)
+   Compiling machine-sinclair-zx-spectrum-plus2b v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-sinclair-zx-spectrum-plus2b)
+   Compiling runtime-sinclair-zx-spectrum v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/runtime-sinclair-zx-spectrum)
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v1.1.3+spec-1.1.0
+   Compiling embed-resource v3.0.11
+   Compiling emu198x-app-icon v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/emu198x-app-icon)
+   Compiling emu198x-spectrum v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/emu198x-spectrum)
+    Finished `dev` profile [unoptimized] target(s) in 5.29s

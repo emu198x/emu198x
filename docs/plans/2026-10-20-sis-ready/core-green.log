@@ -1,0 +1,52 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/e19b4cb87a664ffa: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/nec-upd765a)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/common-sinclair-zx-spectrum-amstrad-class)
+    Finished `test` profile [unoptimized] target(s) in 1.68s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/sis-ready-target/debug/deps/common_sinclair_zx_spectrum_amstrad_class-7d4d9754f87543ec)
+
+running 37 tests
+test core::tests::io_read_ay_data_port_returns_selected_register ... ok
+test core::tests::io_read_unmapped_port_returns_ff ... ok
+test core::tests::advance_tstates_advances_hc_by_cpu_divisor ... ok
+test core::tests::plus3_enables_fdc_other_variants_disable_it ... ok
+test core::tests::audio_controls_round_trip ... ok
+test core::tests::plus3_insert_and_eject_disk_round_trip ... ok
+test core::tests::defaults_are_sane ... ok
+test core::tests::io_write_fe_toggles_beeper_state ... ok
+test core::tests::io_read_fe_returns_keyboard_state ... ok
+test core::tests::special_paging_via_1ffd_swaps_address_space ... ok
+test memory::tests::contention_plus2a ... ok
+test core::tests::plus3_motor_controls_ready_attention_for_wired_unit_aliases ... ok
+test core::tests::tape_play_then_stop_toggles_transport ... ok
+test memory::tests::four_rom_select ... ok
+test memory::tests::normal_paging ... ok
+test core::tests::write_7ffd_via_io_changes_paging ... ok
+test memory::tests::contention_in_special_paging_modes ... ok
+test memory::tests::load_roms_populates_all_four ... ok
+test memory::tests::read_rom_byte_addresses_any_bank ... ok
+test memory::tests::screen_bank_follows_7ffd_bit_3 ... ok
+test memory::tests::special_paging_mode1 ... ok
+test memory::tests::special_paging_mode2 ... ok
+test memory::tests::read_screen_ignores_user_paging ... ok
+test core::tests::port_fe_bit_6_follows_the_tape_input ... ok
+test memory::tests::special_paging_mode0 ... ok
+test variant::tests::disk_slot_exposed_only_on_plus3 ... ok
+test variant::tests::variant_markers_advertise_distinct_model_ids ... ok
+test memory::tests::special_paging_mode3 ... ok
+test memory::tests::writes_to_rom_region_are_dropped ... ok
+test variant::tests::fdc_enabled_only_on_plus3 ... ok
+test memory::tests::writes_to_c000_route_to_currently_paged_bank ... ok
+test core::tests::port_fe_bit_6_with_no_tape_signal ... ok
+test core::tests::tape_input_is_released_one_frame_after_the_tape_stops ... ok
+test core::tests::reset_clears_machine_state_but_preserves_rom ... ok
+test core::tests::run_frame_returns_to_origin ... ok
+test core::tests::frame_position_survives_machine_serialization ... ok
+test core::tests::frame_position_snapshot_round_trip_wraps_cleanly ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests common_sinclair_zx_spectrum_amstrad_class
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
