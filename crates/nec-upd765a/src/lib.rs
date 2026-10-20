@@ -150,6 +150,7 @@ pub struct Upd765a {
     exec_pos: usize,
 
     // Drive state (4 drives max, +3 typically uses 1)
+    /// Physical head positions, selected through the external drive mask.
     track: [u8; 4],
     head: u8,
     sector: u8,
@@ -256,6 +257,9 @@ pub struct Upd765a {
     /// Only the selected field is buffered. CRC status is committed after its
     /// payload completes; unread fields cannot affect results or reread state.
     read_progress: Option<ReadProgress>,
+    /// Four internal PCNs exist even when external US1 is not connected.
+    /// Spectrum version-7 snapshots preserve these independently of head position.
+    pcn: [u8; 4],
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -372,6 +376,7 @@ impl Upd765a {
             reread_count: 0,
             exec_timeout: 0,
             read_progress: None,
+            pcn: [0; 4],
             read_id_index: [0; 4],
         }
     }
@@ -660,9 +665,11 @@ impl Upd765a {
             }
             Command::ReadData | Command::ReadDeletedData => self.start_read(),
             Command::Recalibrate => {
+                let unit = usize::from(self.cmd_buf[1] & 0x03);
                 let drive_echo = self.cmd_buf[1] & 0x03;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 self.track[drive] = 0;
+                self.pcn[unit] = 0;
                 // ST0 IC bits: 00 = Normal Termination (real drive
                 // present, seek to track 0 succeeded). 11 + EC bit
                 // (0xD0 | drive) = Abnormal due to Drive Not Ready —
@@ -681,8 +688,8 @@ impl Upd765a {
                 // Stage the seek; the busy bit is read out of MSR via
                 // `seek_remaining`, and the interrupt is queued only
                 // after the countdown completes via `tick()`.
-                self.seek_staged_st0[drive] = Some(st0);
-                self.seek_remaining[drive] = SEEK_TICKS;
+                self.seek_staged_st0[unit] = Some(st0);
+                self.seek_remaining[unit] = SEEK_TICKS;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
@@ -695,7 +702,7 @@ impl Upd765a {
                         .expect("the find above matched seek_pending[drive].is_some()");
                     self.st0 = st0;
                     self.result_buf.push(st0);
-                    self.result_buf.push(self.track[drive]);
+                    self.result_buf.push(self.pcn[drive]);
                 } else {
                     // No pending completion: use the existing Invalid Command
                     // classification. That result contains ST0 only (NEC,
@@ -724,7 +731,8 @@ impl Upd765a {
                 self.main_status = MSR_RQM;
             }
             Command::SeekTrack => {
-                let drive_echo = self.cmd_buf[1] & 0x03;
+                let unit = usize::from(self.cmd_buf[1] & 0x03);
+                let drive_echo = self.cmd_buf[1] & 0x07;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 // Use the same image-presence readiness model as ST3.RY.
                 // NEC December 1978 datasheet p15 specifies IC=01|NR
@@ -733,14 +741,20 @@ impl Upd765a {
                 // READY changes during Seek and physical step timing
                 // remain outside this staged completion model.
                 let st0 = if self.disks[drive].is_some() {
-                    self.track[drive] = self.cmd_buf[2];
+                    // Step from this logical unit's PCN. External US1 may
+                    // alias another unit onto the same physical mechanism.
+                    let target = self.cmd_buf[2];
+                    let delta = i16::from(target) - i16::from(self.pcn[unit]);
+                    let position = (i16::from(self.track[drive]) + delta).clamp(0, 255);
+                    self.track[drive] = position as u8;
+                    self.pcn[unit] = target;
                     0x20 | drive_echo // Seek End | drive
                 } else {
                     0x68 | drive_echo // Abnormal | Seek End | Not Ready | drive
                 };
                 self.st0 = st0;
-                self.seek_staged_st0[drive] = Some(st0);
-                self.seek_remaining[drive] = SEEK_TICKS;
+                self.seek_staged_st0[unit] = Some(st0);
+                self.seek_remaining[unit] = SEEK_TICKS;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
