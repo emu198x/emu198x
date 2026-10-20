@@ -66,6 +66,14 @@ Examples:
 - Dragon `--tape game.cas --autoload` runs through the ROM cassette path.
 - Dragon `--snapshot game.pak` restores machine state; it is not cartridge media.
 
+## Spectrum native save compatibility
+
+Spectrum-family native saves now use version 8 to preserve the floppy
+controller's independent Two Side input. Version 7 and earlier native saves
+are rejected before restoring any machine state; there is no migration.
+Keep the matching older emulator release if you need to resume an older save.
+This change concerns Emu198x native saves, not portable snapshot import formats.
+
 ## Building
 
 The workspace tracks the latest stable Rust toolchain.
