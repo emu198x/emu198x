@@ -102,23 +102,45 @@ can't be used for this; see *Already established*. It records the
 toolchain, SDK versions, deployment targets and link flags in
 `apple/build/build.json`.
 
-### 3. `apple/Emu198xKit`: Swift package
+### 3. `apple/Emu198xKit`: Swift package (done 2026-10-20)
 
-- A Swift Package with a binary target for the XCFramework and a Swift
-  `Machine` wrapper. It is not `Sendable` and has exactly one owner.
-- `EmulatorLoop`: a dedicated thread that owns the `Machine`. It paces
-  `advance(elapsed)` from its own monotonic clock, applies queued
-  `HostCommand`s between frames, and publishes the latest frame to a
-  locked single slot. Audio goes into a bounded ring that an
-  `AVAudioSourceNode` reads. Display refresh never sets emulation speed.
-- Strict concurrency under Swift 6, with no `@unchecked Sendable` except
-  on the locked frame slot and the audio ring, each with a comment saying
-  what makes it safe.
+- A Swift package with a binary target for the XCFramework. `Machine`
+  wraps the C interface. It is not `Sendable` and has exactly one owner.
+- `EmulatorLoop`: a dedicated thread creates and owns the `Machine`. It
+  paces `advance(elapsed)` from its own monotonic clock, capping catch-up
+  at 250 ms after a stall. It applies queued `HostCommand`s between
+  frames, publishes the latest frame to a locked slot, and writes audio
+  to a bounded ring that counts dropped samples and underruns. Display
+  refresh never sets emulation speed. Commands the machine refuses, such
+  as unreadable media, are reported and don't stop the loop.
+- Strict concurrency under Swift 6, with no `@unchecked Sendable` at all.
+  The shared state sits behind `OSAllocatedUnfairLock`. The one
+  `withLockUnchecked` is the audio read, which copies into the caller's
+  buffer without allocating on the audio thread.
+- The output device (`AVAudioSourceNode` reading the ring) belongs to the
+  app, in step 4.
 
-Verification: `swift test` on macOS creates and boots a machine, runs a
-fixed input script, and compares frame hashes and sample counts with the
-Rust baseline from step 1. It round-trips a snapshot, tears down 100
-sessions in a row, and confirms errors arrive as Swift `Error`s.
+Verification: `swift test` on macOS, 12 tests:
+- Swift's output matches `apple/build/baseline.json`, which
+  `examples/baseline.rs` writes by calling `Fleet` directly, bit for bit
+  across 50 frames of picture hash, sample count and audio energy.
+  Changing one byte of the Swift copy of the test program makes it fail.
+- The test program is `tests/common/beeper.rs`, a synthetic 16 KiB
+  Spectrum ROM that sounds the beeper and moves the border. The synthetic
+  Game Boy cartridge is silent and static, so it couldn't show an audio
+  or picture fault. The Rust parity tests use the beeper program as well.
+- A restored state replays identically, 100 machines tear down cleanly,
+  errors arrive as `EmulatorError`, and the real 48K ROM boots where one
+  is staged.
+- The loop runs 50 frames (±5) and produces one second of audio (±10%)
+  in a second of wall-clock time. Pausing stops it, saves and refused
+  commands reach the host, and a machine that can't start ends the loop
+  with its error.
+- The package builds for the tvOS device and simulator.
+
+Found along the way: restoring a state doesn't discard audio already
+queued from before the restore. That matches `Fleet`, and the loop
+drains audio every frame, but the app should clear its ring on restore.
 
 ### 4. macOS app (`apple/Emu198x/`, macOS target)
 

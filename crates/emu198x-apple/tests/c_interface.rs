@@ -92,6 +92,31 @@ fn game_boy_frames_and_audio_match_fleet() {
 }
 
 #[test]
+fn synthetic_spectrum_sound_and_picture_match_fleet() {
+    let (rom_id, model) = ("sinclair-zx-spectrum-48k-rom", "spectrum_48k");
+    let rom = common::beeper::beeper_rom();
+    let mut machine = CMachine::create("sinclair-zx-spectrum", model).expect("compiled variant");
+    machine.firmware(rom_id, &rom).expect("firmware");
+    machine.boot().expect("boot");
+    machine.configure_audio(48_000).expect("audio");
+    let mut fleet = Fleet::new("sinclair-zx-spectrum", model).expect("compiled variant");
+    fleet.firmware(rom_id, &rom).expect("firmware");
+    fleet.boot().expect("boot");
+    fleet.configure_audio(48_000).expect("audio");
+
+    let native = through_c(&mut machine, 50);
+    assert_eq!(native, through_fleet(&mut fleet, 50));
+    assert!(
+        native
+            .iter()
+            .all(|&(_, _, energy)| f64::from_bits(energy) > 0.0),
+        "the beeper sounds in every frame"
+    );
+    let pictures: std::collections::BTreeSet<u64> = native.iter().map(|&(h, _, _)| h).collect();
+    assert!(pictures.len() > 10, "the border stripes move");
+}
+
+#[test]
 fn advance_runs_the_frames_wall_clock_time_owes() {
     let mut machine = booted_game_boy();
     let frame_ms = machine.frame_ms().expect("frame period");

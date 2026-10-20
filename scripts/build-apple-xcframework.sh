@@ -2,7 +2,8 @@
 
 # Builds the emu198x-apple static library for macOS, Apple TV and the Apple
 # TV simulator, and packages the three as apple/build/Emu198xCore.xcframework
-# for the Swift package in apple/.
+# for the Swift package in apple/Emu198xKit, plus apple/build/baseline.json,
+# the checkpoints that package's parity test compares against.
 #
 # Each library is linked against apple/link-check.c with Apple's clang, using
 # the system libraries rustc reports for it, and the macOS build is run. The
@@ -93,6 +94,10 @@ done
 xcodebuild -create-xcframework "${xcframework_args[@]}" \
     -output "$out/Emu198xCore.xcframework" >/dev/null
 rm -f "$out"/link-check-*
+
+# Direct-Fleet checkpoints the Swift package's parity test compares against.
+cargo run --quiet --release -p emu198x-apple --example baseline >"$out/baseline.json"
+python3 -m json.tool "$out/baseline.json" >/dev/null
 
 dirty=false
 git diff --quiet HEAD || dirty=true
