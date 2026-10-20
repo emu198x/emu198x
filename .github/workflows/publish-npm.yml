@@ -80,9 +80,11 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          echo "publish=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+            echo "publish=true"
+          } >> "$GITHUB_OUTPUT"
           echo "Publishing from $tag."
 
   zx-spectrum:
@@ -160,11 +162,11 @@ jobs:
       # (scripts/check-workflow-apt.py).
       - name: Install Linux build dependencies
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                 pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi

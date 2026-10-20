@@ -372,11 +372,11 @@ jobs:
         # audio/input stack (cpal -> alsa, gilrs -> libudev). The pure-CPU
         # jobs above don't need these. Mirrors the main ci.yml install.
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                  pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi
@@ -449,11 +449,11 @@ jobs:
         # These tests boot a full Spectrum, which pulls in the host
         # audio/input stack (cpal -> alsa, gilrs -> libudev).
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                  pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi
@@ -496,9 +496,11 @@ jobs:
           echo 'b52a7e55ce47b01e3792d40050858918a022d3f4c66871bd6b74c988351cdce7  spectrum-system-tests/tapes/ptime.tap' | sha256sum -c -
           echo '8af61c842fd948fac392d39f2f8ad29952a3a7a2eb5b06724651f5082885f27e  spectrum-system-tests/tapes/halt2int.tap' | sha256sum -c -
           (cd "$GITHUB_WORKSPACE/test-data/spectrum/spectron-results" && sha256sum -c SHA256SUMS)
-          echo "EMU198X_SPECTRON_RESULTS_DIR=$GITHUB_WORKSPACE/test-data/spectrum/spectron-results" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
+          {
+            echo "EMU198X_SPECTRON_RESULTS_DIR=$GITHUB_WORKSPACE/test-data/spectrum/spectron-results"
+            echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom"
+            echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom"
+          } >> "$GITHUB_ENV"
 
       - name: Assert the corpus is actually present
         # These tests `return` early when their tape or ROM is missing, so a
@@ -620,11 +622,11 @@ jobs:
         # Both oracles build a whole Spectrum, which pulls in the host
         # audio/input stack (cpal -> alsa, gilrs -> libudev).
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                  pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi
@@ -647,11 +649,13 @@ jobs:
           grep ' spectrum-system-tests.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'z80test.tar.zst'
           tar --zstd -xf 'spectrum-system-tests.tar.zst'
-          echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_TIMING_SUITE=$(pwd)/spectrum-system-tests/suites" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_PLUS3_ROM_DIR=$(pwd)/spectrum-system-tests/roms" >> "$GITHUB_ENV"
+          {
+            echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom"
+            echo "EMU198X_SPECTRUM_TIMING_SUITE=$(pwd)/spectrum-system-tests/suites"
+            echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom"
+            echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom"
+            echo "EMU198X_SPECTRUM_PLUS3_ROM_DIR=$(pwd)/spectrum-system-tests/roms"
+          } >> "$GITHUB_ENV"
 
       - name: Assert the corpus is actually present
         # Same reasoning as the floating-bus job: a half-provisioned corpus
@@ -777,11 +781,11 @@ jobs:
         # Booting a whole Spectrum pulls in the host audio/input stack
         # (cpal -> alsa, gilrs -> libudev).
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                  pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi
@@ -805,10 +809,12 @@ jobs:
           grep ' zx-spectrum-tests.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'spectrum-system-tests.tar.zst'
           tar --zstd -xf 'zx-spectrum-tests.tar.zst'
-          echo "EMU198X_ZX_SPECTRUM_TESTS_DIR=$(pwd)/zx-spectrum-tests" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
+          {
+            echo "EMU198X_ZX_SPECTRUM_TESTS_DIR=$(pwd)/zx-spectrum-tests"
+            echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes"
+            echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom"
+            echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom"
+          } >> "$GITHUB_ENV"
 
       - name: Assert the corpus is actually present
         # Same reasoning as the other Spectrum jobs. `halt2int128.tap` in
@@ -907,11 +913,11 @@ jobs:
         # The CPC binary crate pulls in the host audio/input stack
         # (cpal -> alsa, gilrs -> libudev).
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                  pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi
@@ -1086,11 +1092,11 @@ jobs:
         # The catalogue links the shell, which pulls in the host audio and
         # input stack (cpal -> alsa, gilrs -> libudev).
         run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
+            sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
                  pkg-config libasound2-dev libudev-dev; then
               exit 0
             fi
