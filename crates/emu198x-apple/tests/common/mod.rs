@@ -1,6 +1,8 @@
 //! A safe Rust client of the C interface, standing in for the Swift host.
 //! Every call goes through the exported `extern "C"` functions.
 
+pub mod beeper;
+
 use std::ffi::{CStr, CString};
 
 use emu198x_apple::ffi::{self, Emu198xBuffer};
