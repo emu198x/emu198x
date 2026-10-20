@@ -21,6 +21,22 @@ and Apple TV simulator libraries, and `apple/build/baseline.json`. The
 script links a small C program against each library and runs the macOS
 one before it packages anything. Run it again after any Rust change.
 
+## Apps
+
+`apple/Emu198x/Emu198x.xcodeproj` holds two per-system apps over the same
+shared code (`apple/Emu198x/Shared`):
+
+- **Emu198x Spectrum** (macOS): opens tapes and snapshots from disk, with
+  the keyboard and a game controller as the Spectrum's keyboard and
+  Kempston joystick.
+- **Emu198x Spectrum TV** (tvOS): plays what is built into it from
+  `apple/Emu198x/LocalContent`, which is git-ignored apart from its README.
+  Put `48.rom` and your programs there and build. Tapes autoload; the
+  remote's Menu button pauses, with an on-screen keyboard for keys a
+  controller cannot press.
+
+Both read the ROM you supply. Neither build is signed for distribution.
+
 ## Test
 
 ```sh
@@ -42,4 +58,4 @@ and is reported as skipped otherwise.
 
 CI runs all of this on a macOS runner in the `Apple hosts` job of
 `.github/workflows/ci.yml`, and also builds the Swift package for tvOS and
-the Mac app.
+both apps.

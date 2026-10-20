@@ -8,15 +8,19 @@
 
 /* Begin PBXBuildFile section */
 		E1980000000000000000000B /* Emu198xKit in Frameworks */ = {isa = PBXBuildFile; productRef = E1980000000000000000000D /* Emu198xKit */; };
+		E19800000000000000000027 /* Emu198xKit in Frameworks */ = {isa = PBXBuildFile; productRef = E19800000000000000000028 /* Emu198xKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		E19800000000000000000005 /* Emu198x Spectrum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Emu198x Spectrum.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E19800000000000000000022 /* Emu198x Spectrum TV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Emu198x Spectrum TV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E19800000000000000000003 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Shared; sourceTree = "<group>"; };
 		E19800000000000000000004 /* macOS */ = {isa = PBXFileSystemSynchronizedRootGroup; path = macOS; sourceTree = "<group>"; };
+		E19800000000000000000020 /* tvOS */ = {isa = PBXFileSystemSynchronizedRootGroup; path = tvOS; sourceTree = "<group>"; };
+		E19800000000000000000021 /* LocalContent */ = {isa = PBXFileSystemSynchronizedRootGroup; path = LocalContent; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -28,6 +32,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E19800000000000000000025 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E19800000000000000000027 /* Emu198xKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -36,6 +48,8 @@
 			children = (
 				E19800000000000000000003 /* Shared */,
 				E19800000000000000000004 /* macOS */,
+				E19800000000000000000020 /* tvOS */,
+				E19800000000000000000021 /* LocalContent */,
 				E19800000000000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -44,6 +58,7 @@
 			isa = PBXGroup;
 			children = (
 				E19800000000000000000005 /* Emu198x Spectrum.app */,
+				E19800000000000000000022 /* Emu198x Spectrum TV.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -75,6 +90,31 @@
 			productReference = E19800000000000000000005 /* Emu198x Spectrum.app */;
 			productType = "com.apple.product-type.application";
 		};
+		E19800000000000000000023 /* Emu198xSpectrumTV */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E19800000000000000000029 /* Build configuration list for PBXNativeTarget "Emu198xSpectrumTV" */;
+			buildPhases = (
+				E19800000000000000000024 /* Sources */,
+				E19800000000000000000025 /* Frameworks */,
+				E19800000000000000000026 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E19800000000000000000003 /* Shared */,
+				E19800000000000000000020 /* tvOS */,
+				E19800000000000000000021 /* LocalContent */,
+			);
+			name = Emu198xSpectrumTV;
+			packageProductDependencies = (
+				E19800000000000000000028 /* Emu198xKit */,
+			);
+			productName = Emu198xSpectrumTV;
+			productReference = E19800000000000000000022 /* Emu198x Spectrum TV.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -103,6 +143,7 @@
 			projectRoot = "";
 			targets = (
 				E19800000000000000000006 /* Emu198xSpectrum */,
+				E19800000000000000000023 /* Emu198xSpectrumTV */,
 			);
 		};
 /* End PBXProject section */
@@ -115,10 +156,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E19800000000000000000026 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E19800000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E19800000000000000000024 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -206,6 +261,54 @@
 			};
 			name = Release;
 		};
+		E1980000000000000000002A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Emu198x Spectrum";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.emu198x.spectrum;
+				PRODUCT_NAME = "Emu198x Spectrum TV";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			};
+			name = Debug;
+		};
+		E1980000000000000000002B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Emu198x Spectrum";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.emu198x.spectrum;
+				PRODUCT_NAME = "Emu198x Spectrum TV";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -227,6 +330,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		E19800000000000000000029 /* Build configuration list for PBXNativeTarget "Emu198xSpectrumTV" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E1980000000000000000002A /* Debug */,
+				E1980000000000000000002B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -238,6 +350,10 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		E1980000000000000000000D /* Emu198xKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Emu198xKit;
+		};
+		E19800000000000000000028 /* Emu198xKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Emu198xKit;
 		};

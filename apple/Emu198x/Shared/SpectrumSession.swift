@@ -82,8 +82,13 @@ final class SpectrumSession {
     }
 
     func togglePause() {
-        isPaused.toggle()
-        loop?.send(.pause(isPaused))
+        setPaused(!isPaused)
+    }
+
+    func setPaused(_ paused: Bool) {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        loop?.send(.pause(paused))
     }
 
     /// Opens a snapshot (`.sna`, `.z80`) or inserts a tape (`.tap`, `.tzx`).
@@ -103,6 +108,22 @@ final class SpectrumSession {
         guard let data = read(url) else { return }
         loop?.send(.load(slot: slot, data: data))
         if slot == Self.tapeSlot { tapePlaying = false }
+    }
+
+    /// Starts a program with no typing: a tape is inserted and autoloaded
+    /// (the runtime types `LOAD ""` and presses play), a snapshot is loaded,
+    /// and a `.state` file saved by an Emu198x host is restored.
+    func play(_ url: URL) {
+        switch url.pathExtension.lowercased() {
+        case "tap", "tzx":
+            open(url)
+            loop?.send(.autoloadTape)
+            tapePlaying = true
+        case "state":
+            loadState(from: url)
+        default:
+            open(url)
+        }
     }
 
     func setTapePlaying(_ playing: Bool) {
@@ -134,6 +155,17 @@ final class SpectrumSession {
         self.keyboard = keyboard
         for change in changes {
             loop?.send(.key(change.key, pressed: change.pressed))
+        }
+    }
+
+    /// Presses keys together and releases them, holding them long enough for
+    /// the ROM, which scans the keyboard once a frame, to see them. For
+    /// on-screen keys, where a shift and a letter arrive as one tap.
+    func tap(codes: [String]) {
+        for code in codes { key(code: code, pressed: true) }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            for code in codes.reversed() { self?.key(code: code, pressed: false) }
         }
     }
 

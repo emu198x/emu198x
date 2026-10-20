@@ -17,6 +17,11 @@ final class AudioOutput {
     private let scratch = UnsafeMutableBufferPointer<Float>.allocate(capacity: 8_192)
 
     init() {
+        #if os(tvOS)
+        // Without a playback session the engine starts but stays silent.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
         let format = AVAudioFormat(
             standardFormatWithSampleRate: Double(Self.sampleRate), channels: 2)!
         let node = AVAudioSourceNode(format: format) { [source, scratch] _, _, frameCount, buffers in

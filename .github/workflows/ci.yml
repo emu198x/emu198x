@@ -596,12 +596,12 @@ jobs:
         run: wasm-pack test --headless --chrome --release crates/emu198x-native-video
 
   # The native Apple hosts (apple/, #1896–#1898). The Swift package and the
-  # Mac app link the Rust runtimes through crates/emu198x-apple, so a change
-  # to any runtime can break them; that is why this runs on every change
-  # rather than only on apple/. The packaging script links a C program
-  # against each library before Swift sees it, the Swift tests compare
-  # Swift's output with direct Fleet calls bit for bit, and the app and the
-  # tvOS package must build. The real-ROM Swift test is skipped here, since
+  # apps link the Rust runtimes through crates/emu198x-apple, so a change to
+  # any runtime can break them; that is why this runs on every change rather
+  # than only on apple/. The packaging script links a C program against each
+  # library before Swift sees it, the Swift tests compare Swift's output with
+  # direct Fleet calls bit for bit, and the tvOS package, the Mac app and the
+  # Apple TV app must build. The real-ROM Swift tests are skipped here, since
   # CI has no Spectrum ROM. Nothing is signed or uploaded.
   apple:
     name: Apple hosts
@@ -653,3 +653,14 @@ jobs:
         run: |
           xcodebuild -project Emu198x.xcodeproj -scheme Emu198xSpectrum \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/mac" build
+
+      # LocalContent holds only its README here, so this proves the app
+      # builds, not that it has anything to play.
+      - name: The Apple TV app must build
+        working-directory: apple/Emu198x
+        run: |
+          for destination in 'generic/platform=tvOS' 'generic/platform=tvOS Simulator'; do
+            xcodebuild -project Emu198x.xcodeproj -scheme Emu198xSpectrumTV \
+              -destination "$destination" -configuration Release \
+              -derivedDataPath "$RUNNER_TEMP/tv" CODE_SIGNING_ALLOWED=NO build
+          done
