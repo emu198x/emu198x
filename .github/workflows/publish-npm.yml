@@ -1,42 +1,94 @@
-# Publish the browser Spectrum to npm, via npm's trusted publishing.
+# Publish the browser packages to npm, from each release, via trusted publishing.
 #
-# No NPM_TOKEN. The `id-token: write` permission below lets this workflow mint
-# a short-lived OIDC credential npm verifies against the trusted publisher
-# configured on the package, so there is no long-lived secret to leak, rotate
-# or forget. Provenance is attested automatically: the tarball on the registry
-# can be traced to this workflow and this commit.
+# Two packages (umbrella decisions/browser-bundles-ship-as-npm-packages.md):
+#   @emu198x/player       the whole browser player, at the release's version;
+#   @emu198x/zx-spectrum  the Spectrum module, at its own [package.metadata.npm]
+#                         version, republished only when that is bumped.
 #
-# The firmware is a separate matter and still needs its own credential. The
-# published package embeds the 48K ROM, under the permission recorded in
+# Only a release publishes: this runs after the Release workflow succeeds for a
+# vX.Y.Z tag, so a site only ever pins a build that passed release
+# qualification. A manual dispatch names a tag, for the first publish of a new
+# package or to reconcile one that failed; publishing a version npm already has
+# is a no-op.
+#
+# No NPM_TOKEN. `id-token: write` lets npm verify this workflow against the
+# trusted publisher configured on each package, and provenance is attested
+# automatically: each tarball can be traced to this workflow and its commit.
+#
+# Both packages embed the Spectrum 48K ROM, under the permission recorded in
 # knowledge/decisions/test-rom-policy.md § Firmware in a published browser
-# build, and the ROM is not in this repository. It arrives as the encrypted
-# EMU198X_SPECTRUM_48K_ROM_B64 secret, the same one Code198x's deploy uses for
-# its player, and build-npm.sh refuses it unless its SHA1 is the unmodified
-# image's. Without the secret this job does nothing rather than publishing a
-# package with no machine in it.
-#
-# Reconciling rather than event-driven: it runs on every push to main and asks
-# the registry what is missing, so a failed publish or a version bump that
-# landed while the runner was down is picked up next time. Publishing an
-# already-published version is a normal no-op.
+# build. It arrives as the encrypted EMU198X_SPECTRUM_48K_ROM_B64 secret and the
+# builds refuse any image but the genuine one. Without the secret nothing is
+# published, rather than a package with no machine in it.
 name: Publish to npm
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "crates/emu198x-spectrum-web/**"
-      - "crates/emu198x-web/**"
-      - ".github/workflows/publish-npm.yml"
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish from, such as v0.38.4"
+        required: true
+        type: string
 
 concurrency:
   group: publish-npm
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  publish:
+  release:
+    name: Find the release to publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.find.outputs.tag }}
+      version: ${{ steps.find.outputs.version }}
+      publish: ${{ steps.find.outputs.publish }}
+    steps:
+      - name: Decide whether this run publishes
+        id: find
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_REF: ${{ github.event.workflow_run.head_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
+        run: |
+          set -euo pipefail
+          # Release also runs for pull requests and pushes to main; only a
+          # successful run for a version tag has released anything.
+          if [ "$EVENT" = workflow_dispatch ]; then
+            tag="$INPUT_TAG"
+          elif [ "$RUN_CONCLUSION" = success ] && [ "$RUN_EVENT" = push ]; then
+            tag="$RUN_REF"
+          else
+            tag=""
+          fi
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not a successful release run for a vX.Y.Z tag; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$ROM_B64" ]; then
+            echo "::warning::EMU198X_SPECTRUM_48K_ROM_B64 not set; nothing was published."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "Publishing from $tag."
+
+  zx-spectrum:
     name: "@emu198x/zx-spectrum"
+    needs: release
+    if: needs.release.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -44,65 +96,40 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
-
-      - name: Check the 48K ROM secret is set
-        id: store
-        env:
-          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
-        run: |
-          if [ -n "${ROM_B64}" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::EMU198X_SPECTRUM_48K_ROM_B64 not set — the npm package was NOT published."
-          fi
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
 
       - name: Read the toolchain the repository pins
         id: toolchain
-        if: steps.store.outputs.configured == 'true'
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+        run: echo "channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@master
-        if: steps.store.outputs.configured == 'true'
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
-        if: steps.store.outputs.configured == 'true'
         with:
           shared-key: publish-npm
 
-      # A prebuilt binary rather than `cargo install wasm-pack --locked`,
-      # which builds it from source on every uncached run. Same action
-      # asm198x's CI already uses, so it is one thing to know across the
-      # family rather than two.
       - name: Install wasm-pack
-        if: steps.store.outputs.configured == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack
 
       - uses: actions/setup-node@v7
-        if: steps.store.outputs.configured == 'true'
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       # Trusted publishing needs a recent npm; the one bundled with Node may
-      # predate it. Pinned to a major so a new npm cannot change publish
-      # behaviour under us without an edit here.
+      # predate it. Pinned to a major so a new npm can't change publish
+      # behaviour without an edit here.
       - name: Use an npm that speaks OIDC
-        if: steps.store.outputs.configured == 'true'
         run: npm install -g npm@11
 
-      # The accuracy-corpora store's z80test/48.rom is not the genuine image
-      # (272 bytes differ in the spare area from 0x386E), so publishing takes
-      # the ROM from the secret instead. It lives only in a runner temp file.
       - name: Provide the 48K ROM
-        if: steps.store.outputs.configured == 'true'
         env:
           ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
         run: |
@@ -111,5 +138,77 @@ jobs:
           echo "EMU198X_SPECTRUM_48K_ROM=${RUNNER_TEMP}/spectrum-48k.rom" >> "$GITHUB_ENV"
 
       - name: Build and publish
-        if: steps.store.outputs.configured == 'true'
         run: bash crates/emu198x-spectrum-web/scripts/build-npm.sh --publish
+
+  player:
+    name: "@emu198x/player"
+    needs: release
+    if: needs.release.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+
+      # The fleet catalogue tool runs natively and links ALSA and udev.
+      # Bounded, so a dead mirror fails in minutes rather than hanging
+      # (scripts/check-workflow-apt.py).
+      - name: Install Linux build dependencies
+        run: |
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep $((attempt * 10))
+          done
+          echo "::error::could not install the Linux build dependencies"
+          exit 1
+
+      - name: Read the toolchain the repository pins
+        id: toolchain
+        run: echo "channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: publish-npm-player
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Use an npm that speaks OIDC
+        run: npm install -g npm@11
+
+      - name: Provide the 48K ROM
+        env:
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${ROM_B64}" | base64 -d > "${RUNNER_TEMP}/spectrum-48k.rom"
+          echo "EMU198X_SPECTRUM_48K_ROM=${RUNNER_TEMP}/spectrum-48k.rom" >> "$GITHUB_ENV"
+
+      - name: Build and publish
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: bash web-player/build-npm.sh "$VERSION" --publish

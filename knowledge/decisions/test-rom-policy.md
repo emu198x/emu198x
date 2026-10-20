@@ -218,9 +218,10 @@ Sinclair ROM (SHA1 `5ea7c2b824672e914525d1d5c419d71b84a426a2`, CRC32
 `ddee531f`, 16384 bytes). Two artifacts may carry it:
 
 - the published `@emu198x/zx-spectrum` npm wasm; and
-- the Spectrum module of the shared web-player distribution, compiled by a
-  consuming site's CI from an encrypted build secret. It serves the player's
-  48K model only.
+- the Spectrum module of the shared web-player distribution, compiled by this
+  repository's publish job from its encrypted build secret and published on
+  npm as `@emu198x/player`; consuming sites install that package instead of
+  building it (since 2026-10-20). It serves the player's 48K model only.
 
 In both it is embedded in wasm, never committed to this repository, and never
 served as a separate file — see § How it reaches the artifact below. The
@@ -388,6 +389,21 @@ When a new test ROM corpus is added:
   Embedded in wasm, and only the verified SHA1.
 
 ## Log
+
+### 2026-10-20 — The player's ROM is compiled here and published on npm
+
+The shared web-player distribution now ships as the npm package
+`@emu198x/player`, built once by this repository's `publish-npm.yml` from each
+release tag, and the consuming sites install it instead of compiling the
+player themselves (umbrella `decisions/browser-bundles-ship-as-npm-packages.md`).
+The same artifact carries the same image. What changes is who compiles it and
+how it travels: this repository's encrypted `EMU198X_SPECTRUM_48K_ROM_B64`
+secret instead of each site's, and npm, whose wider mirroring this section
+already accepts for `@emu198x/zx-spectrum`. The build still refuses any image
+but the genuine one. The package refuses to publish unless the Spectrum
+module carries it, because a ROM-less player would quietly ask Code198x
+readers for firmware. Sites no longer hold the ROM secret. Steve chose this
+on 2026-10-20.
 
 ### 2026-10-07 — The store's z80test.tar.zst now carries the genuine 48K ROM
 
