@@ -1,0 +1,58 @@
+{
+  "base": "e8f5728a58e84d1ad057e33b2e5b5d89c262e4a0",
+  "rustc": "1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "1.99.0 (5f94df478 2026-08-27)",
+  "environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/sis-irq-target",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0"
+  },
+  "source_build": true,
+  "fresh_execution": true,
+  "commands": [
+    {
+      "command": "cargo test -p nec-upd765a --test sis_interrupt",
+      "log": "red.log",
+      "exit_code": 101,
+      "state": "new regression before production fix"
+    },
+    {
+      "command": "cargo test --locked -p nec-upd765a",
+      "log": "old-expectation.log",
+      "exit_code": 101,
+      "state": "fix applied, pre-existing seek_readiness assertion still pins old IRQ behaviour"
+    },
+    {
+      "command": "cargo test --locked -p nec-upd765a",
+      "log": "green.log",
+      "exit_code": 0,
+      "passed": 142,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo clippy --locked -p nec-upd765a --all-targets -- -D warnings",
+      "log": "clippy.log",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo fmt --all --check",
+      "log": "fmt.log",
+      "exit_code": 0
+    }
+  ],
+  "reference_sha256": {
+    "/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117",
+    "/Users/stevehill/Projects/198x/emulators/multi-system/mame/src/devices/machine/upd765.cpp": "71f284cdbbbded75012919220442a2e45cb808b376f4dfffa0d7722c182bde15",
+    "/Users/stevehill/Projects/198x/emulators/zx-spectrum/fuse-emulator-fuse/peripherals/disk/upd_fdc.c": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d"
+  },
+  "log_sha256": {
+    "fmt.log": "474cc1eeed687c4fc3b98e49f70326e573b791d116765c32717b70efcbc8d087",
+    "red.log": "d19d5594b0faaa0e468b4cec2be2edcb38ff8bc647206180c8438d952ff46d26",
+    "fmt-write.log": "474cc1eeed687c4fc3b98e49f70326e573b791d116765c32717b70efcbc8d087",
+    "green.log": "ea02692a5196d7f03cb166e2e67a4cbe93dc91531c60a7f507a88f0d84f7bcb7",
+    "clippy.log": "9d7b0178eaed3cd4a9ab31dfdda1d002a2564634c9bb96adc969e62f961921d3",
+    "old-expectation.log": "76df29e9aeb28fdd9a436208456cfdf8571cad73c9a3fa6621baeac5bb39200b"
+  },
+  "log_normalization": "Terminal blank lines at green.log EOF removed; all test output retained."
+}
