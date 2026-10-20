@@ -1,0 +1,88 @@
+{
+  "base": "9fd471f1712dcfcae778e5c0a6923a38e0a9c2b5",
+  "rustc": "1.99.0 (b940084d7 2026-09-28)",
+  "source_build": true,
+  "fresh_execution": true,
+  "environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/sis-recal-target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "recalibrate_not_ready"
+      ],
+      "log": "red.log",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 1,
+      "failure": "ST0 left208, right104"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a"
+      ],
+      "log": "old-expectation.log",
+      "exit_code": 101,
+      "note": "old private Recal test pins immediate busy clearance because incorrect D0 lacked SE"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a"
+      ],
+      "log": "green.log",
+      "exit_code": 0,
+      "passed": 151,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "log": "clippy.log",
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "log": "fmt.log",
+      "exit_code": 0
+    }
+  ],
+  "log_normalization": "Trailing terminal blank lines removed; test output retained.",
+  "log_sha256": {
+    "fmt.log": "474cc1eeed687c4fc3b98e49f70326e573b791d116765c32717b70efcbc8d087",
+    "red.log": "c58a74b07d4e03e935fb90c393ac2f652572cb0c080d3b70c437ae20e572070b",
+    "green.log": "04f53a6042cdba9d25755f2fe62011923c7716678083a68c244bcbf65ce70edc",
+    "clippy.log": "703682cc747d796892c53f5c2e642be29bf68e4d8828f2a49e21ae87fa1e0a7d",
+    "old-expectation.log": "a1174b70dd36a76a2f28d04586fa30a0f83c5894b93a44f9e5da7cdf268c53a6"
+  }
+}
