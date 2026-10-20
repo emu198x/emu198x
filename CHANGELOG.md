@@ -4,6 +4,24 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.39.0] - 2026-10-20
+
+
+### Added
+
+- Publish the browser player to npm from each release
+
+
+### Fixed
+
+- Report represented ID CRC errors from Read ID
+- Preserve spaces when entering Atom BASIC programs
+- Preserve typed semicolons on the SVI-328
+- Let Ctrl-BREAK boot Einstein programs through runtime input
+- Give Escape to the emulated keyboard instead of quitting
+- Make Jupiter Ace ROM sound follow the I/O speaker latch
+- Type ZX80 quotation marks with the ROM's Shift-Y key
+
 ## [0.38.3] - 2026-10-19
 
 
