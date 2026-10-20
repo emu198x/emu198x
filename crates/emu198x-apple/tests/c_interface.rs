@@ -117,6 +117,35 @@ fn synthetic_spectrum_sound_and_picture_match_fleet() {
 }
 
 #[test]
+fn pixel_aspect_comes_from_the_runtime() {
+    let rom = common::beeper::beeper_rom();
+    let mut spectrum =
+        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+    spectrum
+        .firmware("sinclair-zx-spectrum-48k-rom", &rom)
+        .expect("firmware");
+    spectrum.boot().expect("boot");
+    let mut fleet = Fleet::new("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+    fleet
+        .firmware("sinclair-zx-spectrum-48k-rom", &rom)
+        .expect("firmware");
+    fleet.boot().expect("boot");
+    let aspect = spectrum.pixel_aspect().expect("aspect");
+    assert_eq!(
+        aspect.to_bits(),
+        fleet.pixel_aspect_ratio().expect("aspect").to_bits()
+    );
+    assert!(
+        aspect > 1.0,
+        "a PAL television stretches Spectrum pixels: {aspect}"
+    );
+    assert!(
+        (booted_game_boy().pixel_aspect().expect("aspect") - 1.0).abs() < f32::EPSILON,
+        "an LCD has square pixels"
+    );
+}
+
+#[test]
 fn advance_runs_the_frames_wall_clock_time_owes() {
     let mut machine = booted_game_boy();
     let frame_ms = machine.frame_ms().expect("frame period");

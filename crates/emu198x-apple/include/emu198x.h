@@ -81,6 +81,9 @@ int32_t emu198x_machine_audio(Emu198xMachine *machine, float *out, size_t capaci
 
 /* The picture size in pixels. */
 int32_t emu198x_machine_frame_size(Emu198xMachine *machine, uint32_t *width_out, uint32_t *height_out);
+/* Width of one picture pixel relative to its height, from the runtime's
+ * statement of its display: about 1.055 for a PAL Spectrum, 1 for an LCD. */
+int32_t emu198x_machine_pixel_aspect(Emu198xMachine *machine, float *out);
 /* Copies the latest frame as RGBA, width * height * 4 bytes. A smaller
  * buffer is refused with EMU198X_INVALID_ARGUMENT. */
 int32_t emu198x_machine_pixels(Emu198xMachine *machine, uint8_t *out, size_t capacity, size_t *written_out);

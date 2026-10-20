@@ -26,6 +26,7 @@ trait Host {
     fn restore_state(&mut self, bytes: &[u8]) -> Result<(), String>;
     fn export_media(&self, slot: &str) -> Result<Vec<u8>, String>;
     fn keymap(&self) -> Value;
+    fn pixel_aspect_ratio(&self) -> f32;
 }
 struct RuntimeHost<R: FamilyRuntime> {
     web: WebMachine<R>,
@@ -52,6 +53,13 @@ impl<R: FamilyRuntime + 'static> Host for RuntimeHost<R> {
     }
     fn frame_ms(&self) -> f64 {
         self.web.frame_ms()
+    }
+    fn pixel_aspect_ratio(&self) -> f32 {
+        let (width, height) = self.web.frame_size();
+        self.web
+            .runtime()
+            .display()
+            .map_or(1.0, |display| display.pixel_aspect_ratio(width, height))
     }
     fn input(&mut self, event: InputEvent) {
         self.web.queue_input(event);
@@ -396,6 +404,14 @@ impl Fleet {
     /// requires a booted machine.
     pub fn frame_ms(&self) -> Result<f64, String> {
         Ok(self.host_ref()?.frame_ms())
+    }
+    /// Width of one picture pixel relative to its height, from the runtime's
+    /// own statement of its display. Machines that state none report 1.
+    ///
+    /// # Errors
+    /// requires a booted machine.
+    pub fn pixel_aspect_ratio(&self) -> Result<f32, String> {
+        Ok(self.host_ref()?.pixel_aspect_ratio())
     }
     /// Starts or stops a tape deck after the guest's load command.
     ///
