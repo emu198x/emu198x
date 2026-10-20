@@ -115,7 +115,10 @@ fn ready_and_not_ready_seek_completions_remain_queued_separately() {
     assert_eq!(fdc.read_status(), 0x89);
     complete(&mut fdc);
     assert_eq!(sense_interrupt(&mut fdc), [0x20, 12]);
-    assert!(fdc.interrupt, "drive 3 completion is still pending");
+    assert!(
+        !fdc.interrupt,
+        "SIS acknowledges IRQ; drive 3 remains drainable"
+    );
     assert_eq!(sense_interrupt(&mut fdc), [0x6b, 0]);
     assert!(!fdc.interrupt);
 }

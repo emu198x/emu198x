@@ -707,7 +707,10 @@ impl Upd765a {
                 self.result_pos = 0;
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
-                self.interrupt = self.seek_pending.iter().any(Option::is_some);
+                // SIS acknowledges the interrupt signal, even when another
+                // drive still has status to drain (NEC December 1978, p. 16).
+                // A later completion will raise the signal again.
+                self.interrupt = false;
                 if fdc_trace_enabled() {
                     eprintln!(
                         "[FDC-RES] SenseInt result=[{}]",
