@@ -24,6 +24,8 @@ final class SpectrumSession {
     private(set) var loop: EmulatorLoop?
     private(set) var isPaused = false
     private(set) var tapePlaying = false
+    /// Width of one picture pixel relative to its height, from the runtime.
+    private(set) var pixelAspect: Float = 1
     var alert: SessionAlert?
     var showsStatistics = false
     private(set) var statistics = ""
@@ -41,6 +43,7 @@ final class SpectrumSession {
         do {
             let probe = try Self.makeMachine(rom: rom)
             keyboard = try KeyChords(json: probe.keymap())
+            pixelAspect = try probe.pixelAspectRatio()
         } catch {
             report("The Spectrum could not start", error)
             return
