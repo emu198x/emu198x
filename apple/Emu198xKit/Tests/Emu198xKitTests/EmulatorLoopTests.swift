@@ -64,6 +64,24 @@ func finish(_ loop: EmulatorLoop) async throws {
         #expect(loop.failure?.message.contains("unknown compiled variant") == true)
     }
 
+    @Test func theAudioRingWaitsForItsPrebufferAndRefillsAfterRunningDry() {
+        let ring = AudioRing(capacity: 16, prebuffer: 4)
+        var out = [Float](repeating: -1, count: 2)
+        func read() -> Int { out.withUnsafeMutableBufferPointer { ring.read(into: $0) } }
+
+        ring.write([1, 2])
+        #expect(read() == 0, "still filling")
+        #expect(out == [0, 0])
+        ring.write([3, 4])
+        #expect(read() == 2)
+        #expect(out == [1, 2])
+        #expect(read() == 2)
+        #expect(read() == 0, "ran dry")
+        ring.write([5, 6])
+        #expect(read() == 0, "refilling, so a single block does not play")
+        #expect(ring.statistics.underruns == 1, "filling is not an underrun; running dry is")
+    }
+
     @Test func theAudioRingDropsTheOldestAndCountsShortReads() {
         let ring = AudioRing(capacity: 4)
         ring.write([1, 2, 3, 4, 5, 6])

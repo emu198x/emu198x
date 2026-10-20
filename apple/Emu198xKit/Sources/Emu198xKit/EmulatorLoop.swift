@@ -36,9 +36,13 @@ public final class FrameSlot: Sendable {
 
 /// Interleaved stereo samples from the loop to the audio output.
 ///
-/// Bounded: when full, the oldest samples are dropped and counted. A read
-/// that finds too few samples pads with silence and counts an underrun, so
-/// both kinds of glitch show up in ``statistics``.
+/// The loop writes a frame's worth of sound at a time, but the output
+/// device reads smaller blocks on its own schedule. So the ring holds back
+/// until `prebuffer` samples are queued, and plays silence meanwhile. If it
+/// then runs dry, it counts one underrun and holds back again.
+///
+/// Bounded: when full, the oldest samples are dropped and counted, so both
+/// kinds of glitch show up in ``statistics``.
 public final class AudioRing: Sendable {
     public struct Statistics: Sendable, Equatable {
         public var written = 0
@@ -50,12 +54,15 @@ public final class AudioRing: Sendable {
         var samples: [Float]
         var start = 0
         var count = 0
+        var playing = false
         var statistics = Statistics()
     }
 
     private let state: OSAllocatedUnfairLock<State>
+    private let prebuffer: Int
 
-    public init(capacity: Int) {
+    public init(capacity: Int, prebuffer: Int = 0) {
+        self.prebuffer = min(prebuffer, capacity)
         state = OSAllocatedUnfairLock(initialState: State(samples: Array(repeating: 0, count: capacity)))
     }
 
@@ -75,17 +82,20 @@ public final class AudioRing: Sendable {
         }
     }
 
-    /// Fills `out`, padding with silence when too few samples are queued.
-    /// Returns how many real samples it copied.
+    /// Fills `out`, padding with silence when too few samples are queued or
+    /// the ring is still filling. Returns how many real samples it copied.
     @discardableResult
     public func read(into out: UnsafeMutableBufferPointer<Float>) -> Int {
         // Unchecked because the closure captures `out`, which is not
         // Sendable. The closure runs synchronously while the caller's buffer
         // is valid; copying through an array instead would allocate on the
         // audio thread.
-        state.withLockUnchecked { ring in
+        state.withLockUnchecked { [prebuffer] ring in
             let capacity = ring.samples.count
-            let copied = min(out.count, ring.count)
+            if !ring.playing && ring.count >= max(prebuffer, 1) {
+                ring.playing = true
+            }
+            let copied = ring.playing ? min(out.count, ring.count) : 0
             for index in 0..<copied {
                 out[index] = ring.samples[(ring.start + index) % capacity]
             }
@@ -94,8 +104,9 @@ public final class AudioRing: Sendable {
             }
             ring.start = (ring.start + copied) % capacity
             ring.count -= copied
-            if copied < out.count {
+            if ring.playing && copied < out.count {
                 ring.statistics.underruns += 1
+                ring.playing = false
             }
             return copied
         }
@@ -103,6 +114,16 @@ public final class AudioRing: Sendable {
 
     public var statistics: Statistics {
         state.withLock { $0.statistics }
+    }
+
+    /// Discards queued samples, so sound from before a restored state is
+    /// not played after it.
+    public func clear() {
+        state.withLock { ring in
+            ring.start = 0
+            ring.count = 0
+            ring.playing = false
+        }
     }
 }
 
@@ -136,7 +157,9 @@ public final class EmulatorLoop: Sendable {
     /// Starts the thread. `makeMachine` runs on it and returns a booted
     /// machine; if it throws, the loop finishes with that ``failure``.
     public init(sampleRate: Int, makeMachine: @escaping @Sendable () throws -> Machine) {
-        audio = AudioRing(capacity: sampleRate) // half a second of stereo
+        // Half a second of stereo, played once about 60 ms is queued: three
+        // 50 Hz frames, so a late frame does not empty it.
+        audio = AudioRing(capacity: sampleRate, prebuffer: sampleRate / 8)
         let thread = Thread { [self] in
             run(sampleRate: sampleRate, makeMachine: makeMachine)
         }
@@ -216,7 +239,10 @@ public final class EmulatorLoop: Sendable {
             case let .load(slot, data): try machine.load(slot: slot, data: data)
             case let .tape(slot, playing): try machine.setTape(slot: slot, playing: playing)
             case let .pause(value): paused = value
-            case let .restoreState(state): try machine.restoreState(state)
+            case let .restoreState(state):
+                try machine.restoreState(state)
+                _ = try machine.drainAudio()
+                audio.clear()
             case let .saveState(reply): reply(Result { try machine.saveState() })
             }
         } catch {
