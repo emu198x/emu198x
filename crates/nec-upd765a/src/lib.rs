@@ -269,6 +269,9 @@ pub struct Upd765a {
     /// Four internal PCNs exist even when external US1 is not connected.
     /// Spectrum version-7 snapshots preserve these independently of head position.
     pcn: [u8; 4],
+    /// Logical TS sample supplied by machine wiring, independent of image
+    /// geometry. None retains the legacy input for existing chip consumers.
+    two_side_inputs: [Option<bool>; 4],
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -388,6 +391,7 @@ impl Upd765a {
             pcn: [0; 4],
             read_id_index: [0; 4],
             ready_inputs: [None; 4],
+            two_side_inputs: [None; 4],
             ready_sampled: [false; 4],
             ready_poll_phase: 0,
             seek_attention_unacknowledged: false,
@@ -409,6 +413,24 @@ impl Upd765a {
         if let Some(input) = self.ready_inputs.get_mut(drive) {
             *input = Some(ready);
         }
+    }
+
+    /// Supply the asserted Two Side level sampled by Sense Drive Status.
+    /// This is a drive-interface input, not the number of heads in an image.
+    /// Invalid drives are ignored, as for media and READY attachment.
+    pub fn set_two_side(&mut self, drive: usize, two_side: bool) {
+        if let Some(input) = self.two_side_inputs.get_mut(drive) {
+            *input = Some(two_side);
+        }
+    }
+
+    /// The existing sector-model Write Protect level for a physical drive.
+    /// Machines may wire this level to another controller input (+3 pin34).
+    /// Empty and invalid slots return false; this does not model an empty
+    /// physical drive's electrical sensors.
+    #[must_use]
+    pub fn is_write_protected(&self, drive: usize) -> bool {
+        self.has_disk(drive) && !self.writable[drive]
     }
 
     fn drive_ready(&self, drive: usize) -> bool {
@@ -529,6 +551,7 @@ impl Upd765a {
         let enabled = self.enabled;
         let drive_select_mask = self.drive_select_mask;
         let ready_inputs = self.ready_inputs;
+        let two_side_inputs = self.two_side_inputs;
         let track = self.track;
         let pcn = self.pcn;
         *self = Self::new();
@@ -537,6 +560,7 @@ impl Upd765a {
         self.enabled = enabled;
         self.drive_select_mask = drive_select_mask;
         self.ready_inputs = ready_inputs;
+        self.two_side_inputs = two_side_inputs;
         self.track = track;
         self.pcn = pcn;
     }
@@ -839,9 +863,9 @@ impl Upd765a {
                 let disk_present = self.disks[drive].is_some();
                 self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
                     | if self.track[drive] == 0 { 0x10 } else { 0 } // T0 (track 0)
-                    | if disk_present { 0x08 } else { 0 } // TS remains separately unqualified.
+                    | if self.two_side_inputs[drive].unwrap_or(disk_present) { 0x08 } else { 0 }
                     | if self.drive_ready(drive) { 0x20 } else { 0 } // RY
-                    | if disk_present && !self.writable[drive] { 0x40 } else { 0 }; // WP
+                    | if self.is_write_protected(drive) { 0x40 } else { 0 }; // WP
                 self.head = head;
                 self.result_buf.clear();
                 self.result_buf.push(self.st3);

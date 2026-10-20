@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "scope": "source component and native-state regression only; independent TS input and +3 WP/TS wiring",
+  "baseline_commit": "6ab1a91568a92926cde06c04fef9df53026eedad",
+  "native_snapshot_version": 8,
+  "previous_version_policy": "reject v7 before payload decode, leave runtime unchanged",
+  "tests": {
+    "status": "pass",
+    "passed": 544,
+    "failed": 0,
+    "ignored": 62,
+    "ignored_qualification_credit": false
+  },
+  "reproducer": {
+    "status": "fail",
+    "expected_failure": true,
+    "selected_tests": 1,
+    "process_exit": 101,
+    "message": "+3 pin34 carries WP in both modes; left true, right false"
+  },
+  "formatting": "pass",
+  "clippy_all_targets_warnings_denied": "pass",
+  "whole_machine_released_execution": "not_run",
+  "reference_runtime_execution": "not_run",
+  "physical_measurement": "not_run",
+  "logs": {
+    "red.log": "6fbe6983cd768426f5c3bec7c3f472472f85c2bef6747d639f92722a9d7ba0ee",
+    "green.log": "86f443bc87c9acb48620687e85bb807dd67b69d6c38d455897d5df2d09dc3a55",
+    "layout-regression.log": "ef1b7ceb377c458caf1c423bf8ed010b3fdd36d016f6c2a1742c203b4230257e"
+  }
+}
