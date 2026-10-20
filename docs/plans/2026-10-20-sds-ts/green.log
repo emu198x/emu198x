@@ -1,0 +1,1081 @@
+$ cargo fmt --all
+$ cargo test --locked -p nec-upd765a -p common-sinclair-zx-spectrum-amstrad-class -p runtime-sinclair-zx-spectrum
+   Compiling runtime-sinclair-zx-spectrum v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.48s
+     Running unittests src/lib.rs (target/debug/deps/common_sinclair_zx_spectrum_amstrad_class-5e7d02cd773f3f7f)
+
+running 39 tests
+test core::tests::defaults_are_sane ... ok
+test core::tests::io_read_fe_returns_keyboard_state ... ok
+test core::tests::io_read_ay_data_port_returns_selected_register ... ok
+test core::tests::io_write_fe_toggles_beeper_state ... ok
+test core::tests::plus3_enables_fdc_other_variants_disable_it ... ok
+test core::tests::audio_controls_round_trip ... ok
+test core::tests::io_read_unmapped_port_returns_ff ... ok
+test core::tests::advance_tstates_advances_hc_by_cpu_divisor ... ok
+test core::tests::plus3_insert_and_eject_disk_round_trip ... ok
+test core::tests::plus3_two_side_tracks_selected_drive_protection_across_mount_changes ... ok
+test core::tests::plus3_two_side_status_follows_write_protect_not_image_presence ... ok
+test core::tests::special_paging_via_1ffd_swaps_address_space ... ok
+test core::tests::tape_play_then_stop_toggles_transport ... ok
+test core::tests::plus3_motor_controls_ready_attention_for_wired_unit_aliases ... ok
+test memory::tests::contention_in_special_paging_modes ... ok
+test core::tests::write_7ffd_via_io_changes_paging ... ok
+test memory::tests::contention_plus2a ... ok
+test memory::tests::four_rom_select ... ok
+test memory::tests::normal_paging ... ok
+test memory::tests::load_roms_populates_all_four ... ok
+test memory::tests::read_rom_byte_addresses_any_bank ... ok
+test memory::tests::screen_bank_follows_7ffd_bit_3 ... ok
+test memory::tests::read_screen_ignores_user_paging ... ok
+test memory::tests::special_paging_mode0 ... ok
+test memory::tests::special_paging_mode1 ... ok
+test memory::tests::special_paging_mode2 ... ok
+test memory::tests::special_paging_mode3 ... ok
+test memory::tests::writes_to_c000_route_to_currently_paged_bank ... ok
+test memory::tests::writes_to_rom_region_are_dropped ... ok
+test variant::tests::disk_slot_exposed_only_on_plus3 ... ok
+test variant::tests::variant_markers_advertise_distinct_model_ids ... ok
+test variant::tests::fdc_enabled_only_on_plus3 ... ok
+test core::tests::port_fe_bit_6_follows_the_tape_input ... ok
+test core::tests::port_fe_bit_6_with_no_tape_signal ... ok
+test core::tests::tape_input_is_released_one_frame_after_the_tape_stops ... ok
+test core::tests::reset_clears_machine_state_but_preserves_rom ... ok
+test core::tests::run_frame_returns_to_origin ... ok
+test core::tests::frame_position_survives_machine_serialization ... ok
+test core::tests::frame_position_snapshot_round_trip_wraps_cleanly ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running unittests src/lib.rs (target/debug/deps/nec_upd765a-29c0fcab7521e5bf)
+
+running 54 tests
+test tests::claims_port_recognises_msr_and_data_ports ... ok
+test tests::claims_port_returns_false_when_disabled ... ok
+test tests::format_protection_readiness_and_bounds_fail_without_mutation ... ok
+test tests::format_track_enters_host_to_controller_execution ... ok
+test tests::first_write_request_follows_the_pre_data_gap ... ok
+test tests::initial_state ... ok
+test tests::insert_disk_still_clears_cached_read_state ... ok
+test tests::insert_then_eject_disk_round_trip ... ok
+test tests::invalid_command_returns_one_status_byte_and_accepts_next_command ... ok
+test tests::legacy_bad_id_normalization_discards_a_previously_visited_data_mark ... ok
+test tests::format_readiness_direction_and_overrun_are_enforced ... ok
+test tests::export_refuses_active_writes_without_aborting_and_returns_committed_bytes ... ok
+test tests::complete_write_replaces_deleted_mark_and_bad_data_crc ... ok
+test tests::marginal_sector_first_read_is_recorded_bytes_verbatim ... ok
+test tests::media_change_aborts_transfer_before_replacement_can_be_written ... ok
+test tests::intervening_different_sector_resets_marginal_counter ... ok
+test tests::marginal_sector_second_read_varies_bytes ... ok
+test tests::preamble_rechecks_missing_media_before_requesting_payload ... ok
+test tests::preamble_rechecks_write_protection_before_changing_the_mark ... ok
+test tests::clean_sector_reads_deterministic_across_repeats ... ok
+test tests::read_id_rotates_through_sectors ... ok
+test tests::read_sector_by_id_not_position ... ok
+test tests::read_unknown_port_returns_ff ... ok
+test tests::reattach_disk_preserves_cached_read_state ... ok
+test tests::recalibrate_zeros_track_then_completes_after_seek_ticks ... ok
+test tests::missing_second_sector_preserves_completed_first_write ... ok
+test tests::marginal_sector_third_read_mangles_full_sector ... ok
+test tests::seek_track_sets_target_and_stages_interrupt ... ok
+test tests::sense_drive_status_reflects_disk_presence_and_track_zero ... ok
+test tests::sense_drive_status_with_disk_mounted ... ok
+test tests::sense_interrupt_drains_pending_then_returns_invalid_command ... ok
+test tests::reset_retains_written_prefix_and_mount_protection ... ok
+test tests::sense_interrupt_walks_drives_in_order ... ok
+test tests::set_drive_select_mask_affects_command_drive_decode ... ok
+test tests::specify_command_returns_to_idle_without_result_phase ... ok
+test tests::write_data_enters_host_to_controller_execution ... ok
+test tests::reset_preserves_completed_format_sectors_and_protection ... ok
+test tests::write_direction_readiness_and_overrun_are_enforced ... ok
+test tests::multitrack_write_advances_to_second_head ... ok
+test tests::write_errors_identify_missing_media_sector_and_wrong_chrn ... ok
+test tests::write_protection_is_reported_and_prevents_mutation ... ok
+test tests::write_rejects_id_crc_and_unrepresentable_sector_lengths ... ok
+test tests::write_to_msr_port_is_silently_ignored ... ok
+test tests::zero_size_code_uses_dtl_and_pads_remaining_data_field ... ok
+test tests::read_deleted_data_matches_dam_then_ddam ... ok
+test tests::completed_format_sector_survives_overrun_and_media_ejection ... ok
+test tests::write_data_reads_back_and_preserves_other_sectors ... ok
+test tests::read_sector ... ok
+test tests::writes_use_physical_track_head_and_drive_alias ... ok
+test tests::format_uses_physical_selection_and_command_size_not_id_fields ... ok
+test tests::export_refuses_active_format_and_allows_read_only_images ... ok
+test tests::format_read_id_and_data_agree_and_other_tracks_survive ... ok
+test tests::fm_format_uses_slower_byte_period_and_preserves_sector_order ... ok
+test tests::standard_plus3_format_fills_nine_sectors_without_host_latency_drift ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/logical_pcn.rs (target/debug/deps/logical_pcn-b93e306bffa6edd0)
+
+running 5 tests
+test alias_pcns_and_pending_statuses_are_independent ... ok
+test identity_mask_keeps_independent_physical_drives ... ok
+test alias_failed_seek_preserves_pcn_and_echoes_unit_and_head ... ok
+test recalibrate_clears_only_selected_logical_pcn ... ok
+test alias_seek_steps_from_its_own_pcn_to_physical_track_eight ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/read_cylinder.rs (target/debug/deps/read_cylinder-ba230f48caeb0a70)
+
+running 9 tests
+test absent_requested_r_on_matching_cylinder_has_no_wrong_cylinder_status ... ok
+test absent_requested_r_still_reports_encountered_wrong_cylinder ... ok
+test read_data_rejects_wrong_cylinder ... ok
+test read_deleted_data_rejects_bad_cylinder ... ok
+test read_data_rejects_bad_cylinder ... ok
+test read_deleted_data_rejects_wrong_cylinder ... ok
+test later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder ... ok
+test later_wrong_cylinder_preserves_only_preceding_sector_data ... ok
+test matching_nonphysical_and_ff_headers_are_readable ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/read_eot.rs (target/debug/deps/read_eot-a7be1c866422f1bd)
+
+running 6 tests
+test all_skipped_sectors_do_not_become_clean_eot ... ok
+test multisector_read_retains_final_sector_at_eot ... ok
+test earlier_missing_or_wrong_cylinder_has_no_eot_status ... ok
+test crc_and_control_mark_at_eot_do_not_gain_en ... ok
+test read_data_reaches_eot_without_terminal_count ... ok
+test read_deleted_data_reaches_eot_without_terminal_count ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/read_id_errors.rs (target/debug/deps/read_id_errors-1f3ab000deda62ad)
+
+running 6 tests
+test read_id_without_image_cannot_report_success ... ok
+test read_id_on_empty_track_reports_missing_id ... ok
+test valid_read_id_preserves_recorded_chrn_rotation_and_plus3_drive_alias ... ok
+test read_id_on_absent_track_reports_missing_id ... ok
+test read_id_on_absent_head_reports_missing_id ... ok
+test read_id_reports_id_crc_and_keeps_data_errors_out_of_results ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/read_id_match.rs (target/debug/deps/read_id_match-fa3d0ecb631df64a)
+
+running 4 tests
+test requested_id_head_does_not_select_the_physical_side ... ok
+test wrong_recorded_size_is_rejected_and_matching_request_recovers ... ok
+test later_exact_duplicate_is_not_hidden_by_wrong_head_or_size ... ok
+test wrong_recorded_head_is_rejected_and_matching_request_recovers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/read_media_change.rs (target/debug/deps/read_media_change-e82cd286cd4d0d10)
+
+running 4 tests
+test media_change_keeps_encountered_mark_and_excludes_incomplete_crc ... ok
+test track_media_change_retains_completed_crc_but_not_pending_future_status ... ok
+test changing_unrelated_disk_does_not_abort_or_change_selected_read ... ok
+test changing_selected_disk_aborts_reads_without_delivering_more_cached_bytes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/read_pacing.rs (target/debug/deps/read_pacing-feed545cfa26b813)
+
+running 8 tests
+test first_read_request_waits_for_pre_data_interval ... ok
+test read_consumes_only_requested_bytes_and_rejects_wrong_direction ... ok
+test overrun_retains_encountered_control_mark_but_not_a_future_one ... ok
+test fm_and_mfm_requests_follow_fixed_byte_cadence ... ok
+test paced_complete_payload_preserves_eot_and_drains_exactly_seven_results ... ok
+test read_requests_follow_absolute_disk_time_without_rounding_drift ... ok
+test missing_first_or_later_read_deadline_reports_overrun_not_eot ... ok
+test every_host_service_offset_preserves_next_arrival ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/read_progress.rs (target/debug/deps/read_progress-14178462eac3624d)
+
+running 13 tests
+test track_does_not_publish_an_unvisited_later_id_crc ... ok
+test track_media_removal_keeps_only_encountered_id_crc ... ok
+test abandoned_read_does_not_count_an_unvisited_future_marginal_sector ... ok
+test data_reads_do_not_transfer_later_bad_id_or_publish_its_data_mark ... ok
+test skipped_eot_after_data_retains_existing_next_r_result ... ok
+test track_overrun_keeps_completed_crc_errors_but_not_future_errors ... ok
+test data_reads_transfer_clean_and_data_crc_fields_before_result ... ok
+test track_interior_overrun_does_not_invent_crc_on_clean_media ... ok
+test track_interior_overrun_retains_encountered_id_crc ... ok
+test track_interior_overrun_defers_data_crc_until_completion ... ok
+test later_sector_interruption_reports_later_r_and_encountered_mark ... ok
+test data_reads_reject_id_crc_before_payload_and_recover_without_changing_media ... ok
+test interrupted_read_reports_current_sector_instead_of_eventual_eot_or_error ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/read_result_head.rs (target/debug/deps/read_result_head-716621955c40d6d4)
+
+running 3 tests
+test completed_read_and_crc_error_return_id_head_while_st0_keeps_physical_head ... ok
+test missing_first_and_later_id_return_requested_head_and_recover ... ok
+test interrupted_read_returns_requested_id_head ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/read_size_bound.rs (target/debug/deps/read_size_bound-5ded9d953c2fa8e3)
+
+running 5 tests
+test read_data_oversized_n_returns_a_result_instead_of_panicking ... ok
+test read_deleted_oversized_n_returns_a_result_instead_of_panicking ... ok
+test empty_tracks_reject_oversized_n_and_keep_the_existing_missing_id_result ... ok
+test all_out_of_model_sizes_are_rejected_before_payload_or_media_lookup ... ok
+test largest_in_model_size_preserves_payload_and_existing_short_field_fill ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+     Running tests/read_track.rs (target/debug/deps/read_track-21dfa3c21003dede)
+
+running 4 tests
+test empty_and_missing_track_have_bounded_error_results ... ok
+test track_errors_continue_to_next_sector ... ok
+test track_ignores_mt_and_sk_and_preserves_source ... ok
+test track_reads_physical_order_and_eot_count_not_sorted_ids ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/read_track_drained.rs (target/debug/deps/read_track_drained-2a9ecc016bd0e01e)
+
+running 1 test
+test fully_drained_crc_observations_preserve_order_and_recover ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/ready_attention.rs (target/debug/deps/ready_attention-af3f92115a6175b8)
+
+running 1 test
+test changed_legacy_ready_level_produces_attention_without_a_seek ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ready_inputs.rs (target/debug/deps/ready_inputs-937dc716f83a8a6f)
+
+running 8 tests
+test ready_attention_preserves_nonzero_present_cylinder ... ok
+test controller_reset_preserves_logical_pcn_and_physical_position ... ok
+test reset_discards_pending_records_but_preserves_external_levels ... ok
+test first_attention_is_not_overwritten_by_a_second_transition ... ok
+test command_and_result_phases_defer_ready_sampling ... ok
+test all_units_drain_in_order_without_reasserting_acknowledged_irq ... ok
+test both_ready_polarities_each_unit_and_unchanged_levels ... ok
+test polling_uses_the_four_mhz_fdc_interval_without_per_period_rounding_drift ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/recalibrate_not_ready.rs (target/debug/deps/recalibrate_not_ready-79b22b07f9a019de)
+
+running 1 test
+test initially_not_ready_recalibrate_returns_abnormal_seek_end_and_retains_busy ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scan.rs (target/debug/deps/scan-d43535dd6e8b87aa)
+
+running 10 tests
+test scan_ejection_aborts_without_a_fictitious_comparison ... ok
+test scan_ff_is_literal_and_n0_uses_sector_length_not_step ... ok
+test scan_overrun_is_non_mutating_and_direction_is_enforced ... ok
+test scan_missing_and_crc_errors_terminate_abnormally ... ok
+test scan_latches_an_earlier_violating_byte ... ok
+test scan_deleted_marks_stop_or_skip_and_remain_observable ... ok
+test scan_multitrack_and_missed_eot_are_distinct ... ok
+test scan_step_and_hit_terminate_on_the_matched_sector ... ok
+test scan_equal_low_high_truth_table ... ok
+test scan_equal_counts_first_later_and_absent_hits_without_mutating_media ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/seek_readiness.rs (target/debug/deps/seek_readiness-9b241e173d64b558)
+
+running 4 tests
+test ready_and_not_ready_seek_completions_remain_queued_separately ... ok
+test initially_not_ready_seek_preserves_last_ready_position ... ok
+test seek_uses_masked_drive_readiness_and_echoes_requested_unit ... ok
+test initially_not_ready_seek_reports_error_for_each_drive_and_same_cylinder ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sense_interrupt.rs (target/debug/deps/sense_interrupt-889a96218b1c9611)
+
+running 3 tests
+test no_pending_interrupt_returns_one_byte_then_accepts_a_command ... ok
+test completed_seeks_keep_two_bytes_and_drain_in_drive_order ... ok
+test querying_before_seek_completion_keeps_the_seek_active ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sis_busy.rs (target/debug/deps/sis_busy-9b7cee96c4dda946)
+
+running 3 tests
+test completed_seek_busy_clears_on_st0_before_pcn ... ok
+test recalibrate_busy_survives_completion_and_reset_clears_it ... ok
+test sis_clears_only_its_own_logical_drive_busy ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sis_interrupt.rs (target/debug/deps/sis_interrupt-613ace7e706b738e)
+
+running 1 test
+test sis_acknowledges_irq_without_discarding_other_drive_status ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sis_ordering.rs (target/debug/deps/sis_ordering-e8259c9fe27610dd)
+
+running 1 test
+test unacknowledged_seek_rejects_other_command_without_losing_status ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/two_side_inputs.rs (target/debug/deps/two_side_inputs-503aad89dade221a)
+
+running 3 tests
+test two_side_level_survives_reset_and_media_changes ... ok
+test external_unit_alias_selects_physical_ts_but_echoes_logical_unit ... ok
+test two_side_ready_and_write_protect_are_independent_inputs ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/write_deleted.rs (target/debug/deps/write_deleted-6102b06446bea65b)
+
+running 7 tests
+test deleted_write_protection_and_missing_media_do_not_mutate ... ok
+test zero_byte_overrun_replaces_deleted_mark_before_first_host_byte ... ok
+test zero_byte_overrun_writes_deleted_mark_before_first_host_byte ... ok
+test deleted_partial_overrun_preserves_mark_prefix_and_crc_error ... ok
+test normal_write_replaces_deleted_mark ... ok
+test deleted_multitrack_write_preserves_marks_on_both_heads ... ok
+test deleted_write_read_mark_and_skip_matrix ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (target/debug/deps/runtime_sinclair_zx_spectrum-f62475707c03f34f)
+
+running 128 tests
+test family_runtime::symbol_legend_tests::keys_carrying_tokens_are_not_legends ... ok
+test autoload::tests::autoload_rejects_unsupported_slot ... ok
+test autoload::tests::basic_prompt_ready_accepts_literal_k_prompt ... ok
+test basic_loader::tests::empty_program_is_rejected ... ok
+test basic_loader::tests::poke_writes_program_bytes_and_updates_system_variables ... ok
+test family_runtime::symbol_legend_tests::every_legend_names_a_key_this_machine_has ... ok
+test autoload::tests::autoload_rejects_missing_tape ... ok
+test basic_loader::tests::oversized_program_is_rejected ... ok
+test family_runtime::symbol_legend_tests::the_punctuation_a_basic_line_needs_is_reachable ... ok
+test family_runtime::symbol_legend_tests::legends_are_one_to_one ... ok
+test family_runtime::tests::machine_core_dispatches_to_inner_variants ... ok
+test family_runtime::tests::named_compound_keys_expand_to_capsshift_chords ... ok
+test family_runtime::tests::memory_write_watch_dispatches_through_runtime_kind ... ok
+test family_runtime::tests::ay_write_watch_dispatches_through_runtime_kind ... ok
+test family_runtime::tests::port_round_trips_through_runtime_kind ... ok
+test family_runtime::tests::query_provider_dispatches_to_inner_variants ... ok
+test family_runtime::tests::step_advances_pc_through_runtime_kind ... ok
+test family_runtime::tests::z80_registers_dispatch_through_runtime_kind ... ok
+test input::tests::axis_pair_matches_screen_coordinate_convention ... ok
+test input::tests::axis_to_button_pair_respects_deadzone ... ok
+test family_runtime::tests::run_until_pc_returns_within_budget ... ok
+test input::tests::button_name_resolution_covers_canonical_kempston_layout ... ok
+test input::tests::fire_button_aliases_resolve_to_the_same_index ... ok
+test input::tests::if2_accepts_fire_aliases ... ok
+test input::tests::if2_axis_pairs_drive_the_directional_keys ... ok
+test input::tests::if2_port_1_button_mapping_matches_grussu_table ... ok
+test input::tests::if2_port_2_button_mapping_matches_grussu_table ... ok
+test input::tests::if2_unrecognised_combinations_return_none ... ok
+test input::tests::unrecognised_button_names_return_none ... ok
+test profiles::tests::display_name_returns_a_human_readable_string_per_variant ... ok
+test profiles::tests::all_profiles_require_firmware ... ok
+test profiles::tests::model_id_is_unique_and_stable_for_every_variant ... ok
+test profiles::tests::every_firmware_source_is_a_profile_requirement ... ok
+test profiles::tests::only_plus3_advertises_live_media_export ... ok
+test profiles::tests::release_year_covers_every_documented_variant ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test profiles::tests::spectrum_48k_uses_documented_master_clock ... ok
+test profiles::tests::variant_ids_round_trip_for_every_model ... ok
+test queries::tests::boot_status_detects_first_matching_banner ... ok
+test queries::tests::boot_status_reports_absence_when_banner_is_missing ... ok
+test queries::tests::boot_status_reports_absence_when_no_banner_matches ... ok
+test queries::tests::decode_screen_char_returns_copyright_for_glyph_7f ... ok
+test queries::tests::decode_screen_char_returns_question_mark_for_unknown_cell ... ok
+test queries::tests::provider_resolves_variant_specific_issue_path_via_trait ... ok
+test queries::tests::provider_returns_none_for_unrecognised_path ... ok
+test runtime::tests::capabilities_match_profile_capabilities ... ok
+test runtime::tests::command_media_transport_routes_to_tape_play_and_stop ... ok
+test runtime::tests::command_media_transport_unknown_slot_errors ... ok
+test queries::tests::screen_text_lines_decode_rom_glyph_cells ... ok
+test runtime::tests::is_tzx_recognises_canonical_header ... ok
+test runtime::tests::is_tzx_rejects_short_or_wrong_magic ... ok
+test runtime::tests::load_media_disk_on_non_disk_variant_errors ... ok
+test runtime::tests::load_media_snapshot_kind_errors ... ok
+test runtime::tests::load_media_unknown_tape_slot_errors ... ok
+test runtime::tests::machine_mut_mutation_visible_through_machine_accessor ... ok
+test runtime::tests::reset_clears_keyboard_and_zeroes_time ... ok
+test runtime::tests::tap_blocks_to_tape_blocks_handles_empty_input ... ok
+test runtime::tests::tap_blocks_to_tape_blocks_round_trip_with_checksum ... ok
+test runtime::tests::time_value_starts_at_default ... ok
+test snapshot::tests::decode_rejects_completely_corrupt_bytes ... ok
+test snapshot::tests::decode_rejects_unsupported_snapshot_version ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_4_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_5_before_payload_decode_without_changing_runtime ... ok
+test snapshot::tests::decode_rejects_profile_mismatch_within_generic_envelope ... ok
+test snapshot::tests::encode_and_decode_round_trip_on_plus_runtime ... ok
+test snapshot::tests::completed_write_survives_runtime_snapshot_without_replaying_source_bytes ... ok
+test snapshot::tests::live_export_after_write_and_restore_never_uses_cached_source_bytes ... ok
+test snapshot::tests::no_pending_sense_interrupt_snapshot_keeps_one_byte_result ... ok
+test snapshot::tests::mid_write_snapshot_resumes_identically_including_byte_deadline ... ok
+test snapshot::tests::pending_seek_and_each_sis_byte_preserve_busy_across_restore ... ok
+test snapshot::tests::protected_mount_stays_protected_after_restore ... ok
+test snapshot::tests::deleted_write_survives_active_state_export_and_fresh_reopen ... ok
+test basic_loader::tests::the_prompt_is_waited_for_rather_than_sampled_once ... ok
+test snapshot::tests::ready_poll_and_partial_sis_result_survive_native_restore ... ok
+test snapshot::tests::reconstructed_bad_id_reads_normalize_in_version_eight ... ok
+test snapshot::tests::released_v0330_controller_payload_is_rejected_before_old_version_decode ... ok
+test snapshot::tests::paced_read_snapshot_preserves_request_and_deadline ... ok
+test autoload::tests::autoload_runs_through_to_tape_transport_start ... ok
+test snapshot::tests::snapshot_restore_preserves_mounted_disk_on_plus3 ... ok
+test snapshot::tests::two_side_input_and_latched_sds_result_survive_native_restore ... ok
+test snapshot::tests::version_seven_is_rejected_atomically_before_payload_decode ... ok
+test snapshot::tests::version_six_is_rejected_atomically_before_payload_decode ... ok
+test spectrum_128k::tests::blank_runtime_carries_the_128k_profile_id ... ok
+test spectrum_128k::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_128k::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_128k::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_16k::tests::blank_runtime_carries_the_16k_profile_id ... ok
+test spectrum_16k::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_16k::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_16k::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_48k::tests::audio_controls_round_trip_through_runtime ... ok
+test spectrum_48k::tests::boots_profile_with_export_advertises_snapshot_export ... ok
+test spectrum_48k::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_48k::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_48k::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_48k::tests::live_profile_keeps_every_base_profile_capability ... ok
+test spectrum_plus2::tests::blank_runtime_carries_the_plus2_profile_id ... ok
+test spectrum_plus2::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus2::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus2::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus2a::tests::blank_runtime_carries_the_plus2a_profile_id ... ok
+test spectrum_plus2a::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus2a::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus2a::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus2b::tests::blank_runtime_carries_the_plus2b_profile_id ... ok
+test spectrum_plus2b::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus2b::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus2b::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus3::tests::blank_runtime_carries_the_plus3_profile_id ... ok
+test spectrum_plus3::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus3::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus3::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus::tests::blank_runtime_carries_the_plus_profile_id ... ok
+test spectrum_plus::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test snapshot::tests::requested_id_head_survives_pending_read_and_result_checkpoints ... ok
+test snapshot::tests::bad_id_results_and_valid_data_reads_keep_native_roundtrips ... ok
+test snapshot::tests::format_snapshot_resumes_every_id_boundary_and_gap_without_source_replay ... ok
+test snapshot::tests::current_read_snapshot_resumes_partial_normal_and_overrun_results ... ok
+test snapshot::tests::scan_and_track_read_resume_without_mutating_disk ... ok
+test snapshot::tests::current_read_snapshot_retains_position_errors_and_remaining_overrun_deadline ... ok
+test snapshot::tests::current_read_snapshot_resumes_before_within_and_between_sectors ... ok
+test snapshot::tests::read_track_id_crc_survives_native_checkpoints_and_interior_overrun ... ok
+test basic_loader::tests::loader_refuses_to_poke_when_prompt_is_not_ready ... ok
+test autoload::tests::autoload_reports_prompt_not_ready_when_row_23_is_not_k ... ok
+test snapshot::tests::read_track_native_field_matrix ... ok
+
+test result: ok. 128 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.95s
+
+     Running tests/amstrad_cycle_profile.rs (target/debug/deps/amstrad_cycle_profile-b748ba6ca9ea8a3f)
+
+running 6 tests
+test leaving_all_ram_at_zero_keeps_ram_and_rom_execution_distinct ... ok
+test locked_paging_cannot_relabel_execution ... ok
+test entering_all_ram_keeps_the_paging_instruction_in_its_original_bank ... ok
+test all_four_roms_and_normal_ram_pages_keep_their_namespaces ... ok
+test every_all_ram_configuration_profiles_on_all_three_variants ... ok
+test contended_all_ram_capture_preserves_machine_and_snapshot_state ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/autoload_family.rs (target/debug/deps/autoload_family-0bc8ea77cace64a2)
+
+running 2 tests
+test autoload_drives_the_128k_boot_menu ... ignored, FIXTURE: needs the 128K ROMs and the Manic Miner TZX — run with --ignored
+test autoload_waits_out_the_plus3_disk_timeout ... ignored, FIXTURE: needs the +3 ROMs and the Manic Miner TZX — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/autoload_running_machine.rs (target/debug/deps/autoload_running_machine-7343e57fe18936eb)
+
+running 1 test
+test autoload_loads_a_tape_on_a_machine_that_has_already_been_used ... ignored, FIXTURE: needs the 48K Spectrum ROM — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/banked_cycle_profile.rs (target/debug/deps/banked_cycle_profile-c2d4b57dfe4bb3a1)
+
+running 6 tests
+test historical_page_lookup_ignores_live_paging_and_flat_sections ... ok
+test grey_plus2_uses_the_same_capture_and_rom_is_not_ram ... ok
+test aliases_keep_slot_identity_but_share_source_totals ... ok
+test odd_divider_preserves_nop_costs_at_every_capture_phase ... ok
+test paging_instruction_keeps_its_original_bank_and_same_pc_stays_distinct ... ok
+test profiling_preserves_contended_machine_state_across_frames ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/boot_invariants.rs (target/debug/deps/boot_invariants-afc4d115beb80ff8)
+
+running 19 tests
+test contention_table_matches_canonical_for_known_window ... ok
+test display_fetches_match_the_physical_counter ... ok
+test real_48k_rom_runs_thirty_frames ... ignored, FIXTURE: requires ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test reset_unlocks_128k_paging_and_preserves_memory ... ok
+test dummy_rom_constructs_runtime ... ok
+test floating_bus_idles_outside_active_fetch_window ... ok
+test reset_unlocks_plus3_paging_and_preserves_memory ... ok
+test snapshot_envelope_version_is_v8 ... ok
+test int_asserts_at_canonical_t_state_128k ... ok
+test int_asserts_at_canonical_t_state_48k ... ok
+test int_asserts_at_canonical_t_state_pentagon ... ok
+test kempston_attaches_on_first_gamepad_event_48k ... ok
+test if2_port2_fire_closes_keyboard_five_on_48k ... ok
+test run_until_advances_past_first_frame ... ok
+test kempston_attaches_on_first_gamepad_event_128k ... ok
+test int_pulse_is_32_tstates_on_amstrad_class ... ok
+test snapshot_round_trip_is_fixed_point_after_warmup ... ok
+test amstrad_class_declines_kempston_events_plus3 ... ok
+test if2_port1_fire_closes_keyboard_zero_on_plus3 ... ok
+
+test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/clone_cycle_profile.rs (target/debug/deps/clone_cycle_profile-7bebc8f6d6efa70f)
+
+running 8 tests
+test scorpion_rom_0_does_not_trap_into_the_overlay ... ok
+test scorpion_reports_ram_0_in_slot_0_under_1ffd_bit_0 ... ok
+test pentagon_observes_overlay_after_the_first_fetch_only ... ok
+test scorpion_observes_its_tr_dos_overlay_rom ... ok
+test scorpion_paging_instruction_keeps_its_old_bank_and_lock_is_observed ... ok
+test pentagon_banks_and_scorpion_base_roms_remain_distinct ... ok
+test scorpion_reports_all_sixteen_banks ... ok
+test clone_capture_preserves_state_and_snapshot_over_frame_wrap ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/coverage_lift.rs (target/debug/deps/coverage_lift-91b37d90e4897962)
+
+running 9 tests
+test as_48k_mut_is_some_only_for_the_48k_variant ... ok
+test family_kind_debug_surface_round_trips ... ok
+test pentagon_constructors_cover_every_path ... ok
+test scorpion_constructors_cover_every_path ... ok
+test family_kind_reports_a_nonzero_frame_length_for_every_variant ... ok
+test timex_tc2048_constructors_cover_every_path ... ok
+test from_firmware_builds_every_model_from_zeroed_roms ... ok
+test timex_ts2068_constructors_cover_every_path ... ok
+test spectrum_machine_surface_runs_for_the_exotic_clones ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/cycle_profile.rs (target/debug/deps/cycle_profile-880c14d464151859)
+
+running 14 tests
+test block_repeat_charges_both_iterations_to_the_opcode ... ok
+test invalid_budgets_do_not_advance ... ok
+test nmi_entry_is_a_separate_interval_too ... ok
+test indexed_bit_instruction_has_one_retirement_at_its_first_prefix ... ok
+test prefixes_belong_to_the_first_byte_and_capture_can_end_mid_instruction ... ok
+test measured_loop_has_taken_and_untaken_costs_and_separate_halt_waiting ... ok
+test profiling_consumes_queued_keyboard_input_before_running ... ok
+test partial_start_is_not_charged_as_a_complete_instruction ... ok
+test active_recording_is_refused_without_advancing ... ok
+test every_start_phase_preserves_complete_nop_costs ... ok
+test source_totals_preserve_unmapped_execution ... ok
+test real_assembler_sidecar_joins_costs_and_mcp_matches_script ... ok
+test interrupt_entry_is_not_charged_to_the_interrupted_pc ... ok
+test capture_is_observational_across_contention_frame_wrap_and_snapshot_restore ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/debug198x_paging_cross_check.rs (target/debug/deps/debug198x_paging_cross_check-840e474baf121ac6)
+
+running 6 tests
+test slot_three_is_the_switchable_window_the_fixture_assumes ... ok
+test the_sld_long_address_projection_matches_this_machines_banks ... ok
+test every_page_the_fixture_names_is_one_the_hardware_can_select ... ok
+test the_symbol_at_one_address_follows_the_machines_paging_state ... ok
+test a_page_the_image_has_no_code_in_answers_nothing ... ok
+test a_bank_live_in_two_slots_at_once_answers_at_both_addresses ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_frame_progression.rs (target/debug/deps/debug_frame_progression-9f3be30cb852e69d)
+
+running 3 tests
+test live_steps_and_pc_waits_account_for_consumed_time ... ok
+test instruction_steps_wrap_frames_like_continuous_execution ... ok
+test frame_execution_after_debug_steps_settles_the_border_and_keeps_time ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/flat_variant_cycle_profile.rs (target/debug/deps/flat_variant_cycle_profile-e4d2a1ebd7e5f869)
+
+running 4 tests
+test plus_and_48k_measure_the_same_upper_ram_program ... ok
+test absent_upper_ram_executes_open_bus_on_16k_but_real_ram_on_plus ... ok
+test sixteen_k_mcp_joins_the_relocated_assembler_fixture ... ok
+test last_16k_ram_byte_is_executable_and_capture_preserves_state ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/format_matrix.rs (target/debug/deps/format_matrix-ad1fd6240f3f6a2a)
+
+running 34 tests
+test spectrum_16k_loads_tap ... ok
+test spectrum_16k_loads_tzx ... ok
+test spectrum_48k_loads_sna_48k ... ok
+test spectrum_48k_loads_tap ... ok
+test spectrum_48k_loads_tzx ... ok
+test spectrum_16k_loads_z80_v1 ... ok
+test spectrum_128k_loads_tap ... ok
+test spectrum_128k_loads_tzx ... ok
+test spectrum_16k_loads_sna_48k ... ok
+test spectrum_48k_loads_z80_v1 ... ok
+test spectrum_128k_loads_szx ... ok
+test spectrum_plus2_loads_tap ... ok
+test spectrum_plus2_loads_tzx ... ok
+test spectrum_plus2a_loads_tap ... ok
+test spectrum_plus2b_loads_tzx ... ok
+test spectrum_plus2b_loads_tap ... ok
+test spectrum_plus2a_loads_tzx ... ok
+test spectrum_128k_loads_sna_128k ... ok
+test spectrum_plus3_loads_dsk ... ok
+test spectrum_plus3_loads_tzx ... ok
+test spectrum_plus3_loads_tap ... ok
+test spectrum_plus2_loads_sna_128k ... ok
+test spectrum_plus_loads_sna_48k ... ok
+test spectrum_plus_loads_tzx ... ok
+test spectrum_plus_loads_tap ... ok
+test spectrum_plus2a_loads_sna_128k ... ok
+test spectrum_plus2b_loads_sna_128k ... ok
+test spectrum_plus_loads_z80_v1 ... ok
+test spectrum_plus3_loads_sna_128k ... ok
+test spectrum_128k_loads_z80_v2 ... ok
+test spectrum_plus2_loads_z80_v2 ... ok
+test spectrum_plus3_loads_z80_v2 ... ok
+test spectrum_plus2b_loads_z80_v2 ... ok
+test spectrum_plus2a_loads_z80_v2 ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/goldens.rs (target/debug/deps/goldens-fd217a3cf2f0ff57)
+
+running 8 tests
+test golden_spectrum_128k_boot ... ignored, FIXTURE: requires local 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0,128-1}.rom
+test golden_spectrum_16k_boot ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test golden_spectrum_48k_boot ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test golden_spectrum_plus2_boot ... ignored, FIXTURE: requires local +2 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus2/{plus2-0,plus2-1}.rom
+test golden_spectrum_plus2a_boot ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom
+test golden_spectrum_plus2b_boot ... ignored, FIXTURE: requires local +2B ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus2b/{plus3-0..3}.rom
+test golden_spectrum_plus3_boot ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom
+test golden_spectrum_plus_boot ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+
+test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/io_trace.rs (target/debug/deps/io_trace-6d7b50be918ba968)
+
+running 4 tests
+test the_class_core_machines_support_tracing ... ok
+test tracing_captures_the_traffic_a_running_machine_produces ... ok
+test the_clones_trace_too ... ok
+test every_variant_records_a_write ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pixel_geometry.rs (target/debug/deps/pixel_geometry-a7f34714a86a0cbf)
+
+running 3 tests
+test the_ts2068_is_ntsc_and_narrower_than_its_pal_siblings ... ok
+test the_48k_and_128k_classes_run_at_different_pixel_clocks ... ok
+test no_variant_has_square_pixels ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/plus3_disk_survey.rs (target/debug/deps/plus3_disk_survey-3e90ebba050b495a)
+
+running 1 test
+test survey_plus3_disk_titles ... ignored, DIAGNOSTIC: diagnostic — needs +3 ROMs and a local DSK reference library
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/plus3_disk_trace.rs (target/debug/deps/plus3_disk_trace-bbbae1783eeb3a99)
+
+running 1 test
+test trace_plus3_loader_pc_histogram ... ignored, DIAGNOSTIC: diagnostic — needs +3 ROMs and a +3 DSK (default: Chase H.Q.)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rainbow_islands_iff_trace.rs (target/debug/deps/rainbow_islands_iff_trace-44039777b8f96a86)
+
+running 1 test
+test trace_iff_and_mixer_from_skoolkit_snapshot ... ignored, DIAGNOSTIC: diagnostic — trace IFF1 over time from a SkoolKit Rainbow Islands snapshot
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rainbow_islands_speedlock_watchpoint.rs (target/debug/deps/rainbow_islands_speedlock_watchpoint-f76fd187affa3fce)
+
+running 1 test
+test find_74a4_writes_in_rainbow_islands ... ignored, DIAGNOSTIC: diagnostic — pin the instruction that writes the diverging $74A4-$74A5 word in Rainbow Islands
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/routine_cycle_profile.rs (target/debug/deps/routine_cycle_profile-2378aa6e3f59d100)
+
+running 8 tests
+test call_at_capture_end_does_not_invent_a_callee_duration ... ok
+test misspelled_page_fields_cannot_silently_become_flat_ranges ... ok
+test recursive_program_counts_invocations_without_multiplying_ticks ... ok
+test declared_routines_exclude_callee_costs_and_match_mcp ... ok
+test asm_listing_compares_execution_weighted_exclusive_costs_in_script_and_mcp ... ok
+test static_comparison_refuses_wrong_cpu_and_missing_sidecar_before_execution ... ok
+test interrupt_inside_a_call_suspends_its_cost_without_changing_execution ... ok
+test invalid_routines_refuse_before_machine_advances ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/runtime_48k.rs (target/debug/deps/runtime_48k-f40e203a6b0ad179)
+
+running 23 tests
+test runtime_loads_zipped_manic_miner_tzx_media ... ignored, FIXTURE: requires local Manic Miner TZX zip
+test runtime_capabilities_advertise_snapshot_export ... ok
+test runtime_rejects_disk_slot_on_48k ... ok
+test runtime_rejects_unknown_media_slot ... ok
+test audio_controls_mutate_machine_speaker_mixer ... ok
+test runtime_rejects_unknown_transport_slot ... ok
+test runtime_rejects_unsupported_media_kind ... ok
+test runtime_rejects_malformed_tap_bytes ... ok
+test runtime_rejects_malformed_tzx_bytes ... ok
+test runtime_loads_tzx_media_into_tape_slot ... ok
+test runtime_can_boot_from_declared_firmware_set ... ok
+test runtime_loads_tap_media_into_tape_slot ... ok
+test runtime_command_controls_tape_transport ... ok
+test spectrum_boot_wait_and_prompt_input_change_decoded_text ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx ... ignored, FIXTURE: requires local 48K ROM and Jet Set Willy TZX zip
+test spectrum_boots_and_loads_manic_miner_from_zipped_tzx ... ignored, FIXTURE: requires local 48K ROM and Manic Miner TZX zip
+test spectrum_query_provider_detects_booted_48k_rom ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test spectrum_query_provider_lists_supported_paths ... ok
+test spectrum_query_provider_lists_boot_and_screen_text_paths ... ok
+test spectrum_query_provider_reads_runtime_state ... ok
+test runtime_run_until_emits_frame_and_audio_packets ... ok
+test runtime_reset_clears_time_and_keyboard_matrix ... ok
+test runtime_snapshot_roundtrips_machine_state ... ok
+
+test result: ok. 18 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/shared_basic.rs (target/debug/deps/shared_basic-f3b293290f327461)
+
+running 1 test
+test shared_basic_native_loader_preserves_rom_editor_bytes_and_runs ... ignored, FIXTURE: requires genuine 48K ROM; explicitly fails if unavailable
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/snapshot_roundtrip.rs (target/debug/deps/snapshot_roundtrip-b87228a1456c613b)
+
+running 5 tests
+test snapshot_mid_nmi_response_continues_identically ... ok
+test snapshot_round_trip_16k ... ok
+test snapshot_round_trip_48k ... ok
+test snapshot_round_trip_128k ... ok
+test snapshot_round_trip_plus3 ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/speedlock7_tape_ram_dump.rs (target/debug/deps/speedlock7_tape_ram_dump-904570567db2ea07)
+
+running 28 tests
+test audit_in_a_fe_cost ... ignored, DIAGNOSTIC: diagnostic — direct N×IN A,($FE) timing audit against spec
+test bubble_bobble_loads_past_speedlock_wipe ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Bubble Bobble SpeedLock 5 TZX
+test check_90ef_writes_in_green_beret ... ignored, DIAGNOSTIC: diagnostic — are bytes $90ef-$90fe actually written, or leftover memory?
+test dump_green_beret_spans ... ignored, DIAGNOSTIC: diagnostic — dump ALL Green Beret spans
+test dump_speedlock2_head_over_heels_loader_bytes ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX
+test dump_speedlock2_head_over_heels_tape_state ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX
+test dump_speedlock7_decrypted_loader ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test dump_speedlock7_loader_ram ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test dump_speedlock7_tzx_span_widths_around_57050 ... ignored, DIAGNOSTIC: diagnostic — needs Op Wolf SpeedLock 7 TZX
+test find_feb3_write_in_green_beret ... ignored, DIAGNOSTIC: diagnostic — find what writes $01 to $feb3 in Green Beret
+test green_beret_loads_past_speedlock_wipe ... ignored, DIAGNOSTIC: diagnostic — sweep verification for Speedlock-7 Green Beret
+test green_beret_with_extended_pause ... ignored, DIAGNOSTIC: diagnostic — does Green Beret load if we lengthen its pause?
+test head_over_heels_speedlock2_reaches_game_code ... ignored, FIXTURE: needs 48K ROM and the Head over Heels SpeedLock-2 TZX
+test head_over_heels_speedlock2_status ... ignored, DIAGNOSTIC: diagnostic — Speedlock-2 is a known separate investigation
+test measure_block7_to_fill_timing ... ignored, DIAGNOSTIC: diagnostic — measure exact T-state offsets for block-7 end vs fill start
+test measure_byte_decoder_loop_cost ... ignored, DIAGNOSTIC: diagnostic — measure byte-decoder loop cost vs documented 54T/iter spec
+test measure_fill_duration ... ignored, DIAGNOSTIC: diagnostic — measure fill duration end-to-end
+test opwolf_loads_past_speedlock_wipe ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test probe_green_beret_alternates ... ignored, DIAGNOSTIC: diagnostic — try every Green Beret TZX rip in the archive
+test probe_green_beret_tape_and_pc_evolution ... ignored, DIAGNOSTIC: diagnostic — Green Beret black-screen investigation
+test probe_near_outliers ... ignored, DIAGNOSTIC: diagnostic — probe Speedlock-7 titles with near-Green-Beret calibration pauses
+test probe_op_wolf_tape_and_pc_evolution ... ignored, DIAGNOSTIC: diagnostic — comparison probe for working title (Op Wolf)
+test sample_border_color_through_loader ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test survey_speedlock7_pauses ... ignored, DIAGNOSTIC: diagnostic — survey block-7 pause across all Speedlock-7 TZXs
+test trace_green_beret_wipe_fire ... ignored, DIAGNOSTIC: diagnostic — log every $fd5f bit-shift hit + wipe trigger for Green Beret
+test trace_hl_at_checksum_check ... ignored, DIAGNOSTIC: diagnostic — what does HL contain at $fe9d for Green Beret vs Op Wolf?
+test trace_op_wolf_wipe_fire ... ignored, DIAGNOSTIC: diagnostic — log every $fd5f bit-shift hit + wipe trigger for Op Wolf (baseline)
+test trace_speedlock7_byte_decoder_b_values ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+
+test result: ok. 0 passed; 0 failed; 28 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tape_save_roundtrip.rs (target/debug/deps/tape_save_roundtrip-95be3c6e80a15db2)
+
+running 1 test
+test save_captures_a_reloadable_tap ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/timex_cycle_profile.rs (target/debug/deps/timex_cycle_profile-95f0b9f51aeb98db)
+
+running 7 tests
+test every_dock_mask_matches_the_existing_memory_read_priority ... ok
+test tc2048_reuses_flat_costs_and_every_family_model_advertises_profiling ... ok
+test enabling_exrom_keeps_base_rom_costs_separate ... ok
+test paging_out_own_home_code_preserves_the_out_instruction_source ... ok
+test home_ram_windows_join_by_eight_k_page_on_pal_and_ntsc ... ok
+test every_empty_dock_window_is_unmapped_execution_not_home_ram ... ok
+test pal_and_ntsc_profile_preserves_machine_and_snapshot_state ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/timing_survey.rs (target/debug/deps/timing_survey-bce337653f141483)
+
+running 5 tests
+test timing_survey_records_every_case ... ignored, FIXTURE: requires the ZXSpectrum4.net suite and a 48K ROM; several minutes
+test tests::parses_readings_from_a_result_line ... ok
+test tests::completeness_requires_both_modes_even_with_duplicate_rows ... ok
+test tests::scrapes_a_pass_and_a_fail_with_expectations ... ok
+test tests::sha256_matches_known_vectors ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/timing_survey_128k.rs (target/debug/deps/timing_survey_128k-1510d4620b196e88)
+
+running 5 tests
+test the_suite_runs_in_48k_paging_mode ... ignored, FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs
+test timing_survey_128k_records_every_case ... ignored, FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs; ~5 min
+test timing_survey_plus2_records_every_case ... ignored, FIXTURE: needs the zx-spectrum-tests corpus and grey +2 ROMs; ~8 min
+test the_report_path_is_machine_specific ... ok
+test early_profile_rejects_changed_readings_even_with_the_same_failure_count ... ok
+
+test result: ok. 2 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (target/debug/deps/variants-a94d74af5401f178)
+
+running 61 tests
+test pentagon_128_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/pentagon-{0,1}.rom
+test probe_all_variant_banners ... ignored, DIAGNOSTIC: diagnostic — boots six variants from ~/.emu198x/roms and prints banners
+test probe_ts2068_screen_ram ... ignored, DIAGNOSTIC: diagnostic — TS2068 screen-RAM dump (standard + high-res addresses)
+test scorpion_runtime_exposes_ay_register_queries ... ok
+test pentagon_128_runtime_exposes_ay_register_queries ... ok
+test pentagon_128_runtime_exposes_kempston_state_query ... ok
+test pentagon_128_runtime_rejects_disk_slot_via_default_supports_disk_slot ... ok
+test non_ay_variants_do_not_advertise_ay_paths ... ok
+test each_variant_accepts_tzx_via_runtime ... ok
+test scorpion_zs256_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires ~/.emu198x/roms/scorpion-zs256/scorpion-{0..3}.rom
+test spectrum_128k_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local Spectrum 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/128-{0,1}.rom
+test scorpion_boot_status_is_not_detected_before_the_menu_draws ... ok
+test spectrum_128k_runtime_exposes_ay_register_queries ... ok
+test scorpion_runtime_exposes_kempston_state_query ... ok
+test spectrum_128k_runtime_loads_tzx_via_runtime ... ok
+test spectrum_128k_runtime_loads_tap_and_drives_transport ... ok
+test spectrum_128k_runtime_exposes_shared_and_variant_query_paths ... ok
+test keyboard_input_updates_machine_matrix ... ok
+test spectrum_128k_runtime_emits_frame_and_audio ... ok
+test spectrum_16k_runtime_emits_frame_and_audio_at_48k_dimensions ... ok
+test pentagon_128_runtime_emits_frame_at_pentagon_dimensions ... ok
+test scorpion_runtime_loads_tape_drives_transport_and_resets ... ok
+test spectrum_128k_runtime_resets_via_machine_core ... ok
+test snapshot_refuses_to_restore_across_variants ... ok
+test spectrum_plus2a_rejects_disk_slot ... ok
+test spectrum_plus2a_runtime_exposes_ay_register_queries ... ok
+test pentagon_restore_keeps_pentagon_ula_timing ... ok
+test spectrum_plus2_and_128k_snapshots_are_type_distinct ... ok
+test spectrum_plus3_accepts_disk_slot_via_machine_core ... ok
+test spectrum_plus3_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/plus3-{0..3}.rom
+test spectrum_plus3_runtime_rejects_malformed_disk_image ... ok
+test spectrum_16k_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus2_runtime_emits_frame_at_128k_dimensions ... ok
+test scorpion_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus_runtime_resolves_disk_slot_query ... ok
+test tc2048_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local Timex TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom
+test spectrum_128k_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus2b_runtime_runs_frame_and_resets ... ok
+test spectrum_plus2a_runtime_runs_frame_loads_tape_and_resets ... ok
+test timex_tc2048_runtime_exposes_kempston_state_query ... ok
+test spectrum_plus2a_runtime_round_trips_through_snapshot ... ok
+test timex_ts2068_runtime_exposes_ay_register_queries ... ok
+test spectrum_plus2_runtime_round_trips_through_snapshot ... ok
+test timex_ts2068_runtime_exposes_model_query_alongside_kempston ... ok
+test spectrum_plus_runtime_emits_frame_at_48k_dimensions ... ok
+test timex_tc2048_runtime_emits_hires_dimensions ... ok
+test variant_query_paths_include_boot_paths ... ok
+test variant_runtime_capabilities_reflects_profile ... ok
+test pentagon_128_runtime_loads_tape_resets_and_round_trips ... ok
+test variant_runtime_rejects_unknown_tape_slot ... ok
+test variant_runtime_rejects_unknown_transport_slot ... ok
+test variant_runtime_rejects_unsupported_media_kind ... ok
+test spectrum_plus_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus3_runtime_runs_frame_loads_tape_and_resets ... ok
+test timex_ts2068_runtime_uses_ntsc_frame_length_for_ts ... ok
+test spectrum_plus3_runtime_round_trips_through_snapshot ... ok
+test ts2068_restore_keeps_ntsc_ula_timing ... ok
+test timex_tc2048_runtime_loads_tape_resets_and_round_trips ... ok
+test timex_ts2068_runtime_loads_tape_resets_and_round_trips ... ok
+test timex_tc2068_runtime_runs_pal_frame_length_and_round_trips ... ok
+test every_variant_rewinds_and_searches_its_tape ... ok
+
+test result: ok. 54 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+   Doc-tests common_sinclair_zx_spectrum_amstrad_class
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nec_upd765a
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_sinclair_zx_spectrum
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+$ cargo clippy --locked -p nec-upd765a -p common-sinclair-zx-spectrum-amstrad-class -p runtime-sinclair-zx-spectrum --all-targets -- -D warnings
+    Checking format-sinclair-zx-spectrum-snapshot v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-sinclair-zx-spectrum-snapshot)
+    Checking objc2-encode v4.1.0
+    Checking bitflags v2.11.1
+    Checking cfg-if v1.0.4
+    Checking simd-adler32 v0.3.9
+    Checking serde_core v1.0.229
+    Checking libc v0.2.186
+    Checking memchr v2.8.0
+    Checking adler2 v2.0.1
+    Checking zmij v1.0.21
+    Checking thiserror v2.0.20
+    Checking itoa v1.0.18
+    Checking crc32fast v1.5.0
+    Checking log v0.4.29
+    Checking zlib-rs v0.6.3
+    Checking bumpalo v3.20.2
+    Checking miniz_oxide v0.9.1
+    Checking equivalent v1.0.2
+    Checking uuid v1.23.1
+    Checking hashbrown v0.17.1
+    Checking vec_map v0.8.2
+    Checking fdeflate v0.3.7
+    Checking objc2 v0.6.4
+    Checking miniz_oxide v0.8.9
+    Checking zopfli v0.8.3
+    Checking zerocopy v0.8.48
+    Checking cobs v0.3.0
+    Checking mach2 v0.6.0
+    Checking isa198x v0.1.0
+    Checking fnv v1.0.7
+    Checking dasp_sample v0.11.0
+    Checking typed-path v0.12.3
+    Checking format-sinclair-zx-spectrum-z80 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-sinclair-zx-spectrum-z80)
+    Checking format198x-tzx v0.1.0
+    Checking either v1.16.0
+    Checking indexmap v2.14.0
+    Checking anstyle v1.0.14
+    Checking ciborium-io v0.2.2
+    Checking regex-syntax v0.8.10
+    Checking clap_lex v1.1.0
+    Checking itertools v0.13.0
+    Checking format198x-amstrad-cpc-dsk v0.1.1
+    Checking clap_builder v4.6.0
+    Checking same-file v1.0.6
+    Checking cast v0.3.0
+    Checking walkdir v2.5.0
+    Checking num-traits v0.2.19
+    Checking alloca v0.4.0
+    Checking flate2 v1.1.10
+    Checking page_size v0.6.0
+    Checking dispatch2 v0.3.1
+    Checking block2 v0.6.2
+    Checking objc2-foundation v0.3.2
+    Checking objc2-core-audio-types v0.3.2
+    Checking format198x-sinclair-zx-spectrum-tap v0.1.1
+    Checking zip v8.6.0
+    Checking objc2-core-foundation v0.3.2
+    Checking isa198x-disasm v0.1.0
+    Checking png v0.18.1
+    Checking regex-automata v0.4.14
+    Checking anes v0.1.6
+    Checking oorandom v11.1.5
+    Checking format198x-sinclair-zx-spectrum-bas v0.1.3
+    Checking serde v1.0.229
+    Checking serde_json v1.0.151
+    Checking format-sinclair-zx-spectrum-szx v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-sinclair-zx-spectrum-szx)
+    Checking criterion-plot v0.8.2
+    Checking format-sinclair-zx-spectrum-sna v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-sinclair-zx-spectrum-sna)
+    Checking twox-hash v2.1.4
+    Checking emu198x-test-skip v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/emu198x-test-skip)
+    Checking common-tape v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/common-tape)
+    Checking emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/emu198x-gi-ay-3-8910)
+    Checking serde-big-array v0.5.1
+    Checking emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/emu198x-zilog-z80)
+    Checking postcard v1.1.3
+    Checking clap v4.6.1
+    Checking format-tzx v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-tzx)
+    Checking gi-ay-3-8912 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/gi-ay-3-8912)
+    Checking debug198x v0.1.0
+    Checking tinytemplate v1.2.1
+    Checking regex v1.12.3
+    Checking common-sinclair-zx-spectrum v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/common-sinclair-zx-spectrum)
+    Checking objc2-core-audio v0.3.2
+    Checking objc2-io-kit v0.3.2
+    Checking objc2-audio-toolbox v0.3.2
+    Checking nec-upd765a v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/nec-upd765a)
+    Checking peripheral-kempston-joystick v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/peripheral-kempston-joystick)
+    Checking amstrad-ula-40077 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/amstrad-ula-40077)
+    Checking ferranti-ula-6c001e v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/ferranti-ula-6c001e)
+    Checking sinclair-ula-7k010e v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/sinclair-ula-7k010e)
+    Checking timex-scld v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/timex-scld)
+    Checking beta-disk-interface v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/beta-disk-interface)
+    Checking scorpion-ula v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/scorpion-ula)
+    Checking pentagon-ula v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/pentagon-ula)
+    Checking half v2.7.1
+    Checking format-sinclair-zx-spectrum-tzx v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-sinclair-zx-spectrum-tzx)
+    Checking gilrs-core v0.6.8
+    Checking common-sinclair-zx-spectrum-128k-class v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/common-sinclair-zx-spectrum-128k-class)
+    Checking machine-timex-ts2068 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-timex-ts2068)
+    Checking machine-timex-tc2048 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-timex-tc2048)
+    Checking common-sinclair-zx-spectrum-48k-class v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/common-sinclair-zx-spectrum-48k-class)
+    Checking machine-scorpion-zs256 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-scorpion-zs256)
+    Checking machine-pentagon-128 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-pentagon-128)
+    Checking coreaudio-rs v0.14.2
+    Checking gilrs v0.11.2
+    Checking machine-sinclair-zx-spectrum-plus2 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-plus2)
+    Checking machine-sinclair-zx-spectrum-128k v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-128k)
+    Checking ciborium-ll v0.2.2
+    Checking machine-sinclair-zx-spectrum-plus v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-plus)
+    Checking machine-sinclair-zx-spectrum-16k v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-16k)
+    Checking common-sinclair-zx-spectrum-amstrad-class v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/common-sinclair-zx-spectrum-amstrad-class)
+    Checking format-amstrad-dsk v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/format-amstrad-dsk)
+    Checking ciborium v0.2.2
+    Checking cpal v0.18.2
+    Checking machine-sinclair-zx-spectrum-plus3 v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-plus3)
+    Checking machine-sinclair-zx-spectrum-plus2a v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-plus2a)
+    Checking machine-sinclair-zx-spectrum-plus2b v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-plus2b)
+    Checking criterion v0.8.2
+    Checking emu198x-shell v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/emu198x-shell)
+    Checking machine-sinclair-zx-spectrum-48k v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/machine-sinclair-zx-spectrum-48k)
+    Checking runtime-sinclair-zx-spectrum v0.39.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sds-emu/crates/runtime-sinclair-zx-spectrum)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.01s

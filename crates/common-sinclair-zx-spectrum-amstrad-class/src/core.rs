@@ -297,7 +297,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.memory.reset_paging();
         self.fdc.reset();
         self.fdc_motor_on = false;
-        self.update_fdc_ready();
+        self.update_fdc_inputs();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
@@ -312,7 +312,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.memory.write_7ffd(snap.port_7ffd);
         self.memory.write_1ffd(snap.port_1ffd);
         self.fdc_motor_on = snap.port_1ffd & 8 != 0;
-        self.update_fdc_ready();
+        self.update_fdc_inputs();
         apply_ay_registers(snap, &mut self.ay);
     }
 
@@ -359,12 +359,19 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
 
     /// Supply the sector-model drive levels independently of FDC media parsing.
     /// Motor spin-up mechanics are not modelled here; both drives share bit3.
-    fn update_fdc_ready(&mut self) {
+    fn update_fdc_inputs(&mut self) {
         if V::HAS_FDC {
             let motor = self.fdc_motor_on;
             for unit in 0..4 {
                 self.fdc
                     .set_ready(unit, motor && self.fdc.has_disk(unit & 1));
+                // +3 service manual circuit p19: pin34 is inverted /WR PROT
+                // in both RW and SEEK modes. NEC Mar1979 app note fig11
+                // samples WP then TS; zxsp FdcPlus3::is_2sided agrees.
+                // This preserves the current sector-model WP level; empty
+                // physical-drive sensor levels remain unqualified.
+                let protected = self.fdc.is_write_protected(unit & 1);
+                self.fdc.set_two_side(unit, protected);
             }
         }
     }
@@ -417,6 +424,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
         if self.fdc.claims_port(port) {
+            self.update_fdc_inputs();
             if std::env::var("EMU198X_FDC_TRACE").is_ok() {
                 eprintln!(
                     "[FDC] OUT (${port:04x}), ${data:02x}  pc=${:04x} bc=${:04x} de=${:04x}",
@@ -456,7 +464,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         if port & 0xF002 == 0x1000 {
             self.fdc_motor_on = data & 8 != 0;
             self.memory.write_1ffd(data);
-            self.update_fdc_ready();
+            self.update_fdc_inputs();
         }
 
         // AY register select ($FFFD) and data write ($BFFD).
@@ -579,7 +587,7 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
         }
         // Peripheral timestamps remain in the driver's master-clock
         // counter units; call frequency is once per CPU T-state.
-        self.update_fdc_ready();
+        self.update_fdc_inputs();
         self.fdc.tick(position.halfcycles());
         let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
@@ -624,6 +632,76 @@ fn mix_ay_into_audio(audio: &mut [f32], ay: &[f32]) {
 mod tests {
     use super::*;
     use crate::variant::{Plus2AMarker, Plus2BMarker};
+
+    #[test]
+    fn plus3_two_side_status_follows_write_protect_not_image_presence() {
+        for writable in [true, false] {
+            let mut machine = SpectrumAmstradClassCore::<Plus3Marker>::new();
+            machine.fdc.insert_disk_with_writable(
+                0,
+                nec_upd765a::DiskImage {
+                    sides: 1,
+                    tracks_per_side: 1,
+                    tracks: vec![vec![nec_upd765a::DiskTrack::default()]],
+                },
+                writable,
+            );
+            machine.io_write(0x1ffd, 12);
+            machine.fdc.write_data(4);
+            machine.fdc.write_data(0);
+            let st3 = machine.fdc.read_data();
+            assert_eq!(st3 & 0x40 != 0, !writable, "WP follows mount protection");
+            assert_eq!(st3 & 8 != 0, !writable, "+3 pin34 carries WP in both modes");
+            assert_eq!(st3 & 0x20, 0x20, "READY held constant");
+        }
+    }
+
+    #[test]
+    fn plus3_two_side_tracks_selected_drive_protection_across_mount_changes() {
+        let mut machine = SpectrumAmstradClassCore::<Plus3Marker>::new();
+        for (writable_a, writable_b) in [(true, false), (false, true)] {
+            for (drive, writable) in [(0, writable_a), (1, writable_b)] {
+                machine.fdc.insert_disk_with_writable(
+                    drive,
+                    nec_upd765a::DiskImage::default(),
+                    writable,
+                );
+            }
+            for motor in [false, true] {
+                machine.io_write(0x1ffd, if motor { 12 } else { 4 });
+                for selected in 0..8 {
+                    machine.io_write(0x3ffd, 4);
+                    machine.io_write(0x3ffd, selected);
+                    let st3 = machine.io_read(0x3ffd);
+                    let protected = if selected & 1 == 0 {
+                        !writable_a
+                    } else {
+                        !writable_b
+                    };
+                    assert_eq!(st3 & 7, selected, "logical unit/head echoed");
+                    assert_eq!(st3 & 8 != 0, protected, "physical selected TS");
+                    assert_eq!(st3 & 0x40 != 0, protected, "physical selected WP");
+                    assert_eq!(st3 & 0x20 != 0, motor, "TS does not depend on motor");
+                }
+            }
+        }
+        // A remount immediately before a host-port command must not leave the
+        // previous TS level behind, even without an intervening CPU tick.
+        machine
+            .fdc
+            .insert_disk_with_writable(0, nec_upd765a::DiskImage::default(), true);
+        machine.io_write(0x3ffd, 4);
+        machine.io_write(0x3ffd, 0);
+        assert_eq!(machine.io_read(0x3ffd) & (8 | 0x40), 0);
+        machine.fdc.eject_disk(0);
+        machine.io_write(0x3ffd, 4);
+        machine.io_write(0x3ffd, 0);
+        assert_eq!(
+            machine.io_read(0x3ffd) & (8 | 0x40 | 0x20),
+            0,
+            "existing empty-slot fallback"
+        );
+    }
 
     /// #1633: a tape that ends with its input high must not leave the
     /// speaker's EAR input, or port `$FE` bit 6, latched there. FUSE's
