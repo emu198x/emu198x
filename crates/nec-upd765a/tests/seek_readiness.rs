@@ -94,13 +94,13 @@ fn seek_uses_masked_drive_readiness_and_echoes_requested_unit() {
     fdc.insert_disk(0, image());
     assert!(ready(&mut fdc, 2), "unit 2 aliases ready drive 0");
     seek(&mut fdc, 2, 7);
-    assert_eq!(fdc.read_status(), 0x81, "physical drive 0 is busy");
+    assert_eq!(fdc.read_status(), 0x84, "logical unit 2 is busy");
     complete(&mut fdc);
     assert_eq!(sense_interrupt(&mut fdc), [0x22, 7]);
 
     assert!(!ready(&mut fdc, 3), "unit 3 aliases not-ready drive 1");
     seek(&mut fdc, 3, 20);
-    assert_eq!(fdc.read_status(), 0x82, "physical drive 1 is busy");
+    assert_eq!(fdc.read_status(), 0x88, "logical unit 3 is busy");
     complete(&mut fdc);
     assert_eq!(sense_interrupt(&mut fdc), [0x6b, 0]);
 }

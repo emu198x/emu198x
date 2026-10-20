@@ -758,7 +758,7 @@ mod tests {
             // This does not add v6 runtime restore compatibility.
             let mut current = bytes.to_vec();
             current.extend(
-                postcard::to_allocvec(&([None::<bool>; 4], [false; 4], 0_u64, false))
+                postcard::to_allocvec(&([None::<bool>; 4], [false; 4], 0_u64, false, [0_u8; 4]))
                     .expect("new READY fields"),
             );
             let mut original = SpectrumPlus3Runtime::blank();
