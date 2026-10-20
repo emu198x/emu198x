@@ -115,6 +115,20 @@ public final class Machine {
         }
     }
 
+    /// Loads the inserted tape the way a person would from power-on: reset,
+    /// wait for the prompt, type `LOAD ""` and press play. Spectrum only.
+    /// Returns the frames spent booting; the tape then loads as the machine
+    /// runs.
+    @discardableResult
+    public func autoloadTape(maxBootFrames: Int = 500) throws -> Int {
+        guard let limit = UInt32(exactly: maxBootFrames) else {
+            throw EmulatorError(kind: .invalidArgument, message: "boot frame limit out of range")
+        }
+        var frames: UInt32 = 0
+        try check(emu198x_machine_autoload_tape(handle, limit, &frames))
+        return Int(frames)
+    }
+
     public func setTape(slot: String, playing: Bool) throws {
         try check(emu198x_machine_transport(handle, slot, playing))
     }

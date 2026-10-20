@@ -10,6 +10,8 @@ public enum HostCommand: Sendable {
     case button(String, port: UInt8, pressed: Bool)
     case load(slot: String, data: Data)
     case tape(slot: String, playing: Bool)
+    /// Types `LOAD ""` from power-on and plays the inserted tape (Spectrum).
+    case autoloadTape
     case pause(Bool)
     case restoreState(Data)
     /// The reply runs on the loop's thread.
@@ -239,6 +241,11 @@ public final class EmulatorLoop: Sendable {
                 try machine.setButton(name, port: port, pressed: pressed)
             case let .load(slot, data): try machine.load(slot: slot, data: data)
             case let .tape(slot, playing): try machine.setTape(slot: slot, playing: playing)
+            case .autoloadTape:
+                // The boot frames run at once; their sound is stale.
+                try machine.autoloadTape()
+                _ = try machine.drainAudio()
+                audio.clear()
             case let .pause(value): paused = value
             case let .restoreState(state):
                 try machine.restoreState(state)
