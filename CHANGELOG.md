@@ -4,6 +4,21 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.41.0] - 2026-10-20
+
+
+### Added
+
+- Let native Apple hosts drive the emulator through a C interface
+- Package the Apple bridge for Xcode on macOS and Apple TV
+- Run the emulator from Swift on its own real-time thread
+
+
+### Fixed
+
+- **Breaking** — Separate +3 drive status from inserted media. Spectrum native snapshots advance v8 to v9 and reject older versions before payload decode, as explicitly approved. CPC and portable imports are unchanged.
+- Honor write protection at the final data-field deadline
+
 ## [0.40.0] - 2026-10-20
 
 
