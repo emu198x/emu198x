@@ -39,3 +39,7 @@ moves the border (`crates/emu198x-apple/tests/common/beeper.rs`), so no
 firmware is needed. A test that boots the real 48K ROM runs when one is
 at `EMU198X_SPECTRUM_48K_ROM` or `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`,
 and is reported as skipped otherwise.
+
+CI runs all of this on a macOS runner in the `Apple hosts` job of
+`.github/workflows/ci.yml`, and also builds the Swift package for tvOS and
+the Mac app.

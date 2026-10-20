@@ -594,3 +594,62 @@ jobs:
       # GPU-less host. Run it locally to cover the WebGPU path.
       - name: The GPU presenter must draw on a browser canvas
         run: wasm-pack test --headless --chrome --release crates/emu198x-native-video
+
+  # The native Apple hosts (apple/, #1896–#1898). The Swift package and the
+  # Mac app link the Rust runtimes through crates/emu198x-apple, so a change
+  # to any runtime can break them; that is why this runs on every change
+  # rather than only on apple/. The packaging script links a C program
+  # against each library before Swift sees it, the Swift tests compare
+  # Swift's output with direct Fleet calls bit for bit, and the app and the
+  # tvOS package must build. The real-ROM Swift test is skipped here, since
+  # CI has no Spectrum ROM. Nothing is signed or uploaded.
+  apple:
+    name: Apple hosts
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-apple-darwin, aarch64-apple-tvos, aarch64-apple-tvos-sim
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: apple
+
+      - name: Report Xcode and SDK versions
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -E 'macosx|appletv'
+
+      - name: Package the bridge for macOS, tvOS and the tvOS simulator
+        run: scripts/build-apple-xcframework.sh
+
+      - name: Swift must match direct Rust execution
+        working-directory: apple/Emu198xKit
+        run: swift test
+
+      - name: The Swift package must build for tvOS
+        working-directory: apple/Emu198xKit
+        run: |
+          for destination in 'generic/platform=tvOS' 'generic/platform=tvOS Simulator'; do
+            xcodebuild -scheme Emu198xKit -destination "$destination" \
+              -derivedDataPath "$RUNNER_TEMP/tvos" CODE_SIGNING_ALLOWED=NO build
+          done
+
+      - name: The Mac app must build
+        working-directory: apple/Emu198x
+        run: |
+          xcodebuild -project Emu198x.xcodeproj -scheme Emu198xSpectrum \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/mac" build
