@@ -148,6 +148,13 @@ impl CMachine {
         Ok((width, height))
     }
 
+    pub fn pixel_aspect(&mut self) -> Result<f32, Failure> {
+        let mut aspect = 0.0;
+        // SAFETY: a live handle owned by `self` and a writable value.
+        check(unsafe { ffi::emu198x_machine_pixel_aspect(self.0, &raw mut aspect) })?;
+        Ok(aspect)
+    }
+
     pub fn pixels(&mut self) -> Result<Vec<u8>, Failure> {
         let (width, height) = self.frame_size()?;
         let mut pixels = vec![0; width as usize * height as usize * 4];

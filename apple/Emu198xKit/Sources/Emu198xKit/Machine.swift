@@ -147,6 +147,14 @@ public final class Machine {
         }
     }
 
+    /// Width of one picture pixel relative to its height, as the runtime
+    /// states its display: above 1 for a PAL Spectrum, 1 for an LCD.
+    public func pixelAspectRatio() throws -> Float {
+        var aspect: Float = 0
+        try check(emu198x_machine_pixel_aspect(handle, &aspect))
+        return aspect
+    }
+
     /// The latest picture. Before the first frame has run it has no pixels.
     public func frame() throws -> Frame {
         var width: UInt32 = 0

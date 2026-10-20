@@ -63,6 +63,11 @@ import Testing
         #expect(try machine.advance(milliseconds: period * 0.6) == 1)
     }
 
+    @Test func aPALSpectrumHasWidePixels() throws {
+        let aspect = try spectrum().pixelAspectRatio()
+        #expect(aspect > 1.04 && aspect < 1.07, "7 MHz pixels on a PAL line: \(aspect)")
+    }
+
     @Test func machinesTearDownRepeatedly() throws {
         for _ in 0..<100 {
             let machine = try spectrum()

@@ -466,6 +466,24 @@ pub unsafe extern "C" fn emu198x_machine_frame_ms(
     }
 }
 
+/// Reports the width of one picture pixel relative to its height.
+///
+/// # Safety
+/// See `with_machine` and `put`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn emu198x_machine_pixel_aspect(
+    machine: *mut Emu198xMachine,
+    out: *mut f32,
+) -> i32 {
+    // SAFETY: the caller upholds `with_machine` and `put`.
+    unsafe {
+        with_machine(machine, |m| {
+            let aspect = m.fleet.pixel_aspect_ratio()?;
+            put(out, aspect, "out is null")
+        })
+    }
+}
+
 /// Exports the machine state into a library-owned buffer.
 ///
 /// # Safety
