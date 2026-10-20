@@ -1,3 +1,5 @@
 /build/
 /Emu198xKit/.build/
 /Emu198xKit/.swiftpm/
+/Emu198x/LocalContent/*
+!/Emu198x/LocalContent/README.md

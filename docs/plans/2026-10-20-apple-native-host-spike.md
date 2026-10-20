@@ -217,18 +217,56 @@ Still to verify: play with a physical controller (Kempston, in the
 build after the port change), save, quit, reopen
 and restore, a 10-minute underrun count, and the alert for a failed load.
 
-### 5. Apple TV target (same project, tvOS target)
+### 5. Apple TV target (same project, tvOS target) (in progress)
 
-- A remote-friendly list of local software from the git-ignored content
-  folder. Select starts play; Menu opens a pause overlay with Resume,
-  Restart, Save and Load.
-- For now saves go to the Caches folder, and the overlay labels them as
-  temporary. Durable saves (#1898) are a later decision.
+"Emu198x Spectrum TV", a second target in `apple/Emu198x/Emu198x.xcodeproj`
+sharing `apple/Emu198x/Shared` with the Mac app.
 
-Verification: the tvOS simulator boots, runs a program and plays sound.
-A real Apple TV is next, with its model, tvOS version and build
-configuration recorded, measured the same way as step 4. Success in the
-simulator says nothing about how the hardware performs.
+- Content: the app plays what is built into it from
+  `apple/Emu198x/LocalContent`, which is git-ignored apart from its
+  README: `48.rom` (the SHA-1 is checked) and `.tap`, `.tzx`, `.sna`,
+  `.z80` or `.state` files. Local builds only; the README says why. Getting
+  files onto the TV over the network is later work.
+- Starting a tape with no keyboard (Steve, 2026-10-20): `Fleet` exposes the
+  runtime's own `autoload_basic_tape`, which the browser player and
+  `--autoload-tape` already use: reset, wait for the prompt, type
+  `LOAD ""`, press play. `Fleet` now builds its Spectrum with
+  `SpectrumSessionQueryProvider` so autoload can ask whether the machine
+  has booted and a tape is loaded. Tapes still load at real speed.
+- Input: a game controller is the Kempston joystick (port 0), as on the
+  Mac. The Siri Remote's d-pad and click are a fallback joystick. The
+  remote's Menu button pauses and opens a menu with Resume, Keyboard,
+  Restart and Back to Library. Keyboard is the Spectrum's keys on screen,
+  with Caps Shift and Symbol Shift held for the next key, for the keys a
+  game asks for that a controller cannot press (Dizzy's K and Space).
+- Audio: an `AVAudioSession` set to playback, which tvOS needs before the
+  engine makes sound.
+- `ARCHS = arm64`, as for the Mac app: the XCFramework has arm64 slices
+  only, which covers Apple TV hardware and the simulator on Apple silicon.
+- Saves aren't in the TV app yet. tvOS can purge an app's local storage, so
+  durable saves need their own decision (#1898).
+- CI builds the TV app for the device and the simulator.
+
+Verified in the tvOS 27.0 simulator (Apple TV 4K, 3rd generation, 1080p),
+run from Device Hub, which replaces the standalone Simulator app in Xcode
+27: the library lists Dizzy from `LocalContent`; selecting it autoloads
+the tape through the ROM and Codemasters' own loader; and the loading
+screen draws at the Spectrum's aspect with even pixels.
+
+Also verified there: a `.state` saved headlessly through `Fleet` restores
+straight to Dizzy's title screen; Menu pauses and opens the pause menu; K
+on the on-screen keyboard reaches the game, which selects Kempston and
+starts. The machine runs while the keyboard is open, because a key tapped
+on a paused machine is released before the ROM scans it.
+
+Menu on the keyboard goes straight back to the game rather than to the
+pause menu. Two attempts to make it step back one level changed nothing,
+and the cause isn't established; the behaviour is usable as it stands.
+
+Still to verify: playing with a controller; sound, which the simulator
+plays through the Mac and I can't hear; and a real Apple TV. Steve has an
+Apple TV 4K (3rd generation) on tvOS 26.6, which needs signing with his
+team.
 
 ### 6. Report
 
@@ -266,5 +304,4 @@ authorised yet.
 
 ## Open questions, settled when the step needs them
 
-- Apple TV hardware and signing for a device build (step 5): which model,
-  and which Apple Developer team.
+- Signing for a device build (step 5): which Apple Developer team.

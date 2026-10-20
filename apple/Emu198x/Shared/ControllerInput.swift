@@ -33,7 +33,10 @@ final class ControllerInput {
     }
 
     private func attach(_ controller: GCController) {
-        guard let pad = controller.extendedGamepad else { return }
+        guard let pad = controller.extendedGamepad else {
+            attachRemote(controller.microGamepad)
+            return
+        }
         pad.valueChangedHandler = { [weak self] pad, _ in
             let state = [
                 "up": pad.dpad.up.isPressed || pad.leftThumbstick.yAxis.value > 0.5,
@@ -41,6 +44,23 @@ final class ControllerInput {
                 "left": pad.dpad.left.isPressed || pad.leftThumbstick.xAxis.value < -0.5,
                 "right": pad.dpad.right.isPressed || pad.leftThumbstick.xAxis.value > 0.5,
                 "fire": pad.buttonA.isPressed,
+            ]
+            MainActor.assumeIsolated { self?.apply(state) }
+        }
+    }
+
+    /// The Siri Remote: its touch surface or clickpad is the d-pad and a
+    /// click is fire, for playing without a game controller.
+    private func attachRemote(_ remote: GCMicroGamepad?) {
+        guard let remote else { return }
+        remote.reportsAbsoluteDpadValues = false
+        remote.valueChangedHandler = { [weak self] remote, _ in
+            let state = [
+                "up": remote.dpad.yAxis.value > 0.5,
+                "down": remote.dpad.yAxis.value < -0.5,
+                "left": remote.dpad.xAxis.value < -0.5,
+                "right": remote.dpad.xAxis.value > 0.5,
+                "fire": remote.buttonA.isPressed,
             ]
             MainActor.assumeIsolated { self?.apply(state) }
         }
