@@ -4,6 +4,16 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.39.2] - 2026-10-20
+
+
+### Fixed
+
+- Report READY attention and preserve the digital SIS state
+- Preserve logical FDC positions across drive aliases
+- Retain FDC drive busy until SIS reads status
+- Report not-ready recalibrate as abnormal seek end
+
 ## [0.39.1] - 2026-10-20
 
 
