@@ -17,7 +17,7 @@ fn ticks(fdc: &mut Upd765a, count: u32) {
 }
 fn result(fdc: &mut Upd765a) -> Vec<u8> {
     fdc.write_data(8);
-    assert_eq!(fdc.read_status(), 0xd0);
+    assert_eq!(fdc.read_status() & 0xf0, 0xd0);
     let st0 = fdc.read_data();
     let mut out = vec![st0];
     if st0 != 0x80 {

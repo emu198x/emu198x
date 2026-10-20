@@ -9,7 +9,8 @@ fn seek(fdc: &mut Upd765a, drive: u8, cylinder: u8) {
 
 fn complete_seeks(fdc: &mut Upd765a) {
     // Busy now includes unacknowledged completions, so it is not a motion timer.
-    for hc in 0..4096 {
+    // Keep this seek-only test before the independent READY polling boundary.
+    for hc in 0..1024 {
         fdc.tick(hc);
     }
     assert!(fdc.interrupt, "bounded seek completion raises IRQ");

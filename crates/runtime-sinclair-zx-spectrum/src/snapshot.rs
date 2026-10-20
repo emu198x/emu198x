@@ -1371,6 +1371,51 @@ mod tests {
     }
 
     #[test]
+    fn pending_seek_and_each_sis_byte_preserve_busy_across_restore() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        // Pending completion, SIS before ST0, and SIS after ST0 are distinct.
+        for phase in 0..3 {
+            let mut original = SpectrumPlus3Runtime::blank();
+            original.machine_mut().fdc.set_ready(0, true);
+            send_fdc_command(&mut original, &[15, 0, 7]);
+            for _ in 0..1024 {
+                original.machine_mut().fdc.tick(0);
+            }
+            assert_eq!(original.machine().fdc.read_status(), 0x81);
+            if phase > 0 {
+                send_fdc_command(&mut original, &[8]);
+                assert_eq!(original.machine().fdc.read_status(), 0xd1);
+            }
+            if phase == 2 {
+                assert_eq!(original.machine_mut().fdc.read_data(), 0x20);
+                assert_eq!(original.machine().fdc.read_status(), 0xd0);
+            }
+            let saved = original.snapshot().expect("save SIS phase");
+            let mut restored = SpectrumPlus3Runtime::blank();
+            restored.restore(&saved).expect("restore SIS phase");
+            assert_eq!(restored.snapshot().expect("fixed point"), saved);
+            for runtime in [&mut original, &mut restored] {
+                if phase == 0 {
+                    assert!(runtime.machine().fdc.interrupt);
+                    send_fdc_command(runtime, &[8]);
+                }
+                assert!(!runtime.machine().fdc.interrupt);
+                if phase < 2 {
+                    assert_eq!(runtime.machine().fdc.read_status(), 0xd1);
+                    assert_eq!(runtime.machine_mut().fdc.read_data(), 0x20);
+                }
+                assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                assert_eq!(runtime.machine_mut().fdc.read_data(), 7);
+                assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+            }
+            assert_eq!(
+                original.snapshot().expect("baseline"),
+                restored.snapshot().expect("continued")
+            );
+        }
+    }
+
+    #[test]
     fn version_six_is_rejected_atomically_before_payload_decode() {
         let mut runtime = SpectrumPlus3Runtime::blank();
         let before = runtime.snapshot().expect("current snapshot");

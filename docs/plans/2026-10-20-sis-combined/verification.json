@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "qualified": false,
+  "scope": "source controller/Amstrad/runtime regression, ROM/release gates separate",
+  "passed": 537,
+  "failed": 0,
+  "ignored": 62,
+  "clippy": "pass",
+  "integration_failures_retained": true,
+  "causes": [
+    "Busy acknowledgements change lower MSR bits; expected exact busy transitions updated",
+    "Fixed4096-tick seek helpers crossed independent READY polling boundary; initialize/drain READY and make event sequence explicit",
+    "Initial not-ready Recal now68 rather thanD0; retain NR,SE,abnormal bits",
+    "Interrupted integration compile rejected unresolved cherry-pick conflict; resolved READY predicate before rerun"
+  ],
+  "snapshot_approval": "User approved explicit READY input and native v6\u2192v7 rejection; pending seek and both SIS byte boundaries tested"
+}

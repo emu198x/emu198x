@@ -22,7 +22,11 @@ fn unacknowledged_seek_rejects_other_command_without_losing_status() {
         0x80,
         "SDS must be Invalid before seek acknowledgement"
     );
-    assert_eq!(fdc.read_status(), 0x80, "Invalid has no synthetic PCN");
+    assert_eq!(
+        fdc.read_status(),
+        0x81,
+        "Invalid preserves unacknowledged Seek busy"
+    );
     fdc.write_data(8);
     assert_eq!(fdc.read_data(), 0x20);
     assert_eq!(
