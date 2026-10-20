@@ -330,6 +330,26 @@ pub unsafe extern "C" fn emu198x_machine_transport(
     }
 }
 
+/// Loads the inserted tape from power-on, typing `LOAD ""` and pressing
+/// play, and reports the frames spent booting.
+///
+/// # Safety
+/// See `with_machine` and `put`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn emu198x_machine_autoload_tape(
+    machine: *mut Emu198xMachine,
+    max_boot_frames: u32,
+    boot_frames_out: *mut u32,
+) -> i32 {
+    // SAFETY: the caller upholds `with_machine` and `put`.
+    unsafe {
+        with_machine(machine, |m| {
+            let frames = m.fleet.autoload_tape(max_boot_frames)?;
+            put(boot_frames_out, frames, "boot_frames_out is null")
+        })
+    }
+}
+
 /// Presses or releases a machine key.
 ///
 /// # Safety

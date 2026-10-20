@@ -66,6 +66,12 @@ int32_t emu198x_machine_load(Emu198xMachine *machine, const char *slot, const ui
 /* Starts or stops a tape deck. */
 int32_t emu198x_machine_transport(Emu198xMachine *machine, const char *slot, bool playing);
 
+/* Loads the inserted tape the way a person would from power-on: reset,
+ * wait for the prompt, type LOAD "" and press play. *boot_frames_out is the
+ * frames spent booting. Spectrum only; other machines are refused. The tape
+ * then loads at normal speed as the machine runs. */
+int32_t emu198x_machine_autoload_tape(Emu198xMachine *machine, uint32_t max_boot_frames, uint32_t *boot_frames_out);
+
 /* Presses or releases a machine key by name. */
 int32_t emu198x_machine_key(Emu198xMachine *machine, const char *name, bool pressed);
 /* Presses or releases a named control on a numbered input port. Ports are

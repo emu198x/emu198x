@@ -2,7 +2,7 @@
 //! A feature selects each downloadable family; native tools can enable all.
 use emu198x_shell::{
     ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, InputEvent, MediaTransportAction,
-    MediaTransportCommand,
+    MediaTransportCommand, NoAdditionalQueries, SessionQueryProvider,
 };
 use emu198x_web::WebMachine;
 use serde_json::{Value, json};
@@ -27,11 +27,14 @@ trait Host {
     fn export_media(&self, slot: &str) -> Result<Vec<u8>, String>;
     fn keymap(&self) -> Value;
     fn pixel_aspect_ratio(&self) -> f32;
+    fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, String>;
 }
-struct RuntimeHost<R: FamilyRuntime> {
-    web: WebMachine<R>,
+/// `Q` answers the family's own query paths. Most families need none; the
+/// Spectrum's tape autoload waits on `boot.detected` and `tape.loaded`.
+struct RuntimeHost<R: FamilyRuntime, Q = NoAdditionalQueries> {
+    web: WebMachine<R, Q>,
 }
-impl<R: FamilyRuntime + 'static> Host for RuntimeHost<R> {
+impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for RuntimeHost<R, Q> {
     fn step(&mut self) -> Result<(), String> {
         self.web.run_one_frame().map_err(|e| e.to_string())
     }
@@ -53,6 +56,16 @@ impl<R: FamilyRuntime + 'static> Host for RuntimeHost<R> {
     }
     fn frame_ms(&self) -> f64 {
         self.web.frame_ms()
+    }
+    fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, String> {
+        #[cfg(feature = "sinclair-zx-spectrum")]
+        if let Some(machine) = (&mut self.web as &mut dyn std::any::Any)
+            .downcast_mut::<emu198x_spectrum_web::SpectrumWebMachine>()
+        {
+            return emu198x_spectrum_web::autoload_tape(machine, max_boot_frames);
+        }
+        let _ = max_boot_frames;
+        Err("tape autoload is available only on the Spectrum".into())
     }
     fn pixel_aspect_ratio(&self) -> f32 {
         let (width, height) = self.web.frame_size();
@@ -220,10 +233,17 @@ fn build<R: FamilyRuntime + 'static>(
     variant: &str,
     firmware: &FirmwareSet<'_>,
 ) -> Result<Box<dyn Host>, String> {
+    build_with_queries::<R, _>(variant, firmware, NoAdditionalQueries)
+}
+fn build_with_queries<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static>(
+    variant: &str,
+    firmware: &FirmwareSet<'_>,
+    queries: Q,
+) -> Result<Box<dyn Host>, String> {
     let model = R::model_from_id(variant).ok_or_else(|| format!("unknown variant: {variant}"))?;
     let runtime = R::from_firmware(model, firmware).map_err(|e| e.to_string())?;
     Ok(Box::new(RuntimeHost {
-        web: WebMachine::new(runtime),
+        web: WebMachine::new_with_query_provider(runtime, queries),
     }))
 }
 fn profiles<R: FamilyRuntime>(family: &str) -> Vec<Value> {
@@ -421,6 +441,17 @@ impl Fleet {
     /// requires a booted machine.
     pub fn pixel_aspect_ratio(&self) -> Result<f32, String> {
         Ok(self.host_ref()?.pixel_aspect_ratio())
+    }
+    /// Loads the inserted tape the way a person would from power-on: reset,
+    /// wait for the prompt, type `LOAD ""` and press play. Returns the frames
+    /// spent booting. The runtime's own autoload does the work, as it does
+    /// for the browser player and `--autoload-tape`.
+    ///
+    /// # Errors
+    /// Rejects machines without the helper (only the Spectrum has it), a
+    /// missing tape, or a machine that never reaches its prompt.
+    pub fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, String> {
+        self.host_mut()?.autoload_tape(max_boot_frames)
     }
     /// Starts or stops a tape deck after the guest's load command.
     ///
