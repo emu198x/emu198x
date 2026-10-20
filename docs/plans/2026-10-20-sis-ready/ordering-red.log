@@ -1,0 +1,25 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/e19b4cb87a664ffa: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/nec-upd765a)
+    Finished `test` profile [unoptimized] target(s) in 1.42s
+     Running tests/sis_ordering.rs (/Users/stevehill/Projects/198x/output/qualification/sis-ready-target/debug/deps/sis_ordering-073b4853cdb0a9ed)
+
+running 1 test
+test unacknowledged_seek_rejects_other_command_without_losing_status ... FAILED
+
+failures:
+
+---- unacknowledged_seek_rejects_other_command_without_losing_status stdout ----
+
+thread 'unacknowledged_seek_rejects_other_command_without_losing_status' (134970167) panicked at crates/nec-upd765a/tests/sis_ordering.rs:14:5:
+assertion `left == right` failed: SDS must be Invalid before seek acknowledgement
+  left: 104
+ right: 128
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    unacknowledged_seek_rejects_other_command_without_losing_status
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test sis_ordering`

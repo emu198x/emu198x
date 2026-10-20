@@ -1,0 +1,37 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/e19b4cb87a664ffa: Operation not permitted (os error 1)
+    Finished `test` profile [unoptimized] target(s) in 0.37s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/sis-ready-target/debug/deps/runtime_sinclair_zx_spectrum-b30f727bd9251829)
+
+running 30 tests
+test runtime::tests::load_media_snapshot_kind_errors ... ok
+test snapshot::tests::decode_rejects_completely_corrupt_bytes ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_4_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_unsupported_snapshot_version ... ok
+test snapshot::tests::decode_rejects_version_5_before_payload_decode_without_changing_runtime ... ok
+test snapshot::tests::decode_rejects_profile_mismatch_within_generic_envelope ... ok
+test snapshot::tests::encode_and_decode_round_trip_on_plus_runtime ... ok
+test snapshot::tests::live_export_after_write_and_restore_never_uses_cached_source_bytes ... ok
+test snapshot::tests::completed_write_survives_runtime_snapshot_without_replaying_source_bytes ... ok
+test snapshot::tests::no_pending_sense_interrupt_snapshot_keeps_one_byte_result ... ok
+test snapshot::tests::protected_mount_stays_protected_after_restore ... ok
+test snapshot::tests::mid_write_snapshot_resumes_identically_including_byte_deadline ... ok
+test snapshot::tests::released_v0330_controller_payload_is_rejected_before_old_version_decode ... ok
+test snapshot::tests::reconstructed_bad_id_reads_normalize_in_version_seven ... ok
+test snapshot::tests::ready_poll_and_partial_sis_result_survive_native_restore ... ok
+test snapshot::tests::snapshot_restore_preserves_mounted_disk_on_plus3 ... ok
+test snapshot::tests::version_six_is_rejected_atomically_before_payload_decode ... ok
+test spectrum_48k::tests::boots_profile_with_export_advertises_snapshot_export ... ok
+test snapshot::tests::deleted_write_survives_active_state_export_and_fresh_reopen ... ok
+test snapshot::tests::requested_id_head_survives_pending_read_and_result_checkpoints ... ok
+test snapshot::tests::paced_read_snapshot_preserves_request_and_deadline ... ok
+test snapshot::tests::scan_and_track_read_resume_without_mutating_disk ... ok
+test snapshot::tests::bad_id_results_and_valid_data_reads_keep_native_roundtrips ... ok
+test snapshot::tests::format_snapshot_resumes_every_id_boundary_and_gap_without_source_replay ... ok
+test snapshot::tests::current_read_snapshot_resumes_partial_normal_and_overrun_results ... ok
+test snapshot::tests::current_read_snapshot_resumes_before_within_and_between_sectors ... ok
+test snapshot::tests::current_read_snapshot_retains_position_errors_and_remaining_overrun_deadline ... ok
+test snapshot::tests::read_track_id_crc_survives_native_checkpoints_and_interior_overrun ... ok
+test snapshot::tests::read_track_native_field_matrix ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 9.34s

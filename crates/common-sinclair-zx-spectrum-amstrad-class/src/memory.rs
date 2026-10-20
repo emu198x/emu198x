@@ -26,7 +26,7 @@ use std::path::Path;
 ///   Bit 0:    Paging mode (0 = normal, 1 = special)
 ///   Bit 1:    Special mode config low bit
 ///   Bit 2:    ROM select high bit
-///   Bit 3:    Disk motor (ignored)
+///   Bit 3:    Disk motor (handled by the machine, independently of paging lock)
 ///   Bit 4:    Printer strobe (ignored)
 ///
 /// Normal mode: same as 128K but with 4 ROMs (selected by $7FFD bit 4 + $1FFD bit 2).

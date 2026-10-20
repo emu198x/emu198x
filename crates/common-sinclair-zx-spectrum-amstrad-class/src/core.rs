@@ -74,6 +74,8 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     recorder: TapeRecorder,
     pub ay: Ay3_8912,
     pub fdc: Upd765a,
+    /// Motor output is independent of the memory paging lock.
+    fdc_motor_on: bool,
     pub audio: BeeperAudio,
     pub audio_frame: Vec<f32>,
     /// Per-frame scratch buffer for AY samples, summed into `audio_frame`
@@ -134,6 +136,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
                 ay
             },
             fdc,
+            fdc_motor_on: false,
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, TIMING_PLUS2A.tstates_per_frame, cpu_hz),
             audio_frame: vec![0.0; AUDIO_SAMPLES_PER_FRAME],
             ay_frame: default_ay_frame(),
@@ -293,6 +296,8 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.z80 = Z80::new();
         self.memory.reset_paging();
         self.fdc.reset();
+        self.fdc_motor_on = false;
+        self.update_fdc_ready();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
@@ -306,6 +311,8 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         apply_128k_bank_pages(snap, &mut self.memory);
         self.memory.write_7ffd(snap.port_7ffd);
         self.memory.write_1ffd(snap.port_1ffd);
+        self.fdc_motor_on = snap.port_1ffd & 8 != 0;
+        self.update_fdc_ready();
         apply_ay_registers(snap, &mut self.ay);
     }
 
@@ -347,6 +354,18 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
                 self.z80.data_in = 0xFF;
             }
             None => {}
+        }
+    }
+
+    /// Supply the sector-model drive levels independently of FDC media parsing.
+    /// Motor spin-up mechanics are not modelled here; both drives share bit3.
+    fn update_fdc_ready(&mut self) {
+        if V::HAS_FDC {
+            let motor = self.fdc_motor_on;
+            for unit in 0..4 {
+                self.fdc
+                    .set_ready(unit, motor && self.fdc.has_disk(unit & 1));
+            }
         }
     }
 
@@ -435,7 +454,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             self.memory.write_7ffd(data);
         }
         if port & 0xF002 == 0x1000 {
+            self.fdc_motor_on = data & 8 != 0;
             self.memory.write_1ffd(data);
+            self.update_fdc_ready();
         }
 
         // AY register select ($FFFD) and data write ($BFFD).
@@ -558,6 +579,7 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
         }
         // Peripheral timestamps remain in the driver's master-clock
         // counter units; call frequency is once per CPU T-state.
+        self.update_fdc_ready();
         self.fdc.tick(position.halfcycles());
         let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
@@ -606,6 +628,51 @@ mod tests {
     /// #1633: a tape that ends with its input high must not leave the
     /// speaker's EAR input, or port `$FE` bit 6, latched there. FUSE's
     /// `tape_stop_mic_off` releases it one frame after the tape stops.
+    #[test]
+    fn plus3_motor_controls_ready_attention_for_wired_unit_aliases() {
+        let mut machine = SpectrumAmstradClassCore::<Plus3Marker>::new();
+        machine.insert_disk(nec_upd765a::DiskImage::default());
+        machine.io_write(0x1ffd, 4); // normal mode, motor stopped
+        for _ in 0..8000 {
+            machine.fdc.tick(0);
+        }
+        machine.fdc.write_data(8);
+        assert_eq!(
+            machine.fdc.read_data(),
+            0x80,
+            "mounted media alone is not READY"
+        );
+        machine.io_write(0x7ffd, 0x20); // paging lock must not lock the motor
+        machine.io_write(0x1ffd, 12);
+        for _ in 0..8000 {
+            machine.fdc.tick(0);
+        }
+        for unit in [0, 2] {
+            machine.fdc.write_data(8);
+            assert_eq!(
+                machine.fdc.read_data(),
+                0xc0 | unit,
+                "US1 aliases internal A"
+            );
+            assert_eq!(machine.fdc.read_data(), 0);
+        }
+        machine.io_write(0x1ffd, 4);
+        for _ in 0..8000 {
+            machine.fdc.tick(0);
+        }
+        for unit in [0, 2] {
+            machine.fdc.write_data(8);
+            assert_eq!(machine.fdc.read_data(), 0xc8 | unit);
+            assert_eq!(machine.fdc.read_data(), 0);
+        }
+        machine.fdc.write_data(8);
+        assert_eq!(
+            machine.fdc.read_data(),
+            0x80,
+            "unattached B does not become ready"
+        );
+    }
+
     #[test]
     fn tape_input_is_released_one_frame_after_the_tape_stops() {
         let idle_fe = SpectrumPlus2A::new().port_read(0x00FE) & 0x40;

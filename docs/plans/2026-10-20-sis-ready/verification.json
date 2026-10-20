@@ -1,0 +1,36 @@
+{
+  "status": "pass",
+  "qualification": false,
+  "source_build": true,
+  "firmware_redistributed": false,
+  "approved": "User approved READY API and Spectrum native snapshots v6\u2192v7 rejection on2026-10-20",
+  "red_checks": [
+    "READY attention:128 observed versus192 expected",
+    "unacknowledgedSeek acceptsSDS:104 observed versus128 expected"
+  ],
+  "reference_disagreement": "Fuse deliberately relaxes required command ordering; MAME also accepts it. NEC documented contract takes precedence; no upstream defect claim.",
+  "source_prefix": "e8f5728a5+IRQ1889+uncommittedREADYv7",
+  "remaining": [
+    "logicalPCN integration",
+    "normalROM source runs",
+    "SIS fixture/campaign",
+    "releasedbinary qualification"
+  ],
+  "scope": "READY and ordering implementation regression; full SIS closure remains pending",
+  "controller_tests": 151,
+  "library_tests": {
+    "controller": 54,
+    "amstrad": 37,
+    "runtime": 125
+  },
+  "snapshot_tests": 30,
+  "clippy": "pass",
+  "normal_rom": {
+    "status": "pass",
+    "delivery": "source_build",
+    "assembly": "fresh distributed Asm0.0.71",
+    "mastering": "fresh distributed Build0.2.12",
+    "evidence_path": "output/qualification/sis-ready-rom-regression"
+  },
+  "new_state_version": 7
+}

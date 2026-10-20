@@ -41,17 +41,20 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 5**: the FDC carries live mounted disks, protection and write
 /// transfer state. Version 4 is rejected before decode; its raw image cache
 /// cannot represent writes. Approved for the first +3 ROM SAVE qualification.
-/// **Version 6** (current): the FDC preserves per-sector read progress and
+/// **Version 6**: the FDC preserves per-sector read progress and
 /// encountered status separately from future sectors. Version 5 lacks that
 /// positional controller state and is rejected before payload decode.
-const SNAPSHOT_VERSION: u32 = 6;
+/// **Version 7** (approved2026-10-20): preserves external FDC READY levels,
+/// sampled levels and polling phase. Version6 is rejected before positional
+/// decode; reconstructing inputs would lose pending attention or invent events.
+const SNAPSHOT_VERSION: u32 = 7;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
 /// `encode`/`decode` entry points so the envelope stays usable from
 /// pure-serde contexts.
 #[derive(Serialize)]
-struct SpectrumRuntimeSnapshotRefV6<'a, M: Serialize> {
+struct SpectrumRuntimeSnapshotRefV7<'a, M: Serialize> {
     version: u32,
     profile_id: &'a str,
     time: MachineTime,
@@ -63,7 +66,7 @@ struct SpectrumRuntimeSnapshotRefV6<'a, M: Serialize> {
 /// Owned snapshot envelope used by [`decode`]. Generic over any
 /// `M: Deserialize<'de>`.
 #[derive(Deserialize)]
-struct SpectrumRuntimeSnapshotV6<M> {
+struct SpectrumRuntimeSnapshotV7<M> {
     version: u32,
     profile_id: String,
     time: MachineTime,
@@ -81,7 +84,7 @@ struct SpectrumRuntimeSnapshotV6<M> {
 pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV6 {
+    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV7 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
@@ -115,7 +118,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
         });
     }
 
-    let snapshot: SpectrumRuntimeSnapshotV6<M> =
+    let snapshot: SpectrumRuntimeSnapshotV7<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -159,7 +162,7 @@ mod tests {
         // the corresponding decode error paths without needing to touch
         // the real envelope schema.
         let machine = Spectrum128K::new();
-        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV6 {
+        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV7 {
             version,
             profile_id,
             time: MachineTime::default(),
@@ -223,7 +226,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 6")
+                .contains("unsupported snapshot version 4; expected 7")
         );
     }
 
@@ -240,7 +243,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 6")
+                .contains("unsupported snapshot version 5; expected 7")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -738,7 +741,7 @@ mod tests {
     }
 
     #[test]
-    fn old_v6_bad_id_reads_restore_to_result_before_any_further_payload() {
+    fn reconstructed_bad_id_reads_normalize_in_version_seven() {
         let fixtures: &[&[u8]] = &[
             include_bytes!("../tests/fixtures/read-data-id-crc/46-0-0.postcard"),
             include_bytes!("../tests/fixtures/read-data-id-crc/46-0-1.postcard"),
@@ -750,12 +753,20 @@ mod tests {
             include_bytes!("../tests/fixtures/read-data-id-crc/4c-179-1.postcard"),
         ];
         for bytes in fixtures {
+            // Preserve the old captured read-progress prefix as a regression
+            // input, then explicitly construct a synthetic current controller.
+            // This does not add v6 runtime restore compatibility.
+            let mut current = bytes.to_vec();
+            current.extend(
+                postcard::to_allocvec(&([None::<bool>; 4], [false; 4], 0_u64, false))
+                    .expect("new READY fields"),
+            );
             let mut original = SpectrumPlus3Runtime::blank();
             original.machine_mut().fdc =
-                postcard::from_bytes(bytes).expect("baseline v6 controller");
+                postcard::from_bytes(&current).expect("synthetic v7 controller");
             assert_eq!(
                 postcard::to_allocvec(&original.machine().fdc).expect("same layout"),
-                *bytes
+                current
             );
             let before = original
                 .export_media("disk-a", "edsk")
@@ -764,7 +775,7 @@ mod tests {
             let mut restored = SpectrumPlus3Runtime::blank();
             restored
                 .restore(&saved)
-                .expect("normalize valid v6 envelope");
+                .expect("normalize synthetic v7 envelope");
             assert_eq!(
                 restored.machine().fdc.read_status(),
                 0xd0,
@@ -1316,6 +1327,64 @@ mod tests {
     }
 
     #[test]
+    fn ready_poll_and_partial_sis_result_survive_native_restore() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for ticks_before in [0, 7000, 8000] {
+            for consumed in [0, 1] {
+                let mut original = SpectrumPlus3Runtime::blank();
+                for unit in 0..4 {
+                    original.machine_mut().fdc.set_ready(unit, false);
+                }
+                original.machine_mut().fdc.set_ready(0, true);
+                for _ in 0..ticks_before {
+                    original.machine_mut().fdc.tick(0);
+                }
+                if ticks_before == 8000 {
+                    send_fdc_command(&mut original, &[8]);
+                    if consumed == 1 {
+                        assert_eq!(original.machine_mut().fdc.read_data(), 0xc0);
+                    }
+                }
+                let saved = original.snapshot().expect("snapshot READY phase");
+                let mut restored = SpectrumPlus3Runtime::blank();
+                restored.restore(&saved).expect("restore READY phase");
+                assert_eq!(restored.snapshot().expect("fixed point"), saved);
+                for runtime in [&mut original, &mut restored] {
+                    if ticks_before != 8000 {
+                        for _ in 0..8000 {
+                            runtime.machine_mut().fdc.tick(0);
+                        }
+                        send_fdc_command(runtime, &[8]);
+                        assert_eq!(runtime.machine_mut().fdc.read_data(), 0xc0);
+                    } else if consumed == 0 {
+                        assert_eq!(runtime.machine_mut().fdc.read_data(), 0xc0);
+                    }
+                    assert_eq!(runtime.machine_mut().fdc.read_data(), 0);
+                    assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                }
+                assert_eq!(
+                    original.snapshot().expect("baseline"),
+                    restored.snapshot().expect("continued")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn version_six_is_rejected_atomically_before_payload_decode() {
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        let before = runtime.snapshot().expect("current snapshot");
+        let old = postcard::to_allocvec(&6_u32).expect("old version");
+        let err = runtime
+            .restore(&old)
+            .expect_err("reject old version without payload");
+        assert!(
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 7")
+        );
+        assert_eq!(runtime.snapshot().expect("unchanged"), before);
+    }
+
+    #[test]
     fn no_pending_sense_interrupt_snapshot_keeps_one_byte_result() {
         let mut original = SpectrumPlus3Runtime::blank();
         send_fdc_command(&mut original, &[0x08]);
@@ -1459,7 +1528,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 6");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 7");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
