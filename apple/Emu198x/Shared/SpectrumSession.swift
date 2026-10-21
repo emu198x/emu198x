@@ -29,11 +29,16 @@ final class SpectrumSession {
     var alert: SessionAlert?
     var showsStatistics = false
     private(set) var statistics = ""
+    /// The file name of the game started with ``play(_:)``, whose controls
+    /// are remembered.
+    private(set) var game: String?
+    private(set) var controls = SpectrumControls()
 
     @ObservationIgnored private var rom: Data?
     @ObservationIgnored private var keyboard: KeyChords?
     @ObservationIgnored private let audio = AudioOutput()
     @ObservationIgnored private var controller: ControllerInput?
+    @ObservationIgnored private var controllerMap = ControllerMap(targets: SpectrumControls().targets)
     @ObservationIgnored private var monitor: Timer?
     @ObservationIgnored private var lastSample = (time: Date(), frames: 0)
 
@@ -57,9 +62,9 @@ final class SpectrumSession {
         tapePlaying = false
         audio.play(loop.audio)
         if controller == nil {
-            controller = ControllerInput { [weak self] name, pressed in
-                // Port 0 is the primary joystick: Kempston on the Spectrum.
-                self?.loop?.send(.button(name, port: 0, pressed: pressed))
+            controller = ControllerInput { [weak self] control, pressed in
+                guard let self else { return }
+                route(controllerMap.set(control, pressed: pressed))
             }
         }
         lastSample = (Date(), 0)
@@ -114,6 +119,8 @@ final class SpectrumSession {
     /// (the runtime types `LOAD ""` and presses play), a snapshot is loaded,
     /// and a `.state` file saved by an Emu198x host is restored.
     func play(_ url: URL) {
+        game = url.lastPathComponent
+        setControls(SpectrumControlsStore.load(for: url.lastPathComponent))
         switch url.pathExtension.lowercased() {
         case "tap", "tzx":
             open(url)
@@ -123,6 +130,26 @@ final class SpectrumSession {
             loadState(from: url)
         default:
             open(url)
+        }
+    }
+
+    /// Changes how the controller plays this game, and remembers it.
+    func setControls(_ controls: SpectrumControls) {
+        self.controls = controls
+        if let game { SpectrumControlsStore.save(controls, for: game) }
+        route(controllerMap.replace(with: controls.targets))
+    }
+
+    /// Sends controller changes on: joystick inputs as buttons on their
+    /// port, keys through the keymap like typed ones.
+    private func route(_ changes: [(target: ControlTarget, pressed: Bool)]) {
+        for change in changes {
+            switch change.target {
+            case let .joystick(name, port):
+                loop?.send(.button(name, port: port, pressed: change.pressed))
+            case let .key(code):
+                key(code: code, pressed: change.pressed)
+            }
         }
     }
 
