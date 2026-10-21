@@ -46,3 +46,29 @@ python3 -B docs/plans/2026-10-21-seek-reference-timing/capture.py
 Capture refuses an existing `runs/` directory. Fuse is bounded to one emulated second per journey and15 host seconds per process. MAME is bounded to250ms per journey,10 emulated seconds overall and45 host seconds per process. Compilation has a60-second host timeout. At most250001 SIS samples per MAME journey can be retained under these bounds; actual1us samples total 340228. Raw logs, commands, environment, compiler/executable/source/firmware identities and exact observation rows are retained in `runs.tar.gz`. `producer-inputs.tar.gz` preserves the authored producer files exactly as hashed by the capture.
 
 The audit validates archive hashes, exact/unique case and producer-process receipts, raw/summary equality, programmed Fuse step events and MAME completion brackets. Six semantic negative controls reject a wrong interval with a matching altered summary, raw/summary disagreement, missing/duplicate cases, false qualification and invented MAME source identity. These controls test the semantic checker, not a claim of hostile archive or compiler attestation. `verification.json` records the result with `qualified=false`.
+
+
+## Source accompanying the retained Fuse executable
+
+`fuse-source.tar.gz` accompanies the compiled Fuse probe and debugging symbols in `runs.tar.gz`. It contains the exact upstream sources/headers identified by the original receipt, additional headers required by the compiler's dependency output, and the matching upstream `COPYING` license (17 files total). Each file was compared byte-for-byte with the named upstream Git commit. `manifest.json` records SHA256 and Git blob identities; the auditor binds these to the original receipt. `original-build-receipt.json` preserves the exact compiler invocation, environment, tool identity reference, duration and successful exit already recorded in the original capture.
+
+Original `runs.tar.gz` and `producer-inputs.tar.gz` remain unchanged. Adding accompanying source and strengthening the read-only audit does not claim new runtime execution. The authored GPL host files remain in `producer-inputs.tar.gz`; original author/license notices remain in the upstream source archive.
+
+Build from only the accompanying source archives on the recorded macOS compiler/SDK (choose a new empty directory):
+
+```sh
+mkdir /tmp/198x-fuse-seek-build
+cd /tmp/198x-fuse-seek-build
+# Replace PACKET with this packet's absolute directory.
+tar -xzf "$PACKET/fuse-source.tar.gz"
+mkdir authored
+tar -xzf "$PACKET/producer-inputs.tar.gz" -C authored
+clang -std=c11 -O1 -g -fsanitize=address,undefined \
+  -isysroot "$(xcrun --show-sdk-path)" \
+  -Iauthored/host -Iupstream -Iupstream/peripherals/disk \
+  -include authored/host/config.h authored/host.c authored/fuse_probe.c \
+  upstream/peripherals/disk/upd_fdc.c upstream/peripherals/disk/fdd.c \
+  upstream/peripherals/disk/crc.c -o fuse-stock
+```
+
+This uses installed standard compiler/SDK components; those are identified prerequisites, not redistributed in the source archive. An archive-only source build was verified successfully without executing a new probe. Exact binary hash reproduction is not promised across different checkout paths or debug-tool environments.
