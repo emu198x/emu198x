@@ -2,10 +2,12 @@
 //!
 //! The Ace has a 32×24 character display. Each character position reads a
 //! character code from video RAM ($2000-$23FF) and looks up the 8×8 pixel
-//! pattern from character RAM ($2400-$27FF). The first 128 entries are
+//! pattern from character RAM ($2C00-$2FFF). The first 128 entries are
 //! user-definable; codes 128-255 display the inverse of code 0-127.
 //!
-//! The display is monochrome: black on white (like the real hardware).
+//! The display is monochrome: normal characters are white on black; bit 7 inverts them.
+//! Jupiter Cantab, User's Manual (1982), chapter 12; MAME cantab/jupace.cpp
+//! screen_update emits glyph bits directly into its 0-black/1-white palette.
 //!
 //! # Why inline (not a chip crate)
 //!
@@ -131,7 +133,7 @@ impl Display {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            framebuffer: vec![WHITE; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![BLACK; (FB_WIDTH * FB_HEIGHT) as usize],
             tstate_in_frame: 0,
             frame_complete: false,
             int_pending: false,
@@ -170,11 +172,11 @@ impl Display {
     /// This is simpler than scanline-accurate rendering but sufficient for the
     /// Ace's character-based display, which has no mid-frame effects.
     pub fn render_frame(&mut self, video_ram: &[u8], char_ram: &[u8]) {
-        // Repaint the border with the inactive (white) colour so any
+        // Repaint the border with the inactive (black) colour so any
         // previous active content in the border region is cleared.
-        // The Ace's monochrome display always shows white for inactive
+        // The Ace's monochrome display always shows black for inactive
         // pixels — no programmable border colour.
-        self.framebuffer.fill(WHITE);
+        self.framebuffer.fill(BLACK);
 
         for char_row in 0..CHAR_ROWS {
             for char_col in 0..CHARS_PER_ROW {
@@ -190,7 +192,7 @@ impl Display {
                     for pixel_col in 0..CHAR_SIZE {
                         let bit_set = pattern_byte & (0x80 >> pixel_col) != 0;
                         let pixel_on = if inverse { !bit_set } else { bit_set };
-                        let colour = if pixel_on { BLACK } else { WHITE };
+                        let colour = if pixel_on { WHITE } else { BLACK };
                         let fb_idx = fb_y * (FB_WIDTH as usize) + fb_x_base + pixel_col;
                         self.framebuffer[fb_idx] = colour;
                     }
@@ -272,8 +274,8 @@ mod tests {
         let video_ram = vec![0u8; VIDEO_RAM_SIZE];
         let char_ram = vec![0u8; CHAR_RAM_SIZE];
         display.render_frame(&video_ram, &char_ram);
-        // Character 0 with all-zero pattern = all white
-        assert!(display.framebuffer().iter().all(|&p| p == WHITE));
+        // Character 0 with all-zero pattern = all black
+        assert!(display.framebuffer().iter().all(|&p| p == BLACK));
     }
 
     #[test]
@@ -288,12 +290,12 @@ mod tests {
         // Place character 1 at position (0,0)
         video_ram[0] = 1;
         display.render_frame(&video_ram, &char_ram);
-        // Top-left active 8x8 should be black (offset into the border).
+        // Top-left active 8x8 should be white (offset into the border).
         let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for y in 0..8 {
             for x in 0..8 {
                 let idx = active_start + y * FB_WIDTH as usize + x;
-                assert_eq!(display.framebuffer()[idx], BLACK);
+                assert_eq!(display.framebuffer()[idx], WHITE);
             }
         }
     }
@@ -306,12 +308,12 @@ mod tests {
         // Place inverse of character 0 (code 0x80)
         video_ram[0] = 0x80;
         display.render_frame(&video_ram, &char_ram);
-        // Inverse of all-zero pattern = all black in the active region.
+        // Inverse of all-zero pattern = all white in the active region.
         let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for y in 0..8 {
             for x in 0..8 {
                 let idx = active_start + y * FB_WIDTH as usize + x;
-                assert_eq!(display.framebuffer()[idx], BLACK);
+                assert_eq!(display.framebuffer()[idx], WHITE);
             }
         }
     }
