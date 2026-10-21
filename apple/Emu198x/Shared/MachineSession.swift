@@ -18,7 +18,6 @@ struct SessionAlert: Identifiable {
 @MainActor @Observable
 final class MachineSession {
     nonisolated static let tapeSlot = "tape-1"
-    nonisolated static let cartridgeSlot = "cartridge-1"
 
     private(set) var loop: EmulatorLoop?
     /// The machine running, or last run.
@@ -56,11 +55,11 @@ final class MachineSession {
     @ObservationIgnored private var monitor: Timer?
     @ObservationIgnored private var lastSample = (time: Date(), frames: 0)
 
-    /// A model, its ROMs by firmware id, and the cartridge in its slot.
+    /// A model, its ROMs by firmware id, and the media in its slots.
     private struct Build {
         let model: MachineModel
         let firmware: [String: Data]
-        let cartridge: Data?
+        let media: [Data]
     }
 
     /// Boots a fresh 48K from `rom`, replacing any running machine.
@@ -69,11 +68,12 @@ final class MachineSession {
     }
 
     /// Boots a fresh `model` from `firmware`, its ROMs by firmware id, with
-    /// `cartridge` in its slot, replacing any running machine. The
-    /// cartridge is part of the machine, so restarting keeps it.
-    func start(_ model: MachineModel, firmware: [String: Data], cartridge: Data? = nil) {
+    /// `media` in the model's ``MachineModel/mediaSlots`` in order: a
+    /// cartridge, or disks in DF0 onwards. The media go in before boot and
+    /// are part of the machine, so restarting keeps them.
+    func start(_ model: MachineModel, firmware: [String: Data], media: [Data] = []) {
         stop()
-        let build = Build(model: model, firmware: firmware, cartridge: cartridge)
+        let build = Build(model: model, firmware: firmware, media: media)
         do {
             let probe = try Self.makeMachine(build)
             keyboard = try KeyChords(json: probe.keymap())
@@ -106,7 +106,7 @@ final class MachineSession {
 
     func restart() {
         guard let build else { return }
-        start(build.model, firmware: build.firmware, cartridge: build.cartridge)
+        start(build.model, firmware: build.firmware, media: build.media)
     }
 
     func stop() {
@@ -146,8 +146,8 @@ final class MachineSession {
         if slot == Self.tapeSlot { tapePlaying = false }
     }
 
-    /// Reads a cartridge to start a console with.
-    func cartridge(at url: URL) -> Data? {
+    /// Reads a cartridge or disk to start a machine with.
+    func media(at url: URL) -> Data? {
         read(url)
     }
 
@@ -157,8 +157,8 @@ final class MachineSession {
     ///
     /// `game` names the game for its remembered controls, the file name
     /// when not given; `controls` are the ones it starts with until the
-    /// player changes them. A console's cartridge is already in it, from
-    /// ``start(_:firmware:cartridge:)``, and its controller is its own.
+    /// player changes them. A cartridge or disk is already in, from
+    /// ``start(_:firmware:media:)``, and a console's controller is its own.
     func play(_ url: URL, game: String? = nil, controls: GameControls? = nil) {
         let game = game ?? url.lastPathComponent
         self.game = game
@@ -168,7 +168,8 @@ final class MachineSession {
             route(controllerMap.replace(with: pad))
             return
         }
-        gameControls = GameControlsStore.base(for: url, defaults: controls)
+        gameControls = GameControlsStore.base(
+            for: url, defaults: controls, fallback: model?.defaultControls ?? GameControls())
         // A stick this machine has not got, as a Spectrum default on a C64,
         // becomes the machine's own first one.
         if let sticks = model?.sticks, !sticks.isEmpty, !sticks.contains(gameControls.stick) {
@@ -187,6 +188,9 @@ final class MachineSession {
             tapeBusy = true
         case "state":
             loadState(from: url)
+        case _ where !(model?.mediaSlots.isEmpty ?? true):
+            // In before boot, with the machine.
+            break
         default:
             open(url)
         }
@@ -262,6 +266,8 @@ final class MachineSession {
                 key(code: code, pressed: change.pressed)
             case let .machineKey(name):
                 loop?.send(.key(name, pressed: change.pressed))
+            case let .mouseButton(name):
+                loop?.send(.mouseButton(name, pressed: change.pressed))
             }
         }
     }
@@ -326,10 +332,11 @@ final class MachineSession {
         for (id, data) in build.firmware.sorted(by: { $0.key < $1.key }) {
             try machine.supplyFirmware(id: id, data: data)
         }
-        try machine.boot()
-        if let cartridge = build.cartridge {
-            try machine.load(slot: cartridgeSlot, data: cartridge)
+        // Before boot, so an Amiga counts a drive with a disk in it.
+        for (slot, data) in zip(build.model.mediaSlots, build.media) {
+            try machine.load(slot: slot, data: data)
         }
+        try machine.boot()
         return machine
     }
 

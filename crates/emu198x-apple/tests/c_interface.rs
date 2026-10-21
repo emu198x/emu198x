@@ -368,6 +368,13 @@ fn null_arguments_are_refused_not_dereferenced() {
     assert_eq!(code, status::INVALID_ARGUMENT);
     machine.step().expect("the refusal left the machine usable");
 
+    // SAFETY: a live handle and a null name, which is the case under test.
+    let code = unsafe { ffi::emu198x_machine_mouse_button(machine.raw(), std::ptr::null(), true) };
+    assert_eq!(code, status::INVALID_ARGUMENT);
+    // A machine without a mouse takes the button and ignores it.
+    machine.mouse_button("left", true).expect("accepted");
+    machine.step().expect("the machine runs on");
+
     // SAFETY: null handles and buffers are documented as ignored.
     unsafe {
         ffi::emu198x_machine_free(std::ptr::null_mut());

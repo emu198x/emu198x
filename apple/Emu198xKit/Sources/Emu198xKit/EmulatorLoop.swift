@@ -8,6 +8,7 @@ import os
 public enum HostCommand: Sendable {
     case key(String, pressed: Bool)
     case button(String, port: UInt8, pressed: Bool)
+    case mouseButton(String, pressed: Bool)
     case load(slot: String, data: Data)
     case tape(slot: String, playing: Bool)
     /// Types `LOAD ""` from power-on and plays the inserted tape (Spectrum).
@@ -302,6 +303,8 @@ public final class EmulatorLoop: Sendable {
             case let .key(name, pressed): try machine.setKey(name, pressed: pressed)
             case let .button(name, port, pressed):
                 try machine.setButton(name, port: port, pressed: pressed)
+            case let .mouseButton(name, pressed):
+                try machine.setMouseButton(name, pressed: pressed)
             case let .load(slot, data): try machine.load(slot: slot, data: data)
             case let .tape(slot, playing): try machine.setTape(slot: slot, playing: playing)
             case .autoloadTape:

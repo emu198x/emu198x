@@ -16,9 +16,10 @@ struct KeyPadView: View {
     }
 
     private var isC64: Bool { session.model == .c64 }
+    private var isAmiga: Bool { session.model?.isAmiga ?? false }
 
     private var rows: [[Key]] {
-        let enter = Key(label: isC64 ? "RETURN" : "ENTER", code: "Enter")
+        let enter = Key(label: isC64 || isAmiga ? "RETURN" : "ENTER", code: "Enter")
         var rows: [[Key]] = [
             "1234567890".map { Key(label: String($0), code: "Digit\($0)") },
             "QWERTYUIOP".map { Key(label: String($0), code: "Key\($0)") },
@@ -30,15 +31,24 @@ struct KeyPadView: View {
             rows.append([Key(label: "RUN/STOP", code: "Escape")]
                 + ["F1", "F3", "F5", "F7"].map { Key(label: $0, code: $0) })
         }
+        if isAmiga {
+            rows.append([Key(label: "ESC", code: "Escape")]
+                + (1...10).map { Key(label: "F\($0)", code: "F\($0)") })
+        }
         return rows
     }
 
     /// The shifts, held for the next key: Caps Shift and Symbol Shift on
-    /// the Spectrum, SHIFT and the Commodore key on the C64.
+    /// the Spectrum, SHIFT and the Commodore key on the C64, SHIFT and ALT
+    /// on the Amiga.
     private var shifts: [Key] {
-        isC64
-            ? [Key(label: "SHIFT", code: "ShiftLeft"), Key(label: "C=", code: "AltLeft")]
-            : [Key(label: "CAPS SHIFT", code: "ShiftLeft"), Key(label: "SYMBOL SHIFT", code: "AltLeft")]
+        if isC64 {
+            [Key(label: "SHIFT", code: "ShiftLeft"), Key(label: "C=", code: "AltLeft")]
+        } else if isAmiga {
+            [Key(label: "SHIFT", code: "ShiftLeft"), Key(label: "ALT", code: "AltLeft")]
+        } else {
+            [Key(label: "CAPS SHIFT", code: "ShiftLeft"), Key(label: "SYMBOL SHIFT", code: "AltLeft")]
+        }
     }
 
     var body: some View {

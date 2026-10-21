@@ -77,8 +77,13 @@ Headless, on the desktop binaries:
   World and Magicland then play. Fantastic Dizzy (AGA) and Crystal
   Kingdom need their second disk, and Fantastic Dizzy reads both, so the
   machine takes up to four drives (Steve, 2026-10-21; its own plan,
-  `2026-10-21-amiga-four-drives.md`). Prince of the Yolkfolk, Dizzy Panic
-  and both compilations stay black after the intro: not yet looked at.
+  `2026-10-21-amiga-four-drives.md`, #1956). Through the app's path, with
+  every disk in before boot: Fantastic Dizzy (A1200) reaches its title
+  from two disks, Crystal Kingdom its title, Bubble its title, and
+  Fantasy World, Magicland and Fast Food play. Prince of the Yolkfolk,
+  Dizzy Panic, Kwik Snax and both compilations stay black or blank after
+  the intro, and the uncracked Treasure Island draws its play screen torn:
+  Amiga core faults, filed separately.
 
 ## Design
 

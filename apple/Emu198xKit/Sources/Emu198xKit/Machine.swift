@@ -144,6 +144,12 @@ public final class Machine {
         try check(emu198x_machine_button(handle, port, name, pressed))
     }
 
+    /// Presses or releases a mouse button by name (`left`, `right`), on a
+    /// machine with a mouse, such as the Amiga.
+    public func setMouseButton(_ name: String, pressed: Bool) throws {
+        try check(emu198x_machine_mouse_button(handle, name, pressed))
+    }
+
     public func configureAudio(sampleRate: Int) throws {
         guard let rate = UInt32(exactly: sampleRate) else {
             throw EmulatorError(kind: .invalidArgument, message: "sample rate out of range")

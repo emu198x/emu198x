@@ -138,6 +138,12 @@ impl CMachine {
         check(unsafe { ffi::emu198x_machine_button(self.0, port, name.as_ptr(), pressed) })
     }
 
+    pub fn mouse_button(&mut self, name: &str, pressed: bool) -> Result<(), Failure> {
+        let name = c_string(name);
+        // SAFETY: a live handle owned by `self` and a NUL-terminated name.
+        check(unsafe { ffi::emu198x_machine_mouse_button(self.0, name.as_ptr(), pressed) })
+    }
+
     /// The runtime's answer to a query path, as JSON text.
     pub fn query(&mut self, path: &str) -> Result<String, Failure> {
         let path = c_string(path);
