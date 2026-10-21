@@ -26,6 +26,9 @@ fn assert_missing_id(image: Option<DiskImage>, select: u8) {
     }
     // A missing readable ID is distinct from a low physical READY input.
     fdc.set_ready(0, true);
+    // A missing recorded side does not establish a single-sided mechanism.
+    // Keep the physical two-side input explicit for the head-1 error probe.
+    fdc.set_two_side(0, true);
     let result = read_id(&mut fdc, select);
     assert_eq!(
         result[0] & 0xc0,
