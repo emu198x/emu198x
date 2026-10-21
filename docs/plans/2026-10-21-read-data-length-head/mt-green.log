@@ -1,0 +1,12 @@
+   Compiling nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.72s
+     Running tests/read_multitrack.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/read_multitrack-9c27f4e2edbb8dff)
+
+running 4 tests
+test mt_off_and_starting_side_one_do_not_wrap_back_to_side_zero ... ok
+test crc_or_control_mark_stops_before_head_switch ... ok
+test absent_recorded_side_fails_after_side_zero_payload_and_recovers ... ok
+test mt_reads_side_zero_then_sector_one_on_side_one ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

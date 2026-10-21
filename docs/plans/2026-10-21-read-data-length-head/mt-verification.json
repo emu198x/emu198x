@@ -1,0 +1,72 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 300,
+    "exit_code": 0,
+    "elapsed_seconds": 7.626,
+    "log": "mt-fmt.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "nec-upd765a"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 300,
+    "exit_code": 0,
+    "elapsed_seconds": 11.917,
+    "log": "mt-tests.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "nec-upd765a",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 300,
+    "exit_code": 0,
+    "elapsed_seconds": 4.796,
+    "log": "mt-clippy.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 300,
+    "exit_code": 0,
+    "elapsed_seconds": 7.87,
+    "log": "mt-fmt-check.log"
+  }
+]

@@ -1,0 +1,16 @@
+# Read Data transfer length and head progression
+
+Lane: Spectrum launch-hardening. Base ce2d755af. Two independent bug fixes, separate commits, no dependencies, public APIs or serialized fields added. Read Track remains outside the corrections.
+
+1. Add `crates/nec-upd765a/tests/read_multitrack.rs`: public-register, bounded payload/result tests for Read Data and Read Deleted Data. Check MT off, side-0 EOT to side-1 sector 1, start side 1, missing side, early CRC/control mark and skipped fields, recovery and unchanged live media. Retain fail-first output, then correct existing progression fields.
+2. Add `crates/nec-upd765a/tests/read_dtl.rs`: N=0 with DTL 1..127 sends only that prefix but consumes the rest of the 128-byte field on the existing byte clock, without host requests; CRC remains deferred until completion. Check N>0 ignores DTL, DTL>=128 keeps full field, repeated reads, missed-service overrun and Read Track unchanged. DTL=0 remains explicitly unresolved rather than guessed.
+3. Keep the physical buffer, existing position and absolute byte-slot clock for internal draining. Preserve native state layout, immutable source/live images and the binding marginal-encoding model. Inspect historical code for precedent; no archive port planned.
+4. Run fail-first cases before each fix. Run all controller tests, strict all-target controller Clippy and format using explicit Rust 1.99.0, bounded by 300-second host deadlines. Save exact commands/compiler identity/logs with the plan, file narrowly scoped owning issues, push reviewable PRs for root review. Do not merge/release from this session.
+
+Primary sources: NEC uPD765A/B datasheet printed 5-7 (MT searches sector 1 on side 1); NEC December 1978 datasheet printed p12 (N=0 DTL host prefix, complete internal field/CRC). Canonical extracts and provenance live in umbrella `reference/by-topic/fdc-765/`. Vendored Fuse 1.7.0 `upd_fdc.c` start_read_data/upd_fdc_read_data supplies independent DTL-prefix/internal-CRC precedent; MAME `upd765.cpp` SECTOR_READ supplies head progression, while its FIFO uses sector size and is not a DTL oracle. These are source inspections, not fresh reference runtime evidence. Physical gaps, angular/index/head-load timing and exact no-TC terminal CHRN remain separate claims.
+
+## MT reproduction and correction
+
+Owning issue: https://github.com/emu198x/emu198x/issues/1933. Unchanged source failed two of the four initial tests: result MSR0xD0 appeared where side1 payload MSR0xF0 was required; absent side1 returned side0 EN instead of a side1 missing-ID result. Two negative boundary cases passed. `mt-red.log` retains Cargo101 and assertions. The fifth test exercises SK at side0 EOT. Shared progression now changes only existing HD/H/ST0/sector fields when MT reaches side0 EOT. CRC and mark errors still terminate first; Read Track keeps its own branch.
+
+Explicit Rust1.99.0 verification: 182 controller tests passed, zero failed/ignored; strict all-target Clippy and workspace format passed. Commands/environment/deadlines are retained in `mt-verification.json`; all host limits300seconds. Earlier test-only non-PartialEq comparison was corrected before collecting the behavioral red witness.
