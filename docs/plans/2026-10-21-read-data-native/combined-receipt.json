@@ -1,0 +1,73 @@
+[
+  {
+    "label": "combined-positive",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media",
+      "--",
+      "--exact"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 0,
+    "elapsed_seconds": 29.382,
+    "source_commit": "94ff3fdbed0b900d78388bc49f5db419fd56efdb",
+    "class": "preliminary combined source; driver not committed yet"
+  },
+  {
+    "label": "combined-idle-control",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media",
+      "--",
+      "--exact"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths",
+      "READ_DATA_NATIVE_CONTROL": "idle-checkpoint"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 101,
+    "elapsed_seconds": 0.319,
+    "source_commit": "94ff3fdbed0b900d78388bc49f5db419fd56efdb",
+    "class": "preliminary combined source; driver not committed yet"
+  },
+  {
+    "label": "combined-result-control",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media",
+      "--",
+      "--exact"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths",
+      "READ_DATA_NATIVE_CONTROL": "wrong-result"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 101,
+    "elapsed_seconds": 0.197,
+    "source_commit": "94ff3fdbed0b900d78388bc49f5db419fd56efdb",
+    "class": "preliminary combined source; driver not committed yet"
+  }
+]
