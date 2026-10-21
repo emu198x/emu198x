@@ -12,7 +12,8 @@ there is room (about 15 GB for the other cores and Xcode).
 ## What is known
 
 From `~/Reference-Index/data-index.txt` (TOSEC, Codemasters and Camerica
-releases, no alternates or cracks):
+releases, leaving out alternate dumps; where only a cracked copy exists,
+the table says so):
 
 | System | Dizzy releases | Format | Core | State |
 |---|---|---|---|---|
