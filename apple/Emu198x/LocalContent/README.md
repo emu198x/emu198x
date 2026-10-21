@@ -14,6 +14,9 @@ copied into local builds of the tvOS target.
 - `128-0.rom` and `128-1.rom`: the Sinclair 128K ROMs, for 128K versions,
   unmodified (the English images MAME's `spec128` driver lists). Copy
   them from `~/.emu198x/roms/sinclair-zx-spectrum-128k/`.
+- `basic.rom`, `kernal.rom` and `chargen.rom`: the C64 ROMs, for C64
+  versions, unmodified (901226-01, 901227-03 and 901225-01, as MAME's
+  `c64` driver lists them). Copy them from `~/.emu198x/roms/commodore-c64/`.
 - Programs: `.tap` and `.tzx` tapes (autoloaded: the runtime types
   `LOAD ""` and presses play), `.sna` and `.z80` snapshots, and `.state`
   files saved with Save State in the Mac app.
@@ -28,8 +31,8 @@ copied into local builds of the tvOS target.
   5:8, fits best.
 - Versions (optional): `<Game>.game.json` makes one library entry of
   several ways to play a game. Each version names its file, its machine
-  (`spectrum_48k`, `spectrum_128k`, `nes`, `master_system` or
-  `game_gear`) and, on the Spectrum, its controls, as below; the
+  (`spectrum_48k`, `spectrum_128k`, `c64`, `nes`, `master_system` or
+  `game_gear`) and, on a computer, its controls, as below; the
   first is the one selecting the game plays, and a long press offers the
   rest:
   `{"versions": [{"name": "128K", "file": "Fantasy World Dizzy.tzx",
@@ -37,7 +40,9 @@ copied into local builds of the tvOS target.
   {"name": "48K", "file": "Fantasy World Dizzy.tzx",
   "machine": "spectrum_48k", "controls": {"stick": "kempston"}}]}`.
   A program no game lists has an entry of its own, on the 48K or, for a
-  cartridge, its console.
+  cartridge, its console. A C64 tape (`.tap`, autoloaded with
+  SHIFT+RUN/STOP) needs a version naming `c64`, since a loose `.tap` is
+  taken for a Spectrum tape.
 - Controls (optional): `<name>.controls.json` beside a program sets how a
   controller plays it. What the player changes under Pause, Controls is
   kept as changes on top of it, so a later fix to the file still applies
@@ -45,7 +50,8 @@ copied into local builds of the tvOS target.
   their changes.
   Any field may be left out, for example
   `{"stick": "kempston", "selectKeys": ["KeyK"]}` for Dizzy. `stick` is
-  `kempston`, `sinclair`, `cursor` or `qaop`; `selectKeys` are the keys
+  `kempston`, `sinclair`, `cursor` or `qaop` on the Spectrum, and
+  `port2` or `port1` on the C64; `selectKeys` are the keys
   the game asks for, in order, to choose a joystick and start (Crystal
   Kingdom Dizzy takes `["Digit3", "Digit1"]`), pressed on the player's
   first move once the tape has stopped; `keys` maps `b`, `x`, `y`,

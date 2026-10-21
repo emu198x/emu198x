@@ -12,7 +12,8 @@
 #
 # Usage: scripts/build-apple-xcframework.sh
 #   EMU198X_APPLE_FEATURES  Cargo features (default: the families the apps
-#                           run: the Spectrum, NES, Master System, Game Gear)
+#                           run: the Spectrum, C64, NES, Master System and
+#                           Game Gear)
 #
 # The deployment targets match the app: macOS 14 and tvOS 17, the first
 # releases with the Observation framework the Swift host uses.
@@ -22,7 +23,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 out="$root/apple/build"
 include="$root/crates/emu198x-apple/include"
-features=${EMU198X_APPLE_FEATURES:-sinclair-zx-spectrum,nintendo-nes,sega-master-system,sega-game-gear}
+features=${EMU198X_APPLE_FEATURES:-sinclair-zx-spectrum,commodore-c64,nintendo-nes,sega-master-system,sega-game-gear}
 target_dir=${CARGO_TARGET_DIR:-$root/target}
 targets=(aarch64-apple-darwin aarch64-apple-tvos aarch64-apple-tvos-sim)
 

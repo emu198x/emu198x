@@ -68,7 +68,11 @@ Headless, on the desktop binaries:
   cartridge, shown cropped by the Game Gear core (#1932), so the app runs
   it on the Master System.
 - C64: all twelve tapes autoload and reach their titles; the joystick in
-  port 2 starts most, Spellbound wants Space.
+  port 2 starts most, Spellbound wants Space. Through Fleet every C64 tape
+  read as blank, because Fleet mounted it writable, which the C64 takes as
+  a blank SAVE tape (#1953). A C64 loader stops the motor for up to 12
+  seconds mid-load, so the app counts a C64 tape as loading until it has
+  played to its end.
 - Amiga: crack intros wait for the left mouse button; Bubble, Fantasy
   World and Magicland then play. Fantastic Dizzy (AGA) and Crystal
   Kingdom need their second disk, and Fantastic Dizzy reads both, so the

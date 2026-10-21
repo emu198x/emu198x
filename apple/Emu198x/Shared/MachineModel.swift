@@ -12,6 +12,8 @@ enum MachineModel: String, Codable, CaseIterable {
     /// PAL: Codemasters' Master System cartridges are European.
     case masterSystem = "master_system"
     case gameGear = "game_gear"
+    /// PAL: Codemasters' C64 tapes are European.
+    case c64
 
     /// The runtime family that builds it.
     var family: String {
@@ -20,6 +22,7 @@ enum MachineModel: String, Codable, CaseIterable {
         case .nes: "nintendo-nes"
         case .masterSystem: "sega-master-system"
         case .gameGear: "sega-game-gear"
+        case .c64: "commodore-c64"
         }
     }
 
@@ -30,6 +33,7 @@ enum MachineModel: String, Codable, CaseIterable {
         case .nes: "nintendo-nes-ntsc"
         case .masterSystem: "sms-pal"
         case .gameGear: "game-gear"
+        case .c64: "pal"
         }
     }
 
@@ -41,6 +45,7 @@ enum MachineModel: String, Codable, CaseIterable {
         case .nes: "NES"
         case .masterSystem: "Master System"
         case .gameGear: "Game Gear"
+        case .c64: "C64"
         }
     }
 
@@ -53,6 +58,32 @@ enum MachineModel: String, Codable, CaseIterable {
     }
 
     var isSpectrum: Bool { family == "sinclair-zx-spectrum" }
+
+    /// The joysticks a game on this machine can read, the first its
+    /// default. A console has none: its controller is its ``pad``.
+    var sticks: [GameControls.Stick] {
+        switch self {
+        case .spectrum48k, .spectrum128k: [.kempston, .sinclair, .cursor, .qaop]
+        case .c64: [.port2, .port1]
+        case .nes, .masterSystem, .gameGear: []
+        }
+    }
+
+    /// Keys a controller button can press, as browser key codes with this
+    /// machine's legends. The shifts are held like any other key.
+    var keys: [(code: String, name: String)] {
+        let digits = "1234567890".map { ("Digit\($0)", String($0)) }
+        let letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".map { ("Key\($0)", String($0)) }
+        switch self {
+        case .c64:
+            return [("Space", "SPACE"), ("Enter", "RETURN"), ("ShiftLeft", "SHIFT"),
+                    ("AltLeft", "C="), ("Escape", "RUN/STOP")]
+                + ["F1", "F3", "F5", "F7"].map { ($0, $0) } + digits + letters
+        default:
+            return [("Space", "SPACE"), ("Enter", "ENTER"), ("ShiftLeft", "CAPS SHIFT"),
+                    ("AltLeft", "SYMBOL SHIFT")] + digits + letters
+        }
+    }
 
     /// The model a loose program runs on, by its file extension.
     init(fileExtension: String) {
@@ -83,6 +114,20 @@ enum MachineModel: String, Codable, CaseIterable {
                     id: "sinclair-zx-spectrum-128k-rom-1", file: "128-1.rom",
                     sha1: "80080644289ed93d71a1103992a154cc9802b2fa"),
             ]
+        case .c64:
+            // SHA-1s as MAME's `c64` driver records 901226-01, 901227-03
+            // and 901225-01.
+            [
+                Firmware.Image(
+                    id: "commodore-c64-basic-rom", file: "basic.rom",
+                    sha1: "79015323128650c742a3694c9429aa91f355905e"),
+                Firmware.Image(
+                    id: "commodore-c64-kernal-rom", file: "kernal.rom",
+                    sha1: "1d503e56df85a62fee696e7618dc5b4e781df1bb"),
+                Firmware.Image(
+                    id: "commodore-c64-character-rom", file: "chargen.rom",
+                    sha1: "adc7c31e18c7c7413d54802ef2f4193da14711aa"),
+            ]
         case .nes, .masterSystem, .gameGear:
             []
         }
@@ -92,14 +137,14 @@ enum MachineModel: String, Codable, CaseIterable {
     /// the bottom face button is the console's left one (NES B, Sega 1)
     /// and the right face button its right one (NES A, Sega 2), with X
     /// and Y repeating them. Options is Start; on the NES the left
-    /// shoulder is Select. Nil for the Spectrum, whose controls are a
-    /// game's own choice.
+    /// shoulder is Select. Nil for a computer, whose controls are a game's
+    /// own choice.
     var pad: [Control: ControlTarget]? {
         let buttons: (left: String, right: String)
         let start: ControlTarget
         var targets: [Control: ControlTarget] = [:]
         switch self {
-        case .spectrum48k, .spectrum128k:
+        case .spectrum48k, .spectrum128k, .c64:
             return nil
         case .nes:
             buttons = ("b", "a")

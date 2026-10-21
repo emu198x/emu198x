@@ -1,27 +1,51 @@
 import SwiftUI
 
-/// The Spectrum's keyboard on screen, for the keys a game asks for that a
+/// The computer's keyboard on screen, for the keys a game asks for that a
 /// remote or controller cannot press: Dizzy's K for Kempston and Space to
-/// start, for example. Caps Shift and Symbol Shift stay down for the next
-/// key, as one-finger typing on the real machine needed. The game keeps
-/// running behind it, so each key's effect shows straight away.
+/// start, for example. The shift keys stay down for the next key, as
+/// one-finger typing on the real machine needed. The game keeps running
+/// behind it, so each key's effect shows straight away.
 struct KeyPadView: View {
     let session: MachineSession
-    @State private var capsShift = false
-    @State private var symbolShift = false
+    /// Held shifts, by browser key code, until the next key.
+    @State private var held: Set<String> = []
 
-    private static let rows: [[(label: String, code: String)]] = [
-        "1234567890".map { (String($0), "Digit\($0)") },
-        "QWERTYUIOP".map { (String($0), "Key\($0)") },
-        "ASDFGHJKL".map { (String($0), "Key\($0)") } + [("ENTER", "Enter")],
-        "ZXCVBNM".map { (String($0), "Key\($0)") } + [("SPACE", "Space")],
-    ]
+    private struct Key: Hashable {
+        let label: String
+        let code: String
+    }
+
+    private var isC64: Bool { session.model == .c64 }
+
+    private var rows: [[Key]] {
+        let enter = Key(label: isC64 ? "RETURN" : "ENTER", code: "Enter")
+        var rows: [[Key]] = [
+            "1234567890".map { Key(label: String($0), code: "Digit\($0)") },
+            "QWERTYUIOP".map { Key(label: String($0), code: "Key\($0)") },
+            "ASDFGHJKL".map { Key(label: String($0), code: "Key\($0)") } + [enter],
+            "ZXCVBNM".map { Key(label: String($0), code: "Key\($0)") }
+                + [Key(label: "SPACE", code: "Space")],
+        ]
+        if isC64 {
+            rows.append([Key(label: "RUN/STOP", code: "Escape")]
+                + ["F1", "F3", "F5", "F7"].map { Key(label: $0, code: $0) })
+        }
+        return rows
+    }
+
+    /// The shifts, held for the next key: Caps Shift and Symbol Shift on
+    /// the Spectrum, SHIFT and the Commodore key on the C64.
+    private var shifts: [Key] {
+        isC64
+            ? [Key(label: "SHIFT", code: "ShiftLeft"), Key(label: "C=", code: "AltLeft")]
+            : [Key(label: "CAPS SHIFT", code: "ShiftLeft"), Key(label: "SYMBOL SHIFT", code: "AltLeft")]
+    }
 
     var body: some View {
         VStack(spacing: 24) {
-            ForEach(Self.rows.indices, id: \.self) { row in
+            ForEach(rows.indices, id: \.self) { row in
                 HStack(spacing: 16) {
-                    ForEach(Self.rows[row], id: \.code) { key in
+                    ForEach(rows[row], id: \.self) { key in
                         Button { press(key.code) } label: {
                             Text(key.label)
                                 .font(.title3.monospaced())
@@ -31,8 +55,9 @@ struct KeyPadView: View {
                 }
             }
             HStack(spacing: 40) {
-                Toggle("CAPS SHIFT", isOn: $capsShift)
-                Toggle("SYMBOL SHIFT", isOn: $symbolShift)
+                ForEach(shifts, id: \.self) { shift in
+                    Toggle(shift.label, isOn: holding(shift.code))
+                }
             }
             .frame(maxWidth: 900)
         }
@@ -44,12 +69,17 @@ struct KeyPadView: View {
         .onDisappear { session.setPaused(true) }
     }
 
+    private func holding(_ code: String) -> Binding<Bool> {
+        Binding {
+            held.contains(code)
+        } set: { on in
+            if on { held.insert(code) } else { held.remove(code) }
+        }
+    }
+
     private func press(_ code: String) {
-        var codes: [String] = []
-        if capsShift { codes.append("ShiftLeft") }
-        if symbolShift { codes.append("AltLeft") }
-        session.tap(codes: codes + [code])
-        capsShift = false
-        symbolShift = false
+        let shifts = self.shifts.map(\.code).filter(held.contains)
+        session.tap(codes: shifts + [code])
+        held.removeAll()
     }
 }

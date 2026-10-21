@@ -13,7 +13,7 @@ struct ControlsView: View {
                 // Segmented, the tvOS default here, which shows every
                 // standard at once.
                 Picker("Joystick", selection: stick) {
-                    ForEach(SpectrumControls.Stick.allCases) { stick in
+                    ForEach(session.model?.sticks ?? []) { stick in
                         Text(stick.name).tag(stick)
                     }
                 }
@@ -25,7 +25,7 @@ struct ControlsView: View {
             Section {
                 Picker("Select key", selection: selectKey) {
                     Text("None").tag(String?.none)
-                    ForEach(SpectrumControls.keys, id: \.code) { key in
+                    ForEach(keys, id: \.code) { key in
                         Text(key.name).tag(String?.some(key.code))
                     }
                 }
@@ -34,10 +34,10 @@ struct ControlsView: View {
                 Text(selectFooter)
             }
             Section("Buttons") {
-                ForEach(SpectrumControls.buttons, id: \.self) { control in
+                ForEach(GameControls.buttons, id: \.self) { control in
                     Picker(Self.label(control), selection: key(control)) {
                         Text("None").tag(String?.none)
-                        ForEach(SpectrumControls.keys, id: \.code) { key in
+                        ForEach(keys, id: \.code) { key in
                             Text(key.name).tag(String?.some(key.code))
                         }
                     }
@@ -60,7 +60,12 @@ struct ControlsView: View {
         return "Controls for \((game as NSString).deletingPathExtension)"
     }
 
-    private var stick: Binding<SpectrumControls.Stick> {
+    /// The keys this machine's buttons can press, with its own legends.
+    private var keys: [(code: String, name: String)] {
+        session.model?.keys ?? []
+    }
+
+    private var stick: Binding<GameControls.Stick> {
         Binding {
             session.controls.stick
         } set: { stick in
@@ -84,10 +89,10 @@ struct ControlsView: View {
 
     private var selectFooter: String {
         let explanation = "The key the game asks for to choose a joystick, such as K in Dizzy. It is pressed for you on your first move once the game has loaded."
-        let keys = session.controls.selectKeys
-        guard keys.count > 1 else { return explanation }
-        let names = keys.map { code in
-            SpectrumControls.keys.first { $0.code == code }?.name ?? code
+        let selectKeys = session.controls.selectKeys
+        guard selectKeys.count > 1 else { return explanation }
+        let names = selectKeys.map { code in
+            keys.first { $0.code == code }?.name ?? code
         }
         return explanation + " This game's file presses " + names.joined(separator: ", ") + "."
     }
