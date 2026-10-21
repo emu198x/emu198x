@@ -1,0 +1,21 @@
+   Compiling nec-upd765a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/format_success.rs (target/debug/deps/format_success-2dfe79200463914f)
+
+running 1 test
+
+thread 'format_success_preserves_authored_ids_and_command_sized_filler' (147415432) panicked at crates/nec-upd765a/tests/format_success.rs:85:17:
+assertion `left == right` failed: exact Format result
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test format_success_preserves_authored_ids_and_command_sized_filler ... FAILED
+
+failures:
+
+failures:
+    format_success_preserves_authored_ids_and_command_sized_filler
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p nec-upd765a --test format_success`
