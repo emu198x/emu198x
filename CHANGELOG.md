@@ -4,6 +4,27 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.43.0] - 2026-10-21
+
+
+### Added
+
+- Play 128K versions of games on Apple TV
+- Fill the Apple TV app's local content with one command
+- Run Codemasters cartridges on the Master System and Game Gear
+- Play NES, Master System and Game Gear cartridges on Apple TV
+- Autoload C64 tapes in Fleet and take media before boot
+
+
+### Fixed
+
+- Reject read commands when the physical drive is not ready
+- Continue multitrack reads on side one
+- Honor DTL while consuming the complete read field
+- Prefer preserved EDSK versions on repeated reads
+- Stop data reads before a missing data address mark
+- **Breaking** — Honour programmed FDC transfer mode and byte interrupts. Spectrum native snapshots advance v9 to v10 and reject v9 before payload decode, as explicitly approved. CPC is unchanged. New/reset controllers keep the prior non-DMA compatibility fallback; hardware startup/reset ND, timer accuracy and DMA pins remain unqualified.
+
 ## [0.42.0] - 2026-10-21
 
 
