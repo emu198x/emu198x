@@ -691,6 +691,12 @@ impl Upd765a {
             Phase::Result => {
                 if self.result_pos < self.result_buf.len() {
                     let byte = self.result_buf[self.result_pos];
+                    if self.command == Command::ReadId && self.result_pos == 0 {
+                        // NEC result-phase handshake: the first data-register
+                        // read acknowledges completion (MAME fifo_r). Reading
+                        // the MSR alone does not acknowledge the interrupt.
+                        self.interrupt = false;
+                    }
                     self.result_pos += 1;
                     if self.result_pos >= self.result_buf.len() {
                         self.phase = Phase::Idle;
@@ -960,7 +966,15 @@ impl Upd765a {
                     .map(|trk| &trk.sectors[..]);
 
                 self.st0 = (head << 2) | drive_echo;
+                let ready = self.drive_ready(drive);
                 let (c, h, r, n) = match track_sectors {
+                    _ if !ready => {
+                        // Read ID checks the existing physical READY input
+                        // before searching any ID (NEC ST0.NR; MAME
+                        // read_id_start). A mounted image is not READY.
+                        self.st0 |= 0x48;
+                        (self.track[drive], head, 1, 2)
+                    }
                     Some(sectors) if !sectors.is_empty() => {
                         let idx = self.read_id_index[drive] % sectors.len();
                         let s = &sectors[idx];
@@ -982,7 +996,7 @@ impl Upd765a {
                         // pp17–18 (ST0/ST1): no readable ID terminates
                         // abnormally with MA and ND. This sector-image
                         // model does not time the two-index-pulse search
-                        // or model drive-ready pins. CHRN is unspecified
+                        // timing. CHRN is unspecified
                         // on this error; retain the existing filler bytes.
                         self.st0 |= 0x40;
                         self.st1 = 0x05;
@@ -1001,6 +1015,9 @@ impl Upd765a {
                 self.result_pos = 0;
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
+                // Completion IRQ is raised on both successful and abnormal
+                // Read ID results; it is not a seek/SIS attention record.
+                self.interrupt = true;
                 if fdc_trace_enabled() {
                     eprintln!("[FDC-RES] ReadId result=[{}]", fmt_bytes(&self.result_buf),);
                 }

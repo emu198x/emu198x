@@ -24,6 +24,8 @@ fn assert_missing_id(image: Option<DiskImage>, select: u8) {
     if let Some(image) = image {
         fdc.insert_disk(0, image);
     }
+    // A missing readable ID is distinct from a low physical READY input.
+    fdc.set_ready(0, true);
     let result = read_id(&mut fdc, select);
     assert_eq!(
         result[0] & 0xc0,
@@ -95,8 +97,8 @@ fn read_id_on_absent_head_reports_missing_id() {
 
 #[test]
 fn read_id_without_image_cannot_report_success() {
-    // The core has no drive-ready input: this checks missing-ID status, not NR
-    // fidelity or the timing of a disconnected drive's index pulses.
+    // READY is explicitly high: this checks missing-ID status, not the
+    // timing or electrical sensors of a disconnected physical mechanism.
     assert_missing_id(None, 0);
 }
 
