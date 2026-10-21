@@ -1,8 +1,8 @@
 //! Browser-only host boundary over the existing family runtime catalogue.
 //! A feature selects each downloadable family; native tools can enable all.
 use emu198x_shell::{
-    ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, InputEvent, MediaTransportAction,
-    MediaTransportCommand, NoAdditionalQueries, SessionQueryProvider,
+    ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, InputEvent, MediaKind,
+    MediaTransportAction, MediaTransportCommand, NoAdditionalQueries, SessionQueryProvider,
 };
 use emu198x_web::WebMachine;
 use serde_json::{Value, json};
@@ -126,9 +126,16 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
             .find(|entry| entry.id == slot)
             .map(|entry| entry.kind)
             .ok_or_else(|| format!("unknown media slot: {slot}"))?;
-        self.web
-            .load_media_copy(slot, kind, bytes)
-            .map_err(|e| e.to_string())
+        // A tape handed in is one to play, so it goes in write-protected: a
+        // writable tape is a blank work tape to SAVE onto, and the C64 drops
+        // the bytes of one (knowledge/decisions/disk-save-write-back.md).
+        // Disks stay writable in-memory copies, so a SAVE to them works.
+        if kind == MediaKind::Tape {
+            self.web.load_media_bytes(slot, kind, bytes)
+        } else {
+            self.web.load_media_copy(slot, kind, bytes)
+        }
+        .map_err(|e| e.to_string())
     }
     fn transport(&mut self, slot: &str, playing: bool) -> Result<(), String> {
         self.web
