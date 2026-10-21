@@ -79,7 +79,9 @@
 
 mod cartridge;
 
-pub use cartridge::{CartridgeHeader, CartridgeTerritory, normalize_cartridge};
+pub use cartridge::{
+    CartridgeHeader, CartridgeMapper, CartridgeTerritory, detect_mapper, normalize_cartridge,
+};
 
 use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
@@ -252,6 +254,8 @@ pub struct Sms {
     psg: Sn76489,
     cart_rom: Vec<u8>,
     cart_header: Option<CartridgeHeader>,
+    /// The cartridge's bank-switching scheme, read from the image at load.
+    mapper: CartridgeMapper,
     /// Optional base-unit boot ROM, selected through memory-control port $3E.
     bios_rom: Vec<u8>,
     #[serde(with = "BigArray")]
@@ -261,8 +265,10 @@ pub struct Sms {
     cartridge_ram: Vec<u8>,
     /// Host-visible writeback signal. Set only when software changes SRAM.
     cartridge_ram_dirty: bool,
-    /// Sega mapper bank registers, shadowed from RAM writes at
-    /// `$FFFC-$FFFF`.
+    /// Mapper control and the pages in slots 0-2. The Sega mapper shadows
+    /// them from RAM writes at `$FFFC-$FFFF`; the Codemasters mapper latches
+    /// the pages from writes to `$0000`, `$4000` and `$8000` and has no
+    /// control register.
     mapper_regs: [u8; 4],
     /// Controller port 1 active-low byte. Standard layout:
     /// bit 0 = up, 1 = down, 2 = left, 3 = right,
@@ -316,6 +322,7 @@ impl Sms {
     #[must_use]
     pub fn new_with_bios(cart_rom: Vec<u8>, bios_rom: Vec<u8>, variant: SmsVariant) -> Self {
         let (cart_rom, cart_header) = normalize_cartridge(cart_rom);
+        let mapper = detect_mapper(&cart_rom);
         let vdp = if variant.is_game_gear() {
             SegaVdp::new_game_gear()
         } else {
@@ -332,11 +339,17 @@ impl Sms {
             psg: Sn76489::new(variant.psg_clock_hz(), NoiseLfsr::Sega16),
             cart_rom,
             cart_header,
+            mapper,
             bios_rom,
             ram: [0; 8192],
             cartridge_ram: vec![0xFF; 32768],
             cartridge_ram_dirty: false,
-            mapper_regs: [0x00, 0x00, 0x01, 0x02],
+            mapper_regs: match mapper {
+                CartridgeMapper::Sega => [0x00, 0x00, 0x01, 0x02],
+                // Slot 2 starts on page 0 (MAME `sega8_codemasters_device`,
+                // ares `Codemasters::power`, which marks it verified).
+                CartridgeMapper::Codemasters => [0x00, 0x00, 0x01, 0x00],
+            },
             port_dc: 0xFF,
             port_dd: 0xFF,
             gg_start: 0xFF,
@@ -457,9 +470,12 @@ impl Sms {
         let mut data = 0xFF;
         if self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0 {
             data &= match addr {
-                // The cartridge keeps its first 1 KB fixed for vectors.
-                0x0000..=0x03FF => self.cart_rom.get(addr as usize).copied().unwrap_or(0xFF),
-                0x0400..=0x3FFF => self.read_rom(self.mapper_regs[1], (addr & 0x3FFF) as usize),
+                // The Sega mapper keeps the first 1 KB fixed for vectors;
+                // the Codemasters mapper banks all of slot 0.
+                0x0000..=0x03FF if self.mapper == CartridgeMapper::Sega => {
+                    self.cart_rom.get(addr as usize).copied().unwrap_or(0xFF)
+                }
+                0x0000..=0x3FFF => self.read_rom(self.mapper_regs[1], (addr & 0x3FFF) as usize),
                 0x4000..=0x7FFF => self.read_rom(self.mapper_regs[2], (addr & 0x3FFF) as usize),
                 0x8000..=0xBFFF if self.mapper_regs[0] & 0x08 == 0 => {
                     self.read_rom(self.mapper_regs[3], (addr & 0x3FFF) as usize)
@@ -475,6 +491,18 @@ impl Sms {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        // Codemasters cartridges latch a page from a write to the first
+        // byte of its slot; the ROM underneath still reads as itself.
+        if self.mapper == CartridgeMapper::Codemasters
+            && self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0
+        {
+            match addr {
+                0x0000 => self.mapper_regs[1] = value,
+                0x4000 => self.mapper_regs[2] = value,
+                0x8000 => self.mapper_regs[3] = value,
+                _ => {}
+            }
+        }
         if (0x8000..=0xBFFF).contains(&addr)
             && self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0
             && self.mapper_regs[0] & 0x08 != 0
@@ -490,7 +518,9 @@ impl Sms {
             if self.memory_control & MEMORY_DISABLE_WORK_RAM == 0 {
                 self.ram[(addr & 0x1FFF) as usize] = value;
             }
-            if self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0 {
+            if self.mapper == CartridgeMapper::Sega
+                && self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0
+            {
                 match addr {
                     0xFFFC => self.mapper_regs[0] = value,
                     0xFFFD => self.mapper_regs[1] = value,
@@ -838,7 +868,14 @@ impl Sms {
         self.variant
     }
 
-    /// Sega mapper register values `[$FFFC, $FFFD, $FFFE, $FFFF]`.
+    /// The cartridge's bank-switching scheme.
+    #[must_use]
+    pub fn cartridge_mapper(&self) -> CartridgeMapper {
+        self.mapper
+    }
+
+    /// Mapper control and slot 0-2 pages; for the Sega mapper, the values
+    /// written to `[$FFFC, $FFFD, $FFFE, $FFFF]`.
     #[must_use]
     pub fn mapper_regs(&self) -> &[u8; 4] {
         &self.mapper_regs
@@ -1294,6 +1331,61 @@ mod tests {
         sys.mem_write(0xFFFD, 2);
         assert_eq!(sys.mapper_regs()[1], 2);
         assert_eq!(sys.mem_read(0x1000), 0x22);
+    }
+
+    /// A 128 KB cartridge whose every page holds its own number at `$0000`
+    /// and `$0100`, with a Codemasters header at `$7FE0`.
+    fn codemasters_cart_128k() -> Vec<u8> {
+        let mut cart = vec![0u8; 0x20000];
+        for page in 0..8u8 {
+            let base = usize::from(page) * 0x4000;
+            cart[base] = 0xE0 | page;
+            cart[base + 0x0100] = page;
+        }
+        // Eight pages, a BCD date, then a checksum and its complement.
+        cart[0x7FE0..0x7FEA]
+            .copy_from_slice(&[0x08, 0x21, 0x10, 0x93, 0x12, 0x00, 0x34, 0x12, 0xCC, 0xED]);
+        cart
+    }
+
+    /// #214: Codemasters cartridges page by writing to the first byte of
+    /// each slot, bank all of slot 0, and leave `$FFFC-$FFFF` as plain RAM.
+    #[test]
+    fn codemasters_mapper_pages_from_slot_strobes() {
+        let mut sys = Sms::new(codemasters_cart_128k(), SmsVariant::SmsPal);
+        assert_eq!(sys.cartridge_mapper(), CartridgeMapper::Codemasters);
+        // Power-on: pages 0, 1 and 0.
+        assert_eq!(sys.mem_read(0x0100), 0);
+        assert_eq!(sys.mem_read(0x4100), 1);
+        assert_eq!(sys.mem_read(0x8100), 0);
+
+        sys.mem_write(0x0000, 5);
+        sys.mem_write(0x4000, 6);
+        sys.mem_write(0x8000, 7);
+        // No fixed first 1 KB: $0100 follows slot 0's page.
+        assert_eq!(sys.mem_read(0x0100), 5);
+        assert_eq!(sys.mem_read(0x4100), 6);
+        assert_eq!(sys.mem_read(0x8100), 7);
+        // The strobe addresses still read the ROM, not the register.
+        assert_eq!(sys.mem_read(0x0000), 0xE5);
+        assert_eq!(sys.mem_read(0x4000), 0xE6);
+        assert_eq!(sys.mem_read(0x8000), 0xE7);
+
+        // Sega's registers are RAM here: no paging, no cartridge RAM.
+        sys.mem_write(0xFFFF, 2);
+        sys.mem_write(0xFFFC, 0x08);
+        assert_eq!(sys.mem_read(0x8100), 7);
+        assert_eq!(sys.mem_read(0xFFFF), 2);
+    }
+
+    #[test]
+    fn sega_mapper_ignores_codemasters_strobes() {
+        let mut cart = codemasters_cart_128k();
+        cart[0x7FE0..0x7FF0].fill(0);
+        let mut sys = Sms::new(cart, SmsVariant::SmsNtsc);
+        assert_eq!(sys.cartridge_mapper(), CartridgeMapper::Sega);
+        sys.mem_write(0x4000, 6);
+        assert_eq!(sys.mem_read(0x4100), 1);
     }
 
     #[test]

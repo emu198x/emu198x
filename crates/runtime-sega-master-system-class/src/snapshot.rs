@@ -12,17 +12,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::{SmsModel, SmsRuntime};
 
-/// Version 8 adds the VDP's pending CPU access (#1614): a data-port access
-/// waits up to 38 dots for a free memory cycle, and a snapshot taken in that
-/// gap would otherwise lose the write. Version 7 added the cartridge SRAM
-/// writeback state. Earlier snapshots cannot reconstruct either, so the
-/// version check rejects them instead of silently restoring an incomplete
-/// machine.
-const SNAPSHOT_VERSION: u16 = 8;
+/// Version 9 adds the cartridge's mapper (#214): a Codemasters cartridge
+/// pages through different addresses from a Sega one. Version 8 added the
+/// VDP's pending CPU access (#1614): a data-port access waits up to 38 dots
+/// for a free memory cycle, and a snapshot taken in that gap would otherwise
+/// lose the write. Version 7 added the cartridge SRAM writeback state.
+/// Earlier snapshots cannot reconstruct these, so the version check rejects
+/// them instead of silently restoring an incomplete machine.
+const SNAPSHOT_VERSION: u16 = 9;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct SmsRuntimeSnapshotRefV8<'a> {
+struct SmsRuntimeSnapshotRefV9<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -31,7 +32,7 @@ struct SmsRuntimeSnapshotRefV8<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct SmsRuntimeSnapshotV8 {
+struct SmsRuntimeSnapshotV9 {
     version: u16,
     time: u64,
     model_id: String,
@@ -39,7 +40,7 @@ struct SmsRuntimeSnapshotV8 {
 }
 
 pub(crate) fn encode<M: SmsModel>(runtime: &SmsRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let snapshot = SmsRuntimeSnapshotRefV8 {
+    let snapshot = SmsRuntimeSnapshotRefV9 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model_id(),
@@ -64,7 +65,7 @@ pub(crate) fn decode<M: SmsModel>(
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: SmsRuntimeSnapshotV8 =
+    let snapshot: SmsRuntimeSnapshotV9 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
