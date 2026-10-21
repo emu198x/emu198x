@@ -153,6 +153,13 @@ envelope from 7 to 8 and rejects version 7 before decoding, because the
 positional payload gains a field mid-chip. The overrun counter beside it is
 observation only and is skipped.
 
+## Sega cartridge mapper amendment
+
+A Master System or Game Gear cartridge carries either Sega's mapper or
+Codemasters' (#214), and the two page through different addresses. The
+live machine records which one its cartridge has, so the class runtime
+advances its envelope from 8 to 9 and rejects version 8 before decoding.
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled

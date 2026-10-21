@@ -1,4 +1,5 @@
-//! Master System cartridge image normalization and standard header parsing.
+//! Master System cartridge image normalization, standard header parsing and
+//! mapper detection.
 
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +51,49 @@ pub struct CartridgeHeader {
     pub territory: CartridgeTerritory,
     /// ROM length represented by the low nibble, when assigned by Sega.
     pub declared_size: Option<usize>,
+}
+
+/// The bank-switching scheme a cartridge carries. The mapper is on the
+/// cartridge, not the console, so the same machine runs either.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CartridgeMapper {
+    /// Sega's own: page registers at `$FFFD-$FFFF`, first 1 KB fixed.
+    #[default]
+    Sega,
+    /// Codemasters': a page register at the bottom of each slot, written
+    /// at `$0000`, `$4000` and `$8000`, with no fixed first 1 KB
+    /// (`reference/by-system/sega-master-system/sms-reference.md`,
+    /// "Codemasters Mapper").
+    Codemasters,
+}
+
+/// Where Codemasters cartridges keep their own header, below Sega's.
+const CODEMASTERS_HEADER: usize = 0x7FE0;
+
+/// Picks the mapper from the image. Codemasters cartridges carry their own
+/// header at `$7FE0`, beside the Sega one: the number of 16 KB pages, a BCD
+/// date and time, then a 16-bit checksum and its complement, which sum to
+/// `$10000`, followed by six zero bytes. Every Codemasters image checked
+/// (Fantastic Dizzy on both consoles, The Excellent Dizzy Collection)
+/// matches all of that; a Sega-mapped image matching it by chance is
+/// vanishingly unlikely.
+#[must_use]
+pub fn detect_mapper(rom: &[u8]) -> CartridgeMapper {
+    let Some(header) = rom.get(CODEMASTERS_HEADER..CODEMASTERS_HEADER + 0x10) else {
+        return CartridgeMapper::Sega;
+    };
+    let checksum = u16::from_le_bytes([header[6], header[7]]);
+    let complement = u16::from_le_bytes([header[8], header[9]]);
+    let pages = usize::from(header[0]);
+    let codemasters = checksum != 0
+        && checksum.wrapping_add(complement) == 0
+        && header[10..].iter().all(|&byte| byte == 0)
+        && pages * 0x4000 == rom.len();
+    if codemasters {
+        CartridgeMapper::Codemasters
+    } else {
+        CartridgeMapper::Sega
+    }
 }
 
 /// Normalize a cartridge dump and parse its standard Sega header, if present.
@@ -155,6 +199,51 @@ mod tests {
         assert_eq!(
             header.expect("standard header").territory,
             CartridgeTerritory::SmsExport
+        );
+    }
+
+    /// The Codemasters header from the Game Gear Fantastic Dizzy (256 KB):
+    /// 16 pages, 23 August 1993 at 19:24, checksum `$B64C`, complement
+    /// `$49B4`.
+    const FANTASTIC_DIZZY_GG: [u8; 16] = [
+        0x10, 0x23, 0x08, 0x93, 0x19, 0x24, 0x4C, 0xB6, 0xB4, 0x49, 0, 0, 0, 0, 0, 0,
+    ];
+
+    fn rom_with_codemasters_header(size: usize, header: [u8; 16]) -> Vec<u8> {
+        let mut rom = rom_with_header(size, 4, 0xC);
+        rom[CODEMASTERS_HEADER..CODEMASTERS_HEADER + 0x10].copy_from_slice(&header);
+        rom
+    }
+
+    #[test]
+    fn a_codemasters_header_selects_the_codemasters_mapper() {
+        let rom = rom_with_codemasters_header(0x40000, FANTASTIC_DIZZY_GG);
+        assert_eq!(detect_mapper(&rom), CartridgeMapper::Codemasters);
+    }
+
+    #[test]
+    fn anything_short_of_the_whole_header_stays_sega() {
+        let mut bad_complement = FANTASTIC_DIZZY_GG;
+        bad_complement[8] ^= 1;
+        let mut trailing_byte = FANTASTIC_DIZZY_GG;
+        trailing_byte[15] = 0x40;
+        let mut no_checksum = FANTASTIC_DIZZY_GG;
+        no_checksum[6..10].fill(0);
+        for header in [bad_complement, trailing_byte, no_checksum] {
+            let rom = rom_with_codemasters_header(0x40000, header);
+            assert_eq!(detect_mapper(&rom), CartridgeMapper::Sega);
+        }
+        // The page count must match the image.
+        let rom = rom_with_codemasters_header(0x20000, FANTASTIC_DIZZY_GG);
+        assert_eq!(detect_mapper(&rom), CartridgeMapper::Sega);
+        // Too small to hold the header at all.
+        assert_eq!(
+            detect_mapper(&rom_with_header(0x4000, 4, 0xC)),
+            CartridgeMapper::Sega
+        );
+        assert_eq!(
+            detect_mapper(&rom_with_header(0x8000, 4, 0xC)),
+            CartridgeMapper::Sega
         );
     }
 }
