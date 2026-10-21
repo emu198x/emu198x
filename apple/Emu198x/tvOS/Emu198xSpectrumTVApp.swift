@@ -44,15 +44,20 @@ struct TVRootView: View {
         }
     }
 
-    private func start(_ program: LocalLibrary.Program) {
-        guard let romURL = library.rom else { return }
+    private func start(_ version: LocalLibrary.Version) {
+        guard let folder = library.firmware else { return }
+        let firmware: [String: Data]
         do {
-            session.start(rom: try SpectrumFirmware.load(from: romURL))
-            session.play(program.url)
+            firmware = try SpectrumFirmware.load(version.model, from: folder)
         } catch {
+            let files = version.model.firmware.map(\.file).joined(separator: " and ")
             session.alert = SessionAlert(
-                title: "The Spectrum could not start", message: String(describing: error))
+                title: "The \(version.model.name) needs its ROM",
+                message: "Put \(files) in apple/Emu198x/LocalContent, then build again. \(error)")
+            return
         }
+        session.start(version.model, firmware: firmware)
+        session.play(version.url, game: version.key, controls: version.controls)
     }
 
     private func pauseAndShowMenu() {
@@ -68,23 +73,29 @@ struct TVRootView: View {
 
 struct LibraryView: View {
     let library: LocalLibrary
-    let start: (LocalLibrary.Program) -> Void
+    let start: (LocalLibrary.Version) -> Void
 
     var body: some View {
         NavigationStack {
             Group {
-                if library.rom == nil {
-                    message("Put the Spectrum 48K ROM in apple/Emu198x/LocalContent as 48.rom, then build again.")
-                } else if library.programs.isEmpty {
-                    message("Put .tap, .tzx, .sna, .z80 or .state files in apple/Emu198x/LocalContent, then build again.")
+                if library.games.isEmpty {
+                    message("Put .tap, .tzx, .sna, .z80 or .state files and the Spectrum ROMs in apple/Emu198x/LocalContent, then build again.")
                 } else {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 48)], spacing: 64) {
-                            ForEach(library.programs) { program in
-                                Button { start(program) } label: {
-                                    CoverView(program: program)
+                            ForEach(library.games) { game in
+                                Button { start(game.versions[0]) } label: {
+                                    CoverView(game: game)
                                 }
                                 .buttonStyle(.borderless)
+                                // A long press offers every version.
+                                .contextMenu {
+                                    if game.versions.count > 1 {
+                                        ForEach(game.versions) { version in
+                                            Button(version.name) { start(version) }
+                                        }
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 80)
@@ -132,19 +143,20 @@ struct PauseMenu: View {
 }
 
 /// One game in the library: its box art, or its name on a plain card when
-/// it has none, with the name beneath.
+/// it has none, with its name and versions beneath. Selecting it plays the
+/// first version.
 struct CoverView: View {
-    let program: LocalLibrary.Program
+    let game: LocalLibrary.Game
 
     var body: some View {
         VStack(spacing: 16) {
             Group {
-                if let cover = program.cover, let image = UIImage(contentsOfFile: cover.path) {
+                if let cover = game.cover, let image = UIImage(contentsOfFile: cover.path) {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
-                    Text(program.name)
+                    Text(game.name)
                         .font(.headline)
                         .multilineTextAlignment(.center)
                         .padding()
@@ -155,11 +167,16 @@ struct CoverView: View {
             // Cassette inlays are about 5:8.
             .frame(width: 260, height: 400)
             .clipped()
-            Text(program.name)
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(width: 260)
+            VStack(spacing: 4) {
+                Text(game.name)
+                    .font(.caption)
+                    .lineLimit(2)
+                Text(game.versions.map(\.name).joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.center)
+            .frame(width: 260)
         }
     }
 }
