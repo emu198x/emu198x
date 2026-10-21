@@ -1,0 +1,28 @@
+[
+  {
+    "reference": "reference/by-topic/fdc-765/upd765-data-sheet-dec78",
+    "url": "https://bitsavers.org/components/nec/_dataSheets/uPD765_Data_Sheet_Dec78.pdf",
+    "pdf_sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117",
+    "bytes": 1042541,
+    "text_sha256": "b56ef2a6c9cb62df226bab30af61099c1c98cb2a680bcd6135ac51e437ba5e5a",
+    "text_extraction": [
+      "pdftotext",
+      "-layout"
+    ],
+    "existing_library_identity_verified": true,
+    "pdf_in_git": false
+  },
+  {
+    "reference": "reference/by-topic/fdc-765/upd765-app-note-mar79",
+    "url": "https://bitsavers.org/components/nec/_dataSheets/uPD765_App_Note_Mar79.pdf",
+    "pdf_sha256": "cacde17be06f4ac4f68f5801c8ea0bcd2ff4bf6ffc2b62a86e0e4618e90b70a5",
+    "bytes": 1461697,
+    "text_sha256": "5ce641bb05b79c48e343908f8e6903eb1d5d95df38b1caef9258fe30718249bc",
+    "text_extraction": [
+      "pdftotext",
+      "-layout"
+    ],
+    "existing_library_identity_verified": true,
+    "pdf_in_git": false
+  }
+]
