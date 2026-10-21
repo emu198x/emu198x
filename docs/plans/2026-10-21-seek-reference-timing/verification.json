@@ -1,0 +1,33 @@
+{
+  "status": "pass",
+  "qualified": false,
+  "operations_observed": 64,
+  "fresh_processes": 10,
+  "negative_controls": [
+    {
+      "control": "wrong_interval",
+      "rejected": true
+    },
+    {
+      "control": "raw_summary_disagreement",
+      "rejected": true
+    },
+    {
+      "control": "missing_case",
+      "rejected": true
+    },
+    {
+      "control": "duplicate_case",
+      "rejected": true
+    },
+    {
+      "control": "false_qualification",
+      "rejected": true
+    },
+    {
+      "control": "invented_mame_source",
+      "rejected": true
+    }
+  ],
+  "scope": "captured reference-model timing audit"
+}
