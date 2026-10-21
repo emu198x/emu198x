@@ -22,8 +22,36 @@ the table says so):
 | Master System | Fantastic Dizzy | ROM | `runtime-sega-master-system` | cartridge, no firmware |
 | Commodore 64 | Dizzy 1 to 6, Bubble, Down the Rapids, Kwik Snax, Panic, Crystal Kingdom | TAP, also D64 and PRG | `runtime-commodore-c64` | tape and disk autoload exist in the runtime; firmware in `~/.emu198x/roms` |
 | Amstrad CPC | Dizzy 1 to 7, Bubble, Down the Rapids, Fast Food; Crystal Kingdom, Bubble, Down the Rapids and Fast Food only as cracked copies | DSK only | `runtime-amstrad-cpc` | blocked: the core is a CPC 464 with a tape slot and no disk drive (#499) |
-| Amiga | Dizzy 2 to 7, Bubble, Panic, Fast Food, Fantastic Dizzy, two compilations | IPF (SPS); ADF for two | `runtime-commodore-amiga` | blocked: IPF is not supported (#105, #1284); the two ADFs could run |
+| Amiga | Dizzy 2 to 7, Bubble, Panic, Fast Food, Fantastic Dizzy, two compilations | IPF (SPS); ADF as cracks, and two originals | `runtime-commodore-amiga` | ADFs now, as below; IPF originals later (#105, #1284). Kickstarts 1.3 and 3.1 are in `~/.emu198x/roms` |
 | Atari ST, Mega Drive, SNES, Enterprise | several | | none | out of reach |
+
+Amiga (Steve, 2026-10-21): the original disks were copy-protected, so
+the only images of most of them that an ADF can hold are scene cracks;
+the uncracked originals are SPS's IPF images. Until the core reads IPF,
+the collection uses the cleanest crack of each, says so in the version
+name ("Amiga (SR crack)"), and swaps in the IPF original later. Cleanest
+means no trainer, bad dump or alternate where there is a choice, and
+never a copy flagged as carrying a virus (some Dizzy's Excellent
+Adventures disks are, `[v Saddam 1]`):
+
+| Game | ADF |
+|---|---|
+| Treasure Island Dizzy | the 1989 original, uncracked |
+| Fantastic Dizzy | the 1994 AGA original, uncracked, two disks (A1200) |
+| Fantasy World Dizzy | `[cr SR]` |
+| Magicland Dizzy | `[cr TRSI]` |
+| Fast Food | `[cr SR]` |
+| Kwik Snax | `[cr FLT][t ATX]`, the only one, with a trainer |
+| Dizzy Panic | `[cr ATX]` |
+| Bubble Dizzy | v1.01 `[cr SR]` |
+| Prince of the Yolkfolk | `[cr Flashtro]` |
+| Crystal Kingdom Dizzy | `[cr FLT]`, two disks |
+| The Dizzy Collection | `[cr SR]`, two disks |
+| Dizzy's Excellent Adventures | `[cr Flashtro]`, two disks |
+
+Spellbound Dizzy has no ADF of its own; which games each compilation
+holds is to be checked. Easter Eggstravaganza, an Amiga Action coverdisk
+game, exists only as a hacked copy and is left out.
 
 Spectrum disks: no Codemasters disk release of a Dizzy game is known.
 TOSEC's Spectrum disk images of them are TR-DOS conversions by scene
@@ -61,4 +89,9 @@ groups, all flagged as hacks, so they are left out.
    for port 2, keys per game. Verify as for the Spectrum.
 5. The bootstrap recipe gains the new versions and their covers.
 
-Later, when the cores can: CPC disks (#499) and Amiga IPF (#105, #1284).
+6. Amiga: the ADFs above on the machine each needs (A500 with Kickstart
+   1.3; the A1200 for Fantastic Dizzy's AGA version), with a way to
+   change disks for the two-disk games.
+
+Later, when the cores can: CPC disks (#499), and the Amiga IPF originals
+(#105, #1284) in place of the cracks.
