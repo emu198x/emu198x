@@ -22,6 +22,7 @@
     "crc-error-presented-clean",
     "invented-mame-source",
     "wrong-dtl-command",
+    "stale-executable-description",
     "zero-processes"
   ]
 }

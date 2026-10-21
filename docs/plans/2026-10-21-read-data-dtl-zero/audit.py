@@ -24,6 +24,8 @@ def check(record: dict, files: dict[str, bytes]) -> dict:
         raise ValueError('unattested installed MAME source identity')
     if record['mame_inspected_source']['executed_source_identity'] is not False:
         raise ValueError('inspected MAME source is not a producer attestation')
+    if record['fuse_executable']['sha256'] not in (HERE / 'README.md').read_text():
+        raise ValueError('stale executable description')
     for name, expected in record['authored_sources'].items():
         if hashlib.sha256((HERE / name).read_bytes()).hexdigest() != expected:
             raise ValueError('authored capture source changed: ' + name)
@@ -108,6 +110,7 @@ def controls(record: dict, files: dict[str, bytes]) -> list[str]:
         ('crc-error-presented-clean', lambda r: next(o for o in r['observations'] if o['bad_crc'])['observed'].update(result=[64, 128, 0, 0, 0, 1, 0])),
         ('invented-mame-source', lambda r: r['mame_executable'].update(source_commit='attested')),
         ('wrong-dtl-command', lambda r: next(c for c in r['commands'] if c['name'] == 'mame-1-46-dtl000-crc0')['environment'].update(PROBE_DTL='128')),
+        ('stale-executable-description', lambda r: r['fuse_executable'].update(sha256='0' * 64)),
         ('zero-processes', lambda r: r.update(observations=[])),
     ]:
         candidate = copy.deepcopy(record)

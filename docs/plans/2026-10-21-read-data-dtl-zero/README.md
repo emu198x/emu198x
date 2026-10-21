@@ -18,7 +18,7 @@ There were **48 fresh processes: 24 Fuse and 24 MAME**. The 12 cases per engine,
 
 Clean result, hexadecimal: `40 80 00 00 00 01 00`. Corrupted data CRC at DTL0 still transferred 128 bytes, then returned `40 20 20 00 00 01 00`. Eight fresh CRC-error observations demonstrate that those executed engines read/check the full field at DTL0. These are deliberate fault cases, not qualification passes.
 
-- Fuse upstream commit: `0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2`, unmodified controller/drive/CRC files, authored standalone event/public-register host reused from earlier studies. Source-built executable SHA256: `14b6e1d132d7130a2c9ec1853663dbb262dbb3223973583a1e5c76063ffb23f2`.
+- Fuse upstream commit: `0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2`, unmodified controller/drive/CRC files, authored standalone event/public-register host reused from earlier studies. Source-built executable SHA256: `3e8bc96f48b7d9a23b49780c4cad13e3133449b92b1779b811aabae1c03ddb71`.
 - Compiler: Apple clang 21.0.0, address/undefined-behavior sanitizers enabled. Exact arguments, compiler binary identity and source hashes are retained.
 - MAME 0.289 installed executable SHA256: `6d40df87963c58cdd3857d203e186af854fea49ae03b2ab555e30ef1029636d9`. Its source commit is **unknown**. Inspected vendored MAME source is recorded separately and is not a producer attestation.
 - MAME uses legitimate local English +3 ROMs, identified by hashes only. Its existing direct-port/idle-loop research probe uses an authored EDSK and host PC/register control. **This is not ROM-loader qualification.** No firmware or native states are retained.
@@ -48,6 +48,6 @@ Fresh reference execution, requiring the existing reference checkout, clang, MAM
 python3 docs/plans/2026-10-21-read-data-dtl-zero/capture.py
 ```
 
-Capture refuses an existing `runs/` output directory. It creates only local research outputs and a temporary private firmware directory, which is removed on exit. The readonly auditor enforces unique/exact cases, vectors/results, bounded receipts, source/artifact hashes and honest identity/qualification classes. Nine semantic negative controls reject false qualification, missing/duplicate cases, zero/256 replacement payloads, CRC failures presented clean, invented MAME source identity, changed DTL command and zero processes.
+Capture refuses an existing `runs/` output directory. It creates only local research outputs and a temporary private firmware directory, which is removed on exit. The readonly auditor enforces unique/exact cases, vectors/results, bounded receipts, source/artifact hashes and honest identity/qualification classes. Ten semantic negative controls reject false qualification, missing/duplicate cases, zero/256 replacement payloads, CRC failures presented clean, invented MAME source identity, changed DTL command, stale executable description and zero processes.
 
 `verification.json` is a pass for **auditing these captured reference-model observations** with `qualified=false` and `silicon_semantics=unresolved`. It is not a machine, operation, release or hardware qualification verdict. Existing Read Data DTL fixes and the required native/guest contract remain separate work.
