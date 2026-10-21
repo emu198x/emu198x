@@ -14,8 +14,8 @@
 //! write-capture round-trip. Both are lifted into the live crate
 //! verbatim when Phase 2 / Phase 3 land.
 
-use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
 use peripheral_commodore_amiga_floppy::{Adf, DD};
+use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, INTERNAL_DRIVE_ID};
 
 /// Matches the archive's private `MOTOR_SPINUP_TICKS` constant.
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
@@ -141,17 +141,30 @@ fn eject_reasserts_dskchange_even_after_acknowledgement() {
 
 #[test]
 fn drive_id_stream_shifts_on_dsksel_falling_edge_with_motor_off() {
-    // HRM §Device I.D.: 3.5" drive ID = $FFFFFFFF. Each DSKSEL falling
-    // edge shifts one MSB-first bit out on /DSKRDY while motor is OFF.
-    // All-ones stream means /DSKRDY stays deasserted for every shift.
+    // HRM Appendix E: each DSKSEL falling edge shifts one MSB-first bit
+    // out on /DSKRDY while motor is OFF, active low. DF0 answers
+    // $00000000, so /DSKRDY stays deasserted for every shift.
     let mut drive = AmigaFloppyDrive::new();
     for _ in 0..32 {
         // Falling edge: deselect → select, motor=false.
         drive.update_control(false, false, false, true, false);
         assert!(
             !drive.status().ready,
-            "all-ones ID bit leaves /DSKRDY deasserted"
+            "a zero ID bit leaves /DSKRDY deasserted"
         );
+        drive.update_control(false, false, false, false, false);
+    }
+}
+
+#[test]
+fn external_drive_id_stream_asserts_ready_for_each_one_bit() {
+    // HRM Appendix E: a standard 3.5" drive answers $FFFFFFFF, and the
+    // stream "is active low and must therefore be inverted", so every
+    // shifted bit pulls /DSKRDY low.
+    let mut drive = AmigaFloppyDrive::external();
+    for _ in 0..32 {
+        drive.update_control(false, false, false, true, false);
+        assert!(drive.status().ready, "a one ID bit asserts /DSKRDY");
         drive.update_control(false, false, false, false, false);
     }
 }
@@ -199,7 +212,7 @@ fn diagnostic_snapshot_exposes_media_mechanism_and_write_state_without_side_effe
     assert_eq!(snapshot.step_event_counter, 0);
     assert_eq!(snapshot.write_mfm_capture_words, 2);
     assert_eq!(snapshot.write_mfm_pending_words, 2);
-    assert_eq!(snapshot.id_shift_register, 0xFFFF_FFFF);
+    assert_eq!(snapshot.id_shift_register, INTERNAL_DRIVE_ID);
     assert_eq!(snapshot.id_bit, 0);
     assert!(snapshot.id_ready_bit);
     assert!(!snapshot.disk_change);

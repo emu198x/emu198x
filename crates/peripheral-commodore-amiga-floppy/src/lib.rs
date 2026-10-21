@@ -4,7 +4,10 @@
 //! change detection, and MFM track encoding. Control signals come from
 //! CIA-B port B; status signals feed back to CIA-A port A.
 
+mod chain;
 pub mod mfm;
+
+pub use chain::{AmigaFloppyChain, MAX_DRIVES};
 
 use format198x_commodore_amiga_adf::{Image, ImageMut};
 
@@ -270,14 +273,15 @@ pub struct AmigaFloppyDrive {
     write_mfm_capture: Vec<u16>,
     /// Pending decode buffer — consumed and cleared by `flush_write_capture()`.
     write_mfm_pending: Vec<u16>,
-    /// Drive-ID shift register. Per Amiga HRM §Floppy / Device I.D.:
-    /// while the motor is OFF, each DSKSEL falling edge shifts one bit
-    /// out through /DSKRDY (MSB first). The Amiga reference value is
-    /// $FFFFFFFF, identifying a 3.5" drive.
+    /// The drive's 32-bit identification. Per HRM Appendix E
+    /// (identification mode): while the motor is OFF, each select
+    /// falling edge shifts one bit out on /DSKRDY, MSB first.
+    /// [`STANDARD_DRIVE_ID`] is the standard 3.5" drive.
     id_shift_register: u32,
     /// Next bit to shift out (0..=31). Reloaded to 0 on motor-on.
     id_bit: u8,
-    /// Latched /DSKRDY output bit — 0 = asserted (ready/id-0), 1 = deasserted.
+    /// Latched /DSKRDY pin level while the motor is off: `true` = high
+    /// (deasserted), `false` = low (asserted).
     id_ready_bit: bool,
 }
 
@@ -309,8 +313,38 @@ impl Clone for AmigaFloppyDrive {
     }
 }
 
+/// Identification of the Amiga standard 3.5" drive (HRM Appendix E,
+/// "External disk connector defined identifications").
+pub const STANDARD_DRIVE_ID: u32 = 0xFFFF_FFFF;
+
+/// Identification read from a drive position with nothing fitted (HRM
+/// Appendix E).
+pub const NO_DRIVE_ID: u32 = 0x0000_0000;
+
+/// Identification the internal drive, DF0, answers with in this model.
+///
+/// DF0 keeps the stream it has always given here, which reads as
+/// [`NO_DRIVE_ID`] once inverted, so one-drive boots are unchanged.
+/// WinUAE models the A500 and A2000 internal drive the same way
+/// (`emulators/amiga/WinUAE/disk.cpp`). Internal drives that do answer,
+/// such as the A3000's and A4000's high-density drive, are not modelled.
+pub const INTERNAL_DRIVE_ID: u32 = NO_DRIVE_ID;
+
 impl AmigaFloppyDrive {
+    /// The internal drive, DF0, answering [`INTERNAL_DRIVE_ID`].
     pub fn new() -> Self {
+        Self::with_id(INTERNAL_DRIVE_ID)
+    }
+
+    /// An external drive (DF1 to DF3), answering [`STANDARD_DRIVE_ID`].
+    #[must_use]
+    pub fn external() -> Self {
+        Self::with_id(STANDARD_DRIVE_ID)
+    }
+
+    /// A drive answering the identification sequence with `id`.
+    #[must_use]
+    pub fn with_id(id: u32) -> Self {
         Self {
             disk: None,
             cylinder: 0,
@@ -325,9 +359,10 @@ impl AmigaFloppyDrive {
             step_event_counter: 0,
             write_mfm_capture: Vec::new(),
             write_mfm_pending: Vec::new(),
-            id_shift_register: 0xFFFF_FFFF,
+            id_shift_register: id,
             id_bit: 0,
-            id_ready_bit: true, // MSB of $FFFFFFFF = 1 (deasserted)
+            // No bit has been shifted yet, so /DSKRDY is released (high).
+            id_ready_bit: true,
         }
     }
 
@@ -420,13 +455,14 @@ impl AmigaFloppyDrive {
             self.selected = false;
         }
 
-        // Per Amiga HRM §Device I.D.: with motor OFF, each DSKSEL
-        // falling edge shifts one bit out of the ID register onto
-        // /DSKRDY (MSB first). With motor ON the /DSKRDY line reflects
-        // the motor-at-speed signal instead.
+        // Per HRM Appendix E (identification mode): with motor OFF,
+        // each select falling edge shifts one bit of the ID out on
+        // /DSKRDY, MSB first. The stream "is active low and must
+        // therefore be inverted", so a 1 bit pulls /DSKRDY low. With
+        // motor ON the line reflects the motor-at-speed signal instead.
         if sel_falling_edge && !self.motor_on {
             let bit = (self.id_shift_register >> (31 - self.id_bit)) & 1;
-            self.id_ready_bit = bit != 0;
+            self.id_ready_bit = bit == 0;
             self.id_bit = (self.id_bit + 1) & 31;
         }
 
@@ -714,18 +750,17 @@ mod tests {
 
     #[test]
     fn motor_off_select_shifts_id_stream_through_ready() {
-        // Per Amiga HRM §Device I.D., the drive shifts $FFFFFFFF out of
-        // /DSKRDY on each DSKSEL falling edge while motor is OFF.
-        // For a standard 3.5" drive the ID is all-ones, so every shifted
-        // bit should leave /DSKRDY deasserted (ready=false in our
-        // "asserted low" boolean).
+        // Per HRM Appendix E, the drive shifts its ID out of /DSKRDY on
+        // each select falling edge while the motor is OFF. DF0 answers
+        // $00000000 once inverted, so every shifted bit leaves /DSKRDY
+        // deasserted (ready=false in our "asserted low" boolean).
         let mut drive = AmigaFloppyDrive::new();
         for _ in 0..32 {
             // Select with motor off (sel=true, motor=false) triggers a shift.
             drive.update_control(false, false, false, true, false);
             assert!(
                 !drive.status().ready,
-                "all-ones ID stream should leave /DSKRDY deasserted"
+                "DF0's ID stream should leave /DSKRDY deasserted"
             );
             // Deselect between pulses so the next select is a fresh falling edge.
             drive.update_control(false, false, false, false, false);
