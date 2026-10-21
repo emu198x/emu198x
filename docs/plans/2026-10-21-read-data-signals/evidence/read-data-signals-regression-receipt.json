@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "cargo",
+    "+1.99.0",
+    "test",
+    "--locked",
+    "-p",
+    "nec-upd765a"
+  ],
+  "returncode": 0,
+  "host_timeout_seconds": 120,
+  "elapsed_seconds": 12.195929124951363,
+  "relevant_environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-signals"
+  }
+}

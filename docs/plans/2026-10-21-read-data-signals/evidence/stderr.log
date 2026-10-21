@@ -1,0 +1,21 @@
+   Compiling nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-signals/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.99s
+     Running tests/read_data_signals_probe.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-signals/debug/deps/read_data_signals_probe-691321082b742be6)
+
+thread 'dma_mode_clears_execution_bit' (144726376) panicked at crates/nec-upd765a/tests/read_data_signals_probe.rs:83:5:
+assertion `left == right` failed: DMA mode must clear EXM
+  left: 32
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'non_dma_byte_request_raises_irq_and_data_read_acknowledges' (144726378) panicked at crates/nec-upd765a/tests/read_data_signals_probe.rs:107:5:
+non-DMA byte request raises IRQ
+
+thread 'programmed_dma_mode_survives_an_intervening_drive_status_command' (144726381) panicked at crates/nec-upd765a/tests/read_data_signals_probe.rs:94:5:
+assertion `left == right` failed: Specify ND persists across commands
+  left: 32
+ right: 0
+
+thread 'first_result_byte_acknowledges_completion_irq' (144726377) panicked at crates/nec-upd765a/tests/read_data_signals_probe.rs:139:5:
+first Read Data result byte clears IRQ
+error: test failed, to rerun pass `-p nec-upd765a --test read_data_signals_probe`
