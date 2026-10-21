@@ -389,6 +389,25 @@ pub unsafe extern "C" fn emu198x_machine_button(
     }
 }
 
+/// Presses or releases a mouse button by name (`left`, `right`).
+///
+/// # Safety
+/// See `with_machine` and `text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn emu198x_machine_mouse_button(
+    machine: *mut Emu198xMachine,
+    name: *const c_char,
+    pressed: bool,
+) -> i32 {
+    // SAFETY: the caller upholds `with_machine` and `text`.
+    unsafe {
+        with_machine(machine, |m| {
+            let name = text(name, "mouse button name is null or not UTF-8")?;
+            Ok(m.fleet.mouse_button(name, pressed)?)
+        })
+    }
+}
+
 /// Turns on stereo sound at `rate` samples per second.
 ///
 /// # Safety

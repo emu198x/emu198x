@@ -56,12 +56,15 @@ struct TVRootView: View {
                 message: "Put \(files) in apple/Emu198x/LocalContent, then build again. \(error)")
             return
         }
-        var cartridge: Data?
-        if version.model.pad != nil {
-            guard let data = session.cartridge(at: version.url) else { return }
-            cartridge = data
+        // A cartridge, or every disk, goes in before the machine boots.
+        var media: [Data] = []
+        if !version.model.mediaSlots.isEmpty {
+            for url in [version.url] + version.moreDisks {
+                guard let data = session.media(at: url) else { return }
+                media.append(data)
+            }
         }
-        session.start(version.model, firmware: firmware, cartridge: cartridge)
+        session.start(version.model, firmware: firmware, media: media)
         session.play(version.url, game: version.key, controls: version.controls)
     }
 
@@ -84,7 +87,7 @@ struct LibraryView: View {
         NavigationStack {
             Group {
                 if library.games.isEmpty {
-                    message("Put .tap, .tzx, .sna, .z80 or .state files and the Spectrum ROMs, or .nes, .sms or .gg cartridges, in apple/Emu198x/LocalContent, then build again.")
+                    message("Put programs and the ROMs they need in apple/Emu198x/LocalContent, then build again. Its README lists what each machine takes.")
                 } else {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 48)], spacing: 64) {

@@ -6,7 +6,7 @@ import Foundation
 /// joystick in the game's own menu.
 struct GameControls: Codable, Equatable {
     /// The joysticks games read: the Spectrum's standards and the C64's
-    /// two ports. ``MachineModel/sticks`` says which a machine has.
+    /// and Amiga's ports. ``MachineModel/sticks`` says which a machine has.
     enum Stick: String, Codable, CaseIterable, Identifiable {
         /// Port $1F, through the runtime's primary joystick (port 0).
         case kempston
@@ -16,7 +16,7 @@ struct GameControls: Codable, Equatable {
         case cursor
         /// Q, A, O and P, with Space as fire.
         case qaop
-        /// The C64's control port 2, where most games read the joystick.
+        /// Control port 2, where most C64 and Amiga games read the joystick.
         case port2
         /// The C64's control port 1, which shares its lines with keys.
         case port1
@@ -38,6 +38,11 @@ struct GameControls: Codable, Equatable {
     /// The controls a person can give a key.
     static let buttons: [Control] = [.b, .x, .y, .leftShoulder, .rightShoulder]
 
+    /// Key codes that press a mouse button rather than a key, on a machine
+    /// with a mouse.
+    static let leftMouse = "MouseLeft"
+    static let rightMouse = "MouseRight"
+
     var stick: Stick = .kempston
     /// Key codes by control. A button missing here does nothing.
     var keys: [Control: String] = [.b: "Space"]
@@ -49,7 +54,11 @@ struct GameControls: Codable, Equatable {
     var targets: [Control: ControlTarget] {
         var targets: [Control: ControlTarget] = [:]
         for (control, code) in keys where Self.buttons.contains(control) {
-            targets[control] = .key(code)
+            switch code {
+            case Self.leftMouse: targets[control] = .mouseButton("left")
+            case Self.rightMouse: targets[control] = .mouseButton("right")
+            default: targets[control] = .key(code)
+            }
         }
         let directions: [Control] = [.up, .down, .left, .right, .a]
         for (control, target) in zip(directions, stickTargets) {
@@ -130,15 +139,15 @@ enum GameControlsStore {
     private static func key(for game: String) -> String { "controlOverrides.\(game)" }
 
     /// The game's own controls: those its library entry gives, or else its
-    /// `<name>.controls.json`, or else the defaults.
-    static func base(for url: URL, defaults: GameControls?) -> GameControls {
+    /// `<name>.controls.json`, or else the machine's `fallback`.
+    static func base(for url: URL, defaults: GameControls?, fallback: GameControls) -> GameControls {
         if let defaults { return defaults }
         let sidecar = url.deletingPathExtension().appendingPathExtension("controls.json")
         if let data = try? Data(contentsOf: sidecar),
            let controls = try? JSONDecoder().decode(GameControls.self, from: data) {
             return controls
         }
-        return GameControls()
+        return fallback
     }
 
     static func overrides(for game: String) -> GameControlsOverrides? {

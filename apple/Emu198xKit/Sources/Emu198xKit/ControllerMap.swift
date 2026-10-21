@@ -20,6 +20,8 @@ public enum ControlTarget: Hashable, Codable, Sendable {
     /// A machine key by the runtime's own name, sent as it is: a console
     /// button with no host key, such as the Game Gear's `start`.
     case machineKey(String)
+    /// A mouse button by name (`left`), on a machine with a mouse.
+    case mouseButton(String)
 }
 
 /// Routes controller controls to machine inputs.

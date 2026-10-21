@@ -19,6 +19,8 @@ struct LocalLibrary {
     struct Version: Identifiable {
         let name: String
         let url: URL
+        /// Disks after the first, for DF1 onwards on an Amiga.
+        var moreDisks: [URL] = []
         let model: MachineModel
         let controls: GameControls?
         /// The name its remembered controls are kept under.
@@ -31,6 +33,8 @@ struct LocalLibrary {
         struct Entry: Decodable {
             let name: String
             let file: String
+            /// Disks after `file`, for a game on more than one.
+            let disks: [String]?
             let machine: MachineModel?
             let controls: GameControls?
         }
@@ -38,8 +42,8 @@ struct LocalLibrary {
         let versions: [Entry]
     }
 
-    /// Spectrum programs, then console cartridges.
-    static let extensions = ["tap", "tzx", "sna", "z80", "state", "nes", "sms", "gg"]
+    /// Spectrum programs, console cartridges and Amiga disks.
+    static let extensions = ["tap", "tzx", "sna", "z80", "state", "nes", "sms", "gg", "adf"]
 
     let games: [Game]
     /// Where the ROMs were put: the app's resources.
@@ -55,10 +59,13 @@ struct LocalLibrary {
             else { continue }
             let name = String(url.lastPathComponent.dropLast(".game.json".count))
             let versions = manifest.versions.compactMap { entry -> Version? in
-                guard let file = bundle.url(forResource: entry.file, withExtension: nil) else { return nil }
-                named.insert(entry.file)
+                let files = [entry.file] + (entry.disks ?? [])
+                let urls = files.compactMap { bundle.url(forResource: $0, withExtension: nil) }
+                guard urls.count == files.count else { return nil }
+                named.formUnion(files)
                 return Version(
-                    name: entry.name, url: file, model: entry.machine ?? .spectrum48k,
+                    name: entry.name, url: urls[0], moreDisks: Array(urls.dropFirst()),
+                    model: entry.machine ?? .spectrum48k,
                     controls: entry.controls, key: "\(name) (\(entry.name))")
             }
             guard !versions.isEmpty else { continue }

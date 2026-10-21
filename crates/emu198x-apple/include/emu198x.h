@@ -78,6 +78,9 @@ int32_t emu198x_machine_key(Emu198xMachine *machine, const char *name, bool pres
  * the numbers printed on the machine; 0 is its primary joystick (Kempston
  * on a Spectrum) and 1 is controller one on a console. */
 int32_t emu198x_machine_button(Emu198xMachine *machine, uint8_t port, const char *name, bool pressed);
+/* Presses or releases a mouse button by name ("left", "right"), on a
+ * machine with a mouse, such as the Amiga. */
+int32_t emu198x_machine_mouse_button(Emu198xMachine *machine, const char *name, bool pressed);
 /* Browser key code to machine-key map as UTF-8 JSON. */
 int32_t emu198x_machine_keymap(Emu198xMachine *machine, Emu198xBuffer *out);
 /* Answers a runtime query path, such as "tape.playing", as UTF-8 JSON. */

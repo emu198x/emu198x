@@ -14,6 +14,10 @@ enum MachineModel: String, Codable, CaseIterable {
     case gameGear = "game_gear"
     /// PAL: Codemasters' C64 tapes are European.
     case c64
+    /// An A500 with Kickstart 1.3, which most Amiga games of the time ran on.
+    case amiga500 = "amiga_500"
+    /// An A1200 with Kickstart 3.1, for AGA games.
+    case amiga1200 = "amiga_1200"
 
     /// The runtime family that builds it.
     var family: String {
@@ -23,6 +27,7 @@ enum MachineModel: String, Codable, CaseIterable {
         case .masterSystem: "sega-master-system"
         case .gameGear: "sega-game-gear"
         case .c64: "commodore-c64"
+        case .amiga500, .amiga1200: "commodore-amiga"
         }
     }
 
@@ -34,6 +39,8 @@ enum MachineModel: String, Codable, CaseIterable {
         case .masterSystem: "sms-pal"
         case .gameGear: "game-gear"
         case .c64: "pal"
+        case .amiga500: "a500"
+        case .amiga1200: "a1200"
         }
     }
 
@@ -46,6 +53,8 @@ enum MachineModel: String, Codable, CaseIterable {
         case .masterSystem: "Master System"
         case .gameGear: "Game Gear"
         case .c64: "C64"
+        case .amiga500: "Amiga"
+        case .amiga1200: "Amiga 1200"
         }
     }
 
@@ -53,11 +62,34 @@ enum MachineModel: String, Codable, CaseIterable {
     var system: String {
         switch self {
         case .spectrum48k, .spectrum128k: "Spectrum"
+        case .amiga500, .amiga1200: "Amiga"
         default: name
         }
     }
 
     var isSpectrum: Bool { family == "sinclair-zx-spectrum" }
+    var isAmiga: Bool { family == "commodore-amiga" }
+
+    /// The slots a program's media go in, in order: a cartridge's slot, or
+    /// an Amiga's drives DF0 to DF3. Media in an Amiga's drives before it
+    /// boots fit those drives, so a two-disk game finds its second disk
+    /// in DF1. Empty for a machine whose program is loaded after boot.
+    var mediaSlots: [String] {
+        switch self {
+        case .nes, .masterSystem, .gameGear: ["cartridge-1"]
+        case .amiga500, .amiga1200: ["floppy-0", "floppy-1", "floppy-2", "floppy-3"]
+        case .spectrum48k, .spectrum128k, .c64: []
+        }
+    }
+
+    /// The controls a game starts with when its entry names none.
+    var defaultControls: GameControls {
+        var controls = GameControls()
+        if let stick = sticks.first { controls.stick = stick }
+        // Most Amiga intros and menus wait for the left mouse button.
+        if isAmiga { controls.keys = [.b: GameControls.leftMouse] }
+        return controls
+    }
 
     /// The joysticks a game on this machine can read, the first its
     /// default. A console has none: its controller is its ``pad``.
@@ -65,6 +97,8 @@ enum MachineModel: String, Codable, CaseIterable {
         switch self {
         case .spectrum48k, .spectrum128k: [.kempston, .sinclair, .cursor, .qaop]
         case .c64: [.port2, .port1]
+        // Port 1 is the mouse's.
+        case .amiga500, .amiga1200: [.port2]
         case .nes, .masterSystem, .gameGear: []
         }
     }
@@ -79,6 +113,12 @@ enum MachineModel: String, Codable, CaseIterable {
             return [("Space", "SPACE"), ("Enter", "RETURN"), ("ShiftLeft", "SHIFT"),
                     ("AltLeft", "C="), ("Escape", "RUN/STOP")]
                 + ["F1", "F3", "F5", "F7"].map { ($0, $0) } + digits + letters
+        case .amiga500, .amiga1200:
+            return [(GameControls.leftMouse, "LEFT MOUSE BUTTON"),
+                    (GameControls.rightMouse, "RIGHT MOUSE BUTTON"),
+                    ("Space", "SPACE"), ("Enter", "RETURN"), ("Escape", "ESC"),
+                    ("ShiftLeft", "SHIFT"), ("AltLeft", "ALT")]
+                + (1...10).map { ("F\($0)", "F\($0)") } + digits + letters
         default:
             return [("Space", "SPACE"), ("Enter", "ENTER"), ("ShiftLeft", "CAPS SHIFT"),
                     ("AltLeft", "SYMBOL SHIFT")] + digits + letters
@@ -91,6 +131,7 @@ enum MachineModel: String, Codable, CaseIterable {
         case "nes": self = .nes
         case "sms": self = .masterSystem
         case "gg": self = .gameGear
+        case "adf": self = .amiga500
         default: self = .spectrum48k
         }
     }
@@ -128,6 +169,17 @@ enum MachineModel: String, Codable, CaseIterable {
                     id: "commodore-c64-character-rom", file: "chargen.rom",
                     sha1: "adc7c31e18c7c7413d54802ef2f4193da14711aa"),
             ]
+        case .amiga500:
+            // SHA-1 as MAME's `amiga` driver records 315093-02, Kickstart 1.3.
+            [Firmware.Image(
+                id: "commodore-amiga-kickstart-rom", file: "kick13.rom",
+                sha1: "891e9a547772fe0c6c19b610baf8bc4ea7fcb785")]
+        case .amiga1200:
+            // SHA-1 as WinUAE's ROM list records Kickstart 3.1 (A1200),
+            // 40.68, the two chips as one image.
+            [Firmware.Image(
+                id: "commodore-amiga-kickstart-rom", file: "kick31a1200.rom",
+                sha1: "e21545723fe8374e91342617604f1b3d703094f1")]
         case .nes, .masterSystem, .gameGear:
             []
         }
@@ -144,7 +196,7 @@ enum MachineModel: String, Codable, CaseIterable {
         let start: ControlTarget
         var targets: [Control: ControlTarget] = [:]
         switch self {
-        case .spectrum48k, .spectrum128k, .c64:
+        case .spectrum48k, .spectrum128k, .c64, .amiga500, .amiga1200:
             return nil
         case .nes:
             buttons = ("b", "a")
