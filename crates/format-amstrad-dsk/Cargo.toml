@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 format198x-amstrad-cpc-dsk = "0.1.1"
-nec-upd765a = { path = "../nec-upd765a", version = "0.41.0" }
+nec-upd765a = { path = "../nec-upd765a", version = "0.42.0" }
 
 [lints]
 workspace = true

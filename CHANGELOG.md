@@ -4,6 +4,33 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.42.0] - 2026-10-21
+
+
+### Added
+
+- Play the Spectrum in a native macOS app
+- Report each machine's pixel aspect to native hosts
+- Draw the Mac picture with even pixels at the machine's true aspect
+- Let a native host's controller drive the Spectrum's Kempston joystick
+- Let native hosts autoload a Spectrum tape
+- Start a Spectrum tape from Swift without a keyboard
+- Play Spectrum programs on an Apple TV
+- Route controller buttons to any joystick port or key
+- Choose controller presets for each game on Apple TV
+- Let Apple hosts ask the runtime about the running machine
+- Press a game's joystick-select key for controller players
+- Show box art in the Apple TV library
+
+
+### Fixed
+
+- Show normal Ace characters white on black
+- Stop Apple host sound breaking up after ten minutes of play
+- Answer Kempston reads on every port with A5 low
+- Get past every Dizzy title screen with a controller alone
+- Honour Read ID readiness and completion interrupts
+
 ## [0.41.0] - 2026-10-20
 
 
