@@ -4,9 +4,13 @@ use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
 fn controller(nd: u8) -> Upd765a {
+    controller_with_writable(nd, false)
+}
+
+fn controller_with_writable(nd: u8, writable: bool) -> Upd765a {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
-    fdc.insert_disk(
+    fdc.insert_disk_with_writable(
         0,
         DiskImage {
             sides: 1,
@@ -23,6 +27,7 @@ fn controller(nd: u8) -> Upd765a {
                 }],
             }]],
         },
+        writable,
     );
     for byte in [3, 0xdf, 2 | nd] {
         fdc.write_data(byte);
@@ -43,13 +48,17 @@ fn start(fdc: &mut Upd765a) {
 }
 
 fn await_byte(fdc: &mut Upd765a) {
-    for hc in 0..10_000 {
+    await_byte_limit(fdc, 10_000);
+}
+
+fn await_byte_limit(fdc: &mut Upd765a, limit: u32) {
+    for hc in 0..limit {
         if fdc.read_status() & 0x80 != 0 {
             return;
         }
         fdc.tick(hc);
     }
-    panic!("Read Data byte request exceeded10000ticks");
+    panic!("byte request exceeded {limit} ticks");
 }
 
 fn complete(nd: u8) -> Upd765a {
@@ -137,4 +146,56 @@ fn first_result_byte_acknowledges_completion_irq() {
     assert!(fdc.interrupt, "MSR does not acknowledge completion IRQ");
     assert_eq!(fdc.read_data(), 0x40);
     assert!(!fdc.interrupt, "first Read Data result byte clears IRQ");
+}
+
+#[test]
+fn shared_payload_engines_honour_programmed_mode_and_request_irq() {
+    let mut deviations = Vec::new();
+    let mut rows = 0;
+    for opcode in [0x46_u8, 0x4c, 0x42, 0x45, 0x49, 0x51, 0x59, 0x5d, 0x4d] {
+        for nd in [0, 1] {
+            let mut fdc = controller_with_writable(nd, true);
+            let command = if opcode == 0x4d {
+                vec![opcode, 0, 1, 1, 0x2a, 0xe5]
+            } else {
+                vec![opcode, 0, 0, 0, 1, 1, 1, 0x2a, 1]
+            };
+            for byte in command {
+                fdc.write_data(byte);
+            }
+            await_byte_limit(&mut fdc, 50_000);
+            let msr = fdc.read_status();
+            let irq = fdc.interrupt;
+            let expected_exm = nd != 0;
+            let observed_exm = msr & 0x20 != 0;
+            let expected_irq = nd != 0;
+            let is_read = matches!(opcode, 0x46 | 0x4c | 0x42);
+            assert_eq!(msr & 0x40 != 0, is_read, "correct payload direction");
+            if is_read {
+                assert_eq!(fdc.read_data(), 0, "actual first payload byte");
+            } else {
+                fdc.write_data(0);
+            }
+            assert_eq!(
+                fdc.read_status() & 0x80,
+                0,
+                "byte accepted in execution, not result"
+            );
+            println!(
+                "SHARED opcode={opcode:02x} nd={nd} msr={msr:02x} irq={irq} expected_exm={expected_exm} expected_irq={expected_irq}"
+            );
+            rows += 1;
+            if observed_exm != expected_exm || irq != expected_irq {
+                deviations.push((opcode, nd, observed_exm, irq));
+            }
+        }
+    }
+    assert_eq!(
+        rows, 18,
+        "all nine engines observed in both programmed modes"
+    );
+    assert!(
+        deviations.is_empty(),
+        "shared transfer-mode/IRQ mismatches: {deviations:?}"
+    );
 }

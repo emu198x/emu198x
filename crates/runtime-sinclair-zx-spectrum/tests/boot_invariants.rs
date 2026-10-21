@@ -332,7 +332,7 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-/// **Seam 5 waypoint #5:** Snapshot version is locked at v9.
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v10.
 ///
 /// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
 /// disk-image cache, 2 → 3 when accepted Z80 interrupt responses
@@ -347,17 +347,17 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v9() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v10() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 8.
+    // and matches the value, so byte 0 of the snapshot bytes == 10.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 9,
-        "snapshot envelope must be at version 9 (independent SDS drive samples); \
+        bytes[0], 10,
+        "snapshot envelope must be at version 10 (persistent Specify ND mode); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())

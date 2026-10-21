@@ -53,7 +53,10 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 9** (approved2026-10-20): preserves independent SDS Track Zero,
 /// Write Protect and Fault samples. Version8 is rejected before positional
 /// decode; empty and absent mechanisms cannot reconstruct supplied samples.
-const SNAPSHOT_VERSION: u32 = 9;
+/// **Version 10** (approved2026-10-21): preserves the FDC's programmed
+/// non-DMA mode. Version9 is rejected before positional decode; reconstructing
+/// it from the current command would lose persistent Specify configuration.
+const SNAPSHOT_VERSION: u32 = 10;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -232,7 +235,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 9")
+                .contains("unsupported snapshot version 4; expected 10")
         );
     }
 
@@ -249,7 +252,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 9")
+                .contains("unsupported snapshot version 5; expected 10")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -774,12 +777,13 @@ mod tests {
                     [None::<bool>; 4],
                     [None::<bool>; 4],
                     [None::<bool>; 4],
+                    true, // synthetic current controller's legacy ND fallback
                 ))
-                .expect("current external drive inputs"),
+                .expect("current external drive inputs and mode"),
             );
             let mut original = SpectrumPlus3Runtime::blank();
             original.machine_mut().fdc =
-                postcard::from_bytes(&current).expect("synthetic v9 controller");
+                postcard::from_bytes(&current).expect("synthetic v10 controller");
             assert_eq!(
                 postcard::to_allocvec(&original.machine().fdc).expect("same layout"),
                 current
@@ -791,7 +795,7 @@ mod tests {
             let mut restored = SpectrumPlus3Runtime::blank();
             restored
                 .restore(&saved)
-                .expect("normalize synthetic v8 envelope");
+                .expect("normalize synthetic current envelope");
             assert_eq!(
                 restored.machine().fdc.read_status(),
                 0xd0,
@@ -1858,6 +1862,19 @@ mod tests {
     }
 
     #[test]
+    fn version_nine_is_rejected_atomically_before_payload_decode() {
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        let before = runtime.snapshot().expect("current snapshot");
+        let old = postcard::to_allocvec(&9_u32).expect("old version");
+        let err = runtime
+            .restore(&old)
+            .expect_err("v9 lacks programmed ND state");
+        assert!(matches!(err, MachineError::InvalidSnapshot { reason }
+            if reason == "unsupported snapshot version 9; expected 10"));
+        assert_eq!(runtime.snapshot().expect("unchanged"), before);
+    }
+
+    #[test]
     fn version_eight_is_rejected_atomically_before_payload_decode() {
         let mut runtime = SpectrumPlus3Runtime::blank();
         let before = runtime.snapshot().expect("current snapshot");
@@ -1866,7 +1883,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 9"));
+            if reason == "unsupported snapshot version 8; expected 10"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1877,7 +1894,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 9"));
+            if reason == "unsupported snapshot version 7; expected 10"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1890,7 +1907,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 9")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 10")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2039,7 +2056,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 9");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 10");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
@@ -2122,4 +2139,5 @@ mod tests {
         assert_saved_bytes(&mut restored, &vec![0xe5; 512]);
     }
     include!("snapshot/read_id_tests.rs");
+    include!("snapshot/transfer_signal_tests.rs");
 }

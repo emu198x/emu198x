@@ -277,6 +277,10 @@ pub struct Upd765a {
     track_zero_inputs: [Option<bool>; 4],
     write_protect_inputs: [Option<bool>; 4],
     fault_inputs: [Option<bool>; 4],
+    /// Specify ND. New/reset controllers retain the legacy non-DMA fallback;
+    /// hardware power-on/reset ND is not established by this model. Consumers
+    /// must issue Specify before claiming a programmed transfer mode.
+    non_dma_mode: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -400,6 +404,7 @@ impl Upd765a {
             track_zero_inputs: [None; 4],
             write_protect_inputs: [None; 4],
             fault_inputs: [None; 4],
+            non_dma_mode: true,
             ready_sampled: [false; 4],
             ready_poll_phase: 0,
             seek_attention_unacknowledged: false,
@@ -679,6 +684,11 @@ impl Upd765a {
                     && self.main_status & MSR_RQM != 0 =>
             {
                 let byte = self.exec_buf[self.exec_pos];
+                if self.non_dma_mode {
+                    // Acknowledge the byte request before completion can
+                    // assert its distinct result IRQ on the final byte.
+                    self.interrupt = false;
+                }
                 self.exec_pos += 1;
                 self.main_status &= !MSR_RQM;
                 // Keep the outstanding byte-clock boundary. Host latency must
@@ -691,7 +701,18 @@ impl Upd765a {
             Phase::Result => {
                 if self.result_pos < self.result_buf.len() {
                     let byte = self.result_buf[self.result_pos];
-                    if self.command == Command::ReadId && self.result_pos == 0 {
+                    if self.result_pos == 0
+                        && matches!(
+                            self.command,
+                            Command::ReadId
+                                | Command::ReadData
+                                | Command::ReadDeletedData
+                                | Command::ReadTrack
+                                | Command::WriteData
+                                | Command::Scan
+                                | Command::FormatTrack
+                        )
+                    {
                         // NEC result-phase handshake: the first data-register
                         // read acknowledges completion (MAME fifo_r). Reading
                         // the MSR alone does not acknowledge the interrupt.
@@ -745,6 +766,17 @@ impl Upd765a {
                 }
             }
             Phase::Execution => {
+                if self.non_dma_mode
+                    && self.main_status & MSR_RQM != 0
+                    && matches!(
+                        self.command,
+                        Command::Scan | Command::WriteData | Command::FormatTrack
+                    )
+                {
+                    // Clear the byte IRQ before an accepted write can finish
+                    // or fail and assert a result IRQ in the same call.
+                    self.interrupt = false;
+                }
                 if self.command == Command::Scan && self.main_status & MSR_RQM != 0 {
                     self.accept_scan_byte(val);
                 } else if self.command == Command::WriteData && self.main_status & MSR_RQM != 0 {
@@ -885,7 +917,9 @@ impl Upd765a {
                 }
             }
             Command::Specify => {
-                // Just accept the parameters (step rate, head load/unload times)
+                // NEC Specify: ND is persistent global transfer configuration.
+                // SRT/HUT/HLT timing remains separate, explicitly unqualified.
+                self.non_dma_mode = self.cmd_buf[2] & 1 != 0;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
@@ -1115,7 +1149,7 @@ impl Upd765a {
             self.st1 = sector.st1;
             self.st2 = (self.st2 & ST2_CM) | (sector.st2 & (ST2_CM | 0x20)) | 8;
             self.phase = Phase::Execution;
-            self.main_status = MSR_EXM | MSR_CB;
+            self.main_status = self.execution_status();
             self.write_start_pending = true;
             self.exec_timeout =
                 self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 38 } else { 18 };
@@ -1478,7 +1512,7 @@ impl Upd765a {
         // Use the existing sector-model pre-data interval (also used by Scan
         // and Write), plus one slot for the first completed read byte.
         // This is not a rotational/index/head-load timing model.
-        self.main_status = MSR_DIO | MSR_EXM | MSR_CB;
+        self.main_status = MSR_DIO | self.execution_status();
         self.write_start_pending = true;
         self.exec_timeout = self.read_slot_boundary(self.read_preamble_slots());
     }
@@ -1618,7 +1652,7 @@ impl Upd765a {
         self.exec_buf.resize(transfer, 0);
         self.exec_pos = 0;
         self.phase = Phase::Execution;
-        self.main_status = MSR_EXM | MSR_CB;
+        self.main_status = self.execution_status();
         // The first byte is not requested at the final command strobe. After
         // finding the ID, the head crosses gap 2 and the data sync/mark. Fuse
         // start_write_data advances 22 gap bytes, 12 zeroes, 3 A1s and a DAM
@@ -1805,7 +1839,7 @@ impl Upd765a {
         }
         self.exec_buf.resize(usize::from(self.cmd_buf[3]) * 4, 0);
         self.phase = Phase::Execution;
-        self.main_status = MSR_EXM | MSR_CB;
+        self.main_status = self.execution_status();
         self.write_start_pending = true;
         self.exec_timeout = (preamble + sync) * self.write_byte_ticks();
     }
@@ -1917,8 +1951,21 @@ impl Upd765a {
             self.format_result(0, false);
         } else {
             self.write_start_pending = false;
-            self.main_status |= MSR_RQM;
+            self.request_payload_byte();
             self.exec_timeout = self.write_byte_ticks();
+        }
+    }
+
+    fn execution_status(&self) -> u8 {
+        MSR_CB | if self.non_dma_mode { MSR_EXM } else { 0 }
+    }
+
+    fn request_payload_byte(&mut self) {
+        self.main_status |= MSR_RQM;
+        if self.non_dma_mode {
+            // INT is asserted for each non-DMA byte request. ND=0 has no
+            // execution byte IRQ; this does not expose a DMA handshake API.
+            self.interrupt = true;
         }
     }
 
@@ -2034,7 +2081,7 @@ impl Peripheral for Upd765a {
                         return;
                     }
                     self.write_start_pending = false;
-                    self.main_status |= MSR_RQM;
+                    self.request_payload_byte();
                     self.exec_timeout = self.write_byte_ticks();
                 } else if self.main_status & MSR_RQM != 0 {
                     self.write_result(0x10, self.st2 & ST2_CM); // OR: host missed its byte window.
@@ -2045,7 +2092,7 @@ impl Peripheral for Upd765a {
                         self.finish_write_sector();
                     }
                 } else {
-                    self.main_status |= MSR_RQM;
+                    self.request_payload_byte();
                     self.exec_timeout = self.write_byte_ticks();
                 }
             }
@@ -2063,7 +2110,7 @@ impl Peripheral for Upd765a {
                 if self.write_start_pending {
                     self.begin_read_field();
                     self.write_start_pending = false;
-                    self.main_status |= MSR_RQM;
+                    self.request_payload_byte();
                     self.exec_timeout = self.read_byte_ticks();
                 } else if self.main_status & MSR_RQM != 0 {
                     // Result assembly also preserves the current ID CRC.
@@ -2080,7 +2127,7 @@ impl Peripheral for Upd765a {
                         self.finish_read_sector();
                     }
                 } else {
-                    self.main_status |= MSR_RQM;
+                    self.request_payload_byte();
                     self.exec_timeout = self.read_byte_ticks();
                 }
             }

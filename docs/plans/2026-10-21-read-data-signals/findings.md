@@ -99,3 +99,38 @@ Specify explicitly rather than claim an unverified power-on mode.
 
 No mode field, API, snapshot version, default or production behavior has been
 changed by this investigation.
+
+## Approved implementation scope
+
+On 2026-10-21 the user approved one private ND boolean and Spectrum native
+v9→v10 with old-v9 rejection. CPC and the DMA signal API remain unchanged.
+Owning defect: https://github.com/emu198x/emu198x/issues/1939.
+
+A second fail-first probe made 18 independent first-request observations across
+Read Data/Deleted/Track, Write Data/Deleted, three Scan commands and Format,
+with each ND value. All 18 show the same mode/request defects. The eighth test
+reports all rows before failing; the complete source has 3 passing controls and
+5 intended failures. The first seven-test probe remains available at commit
+`b1f230245`. Compressed evidence logs preserve their exact original bytes.
+
+The implementation retains the existing legacy non-DMA fallback for a new or
+reset controller. This is an explicit compatibility policy, consistent with
+Fuse's reset fallback; hardware power-on/reset ND remains unresolved. Programmed
+mode is claimed only after Specify. It is not a timer or DMA-handshake claim.
+
+Shared regression checks consume every payload byte and require per-byte IRQ
+acknowledgement, final Read byte/result IRQ ordering, first-result acknowledgement
+and immediate-error completion across all nine engines and both programmed
+modes. Format's existing model has a full-track post-ID wait; tests bound that
+wait at 1,000,000 ticks without changing it or treating it as physical evidence.
+Native coverage spans 270 cases: nine engines, two modes and fifteen boundaries.
+Active-write host export remains rejected; native state itself preserves the
+complete live controller/disk, and continuation checks known final payload/mark.
+
+
+Verification before committing the approved change: 575 owning controller,
+Amstrad-class and Spectrum-runtime tests passed; 62 ignored tests receive no
+credit. Strict Clippy on all targets for those three crates passed. The boot
+invariant deliberately locked to v9 initially failed with actual 10/expected 9;
+it now locks the approved v10, alongside atomic old-v9 rejection. No failing
+check was bypassed.
