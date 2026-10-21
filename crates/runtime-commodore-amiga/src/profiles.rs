@@ -674,13 +674,21 @@ pub fn profile_for(model: Model) -> MachineProfile {
         },
         clock: ClockDesc::new("system-tick", ClockRate::from_hz(tick_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],
-        media_slots: vec![MediaSlot::new(
-            "floppy-0",
-            "DF0:",
-            MediaKind::Disk,
-            false,
-            WritebackPolicy::SidecarOnly,
-        )],
+        // DF0 is the internal drive; DF1 to DF3 are fitted when a disk
+        // goes into their slot.
+        media_slots: crate::runtime::FLOPPY_SLOTS
+            .iter()
+            .zip(["DF0:", "DF1:", "DF2:", "DF3:"])
+            .map(|(&id, name)| {
+                MediaSlot::new(
+                    id,
+                    name,
+                    MediaKind::Disk,
+                    false,
+                    WritebackPolicy::SidecarOnly,
+                )
+            })
+            .collect(),
         capabilities: CapabilitySet::with_all([
             known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
             known_capability("keyboard-input"),
@@ -722,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn amiga_profile_declares_kickstart_and_df0() {
+    fn amiga_profile_declares_kickstart_and_four_drives() {
         let profile = profile_for(Model::A500OcsPal);
         assert_eq!(profile.family, Family::Amiga);
         assert_eq!(profile.region, Region::Pal);
@@ -731,9 +739,20 @@ mod tests {
             profile.firmware[0].id.as_ref(),
             "commodore-amiga-kickstart-rom"
         );
-        assert_eq!(profile.media_slots.len(), 1);
-        assert_eq!(profile.media_slots[0].id.as_ref(), "floppy-0");
-        assert_eq!(profile.media_slots[0].kind, MediaKind::Disk);
+        let slots: Vec<_> = profile
+            .media_slots
+            .iter()
+            .map(|slot| (slot.id.as_ref(), slot.display_name.as_ref(), slot.kind))
+            .collect();
+        assert_eq!(
+            slots,
+            [
+                ("floppy-0", "DF0:", MediaKind::Disk),
+                ("floppy-1", "DF1:", MediaKind::Disk),
+                ("floppy-2", "DF2:", MediaKind::Disk),
+                ("floppy-3", "DF3:", MediaKind::Disk),
+            ]
+        );
     }
 
     #[test]
@@ -744,7 +763,7 @@ mod tests {
             profile.firmware[0].id.as_ref(),
             "commodore-amiga-a1000-bootstrap-rom"
         );
-        assert_eq!(profile.media_slots.len(), 1);
+        assert_eq!(profile.media_slots.len(), 4);
         assert_eq!(profile.media_slots[0].id.as_ref(), "floppy-0");
     }
 

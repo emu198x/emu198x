@@ -27,7 +27,7 @@ use machine_commodore_amiga_ecs::{
 use machine_commodore_amiga_ocs::{
     AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };
-use peripheral_commodore_amiga_floppy::Adf;
+use peripheral_commodore_amiga_floppy::{Adf, MAX_DRIVES};
 
 use crate::input::apply_input_event;
 use crate::live_access::AmigaLiveAccess;
@@ -74,10 +74,12 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     pub(crate) machine: M,
     time: MachineTime,
     firmware_rom: Vec<u8>,
-    floppy0_bytes: Option<Vec<u8>>,
-    /// Host write permission associated with `floppy0_bytes`. Meaningful only
-    /// while DF0 contains media; empty drives keep the canonical `false`.
-    floppy0_writable: bool,
+    /// Host bytes last loaded into each drive, DF0 to DF3.
+    floppy_bytes: [Option<Vec<u8>>; MAX_DRIVES],
+    /// Host write permission associated with each `floppy_bytes` entry.
+    /// Meaningful only while that drive contains media; empty drives keep
+    /// the canonical `false`.
+    floppy_writable: [bool; MAX_DRIVES],
     rgba_framebuffer: Vec<u8>,
     frame_count: u64,
     /// Pixel counts from the most recently emitted frame — drives the
@@ -232,17 +234,63 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.first_active_row
     }
 
-    /// Inserted DF0 bytes (if any) — used by the snapshot envelope so
-    /// a restore can re-mount the same image.
+    /// Bytes inserted in the drive at `unit` (if any) — used by the
+    /// snapshot envelope so a restore can re-mount the same image.
     #[must_use]
-    pub(crate) fn floppy0_bytes(&self) -> Option<&[u8]> {
-        self.floppy0_bytes.as_deref()
+    pub(crate) fn floppy_bytes(&self, unit: usize) -> Option<&[u8]> {
+        self.floppy_bytes.get(unit)?.as_deref()
     }
 
-    /// Whether the persisted DF0 image was mounted writable.
+    /// Whether the persisted image in the drive at `unit` was mounted
+    /// writable.
     #[must_use]
-    pub(crate) const fn floppy0_writable(&self) -> bool {
-        self.floppy0_writable
+    pub(crate) fn floppy_writable(&self, unit: usize) -> bool {
+        self.floppy_writable.get(unit).copied().unwrap_or(false)
+    }
+
+    /// The image in the drive at `unit` and its write permission, as a
+    /// snapshot or reset carries them: the live image, with completed
+    /// guest writes, or else the bytes last loaded.
+    pub(crate) fn floppy_media(&self, unit: usize) -> (Option<Vec<u8>>, bool) {
+        match self.machine.floppy_image_bytes(unit) {
+            Some(bytes) => {
+                let writable = self
+                    .machine
+                    .floppy_image_writable(unit)
+                    .unwrap_or_else(|| self.floppy_writable(unit));
+                (Some(bytes), writable)
+            }
+            None => (
+                self.floppy_bytes(unit).map(<[u8]>::to_vec),
+                self.floppy_writable(unit),
+            ),
+        }
+    }
+
+    /// Fit empty drives so the machine has `count` drives, DF0 included.
+    /// A drive already fitted stays, with any disk in it. Kickstart counts
+    /// drives at reset, so drives fitted after boot are seen from the
+    /// next reset.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `count` is outside 1 to 4.
+    pub fn fit_floppy_drives(&mut self, count: usize) -> Result<(), MachineError> {
+        if !(1..=MAX_DRIVES).contains(&count) {
+            return Err(MachineError::InvalidRequest {
+                reason: format!("an Amiga takes 1 to {MAX_DRIVES} floppy drives, not {count}"),
+            });
+        }
+        for unit in 1..count {
+            self.machine.fit_floppy_drive(unit);
+        }
+        Ok(())
+    }
+
+    /// Whether a drive is fitted at `unit` (0 = DF0).
+    #[must_use]
+    pub fn floppy_drive_fitted(&self, unit: usize) -> bool {
+        self.machine.floppy_drive_fitted(unit)
     }
 
     /// Firmware used to construct this runtime's machine. Snapshot restore
@@ -342,17 +390,14 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.audio_sample_accumulator = accum;
     }
 
-    pub(crate) fn clear_floppy0_bytes(&mut self) {
-        self.floppy0_bytes = None;
-        self.floppy0_writable = false;
-    }
-
-    pub(crate) fn set_floppy0_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.floppy0_bytes = bytes;
-    }
-
-    pub(crate) fn set_floppy0_writable(&mut self, writable: bool) {
-        self.floppy0_writable = writable;
+    pub(crate) fn set_floppy_media(&mut self, unit: usize, bytes: Option<Vec<u8>>, writable: bool) {
+        if let (Some(slot), Some(flag)) = (
+            self.floppy_bytes.get_mut(unit),
+            self.floppy_writable.get_mut(unit),
+        ) {
+            *slot = bytes;
+            *flag = writable;
+        }
     }
 
     pub(crate) fn clear_audio_buffer(&mut self) {
@@ -459,22 +504,24 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
     fn reset(&mut self, _kind: ResetKind) {
         // The variant rebuilds itself in place via `AmigaMachine::
         // rebuild(firmware, config)`. After the new chip stack
-        // exists, re-mount any cached DF0 image, zero the time /
-        // frame counters, and refresh the RGBA mirror so the next
-        // frame draw sees the post-reset contents.
-        let live_floppy0_bytes = self.machine.floppy0_image_bytes();
-        let floppy0_writable = if live_floppy0_bytes.is_some() {
-            self.machine
-                .floppy0_image_writable()
-                .unwrap_or(self.floppy0_writable)
-        } else {
-            self.floppy0_writable
-        };
-        let floppy0_bytes = live_floppy0_bytes.or_else(|| self.floppy0_bytes.clone());
+        // exists, re-fit the drives, re-mount any cached images, zero
+        // the time / frame counters, and refresh the RGBA mirror so the
+        // next frame draw sees the post-reset contents.
+        let fitted: Vec<usize> = (1..MAX_DRIVES)
+            .filter(|&unit| self.machine.floppy_drive_fitted(unit))
+            .collect();
+        let media: Vec<(Option<Vec<u8>>, bool)> = (0..MAX_DRIVES)
+            .map(|unit| self.floppy_media(unit))
+            .collect();
         self.machine.rebuild(&self.firmware_rom, self.config);
-        if let Some(bytes) = floppy0_bytes {
-            self.insert_floppy_bytes("floppy-0", &bytes, floppy0_writable)
-                .expect("re-mounting cached DF0 image should not fail");
+        for unit in fitted {
+            self.machine.fit_floppy_drive(unit);
+        }
+        for (unit, (bytes, writable)) in media.into_iter().enumerate() {
+            if let Some(bytes) = bytes {
+                self.insert_floppy_bytes(unit, &bytes, writable)
+                    .expect("re-mounting a cached floppy image should not fail");
+            }
         }
         self.time = MachineTime::default();
         self.frame_count = 0;
@@ -491,27 +538,19 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
         for image in &media.images {
-            if image.slot.as_ref() != "floppy-0" {
-                return Err(MachineError::UnknownMediaSlot {
-                    slot: image.slot.as_ref().to_owned(),
-                });
-            }
+            let unit = floppy_unit(image.slot.as_ref())?;
             if image.kind != MediaKind::Disk {
                 return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
             }
-            self.insert_floppy_bytes(image.slot.as_ref(), image.bytes, image.writable)?;
+            self.insert_floppy_bytes(unit, image.bytes, image.writable)?;
         }
         Ok(())
     }
 
     fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
-        if slot != "floppy-0" {
-            return Err(MachineError::UnknownMediaSlot {
-                slot: slot.to_owned(),
-            });
-        }
-        self.machine.eject_floppy0();
-        self.clear_floppy0_bytes();
+        let unit = floppy_unit(slot)?;
+        self.machine.eject_floppy(unit);
+        self.set_floppy_media(unit, None, false);
         Ok(())
     }
 
@@ -637,17 +676,33 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
     }
 }
 
+/// Media slot of the drive at `unit`: `floppy-0` (DF0) to `floppy-3` (DF3).
+pub(crate) const FLOPPY_SLOTS: [&str; MAX_DRIVES] =
+    ["floppy-0", "floppy-1", "floppy-2", "floppy-3"];
+
+/// The drive a media slot names.
+fn floppy_unit(slot: &str) -> Result<usize, MachineError> {
+    FLOPPY_SLOTS
+        .iter()
+        .position(|&name| name == slot)
+        .ok_or_else(|| MachineError::UnknownMediaSlot {
+            slot: slot.to_owned(),
+        })
+}
+
 /// Generic floppy-bytes insertion. Decodes the ADF, asks the variant
-/// (via `AmigaMachine::insert_floppy0`) to mount it with the right
-/// disk-change-pending bookkeeping and host write permission, and caches the
-/// bytes for reset and snapshot replay.
+/// (via `AmigaMachine::insert_floppy`) to mount it with the right
+/// disk-change-pending bookkeeping and host write permission, fitting the
+/// drive if its position is empty, and caches the bytes for reset and
+/// snapshot replay.
 impl<M: AmigaMachine> AmigaRuntime<M> {
     fn insert_floppy_bytes(
         &mut self,
-        slot: &str,
+        unit: usize,
         bytes: &[u8],
         writable: bool,
     ) -> Result<(), MachineError> {
+        let slot = FLOPPY_SLOTS[unit];
         if bytes.starts_with(b"CAPS") {
             return Err(MachineError::InvalidMedia {
                 slot: slot.to_owned(),
@@ -663,9 +718,9 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         // bookkeeping during the bootstrap-to-Kickstart-disk handoff.
         // Other (Kickstart-resident) variants insert without it.
         let change_pending = self.model().is_a1000();
-        self.machine.insert_floppy0(adf, change_pending, writable);
-        self.floppy0_bytes = Some(bytes.to_vec());
-        self.floppy0_writable = writable;
+        self.machine
+            .insert_floppy(unit, adf, change_pending, writable);
+        self.set_floppy_media(unit, Some(bytes.to_vec()), writable);
         Ok(())
     }
 }
@@ -726,8 +781,8 @@ impl AmigaRuntime<AmigaOcs> {
             machine,
             time: MachineTime::default(),
             firmware_rom,
-            floppy0_bytes: None,
-            floppy0_writable: false,
+            floppy_bytes: [None, None, None, None],
+            floppy_writable: [false; MAX_DRIVES],
             rgba_framebuffer: vec![
                 0;
                 (Self::framebuffer_dimensions().0 * Self::framebuffer_dimensions().1 * 4)
@@ -841,8 +896,8 @@ impl AmigaRuntime<AmigaEcs> {
             machine,
             time: MachineTime::default(),
             firmware_rom,
-            floppy0_bytes: None,
-            floppy0_writable: false,
+            floppy_bytes: [None, None, None, None],
+            floppy_writable: [false; MAX_DRIVES],
             rgba_framebuffer: vec![
                 0;
                 (Self::framebuffer_dimensions().0 * Self::framebuffer_dimensions().1 * 4)
@@ -962,8 +1017,8 @@ impl AmigaRuntime<AmigaA1200> {
             machine,
             time: MachineTime::default(),
             firmware_rom,
-            floppy0_bytes: None,
-            floppy0_writable: false,
+            floppy_bytes: [None, None, None, None],
+            floppy_writable: [false; MAX_DRIVES],
             rgba_framebuffer: vec![
                 0;
                 (Self::framebuffer_dimensions().0 * Self::framebuffer_dimensions().1 * 4)

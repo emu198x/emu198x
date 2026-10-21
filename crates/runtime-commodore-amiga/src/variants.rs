@@ -160,20 +160,56 @@ pub trait AmigaMachine {
 
     // ---------- media ----------
 
-    /// Insert an ADF image into DF0. The `change_pending` flag drives
-    /// the disk-change-pending bookkeeping the A1000 boot path needs;
-    /// post-A1000 firmware boots happily without it.
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool);
+    /// Fit an empty drive at `unit` (DF1 to DF3; DF0 is always fitted).
+    /// Returns `false` for a unit beyond DF3.
+    fn fit_floppy_drive(&mut self, unit: usize) -> bool;
 
-    /// Reconnect the dynamically dispatched DF0 image after restoring the
-    /// drive and track-stream state. This must not model a new insertion.
-    fn reattach_floppy0(&mut self, adf: Adf, writable: bool);
+    /// Whether a drive is fitted at `unit`.
+    fn floppy_drive_fitted(&self, unit: usize) -> bool;
+
+    /// Insert an ADF image into the drive at `unit`, fitting the drive if
+    /// that position is empty. The `change_pending` flag drives the
+    /// disk-change-pending bookkeeping the A1000 boot path needs;
+    /// post-A1000 firmware boots happily without it. Returns `false`,
+    /// inserting nothing, for a unit beyond DF3.
+    fn insert_floppy(
+        &mut self,
+        unit: usize,
+        adf: Adf,
+        change_pending: bool,
+        writable: bool,
+    ) -> bool;
+
+    /// Reconnect the dynamically dispatched image of the drive at `unit`
+    /// after restoring the drive and track-stream state. This must not
+    /// model a new insertion. Returns `false` when no drive is fitted there.
+    fn reattach_floppy(&mut self, unit: usize, adf: Adf, writable: bool) -> bool;
+
+    /// Eject the disk from the drive at `unit`, leaving the drive fitted.
+    fn eject_floppy(&mut self, unit: usize);
+
+    /// Return the current ADF bytes in the drive at `unit`, including
+    /// completed guest writes.
+    fn floppy_image_bytes(&self, unit: usize) -> Option<Vec<u8>>;
+
+    /// Return the host write permission of the image in the drive at
+    /// `unit`, or `None` when it is empty or not fitted.
+    fn floppy_image_writable(&self, unit: usize) -> Option<bool>;
+
+    /// Insert an ADF image into DF0; see [`Self::insert_floppy`].
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.insert_floppy(0, adf, change_pending, writable);
+    }
 
     /// Return DF0's current ADF bytes, including completed guest writes.
-    fn floppy0_image_bytes(&self) -> Option<Vec<u8>>;
+    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
+        self.floppy_image_bytes(0)
+    }
 
-    /// Return the mounted image's host write permission, or `None` when empty.
-    fn floppy0_image_writable(&self) -> Option<bool>;
+    /// Return DF0's host write permission, or `None` when empty.
+    fn floppy0_image_writable(&self) -> Option<bool> {
+        self.floppy_image_writable(0)
+    }
 
     // ---------- snapshot ----------
 
@@ -1217,6 +1253,12 @@ macro_rules! amiga_variant_query_paths {
     "disk.ready_low",
     "disk.step_events",
     "disk.selected",
+    "disk.dma_unit",
+    "disk.drives",
+    "disk.drives.df0",
+    "disk.drives.df1",
+    "disk.drives.df2",
+    "disk.drives.df3",
     "disk.status",
     "disk.status.disk_change_low",
     "disk.status.write_protect_low",
@@ -1369,20 +1411,41 @@ impl AmigaMachine for AmigaOcs {
         let _ = AmigaOcs::set_joystick_control(self, port, name, pressed);
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
-        self.mount_adf(adf, change_pending, writable);
+    fn fit_floppy_drive(&mut self, unit: usize) -> bool {
+        self.fit_drive(unit)
     }
 
-    fn reattach_floppy0(&mut self, adf: Adf, writable: bool) {
-        self.reattach_adf(adf, writable);
+    fn floppy_drive_fitted(&self, unit: usize) -> bool {
+        self.drives().is_fitted(unit)
     }
 
-    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
-        self.drive().save_adf()
+    fn insert_floppy(
+        &mut self,
+        unit: usize,
+        adf: Adf,
+        change_pending: bool,
+        writable: bool,
+    ) -> bool {
+        self.mount_adf_in(unit, adf, change_pending, writable)
     }
 
-    fn floppy0_image_writable(&self) -> Option<bool> {
-        self.drive().diagnostic_snapshot().disk_writable
+    fn reattach_floppy(&mut self, unit: usize, adf: Adf, writable: bool) -> bool {
+        self.reattach_adf_in(unit, adf, writable)
+    }
+
+    fn eject_floppy(&mut self, unit: usize) {
+        self.eject_disk_in(unit);
+    }
+
+    fn floppy_image_bytes(&self, unit: usize) -> Option<Vec<u8>> {
+        self.drives().drive(unit)?.save_adf()
+    }
+
+    fn floppy_image_writable(&self, unit: usize) -> Option<bool> {
+        self.drives()
+            .drive(unit)?
+            .diagnostic_snapshot()
+            .disk_writable
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
@@ -1564,20 +1627,41 @@ impl AmigaMachine for AmigaEcs {
         let _ = AmigaEcs::set_joystick_control(self, port, name, pressed);
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
-        self.mount_adf(adf, change_pending, writable);
+    fn fit_floppy_drive(&mut self, unit: usize) -> bool {
+        self.fit_drive(unit)
     }
 
-    fn reattach_floppy0(&mut self, adf: Adf, writable: bool) {
-        self.reattach_adf(adf, writable);
+    fn floppy_drive_fitted(&self, unit: usize) -> bool {
+        self.drives().is_fitted(unit)
     }
 
-    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
-        self.drive().save_adf()
+    fn insert_floppy(
+        &mut self,
+        unit: usize,
+        adf: Adf,
+        change_pending: bool,
+        writable: bool,
+    ) -> bool {
+        self.mount_adf_in(unit, adf, change_pending, writable)
     }
 
-    fn floppy0_image_writable(&self) -> Option<bool> {
-        self.drive().diagnostic_snapshot().disk_writable
+    fn reattach_floppy(&mut self, unit: usize, adf: Adf, writable: bool) -> bool {
+        self.reattach_adf_in(unit, adf, writable)
+    }
+
+    fn eject_floppy(&mut self, unit: usize) {
+        self.eject_disk_in(unit);
+    }
+
+    fn floppy_image_bytes(&self, unit: usize) -> Option<Vec<u8>> {
+        self.drives().drive(unit)?.save_adf()
+    }
+
+    fn floppy_image_writable(&self, unit: usize) -> Option<bool> {
+        self.drives()
+            .drive(unit)?
+            .diagnostic_snapshot()
+            .disk_writable
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
@@ -1787,20 +1871,41 @@ impl AmigaMachine for AmigaA1200 {
         let _ = AmigaA1200::set_joystick_control(self, port, name, pressed);
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
-        self.mount_adf(adf, change_pending, writable);
+    fn fit_floppy_drive(&mut self, unit: usize) -> bool {
+        self.fit_drive(unit)
     }
 
-    fn reattach_floppy0(&mut self, adf: Adf, writable: bool) {
-        self.reattach_adf(adf, writable);
+    fn floppy_drive_fitted(&self, unit: usize) -> bool {
+        self.drives().is_fitted(unit)
     }
 
-    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
-        self.drive().save_adf()
+    fn insert_floppy(
+        &mut self,
+        unit: usize,
+        adf: Adf,
+        change_pending: bool,
+        writable: bool,
+    ) -> bool {
+        self.mount_adf_in(unit, adf, change_pending, writable)
     }
 
-    fn floppy0_image_writable(&self) -> Option<bool> {
-        self.drive().diagnostic_snapshot().disk_writable
+    fn reattach_floppy(&mut self, unit: usize, adf: Adf, writable: bool) -> bool {
+        self.reattach_adf_in(unit, adf, writable)
+    }
+
+    fn eject_floppy(&mut self, unit: usize) {
+        self.eject_disk_in(unit);
+    }
+
+    fn floppy_image_bytes(&self, unit: usize) -> Option<Vec<u8>> {
+        self.drives().drive(unit)?.save_adf()
+    }
+
+    fn floppy_image_writable(&self, unit: usize) -> Option<bool> {
+        self.drives()
+            .drive(unit)?
+            .diagnostic_snapshot()
+            .disk_writable
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
@@ -1988,6 +2093,30 @@ impl AmigaRuntimeKind {
     #[must_use]
     pub fn is_aga(&self) -> bool {
         matches!(self, Self::Aga(_))
+    }
+
+    /// Fit empty drives so the machine has `count` drives, DF0 included;
+    /// see [`AmigaRuntime::fit_floppy_drives`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `count` is outside 1 to 4.
+    pub fn fit_floppy_drives(&mut self, count: usize) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.fit_floppy_drives(count),
+            Self::Ecs(rt) => rt.fit_floppy_drives(count),
+            Self::Aga(rt) => rt.fit_floppy_drives(count),
+        }
+    }
+
+    /// Whether a drive is fitted at `unit` (0 = DF0).
+    #[must_use]
+    pub fn floppy_drive_fitted(&self, unit: usize) -> bool {
+        match self {
+            Self::Ocs(rt) => rt.floppy_drive_fitted(unit),
+            Self::Ecs(rt) => rt.floppy_drive_fitted(unit),
+            Self::Aga(rt) => rt.floppy_drive_fitted(unit),
+        }
     }
 
     /// Advance exactly to the next active-CPU instruction boundary.

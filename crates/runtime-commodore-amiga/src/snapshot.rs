@@ -9,7 +9,7 @@
 //! any variant. The variant-specific bits (chip-stack snapshot +
 //! reconstruction state) is typed as `M::Snapshot`; the runtime-wide bits
 //! (canonical configuration, time, frame
-//! counters, audio accumulator, inserted DF0 bytes) are common to
+//! counters, audio accumulator, inserted floppy bytes) are common to
 //! every variant.
 
 use emu198x_shell::{MachineError, MachineTime};
@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::AmigaConfig;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
+use peripheral_commodore_amiga_floppy::MAX_DRIVES;
 
 // Version 50 retains Copper's historical BFD-blocked reason and the complete
 // Agnus service-stage owner, the Copper word read in the first fetch cell,
@@ -41,22 +42,25 @@ use crate::variants::AmigaMachine;
 // Version 60 retains early audio sampling phases across DMA mode changes.
 // Version 61 retains partial host-sample areas and analog filter history.
 // Version 62 retains band-limited output tails and aligned LED control.
-const SNAPSHOT_VERSION: u32 = 62;
+// Version 63 retains drives DF1 to DF3 and the media in each.
+const SNAPSHOT_VERSION: u32 = 63;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) with the surrounding runtime context
 /// (canonical configuration, time, frame counters, audio
-/// accumulator, and the inserted DF0 bytes for re-mount on restore).
+/// accumulator, and the bytes in each drive for re-mount on restore).
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV62<M: AmigaMachine> {
+struct SnapshotEnvelopeV63<M: AmigaMachine> {
     version: u32,
     config: AmigaConfig,
     time: MachineTime,
     machine: M::Snapshot,
-    floppy0_bytes: Option<Vec<u8>>,
-    floppy0_writable: bool,
+    /// Image in each drive, DF0 to DF3. Which drives are fitted travels
+    /// in the machine snapshot.
+    floppy_bytes: [Option<Vec<u8>>; MAX_DRIVES],
+    floppy_writable: [bool; MAX_DRIVES],
     frame_count: u64,
     non_black_pixels: u32,
     non_white_pixels: u32,
@@ -70,22 +74,18 @@ struct SnapshotEnvelopeV62<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let live_floppy0_bytes = runtime.machine().floppy0_image_bytes();
-    let floppy0_writable = if live_floppy0_bytes.is_some() {
-        runtime
-            .machine()
-            .floppy0_image_writable()
-            .unwrap_or(runtime.floppy0_writable())
-    } else {
-        runtime.floppy0_writable()
-    };
-    let envelope = SnapshotEnvelopeV62::<M> {
+    let mut floppy_bytes: [Option<Vec<u8>>; MAX_DRIVES] = Default::default();
+    let mut floppy_writable = [false; MAX_DRIVES];
+    for unit in 0..MAX_DRIVES {
+        (floppy_bytes[unit], floppy_writable[unit]) = runtime.floppy_media(unit);
+    }
+    let envelope = SnapshotEnvelopeV63::<M> {
         version: SNAPSHOT_VERSION,
         config: runtime.config(),
         time: runtime.time_value(),
         machine: runtime.machine().snapshot_state(),
-        floppy0_bytes: live_floppy0_bytes.or_else(|| runtime.floppy0_bytes().map(<[u8]>::to_vec)),
-        floppy0_writable,
+        floppy_bytes,
+        floppy_writable,
         frame_count: runtime.frame_count(),
         non_black_pixels: runtime.non_black_pixels(),
         non_white_pixels: runtime.non_white_pixels(),
@@ -123,7 +123,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV62<M> =
+    let envelope: SnapshotEnvelopeV63<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
@@ -143,22 +143,24 @@ pub(crate) fn decode<M: AmigaMachine>(
             reason: format!("invalid Amiga configuration: {error}"),
         });
     }
-    if envelope.floppy0_bytes.is_none() && envelope.floppy0_writable {
-        return Err(MachineError::InvalidSnapshot {
-            reason: "empty DF0 cannot be marked writable".into(),
-        });
+    let mut persisted_adfs = Vec::new();
+    for (unit, bytes) in envelope.floppy_bytes.iter().enumerate() {
+        let writable = envelope.floppy_writable[unit];
+        let Some(bytes) = bytes else {
+            if writable {
+                return Err(MachineError::InvalidSnapshot {
+                    reason: format!("empty DF{unit} cannot be marked writable"),
+                });
+            }
+            continue;
+        };
+        let adf = peripheral_commodore_amiga_floppy::Adf::from_bytes(bytes.clone()).map_err(
+            |reason| MachineError::InvalidSnapshot {
+                reason: format!("invalid persisted DF{unit} image: {reason}"),
+            },
+        )?;
+        persisted_adfs.push((unit, adf, writable));
     }
-    let persisted_adf = envelope
-        .floppy0_bytes
-        .as_ref()
-        .map(|bytes| {
-            peripheral_commodore_amiga_floppy::Adf::from_bytes(bytes.clone()).map_err(|reason| {
-                MachineError::InvalidSnapshot {
-                    reason: format!("invalid persisted DF0 image: {reason}"),
-                }
-            })
-        })
-        .transpose()?;
 
     // Restore into a fresh candidate. A failed nested-state validation must
     // not pass through the live machine: machine diagnostics and watch state
@@ -205,8 +207,12 @@ pub(crate) fn decode<M: AmigaMachine>(
         reason: "invalid audio filter history".into(),
     })?;
 
-    if let Some(adf) = persisted_adf {
-        candidate_machine.reattach_floppy0(adf, envelope.floppy0_writable);
+    for (unit, adf, writable) in persisted_adfs {
+        if !candidate_machine.reattach_floppy(unit, adf, writable) {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!("DF{unit} image persisted for a drive that is not fitted"),
+            });
+        }
     }
 
     // Every fallible parse and configuration check has completed. Commit the
@@ -214,8 +220,9 @@ pub(crate) fn decode<M: AmigaMachine>(
     runtime.replace_machine(candidate_machine);
     runtime.set_config(envelope.config);
     runtime.set_time(envelope.time);
-    runtime.set_floppy0_bytes(envelope.floppy0_bytes);
-    runtime.set_floppy0_writable(envelope.floppy0_writable);
+    for (unit, bytes) in envelope.floppy_bytes.into_iter().enumerate() {
+        runtime.set_floppy_media(unit, bytes, envelope.floppy_writable[unit]);
+    }
     runtime.set_frame_count(envelope.frame_count);
     runtime.set_non_black_pixels(envelope.non_black_pixels);
     runtime.set_non_white_pixels(envelope.non_white_pixels);
@@ -372,7 +379,7 @@ mod tests {
     fn restore_rejects_out_of_range_audio_phase_without_mutating_runtime() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV62<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV63<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.audio_sample_accumulator = u64::MAX;
         let forged = postcard::to_allocvec(&envelope).expect("encode forged audio phase");
@@ -397,7 +404,7 @@ mod tests {
     fn restore_rejects_machine_state_that_disagrees_with_a530_configuration() {
         let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&stock).expect("encode stock snapshot");
-        let mut envelope: SnapshotEnvelopeV62<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV63<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.config = Model::A500OcsPalGvpA530.config();
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -458,19 +465,42 @@ mod tests {
     }
 
     #[test]
+    fn media_for_a_drive_that_is_not_fitted_is_rejected_without_mutating_runtime() {
+        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let encoded = encode(&source).expect("encode source snapshot");
+        let mut envelope: SnapshotEnvelopeV63<AmigaOcs> =
+            postcard::from_bytes(&encoded).expect("decode internal envelope");
+        envelope.floppy_bytes[1] = Some(vec![0; DD.len()]);
+        let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
+
+        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let before = encode(&target).expect("encode target before failed restore");
+        let error = decode(&mut target, &forged).expect_err("DF1 media without DF1");
+
+        assert!(
+            matches!(error, MachineError::InvalidSnapshot { ref reason } if reason.contains("DF1"))
+        );
+        assert_eq!(
+            encode(&target).expect("encode target after failed restore"),
+            before,
+            "failed media validation must leave all persisted runtime state untouched"
+        );
+    }
+
+    #[test]
     fn malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV62<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV63<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
-        envelope.floppy0_bytes = Some(vec![0; 17]);
+        envelope.floppy_bytes[0] = Some(vec![0; 17]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
 
         let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let target_media = vec![0; DD.len()];
         let target_adf = Adf::from_bytes(target_media.clone()).expect("decode valid target media");
         target.machine_mut().insert_adf(target_adf);
-        target.set_floppy0_bytes(Some(target_media));
+        target.set_floppy_media(0, Some(target_media), false);
         target.cpu_trace_arm(None, 10_000);
         for _ in 0..2_000 {
             target.tick_traced();
@@ -538,7 +568,7 @@ mod tests {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source");
         for damage in 0..14 {
-            let mut envelope: SnapshotEnvelopeV62<AmigaOcs> =
+            let mut envelope: SnapshotEnvelopeV63<AmigaOcs> =
                 postcard::from_bytes(&encoded).expect("decode source envelope");
             match damage {
                 0 => envelope.audio_resampler.level[0] = f64::NAN,

@@ -53,7 +53,7 @@ use machine_commodore_amiga_ocs::{
     Msm6242RtcDiagnosticSnapshot, Paula8364,
 };
 use motorola_68k_common::registers::Registers;
-use peripheral_commodore_amiga_floppy::Adf;
+use peripheral_commodore_amiga_floppy::{Adf, AmigaFloppyChain};
 
 use crate::variants::AmigaRuntimeKind;
 
@@ -453,7 +453,10 @@ pub trait AmigaLiveAccess {
     fn cia_b(&self) -> &Cia;
     fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot;
     fn paula(&self) -> &Paula8364;
+    /// The internal drive, DF0.
     fn drive(&self) -> &AmigaFloppyDrive;
+    /// Every drive position, DF0 to DF3.
+    fn drives(&self) -> &AmigaFloppyChain;
     fn keyboard(&self) -> &AmigaKeyboard;
     fn copper(&self) -> &Copper;
 
@@ -828,6 +831,10 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::drive(self)
     }
 
+    fn drives(&self) -> &AmigaFloppyChain {
+        AmigaOcs::drives(self)
+    }
+
     fn keyboard(&self) -> &AmigaKeyboard {
         AmigaOcs::keyboard(self)
     }
@@ -1149,6 +1156,10 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::drive(self)
     }
 
+    fn drives(&self) -> &AmigaFloppyChain {
+        AmigaEcs::drives(self)
+    }
+
     fn keyboard(&self) -> &AmigaKeyboard {
         AmigaEcs::keyboard(self)
     }
@@ -1461,6 +1472,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn drive(&self) -> &AmigaFloppyDrive {
         AmigaA1200::drive(self)
+    }
+
+    fn drives(&self) -> &AmigaFloppyChain {
+        AmigaA1200::drives(self)
     }
 
     fn keyboard(&self) -> &AmigaKeyboard {
@@ -1918,6 +1933,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => AmigaLiveAccess::drive(rt.machine()),
             Self::Ecs(rt) => AmigaLiveAccess::drive(rt.machine()),
             Self::Aga(rt) => AmigaLiveAccess::drive(rt.machine()),
+        }
+    }
+
+    fn drives(&self) -> &AmigaFloppyChain {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::drives(rt.machine()),
         }
     }
 
