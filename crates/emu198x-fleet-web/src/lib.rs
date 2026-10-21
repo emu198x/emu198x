@@ -65,8 +65,22 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
         {
             return emu198x_spectrum_web::autoload_tape(machine, max_boot_frames);
         }
+        #[cfg(feature = "commodore-c64")]
+        if let Some(machine) = (&mut self.web as &mut dyn std::any::Any).downcast_mut::<WebMachine<
+            runtime_commodore_c64::C64Runtime,
+            runtime_commodore_c64::C64SessionQueryProvider,
+        >>() {
+            return runtime_commodore_c64::autoload_basic_tape_on(
+                machine,
+                runtime_commodore_c64::DEFAULT_TAPE_AUTOLOAD_SLOT,
+                max_boot_frames,
+                runtime_commodore_c64::DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+            )
+            .map(|result| result.boot.frames)
+            .map_err(|error| error.to_string());
+        }
         let _ = max_boot_frames;
-        Err("tape autoload is available only on the Spectrum".into())
+        Err("tape autoload is available only on the Spectrum and the C64".into())
     }
     fn query(&self, path: &str) -> Result<Value, String> {
         self.web
@@ -275,6 +289,9 @@ pub struct Fleet {
     family: String,
     variant: String,
     firmware: BTreeMap<String, Vec<u8>>,
+    /// Media given before boot, inserted as the machine is built and before
+    /// it runs a frame: an Amiga counts its drives as Kickstart starts.
+    media: Vec<(String, Vec<u8>)>,
     host: Option<Box<dyn Host>>,
 }
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -294,6 +311,7 @@ impl Fleet {
             family: family.into(),
             variant: variant.into(),
             firmware: BTreeMap::new(),
+            media: Vec::new(),
             host: None,
         })
     }
@@ -315,7 +333,12 @@ impl Fleet {
         for (id, bytes) in &self.firmware {
             firmware.push(FirmwareImage::new(id.clone(), bytes));
         }
-        self.host = Some(factory::create(&self.family, &self.variant, &firmware)?);
+        let mut host = factory::create(&self.family, &self.variant, &firmware)?;
+        for (slot, bytes) in &self.media {
+            host.load(slot, bytes)?;
+        }
+        self.media.clear();
+        self.host = Some(host);
         Ok(())
     }
     /// Advances wall-clock time.
@@ -332,11 +355,17 @@ impl Fleet {
     pub fn step(&mut self) -> Result<(), String> {
         self.host_mut()?.step()
     }
-    /// Loads a declared media slot.
+    /// Loads a declared media slot. Before boot the media waits and goes in
+    /// as the machine is built, before its first frame.
     ///
     /// # Errors
-    /// rejects unsupported or malformed media.
+    /// rejects unsupported or malformed media, at boot for media given
+    /// before it.
     pub fn load(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
+        if self.host.is_none() {
+            self.media.push((slot.into(), bytes.to_vec()));
+            return Ok(());
+        }
         self.host_mut()?.load(slot, bytes)
     }
     /// Queues a physical machine key.
@@ -527,5 +556,59 @@ mod tests {
             assert_eq!(machine.advance(10.0).expect("advance"), 0);
             assert_eq!(machine.advance(11.0).expect("advance"), 1);
         }
+    }
+}
+#[cfg(all(test, feature = "nintendo-game-boy"))]
+mod media_before_boot_tests {
+    use super::*;
+
+    const CARTRIDGE: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-data/synthetic-cartridges/nintendo-game-boy-logo.gb"
+    ));
+
+    /// `Some(true)` loads the cartridge before boot, `Some(false)` after,
+    /// `None` not at all.
+    fn frames(before_boot: Option<bool>) -> Vec<Vec<u8>> {
+        let mut machine = Fleet::new("nintendo-game-boy", "dmg").expect("compiled variant");
+        if before_boot == Some(true) {
+            machine
+                .load("cartridge", CARTRIDGE)
+                .expect("held until boot");
+        }
+        machine.boot().expect("needs no firmware");
+        if before_boot == Some(false) {
+            machine.load("cartridge", CARTRIDGE).expect("cartridge");
+        }
+        (0..60)
+            .map(|_| {
+                machine.step().expect("step");
+                machine.pixels().expect("pixels")
+            })
+            .collect()
+    }
+
+    /// Media given before boot is in the machine before its first frame,
+    /// so the run matches one loaded straight after boot.
+    #[test]
+    fn media_given_before_boot_is_in_place_for_the_first_frame() {
+        let held = frames(Some(true));
+        assert_eq!(held, frames(Some(false)));
+        assert_ne!(
+            held,
+            frames(None),
+            "the cartridge should change the picture"
+        );
+    }
+
+    /// A slot the machine does not have is reported when boot inserts it.
+    #[test]
+    fn media_given_before_boot_is_checked_at_boot() {
+        let mut machine = Fleet::new("nintendo-game-boy", "dmg").expect("compiled variant");
+        machine
+            .load("no-such-slot", CARTRIDGE)
+            .expect("held until boot");
+        assert!(machine.boot().is_err());
+        assert!(machine.step().is_err(), "a failed boot leaves no machine");
     }
 }
