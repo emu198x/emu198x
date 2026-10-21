@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
 import tarfile
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -48,6 +50,9 @@ def check(record: dict, files: dict[str, bytes]) -> dict:
         seen.add(key)
         count = 512
         actual = row['observed']
+        raw_name = row['name'] + ('.stdout' if row['engine'] == 'fuse' else '.json')
+        if raw_name not in files or json.loads(files[raw_name]) != actual:
+            raise ValueError('raw observation disagrees with summary: ' + raw_name)
         if row['payload_count'] != count or bytes(actual['data']) != payload[:count]:
             raise ValueError('wrong observed model payload')
         expected_result = ([64, 128, 64, 0, 0, 1, 2] if row['engine'] == 'mame' and row['sk']
@@ -86,8 +91,8 @@ def check(record: dict, files: dict[str, bytes]) -> dict:
 
 
 
-def load() -> tuple[dict, dict[str, bytes]]:
-    with tarfile.open(HERE / 'runs.tar.gz') as archive:
+def load(path: Path = HERE / 'runs.tar.gz') -> tuple[dict, dict[str, bytes]]:
+    with tarfile.open(path) as archive:
         members = archive.getmembers()
         if len(members) > 200 or len({m.name for m in members}) != len(members) or any(not m.isfile() or m.size > 1024 * 1024
                                      or Path(m.name).is_absolute() or '..' in Path(m.name).parts
@@ -125,6 +130,34 @@ def controls(record: dict, files: dict[str, bytes]) -> list[str]:
             rejected.append(label)
         else:
             raise ValueError('false evidence accepted: ' + label)
+    # Rehash the altered raw artifact, write a real archive, then traverse the
+    # ordinary loader. Integrity checks alone must not accept semantic disagreement.
+    for engine in ['fuse', 'mame']:
+        candidate_files = files.copy()
+        row = next(row for row in record['observations'] if row['engine'] == engine)
+        name = row['name'] + ('.stdout' if engine == 'fuse' else '.json')
+        raw = json.loads(candidate_files[name])
+        raw['data'] = []
+        candidate_files[name] = json.dumps(raw).encode()
+        hashes = json.loads(candidate_files['hashes.json'])
+        hashes[name] = hashlib.sha256(candidate_files[name]).hexdigest()
+        candidate_files['hashes.json'] = json.dumps(hashes).encode()
+        with tempfile.TemporaryDirectory(prefix='198x-rehashed-raw-audit-') as temporary:
+            archive_path = Path(temporary) / 'altered.tar.gz'
+            with tarfile.open(archive_path, 'w:gz') as archive:
+                for artifact, data in candidate_files.items():
+                    info = tarfile.TarInfo(artifact)
+                    info.size = len(data)
+                    archive.addfile(info, io.BytesIO(data))
+            candidate_record, decoded = load(archive_path)
+            try:
+                check(candidate_record, decoded)
+            except ValueError as error:
+                if 'raw observation disagrees with summary' not in str(error):
+                    raise ValueError('semantic control failed for the wrong reason') from error
+                rejected.append(engine + '-rehashed-raw-summary-disagreement')
+            else:
+                raise ValueError('altered/rehashed raw output accepted: ' + engine)
     return rejected
 
 
