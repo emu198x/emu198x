@@ -21,6 +21,7 @@ trait Host {
     fn frame_ms(&self) -> f64;
     fn input(&mut self, event: InputEvent);
     fn load(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String>;
+    fn blank_tape(&mut self, slot: &str) -> Result<(), String>;
     fn transport(&mut self, slot: &str, playing: bool) -> Result<(), String>;
     fn save_state(&self) -> Result<Vec<u8>, String>;
     fn restore_state(&mut self, bytes: &[u8]) -> Result<(), String>;
@@ -137,6 +138,21 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
         }
         .map_err(|e| e.to_string())
     }
+    fn blank_tape(&mut self, slot: &str) -> Result<(), String> {
+        let is_tape = self
+            .web
+            .runtime()
+            .profile()
+            .media_slots
+            .iter()
+            .any(|entry| entry.id == slot && entry.kind == MediaKind::Tape);
+        if !is_tape {
+            return Err(format!("not a tape slot: {slot}"));
+        }
+        self.web
+            .load_media_copy(slot, MediaKind::Tape, &[])
+            .map_err(|e| e.to_string())
+    }
     fn transport(&mut self, slot: &str, playing: bool) -> Result<(), String> {
         self.web
             .runtime_mut()
@@ -163,9 +179,20 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
             return match slot {
                 "drive-8" => r.flush_drive8_image(),
                 "drive-9" => r.flush_drive_1581_image(),
+                // What has been SAVEd onto a blank tape.
+                "tape-1" => r.flush_tape_image(),
                 _ => None,
             }
-            .ok_or_else(|| "No disk in this slot".into());
+            .ok_or_else(|| "Nothing to export from this slot".into());
+        }
+        #[cfg(feature = "sinclair-zx-spectrum")]
+        if let Some(r) = runtime.downcast_ref::<runtime_sinclair_zx_spectrum::SpectrumRuntimeKind>()
+            && slot == "tape-1"
+        {
+            // The Spectrum records a SAVE whatever tape is in the deck.
+            return r
+                .flush_tape_image()
+                .ok_or_else(|| "Nothing has been saved to tape".into());
         }
         #[cfg(feature = "commodore-amiga")]
         if let Some(r) = runtime.downcast_ref::<runtime_commodore_amiga::AmigaRuntimeKind>() {
@@ -290,6 +317,12 @@ pub fn catalogue() -> Vec<Value> {
     factory::catalogue()
 }
 
+/// Media given before boot.
+enum PendingMedia {
+    Image(Vec<u8>),
+    BlankTape,
+}
+
 /// Builds a machine from explicitly supplied firmware, then drives it in memory.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct Fleet {
@@ -298,7 +331,7 @@ pub struct Fleet {
     firmware: BTreeMap<String, Vec<u8>>,
     /// Media given before boot, inserted as the machine is built and before
     /// it runs a frame: an Amiga counts its drives as Kickstart starts.
-    media: Vec<(String, Vec<u8>)>,
+    media: Vec<(String, PendingMedia)>,
     host: Option<Box<dyn Host>>,
 }
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -341,8 +374,11 @@ impl Fleet {
             firmware.push(FirmwareImage::new(id.clone(), bytes));
         }
         let mut host = factory::create(&self.family, &self.variant, &firmware)?;
-        for (slot, bytes) in &self.media {
-            host.load(slot, bytes)?;
+        for (slot, media) in &self.media {
+            match media {
+                PendingMedia::Image(bytes) => host.load(slot, bytes)?,
+                PendingMedia::BlankTape => host.blank_tape(slot)?,
+            }
         }
         self.media.clear();
         self.host = Some(host);
@@ -370,10 +406,25 @@ impl Fleet {
     /// before it.
     pub fn load(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
         if self.host.is_none() {
-            self.media.push((slot.into(), bytes.to_vec()));
+            self.media
+                .push((slot.into(), PendingMedia::Image(bytes.to_vec())));
             return Ok(());
         }
         self.host_mut()?.load(slot, bytes)
+    }
+    /// Puts a blank tape in `slot` to SAVE onto; `export_media` then gives
+    /// what was saved. A tape given to `load` is write-protected, for
+    /// playing (knowledge/decisions/disk-save-write-back.md). Before boot
+    /// it waits, as `load` does.
+    ///
+    /// # Errors
+    /// rejects a slot that is not a tape deck, at boot when given before it.
+    pub fn blank_tape(&mut self, slot: &str) -> Result<(), String> {
+        if self.host.is_none() {
+            self.media.push((slot.into(), PendingMedia::BlankTape));
+            return Ok(());
+        }
+        self.host_mut()?.blank_tape(slot)
     }
     /// Queues a physical machine key.
     ///
@@ -515,9 +566,9 @@ impl Fleet {
     pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.host_mut()?.restore_state(bytes)
     }
-    /// Exports a current disk image.
+    /// Exports a current disk image, or what has been saved to tape.
     /// # Errors
-    /// Requires a supported slot with mounted media.
+    /// Requires a supported slot with mounted media, or a recording.
     pub fn export_media(&self, slot: &str) -> Result<Vec<u8>, String> {
         self.host_ref()?.export_media(slot)
     }
