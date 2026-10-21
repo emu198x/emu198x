@@ -1,0 +1,17 @@
+{
+  "command": [
+    "python3",
+    "-B",
+    "docs/plans/2026-10-21-read-all-skipped-zxsp/capture.py",
+    "--zxsp",
+    "/tmp/198x-zxsp-deliberately-absent",
+    "--output",
+    "/tmp/198x-zxsp-must-not-create"
+  ],
+  "exit_code": 2,
+  "stdout": "",
+  "stderr": "usage: capture.py [-h] --zxsp ZXSP --output OUTPUT\ncapture.py: error: missing prerequisite: zxsp Fdc765.cpp\n",
+  "output_created": false,
+  "status": "missing_prerequisite",
+  "qualified": false
+}

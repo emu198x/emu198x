@@ -1,0 +1,13 @@
+{
+  "README.md": "5a5131e6a1a336d9fe27e2c8ffcd024ed82f5b57947a2727be080efd95c2ab90",
+  "audit.py": "db248077819513538fbb197828f1c03e76a7fa97beb20e5bf5be3faf189b0b7e",
+  "capture.py": "9ba0bc3b83abcd78fb6dc38cbfaba03fa81d81928c8d44fb564b243921dcaf47",
+  "host/Fdc.h": "aab4f454f307f22b101f6c4e0cefc9cc5ebe3888c6ee7d91520446de68d22f6a",
+  "host/FloppyDiskDrive.h": "a610cfd6910dc6159306afbb1d13413488bb976324a4f18173883baea590562c",
+  "host/Machine/Machine.h": "536914c8203a86c90a44aa96c72e2bbfa4f15b285c5b467d74ccd67f56c3555f",
+  "missing-prerequisite.json": "ee8ed44714647d66f7ddd236528c1c7e331ae97f53106fdb6d3beb2921810524",
+  "plan.md": "58af43eb74a606cc79f7dd407ac2b23f0dcd999c757b4fa1c8ff50e612f29a9f",
+  "probe.cpp": "b61ef63323e1f79ba395658210fee7e98eaabd5b9412ec649ca6338f3fa94fa4",
+  "runs.tar.gz": "66b8eba511410a613ca708d8ca2598edebf7d7ceab4c468a276d979b15ef155c",
+  "verification.json": "e6369fe6c07c5df2b8133794d97a0929516a521aa47b6295afe59467602b2057"
+}
