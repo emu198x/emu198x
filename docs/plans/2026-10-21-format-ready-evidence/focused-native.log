@@ -1,0 +1,9 @@
+
+running 1 test
+test snapshot::tests::format_initial_not_ready_and_result_survive_native_restore ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 136 filtered out; finished in 0.51s
+
+   Compiling runtime-sinclair-zx-spectrum v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build/format-ready/debug/deps/runtime_sinclair_zx_spectrum-e7307314ae6cc43a)

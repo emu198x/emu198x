@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "scope": "Format Track initial supplied READY only",
+  "evidence_kind": "fresh source-build execution",
+  "base_commit": "63efdfba1f0c7394ebec5189b2b0cccc64aac292",
+  "system": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "reference_code": {
+    "repository": "https://github.com/mamedev/mame",
+    "commit": "9391e1eff80eb04abd58d48218a1d3b9643c1ea8",
+    "path": "src/devices/machine/upd765.cpp",
+    "function": "format_track_start",
+    "kind": "inspected source, not executed reference"
+  },
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "format_ready"
+      ],
+      "exit_code": 0,
+      "log": "focused-chip.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--lib",
+        "format_initial_not_ready"
+      ],
+      "exit_code": 0,
+      "log": "focused-native.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "fmt.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "clippy.log"
+    }
+  ],
+  "source_hashes": {
+    "crates/nec-upd765a/src/lib.rs": "e34d6b4eba5aed98bb12ddb14dbfea0a1f7b5cfec5bcff409bc91907f1287630",
+    "crates/nec-upd765a/tests/format_ready.rs": "41f11cf67ab681b119165dbbf29fc0036547fc8a96c57a09444c85d1517440f6",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot/transfer_signal_tests.rs": "1acf99f4e44e015806ff7fa3255f3fd5b3d525018c79d4e799dff5613e3f091c"
+  },
+  "log_hashes": {
+    "native-red.log": "f65fe4d03ba1526727ddecbdc92cdb7f1113bc55b3c9f5cb2561740afff7c4e0",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "focused-native.log": "243dd1e3002c8f03168aad4bf81c9012a3e8a3e21452e08f22886d4b4d4e64d5",
+    "clippy.log": "8a2933ae25e59188be988ea6218274cb341f13d8bc4b533f57b12ececd4be8b3",
+    "focused-chip.log": "8120f897a0ff9d7d381319f2eaa6e061c2b359a69e5cc5dc417099c3b01a2b43",
+    "tests.log": "aa63280569297d220640dc2718259ef92369b2182905b908958d865eec3fc690",
+    "chip-red.log": "b81554def03bbb46f03b8c735f16db5da7a3e54b04689544e51ad61f2e7aa3e8"
+  },
+  "qualified": false,
+  "unresolved": [
+    "active READY loss sampling/final status",
+    "full Format Track operation qualification"
+  ]
+}
