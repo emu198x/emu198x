@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "qualified": false,
+  "scope": "captured independent reference-model observations only",
+  "silicon_semantics": "unresolved",
+  "observations": 48,
+  "fuse_processes": 24,
+  "mame_processes": 24,
+  "crc_failure_observations": 8,
+  "dtl_zero_observed_payload": {
+    "fuse": 128,
+    "mame": 128
+  },
+  "discriminating_controls": "Fuse1->1/127->127; MAME1->128/127->128",
+  "false_evidence_controls_rejected": [
+    "false-qualification",
+    "missing-case",
+    "duplicate-case",
+    "wrong-zero-payload",
+    "wrong-256-payload",
+    "crc-error-presented-clean",
+    "invented-mame-source",
+    "wrong-dtl-command",
+    "stale-executable-description",
+    "zero-processes"
+  ]
+}
