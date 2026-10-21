@@ -109,6 +109,35 @@ def main() -> None:
         assert hashlib.sha256(raw[name]).hexdigest() == digest, name
     record = json.loads(raw["campaign.json"])
     check(record, raw)
+    source_archive = HERE / "fuse-source.tar.gz"
+    assert (
+        hashlib.sha256(source_archive.read_bytes()).hexdigest()
+        == "d208f2df99f21275e43b7b2e0a904b80fe43d8ad63ea8f46e8e0e5ee5af128c5"
+    ), "upstream source archive identity"
+    with tarfile.open(source_archive) as bundle:
+        upstream = {
+            m.name: bundle.extractfile(m).read()
+            for m in bundle.getmembers()
+            if m.isfile()
+        }
+    manifest = json.loads(upstream["manifest.json"])
+    assert manifest["source_commit"] == record["fuse_source"]["commit"]
+    assert "COPYING" in manifest["files"] and len(manifest["files"]) == 17
+    assert set(upstream) == {"manifest.json", "original-build-receipt.json"} | {
+        "upstream/" + name for name in manifest["files"]
+    }
+    for name, identity in manifest["files"].items():
+        data = upstream["upstream/" + name]
+        assert hashlib.sha256(data).hexdigest() == identity["sha256"], name
+        assert (
+            hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+            == identity["git_blob"]
+        ), name
+    for name, digest in record["fuse_source"]["files"].items():
+        assert manifest["files"][name]["sha256"] == digest
+    assert json.loads(upstream["original-build-receipt.json"]) == next(
+        c for c in record["commands"] if c["name"] == "fuse-build"
+    )
     controls = []
     for name in (
         "wrong_interval",

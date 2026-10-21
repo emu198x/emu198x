@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "archive_only_source_build_verification",
+  "runtime_execution": false,
+  "source_archive_sha256": "d208f2df99f21275e43b7b2e0a904b80fe43d8ad63ea8f46e8e0e5ee5af128c5",
+  "command": [
+    "clang",
+    "-std=c11",
+    "-O1",
+    "-g",
+    "-fsanitize=address,undefined",
+    "-isysroot",
+    "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+    "-Iauthored/host",
+    "-Iupstream",
+    "-Iupstream/peripherals/disk",
+    "-include",
+    "authored/host/config.h",
+    "authored/host.c",
+    "authored/fuse_probe.c",
+    "upstream/peripherals/disk/upd_fdc.c",
+    "upstream/peripherals/disk/fdd.c",
+    "upstream/peripherals/disk/crc.c",
+    "-o",
+    "fuse-stock"
+  ],
+  "cwd": "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-fuse-seek-build-_7aqkmdr",
+  "host_timeout_seconds": 60,
+  "compiler_path": "/usr/bin/clang",
+  "exit": 0,
+  "stdout": "",
+  "stderr": ""
+}
