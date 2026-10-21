@@ -1,0 +1,34 @@
+# Finite Read Data native continuation
+
+Lane: Spectrum launch-hardening. Closure consumer: umbrella #231. Reuse existing snapshot test helpers/artifact writer, with a separately included snapshot/read_data_tests.rs. No framework/dependencies/APIs. Blank-ROM runtime/peripheral access is separate from released guest ROM loading.
+
+Fixture contract v1 explicitly SPECIFYs ND=1. Await approved ND/v10 integration before asserting transfer IRQs. Functional payload/result values are authored independently of engine output; native byte-identical restoration and uninterrupted baseline equality are secondary invariants. Synthetic two-sided layouts do not qualify another machine configuration.
+
+Finite kinds: clean-single, clean-multiple, missing-first, missing-later, wrong-c, bad-c, wrong-h, wrong-n, id-crc, data-crc, deleted-mark, skip-mark, all-skipped, dtl2, dtl127, multitrack, missing-side, preserved-copies, not-ready, missing-dam. Selectors0/2 exercise the existing +3 logical alias only. N2 is standard except N0 FM DTL fixtures, N1 MT and preserved-copy fields. Prefix payloads are explicit patterns; skipped fields never contribute bytes. Data CRC/CM terminate after payload; IDCRC/missingDAM/readiness precede payload. Missing side is absent recorded data on a two-sided standalone controller, not inferred physical single-side wiring. Exact no-TC terminal CHRN uses the current declared final-field convention, not NEC's TC-only table.
+
+Applicable checkpoints: idle; opcode-only; partial command; pending preamble; low/high RQM before/inside/final visible byte; result prefixes0..7. DTL additionally checkpoints hidden-suffix start/middle/final tick. MT boundary and preserved-copy continuation derive from explicit field offsets, with checkpoint IDs deduplicated and exact enumerated count asserted. A resumed normal run checks every remaining byte and result strobe, IRQ admission/ack, idle and invalid-command recovery, immutable raw/live images and exact final snapshot. Missed-service resumes checkpoint one tick before deadline and proves OR, not EN or future-field CRC. Execute matrix twice and emit safe EDSK/live-only model/JSON; never export firmware-bearing states.
+
+Controls: replace an active checkpoint with idle state (must fail checkpoint MSR/IRQ); deliberately corrupt an independently expected result (must fail exact result oracle). Unknown control names fail closed. Host deadline600s and per-byte/field event bounds; record commands, compiler, executable/source identities and exact case count in final evidence.
+
+Primary/reference boundaries: NEC Dec1978 Read Data p12 defines byte delivery, matching/error/CM/SK and N0 DTL-prefix/internal CRC; NEC A/B printed5-7 defines MT side1 sector1; printed5-12 status and APC A3-12 define first-result IRQ ack. EDSK Rev5 defines integral stored versions, and accepted marginal-model decision defines deterministic copy choice. Physical bit/flux/index/headload/density/service-jitter/revision behavior, TC without an available interface, ambiguous angular duplicate-ID selection and zero-DTL encoding remain explicitly unresolved/follow-up claims. DTL0 is not silently discarded: no explicit zero mapping found in manufacturer prose; Fuse rlen0 is compared only after increment and MAME ignores DTL, so source agreement cannot establish the silicon oracle. #231 must retain that question and agree the admitted valid-domain boundary before closure.
+
+Prerequisites: approved production MT #1934, DTL #1937, preserved versions #1941, missingDAM #1942 owning fix, and ND/v10 shared signal fix. Do not cherry-pick unapproved production work into this proof branch. Implement ordinary cases first; collect actual final positive/control executions only once prerequisites are on main or explicitly approved integration branch.
+
+## Implemented record and verification
+
+The driver enumerates616 unique identities (`kind/selector/checkpoint`):604 normal continuations and12 one-tick-before-overrun continuations. Both aliases0/2 are explicit. The20 kind names and every checkpoint identity are checked for uniqueness, with a literal616 cardinality assertion. Nonuniform per-byte source patterns expose shifted data. All observed payload/result prefixes, remaining bytes and following preserved version are collected from actual data-register reads. Expected payload/status values remain separate from uninterrupted-baseline state equality. All FDC input levels, SPECIFY bytes and source/live asset names are recorded.
+
+Source and live media are checked at each checkpoint and after recovery; exact snapshot roundtrip/final equality and IRQ phases are asserted. Safe output is20 EDSKs,20 DiskImage-only postcard models and one JSON record. Runtime snapshot bytes and firmware are not exported. Both DTL0 and all-skipped final status/CHRN remain explicit required blocked research; this proof never sets qualified=true. The all-skipped current result is identified as a retained sector-model convention, not a manufacturer-established final-status oracle. Missing-first keeps another valid ID on track, so requested-ID absence is distinct from an absent physical IDAM.
+
+Preliminary combined source includes approved ND/v10 plus actual merged MT/DTL/copy and approved MD source. The current strengthened driver passed616 cases. Four owning suites606 passed, zero failed,62 ignored across67 result blocks, with strict all-target Clippy, workspace fmt and explicit included-file rustfmt passing. Each command was host-bounded600seconds. Earlier prototype failures and real idle-checkpoint/wrong-result controls are retained with their exact source limitations; they are not final release evidence. Preliminary safe artifacts and the uncommitted-driver/executable receipt are at umbrella output/qualification/read-data-native-preliminary/run-1.
+
+## Local rerun after prerequisites are integrated
+
+Create a new empty output directory and use the existing artifact writer environment:
+
+```sh
+mkdir /absolute/new/read-data-native-output
+RUSTUP_TOOLCHAIN=1.99.0 READ_TRACK_NATIVE_ARTIFACTS=/absolute/new/read-data-native-output cargo test --locked -p runtime-sinclair-zx-spectrum --lib snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media -- --exact
+```
+
+The existing environment name is reused; this does not introduce another artifact interface. Run twice into different new directories. Each JSON must contain616 unique cases, actual snapshot version, qualified=false and both blocked research questions. A zero-test process cannot provide the required artifact. Run the same exact test with READ_DATA_NATIVE_CONTROL=idle-checkpoint and then wrong-result; each must exit101 at its intended MSR/result assertion. Unknown control names fail closed. Final source/executable identities, repeated safe outputs and control receipts must be captured from a clean committed pin; passing this direct-native test is not ROM-loader or whole-operation qualification.

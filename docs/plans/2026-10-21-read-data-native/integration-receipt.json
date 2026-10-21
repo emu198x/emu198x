@@ -1,0 +1,50 @@
+[
+  {
+    "label": "integration",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "read_data_native_boundaries_preserve_payload_result_irq_and_media"
+    ],
+    "control": null,
+    "host_timeout_seconds": 600,
+    "exit_code": 101,
+    "elapsed_seconds": 35.093
+  },
+  {
+    "label": "idle-control",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "read_data_native_boundaries_preserve_payload_result_irq_and_media"
+    ],
+    "control": "idle-checkpoint",
+    "host_timeout_seconds": 600,
+    "exit_code": 101,
+    "elapsed_seconds": 0.664
+  },
+  {
+    "label": "result-control",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "read_data_native_boundaries_preserve_payload_result_irq_and_media"
+    ],
+    "control": "wrong-result",
+    "host_timeout_seconds": 600,
+    "exit_code": 101,
+    "elapsed_seconds": 0.518
+  }
+]
