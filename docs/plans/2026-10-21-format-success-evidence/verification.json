@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "scope": "24 fitting Format component success cases; not operation qualification",
+  "qualified": false,
+  "evidence_kind": "fresh source-build execution",
+  "base_commit": "19248951dfcdd7cf234f2251dc992f4e6c2e6aa7",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "format_success",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "log": "wrong-result.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "format_success",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "log": "positive-1.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "format_success",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "log": "positive-2.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a"
+      ],
+      "exit_code": 0,
+      "log": "chip-suite.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "fmt.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "nec-upd765a",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "clippy.log"
+    }
+  ],
+  "source_sha256": "0aebb1c0f8fb9a860d15451d1edd2cdfe7ef9444be6b6665538b4f6d747f7fbc",
+  "logs": {
+    "wrong-result.log": "64d857eca26f85d0d667cd2c0479c5118de2609fdeaeb44a8424328460e7c538",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "clippy.log": "cccf75e8dfcb7db7bf4331f710c928c3a71399f19984d9ea7538a5ff6ad39227",
+    "chip-suite.log": "cd5b0cf75275da4ba5919e67b5ad5dea5fa18ec2d988d0111df5dd3c0ad37b39",
+    "positive-1.log": "27a53d21ec0fe754cd3de3f23384e37805aef638cb39c06338f5145a7d4e30d8",
+    "positive-2.log": "d2a042bfa752bcf48fdfef5cf8f558a0f23c311ee78521906d32b5785509800d"
+  },
+  "limitations": [
+    "No ROM loading or reference execution",
+    "No release-binary equivalence",
+    "No active READY or Fault adjudication",
+    "No complete operation or machine qualification"
+  ]
+}
