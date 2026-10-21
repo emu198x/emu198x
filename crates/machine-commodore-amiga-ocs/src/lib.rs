@@ -49,7 +49,9 @@ pub use emu198x_commodore_paula_8364::{
 pub use gvp_a530::{A530Config, A530RamSize, GvpA530};
 pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use peripheral_commodore_amiga_floppy::Adf;
-pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
+pub use peripheral_commodore_amiga_floppy::{
+    AmigaFloppyChain, AmigaFloppyDrive, DriveStatus, MAX_DRIVES,
+};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
 
@@ -224,25 +226,6 @@ impl JoystickState {
     }
 }
 
-/// Decode CIA-B PRB (active-low) into DF0 control booleans for the
-/// drive's `update_control(step, dir_inward, side_upper, sel, motor)`
-/// signature.
-///
-/// HRM Appendix F:
-///   PB0 /STEP     — step pulse, falling edge advances head
-///   PB1  DIR      — 0 = step inward, 1 = step outward
-///   PB2 /SIDE     — 0 = upper head
-///   PB3 /SEL0     — 0 = DF0 selected
-///   PB7 /MTR      — 0 = motor on
-fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
-    let step = (prb & 0x01) == 0;
-    let dir_inward = (prb & 0x02) == 0;
-    let side_upper = (prb & 0x04) == 0;
-    let sel_df0 = (prb & 0x08) == 0;
-    let motor_on = (prb & 0x80) == 0;
-    (step, dir_inward, side_upper, sel_df0, motor_on)
-}
-
 const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 
 // `ChipRamBus`, `BusTransaction`, `BusResponse`, `TICKS_PER_CCK`, and
@@ -266,16 +249,16 @@ pub struct AmigaOcs {
     /// Bounded, non-persisted instruction-boundary handoff to the runtime.
     cpu_boundaries: VecDeque<CpuBoundary>,
     memory: Memory,
-    /// DF0 floppy drive — head / motor / MFM track encoder. Responds
-    /// to CIA-B PRB control pulses and feeds CIA-A PRA status bits +
-    /// MFM words into Paula's disk DMA engine.
-    drive: AmigaFloppyDrive,
-    /// Cached encoded MFM track for the drive's current (cyl, head).
-    /// Re-encoded on demand when the head moves or a new disk is
-    /// inserted; `None` if no disk is present or the head is at a
+    /// Floppy drives DF0 to DF3 — head / motor / MFM track encoder per
+    /// drive. They respond to CIA-B PRB control pulses and feed CIA-A
+    /// PRA status bits + MFM words into Paula's disk DMA engine.
+    drives: AmigaFloppyChain,
+    /// Cached encoded MFM track for the DMA drive's current (unit, cyl,
+    /// head). Re-encoded on demand when the head moves, another drive
+    /// is selected or a new disk is inserted; `None` if no disk is present or the head is at a
     /// cylinder we haven't encoded yet this access.
-    track_cache: Option<(u32, u32, Vec<u8>)>,
-    /// Word cursor into `track_cache.2` — next word to feed to Paula.
+    track_cache: Option<(usize, u32, u32, Vec<u8>)>,
+    /// Word cursor into `track_cache.3` — next word to feed to Paula.
     track_word_cursor: usize,
     /// CCKs remaining before the next MFM word is pushed to Paula.
     /// One word every `DISK_BYTE_CCK_SLOW * 2` CCKs in 250 kbit/s
@@ -441,8 +424,8 @@ pub struct AmigaOcsSnapshot {
     gvp_a530: Option<GvpA530>,
     motherboard_bridge: Option<SynchronizedMotherboardBridge>,
     memory: Memory,
-    drive: AmigaFloppyDrive,
-    track_cache: Option<(u32, u32, Vec<u8>)>,
+    drives: AmigaFloppyChain,
+    track_cache: Option<(usize, u32, u32, Vec<u8>)>,
     track_word_cursor: usize,
     track_pacer: u16,
     keyboard: AmigaKeyboard,
@@ -472,15 +455,18 @@ pub struct AmigaOcsSnapshot {
 }
 
 impl AmigaOcs {
-    fn apply_df0_control_from_cia_b(&mut self) {
+    fn apply_drive_control_from_cia_b(&mut self) {
         let prb = self.cia_b.port_b_output();
-        let (step, dir_in, side_upper, sel0, motor) = decode_cia_b_prb_for_df0(prb);
-        self.drive
-            .update_control(step, dir_in, side_upper, sel0, motor);
+        self.drives.update_control(prb);
+        // The selected drive drives the CIA-A status lines (HRM
+        // Appendix E), so a select change reaches them at once: software
+        // reads /DSKRDY straight after each select pulse when it reads a
+        // drive's ID.
+        self.refresh_cia_a_external_inputs();
     }
 
     fn refresh_cia_a_external_inputs(&mut self) {
-        let mut pra = drive_pra_byte(&self.drive.status());
+        let mut pra = drive_pra_byte(&self.drives.status());
         // CIA-A PRA fire bits are active-low: PA6 = /FIR0 (controller
         // port 0 — mouse left button), PA7 = /FIR1 (controller port 1).
         if self.port0_left_button_pressed {
@@ -704,12 +690,12 @@ impl AmigaOcs {
         // PA7=FIR1) default high / inactive.
         //
         // Prior to the floppy port we used a static `$EB` constant
-        // here. That still matches `drive_pra_byte(drive.status())`
+        // here. That still matches `drive_pra_byte(drives.status())`
         // on a fresh drive with no disk, so boot reaches the insert-
         // disk screen identically.
-        let drive = AmigaFloppyDrive::new();
+        let drives = AmigaFloppyChain::new();
         let mut cia_a = Cia::new();
-        cia_a.set_external_a(drive_pra_byte(&drive.status()));
+        cia_a.set_external_a(drive_pra_byte(&drives.status()));
         // Gary decode is model-shaped here, not hard-coded to the
         // A500 path: even machines without installed slow RAM still
         // need the `Cxxxxx` aperture so KS 1.x can detect the
@@ -725,7 +711,7 @@ impl AmigaOcs {
             motherboard_bridge: None,
             cpu_boundaries: VecDeque::new(),
             memory,
-            drive,
+            drives,
             track_cache: None,
             track_word_cursor: 0,
             track_pacer: 0,
@@ -987,7 +973,22 @@ impl AmigaOcs {
     /// Read-only DF0 drive access.
     #[must_use]
     pub fn drive(&self) -> &AmigaFloppyDrive {
-        &self.drive
+        self.drives.df0()
+    }
+
+    /// Read-only access to every drive position, DF0 to DF3.
+    #[must_use]
+    pub fn drives(&self) -> &AmigaFloppyChain {
+        &self.drives
+    }
+
+    /// Fit an empty drive at `unit` (1 to 3). Kickstart counts drives by
+    /// reading their IDs at reset, so a drive fitted after boot is seen
+    /// from the next reset. Returns `false` for a unit beyond DF3.
+    pub fn fit_drive(&mut self, unit: usize) -> bool {
+        let fitted = self.drives.fit(unit);
+        self.refresh_cia_a_external_inputs();
+        fitted
     }
 
     /// Canonical DF0 mount. `change_pending = true` leaves `/DSKCHANGE`
@@ -996,18 +997,49 @@ impl AmigaOcs {
     /// read-only — an archive that reports `/DSKPROT` and rejects a SAVE
     /// (#97). The three `insert_adf*` helpers are thin presets over this.
     pub fn mount_adf(&mut self, adf: Adf, change_pending: bool, writable: bool) {
-        self.drive.insert_disk_writable(adf, writable);
-        self.track_cache = None;
-        if !change_pending {
-            self.drive.acknowledge_disk_change();
+        self.mount_adf_in(0, adf, change_pending, writable);
+    }
+
+    /// Mount an ADF in the drive at `unit`, fitting that drive if the
+    /// position is empty. Flags as for [`Self::mount_adf`]. Returns
+    /// `false`, mounting nothing, for a unit beyond DF3.
+    pub fn mount_adf_in(
+        &mut self,
+        unit: usize,
+        adf: Adf,
+        change_pending: bool,
+        writable: bool,
+    ) -> bool {
+        if !self.drives.fit(unit) {
+            return false;
         }
+        let Some(drive) = self.drives.drive_mut(unit) else {
+            return false;
+        };
+        drive.insert_disk_writable(adf, writable);
+        if !change_pending {
+            drive.acknowledge_disk_change();
+        }
+        self.track_cache = None;
         self.refresh_cia_a_external_inputs();
+        true
     }
 
     /// Reconnect snapshot-owned DF0 media without generating a physical
     /// insertion event or invalidating the restored encoded-track stream.
     pub fn reattach_adf(&mut self, adf: Adf, writable: bool) {
-        self.drive.reattach_disk_writable(adf, writable);
+        self.reattach_adf_in(0, adf, writable);
+    }
+
+    /// Reconnect snapshot-owned media to the drive at `unit`, as
+    /// [`Self::reattach_adf`] does for DF0. Returns `false` when no drive
+    /// is fitted there.
+    pub fn reattach_adf_in(&mut self, unit: usize, adf: Adf, writable: bool) -> bool {
+        let Some(drive) = self.drives.drive_mut(unit) else {
+            return false;
+        };
+        drive.reattach_disk_writable(adf, writable);
+        true
     }
 
     /// Insert an ADF into DF0, writable, acknowledging the change so
@@ -1030,7 +1062,14 @@ impl AmigaOcs {
 
     /// Eject the disk from DF0.
     pub fn eject_disk(&mut self) {
-        self.drive.eject_disk();
+        self.eject_disk_in(0);
+    }
+
+    /// Eject the disk from the drive at `unit`. The drive stays fitted.
+    pub fn eject_disk_in(&mut self, unit: usize) {
+        if let Some(drive) = self.drives.drive_mut(unit) {
+            drive.eject_disk();
+        }
         self.track_cache = None;
         self.refresh_cia_a_external_inputs();
     }
@@ -1288,14 +1327,16 @@ impl AmigaOcs {
     /// This advances the rotating stream and DSKBYTR/DSKDATR state only.
     /// Agnus-granted cells independently move queued words to chip RAM.
     fn feed_next_mfm_word(&mut self) {
-        let cyl = self.drive.cylinder();
-        let head = self.drive.head();
+        let unit = self.drives.dma_unit();
+        let drive = self.drives.dma_drive();
+        let cyl = drive.cylinder();
+        let head = drive.head();
         let need_refresh = match &self.track_cache {
-            Some((c, h, _)) => *c != cyl || *h != head,
+            Some((u, c, h, _)) => *u != unit || *c != cyl || *h != head,
             None => true,
         };
         if need_refresh {
-            let Some(bytes) = self.drive.encode_mfm_track() else {
+            let Some(bytes) = drive.encode_mfm_track() else {
                 self.track_cache = None;
                 return;
             };
@@ -1305,9 +1346,9 @@ impl AmigaOcs {
             } else {
                 self.track_word_cursor % word_count
             };
-            self.track_cache = Some((cyl, head, bytes));
+            self.track_cache = Some((unit, cyl, head, bytes));
         }
-        let Some((_, _, bytes)) = &self.track_cache else {
+        let Some((_, _, _, bytes)) = &self.track_cache else {
             return;
         };
         let word_count = bytes.len() / 2;
@@ -1341,12 +1382,14 @@ impl AmigaOcs {
     /// the captured MFM track and persist its sectors to the in-memory image.
     fn feed_next_write_word(&mut self) {
         if let Some(write_word) = self.paula.take_disk_write_stream_word() {
-            self.drive.note_write_mfm_word(write_word);
+            self.drives.dma_drive_mut().note_write_mfm_word(write_word);
             // Final word transferred — decode the captured MFM and write the
             // decoded sectors back to the disk image. The head and cylinder
             // have not changed, but a successful flush makes the cached read
             // stream stale. Preserve spindle phase and rebuild on next read.
-            if !self.paula.disk_write_stream_active() && self.drive.flush_write_capture() > 0 {
+            if !self.paula.disk_write_stream_active()
+                && self.drives.dma_drive_mut().flush_write_capture() > 0
+            {
                 self.track_cache = None;
             }
         }
@@ -1669,7 +1712,7 @@ impl AmigaOcs {
         } else if let Some(reg) = cia::decode_cia_b(addr) {
             self.cia_b.write(reg, val);
             if matches!(reg, 0x01 | 0x03) {
-                self.apply_df0_control_from_cia_b();
+                self.apply_drive_control_from_cia_b();
             }
         } else if let Some(offset) = self.custom_offset_for_addr(addr) {
             // Custom registers are word-only; byte writes pad with
@@ -1822,7 +1865,7 @@ impl AmigaOcs {
         let (cache_cylinder, cache_head, cache_bytes) = self
             .track_cache
             .as_ref()
-            .map_or((None, None, 0), |(cylinder, head, bytes)| {
+            .map_or((None, None, 0), |(_, cylinder, head, bytes)| {
                 (Some(*cylinder), Some(*head), bytes.len())
             });
         AmigaTrackStreamDiagnosticSnapshot {
@@ -2038,7 +2081,7 @@ impl AmigaOcs {
             ));
             self.cia_b.write(reg, byte);
             if matches!(reg, 0x01 | 0x03) {
-                self.apply_df0_control_from_cia_b();
+                self.apply_drive_control_from_cia_b();
             }
             BusResponse::WriteAck
         })
@@ -2263,7 +2306,7 @@ impl AmigaOcs {
             gvp_a530: self.gvp_a530.clone(),
             motherboard_bridge: self.motherboard_bridge,
             memory: self.memory.clone(),
-            drive: self.drive.clone(),
+            drives: self.drives.clone(),
             track_cache: self.track_cache.clone(),
             track_word_cursor: self.track_word_cursor,
             track_pacer: self.track_pacer,
@@ -2305,7 +2348,7 @@ impl AmigaOcs {
         self.gvp_a530 = snap.gvp_a530;
         self.motherboard_bridge = snap.motherboard_bridge;
         self.memory = snap.memory;
-        self.drive = snap.drive;
+        self.drives = snap.drives;
         self.track_cache = snap.track_cache;
         self.track_word_cursor = snap.track_word_cursor;
         self.track_pacer = snap.track_pacer;
@@ -2396,11 +2439,11 @@ impl AmigaDriver for AmigaOcs {
     fn cia_b_mut(&mut self) -> &mut Cia {
         &mut self.cia_b
     }
-    fn drive(&self) -> &AmigaFloppyDrive {
-        &self.drive
+    fn drives(&self) -> &AmigaFloppyChain {
+        &self.drives
     }
-    fn drive_mut(&mut self) -> &mut AmigaFloppyDrive {
-        &mut self.drive
+    fn drives_mut(&mut self) -> &mut AmigaFloppyChain {
+        &mut self.drives
     }
     fn keyboard_mut(&mut self) -> &mut AmigaKeyboard {
         &mut self.keyboard
@@ -3095,8 +3138,9 @@ mod tests {
         amiga.feed_next_mfm_word();
         amiga.track_word_cursor = WORD_PHASE;
 
-        amiga.drive.update_control(false, false, true, true, false);
-        let next_track = amiga.drive.encode_mfm_track().expect("head 1 track");
+        // Port B: /DSKSIDE and /DSKSEL0 low, motor off, no step.
+        amiga.drives.update_control(0xF3);
+        let next_track = amiga.drives.df0().encode_mfm_track().expect("head 1 track");
         let expected_word =
             u16::from_be_bytes([next_track[WORD_PHASE * 2], next_track[WORD_PHASE * 2 + 1]]);
 
@@ -3106,6 +3150,63 @@ mod tests {
         assert_eq!(stream.cache_head, Some(1));
         assert_eq!(stream.word_cursor, WORD_PHASE + 1);
         assert_eq!(amiga.paula.dskdatr(), expected_word);
+    }
+
+    #[test]
+    fn disk_dma_reads_the_selected_drive() {
+        const WORD_PHASE: usize = 32;
+
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid DF0 ADF"));
+        assert!(amiga.mount_adf_in(
+            1,
+            Adf::from_bytes(vec![0xFF; DD.len()]).expect("valid DF1 ADF"),
+            false,
+            true,
+        ));
+        let word_at =
+            |track: Vec<u8>| u16::from_be_bytes([track[WORD_PHASE * 2], track[WORD_PHASE * 2 + 1]]);
+        let df0_word = word_at(amiga.drives.df0().encode_mfm_track().expect("DF0 track"));
+        let df1_word = word_at(
+            amiga
+                .drives
+                .drive(1)
+                .and_then(AmigaFloppyDrive::encode_mfm_track)
+                .expect("DF1 track"),
+        );
+        assert_ne!(df0_word, df1_word);
+
+        // Port B: /DSKSEL0 low, then /DSKSEL1 low; the same cylinder and
+        // head on both, so only the unit tells the cached tracks apart.
+        for (prb, expected) in [(0xF7, df0_word), (0xEF, df1_word)] {
+            amiga.drives.update_control(prb);
+            amiga.track_word_cursor = WORD_PHASE;
+            amiga.feed_next_mfm_word();
+            assert_eq!(amiga.paula.dskdatr(), expected, "PRB ${prb:02X}");
+        }
+    }
+
+    #[test]
+    fn a_select_pulse_reaches_the_status_lines_before_the_next_e_clock() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        assert!(amiga.fit_drive(1));
+        amiga.poke_byte(0x00BF_D300, 0xFF);
+        // HRM Appendix E identification: DF1's motor on, then off, then
+        // select pulses with /DSKRDY read while selected. Port B is
+        // /MTR /SEL3 /SEL2 /SEL1 /SEL0 /SIDE DIR /STEP, all active low
+        // but DIR.
+        for prb in [0x7F, 0x6F, 0x7F, 0xFF, 0xEF, 0xFF] {
+            amiga.poke_byte(0x00BF_D100, prb);
+        }
+        for _ in 0..32 {
+            amiga.poke_byte(0x00BF_D100, 0xEF);
+            assert_eq!(
+                amiga.cia_a.external_a() & 0x20,
+                0,
+                "DF1 answers $FFFFFFFF: /DSKRDY low on every selected read"
+            );
+            amiga.poke_byte(0x00BF_D100, 0xFF);
+        }
     }
 
     #[test]
@@ -3124,7 +3225,11 @@ mod tests {
         assert!(amiga.track_cache.is_none());
         assert_eq!(amiga.track_word_cursor, WORD_PHASE);
 
-        let replacement_track = amiga.drive.encode_mfm_track().expect("replacement track");
+        let replacement_track = amiga
+            .drives
+            .df0()
+            .encode_mfm_track()
+            .expect("replacement track");
         let expected_word = u16::from_be_bytes([
             replacement_track[WORD_PHASE * 2],
             replacement_track[WORD_PHASE * 2 + 1],
@@ -3158,7 +3263,7 @@ mod tests {
             .track_cache
             .as_ref()
             .expect("initial read should encode the track")
-            .2
+            .3
             .clone();
         let replacement_data = vec![0xA5; 11 * 512];
         let replacement_track = encode_mfm_track(&replacement_data, 0, 11);
@@ -3197,7 +3302,7 @@ mod tests {
         assert!(amiga.track_cache.is_none());
         assert_eq!(amiga.track_word_cursor, word_phase);
         assert_eq!(
-            &amiga.drive.save_adf().expect("disk remains mounted")[..replacement_data.len()],
+            &amiga.drives.df0().save_adf().expect("disk remains mounted")[..replacement_data.len()],
             replacement_data.as_slice()
         );
 

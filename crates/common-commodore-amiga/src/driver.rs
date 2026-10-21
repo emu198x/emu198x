@@ -56,7 +56,7 @@ use emu198x_commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
-use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
+use peripheral_commodore_amiga_floppy::{AmigaFloppyChain, AmigaFloppyDrive};
 use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 
 /// One entry in the copper-MOVE debug log: `(cck, vpos, hpos, reg, val)`.
@@ -236,8 +236,16 @@ pub trait AmigaDriver {
     fn cia_a_mut(&mut self) -> &mut Cia;
     fn cia_b(&self) -> &Cia;
     fn cia_b_mut(&mut self) -> &mut Cia;
-    fn drive(&self) -> &AmigaFloppyDrive;
-    fn drive_mut(&mut self) -> &mut AmigaFloppyDrive;
+    /// Every drive position, DF0 to DF3.
+    fn drives(&self) -> &AmigaFloppyChain;
+    fn drives_mut(&mut self) -> &mut AmigaFloppyChain;
+    /// The internal drive, DF0.
+    fn drive(&self) -> &AmigaFloppyDrive {
+        self.drives().df0()
+    }
+    fn drive_mut(&mut self) -> &mut AmigaFloppyDrive {
+        self.drives_mut().df0_mut()
+    }
     fn keyboard_mut(&mut self) -> &mut AmigaKeyboard;
     fn memory(&self) -> &Memory;
     fn memory_mut(&mut self) -> &mut Memory;
@@ -741,7 +749,7 @@ pub trait AmigaDriver {
                 // In write mode, a paced word leaves it for the drive. Agnus
                 // alone moves words between that FIFO and chip RAM above.
                 let write_stream_active = self.paula().disk_write_stream_active();
-                if write_stream_active || self.drive().read_data_available() {
+                if write_stream_active || self.drives().read_data_available() {
                     if self.track_pacer() <= 1 {
                         if write_stream_active {
                             self.feed_next_write_word();
@@ -767,17 +775,17 @@ pub trait AmigaDriver {
                 self.cia_a_mut().phi2_pulse();
                 self.cia_b_mut().phi2_pulse();
 
-                // Floppy drive runs at E-clock rate (same rate as CIA
+                // Floppy drives run at E-clock rate (same rate as CIA
                 // internal ticks). CIA-B PRB updates the control pins on
-                // writes; the E-clock phase advances the mechanical drive
-                // state and feeds status back onto CIA-A PRA.
+                // writes; the E-clock phase advances every fitted drive's
+                // mechanical state and feeds status back onto CIA-A PRA.
                 // CIA-B FLAG pin is wired to the floppy /INDEX pulse on the
-                // Amiga; the drive emits one index pulse per revolution.
+                // Amiga; a selected drive emits one index pulse per revolution.
                 let e_clock_hz = match self.agnus().region {
                     AgnusRegion::Pal => PAL_SYSTEM_TICK_HZ / CIA_E_CLOCK_DIVISOR,
                     AgnusRegion::Ntsc => NTSC_SYSTEM_TICK_HZ / CIA_E_CLOCK_DIVISOR,
                 };
-                if self.drive_mut().tick(e_clock_hz) {
+                if self.drives_mut().tick(e_clock_hz) {
                     self.cia_b_mut().flag_falling_edge();
                 }
                 self.refresh_cia_a_external_inputs();
