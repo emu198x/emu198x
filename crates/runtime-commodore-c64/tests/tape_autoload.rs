@@ -1,8 +1,8 @@
 //! Real TAP autoload regressions for the C64 runtime.
 //!
 //! Every test is `#[ignore]`'d — they require local C64 ROMs at
-//! `~/.emu198x/roms/commodore-c64/` and the named TAP archives under
-//! `~/Projects/Emu198x-Unclean/Reference/commodore/c64/`.
+//! `~/.emu198x/roms/commodore-c64/` and, apart from the driver check, the
+//! named TAP archives under `~/Projects/Emu198x-Unclean/Reference/commodore/c64/`.
 
 mod common;
 
@@ -13,12 +13,59 @@ use emu198x_shell::{
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_tape,
+    autoload_basic_tape_on,
 };
 
 use common::{
     local_ghostbusters_tap_zip, local_rom_firmware, local_thing_on_a_spring_tap_zip,
-    local_thinker_tap_zip, local_thomas_tap_zip, screen_text_lines, wait_for_screen_line_contains,
+    local_thinker_tap_zip, local_thomas_tap_zip, make_tap, screen_text_lines,
+    wait_for_screen_line_contains,
 };
+
+/// The driver form, which the browser and Apple hosts call, presses the same
+/// keys at the same frames as the session form: both reach `PRESS PLAY ON
+/// TAPE` at the same machine time, leaving the tape in the same state.
+#[test]
+#[ignore = "FIXTURE: requires local C64 ROMs"]
+fn driver_tape_autoload_matches_the_session_form() {
+    let tape = make_tap(&[0x30; 64]);
+    let run = |driver: bool| {
+        let firmware = local_rom_firmware();
+        let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+            .expect("real PAL C64 firmware should construct a runtime");
+        let mut session = HeadlessSession::new_with_query_provider(
+            runtime,
+            u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+            C64SessionQueryProvider,
+        );
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            MediaKind::Tape,
+            &tape,
+        ));
+        session
+            .load_media(&media)
+            .expect("synthetic TAP should insert");
+        let args = (
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        );
+        let result = if driver {
+            autoload_basic_tape_on(&mut session, args.0, args.1, args.2)
+        } else {
+            autoload_basic_tape(&mut session, args.0, args.1, args.2)
+        }
+        .expect("autoload should reach PRESS PLAY ON TAPE");
+        let playing = session.query("tape.playing").expect("tape.playing").value;
+        (result, playing)
+    };
+    let (session_form, session_playing) = run(false);
+    let (driver_form, driver_playing) = run(true);
+    assert_eq!(driver_form, session_form);
+    assert_eq!(driver_playing, session_playing);
+}
 
 #[test]
 #[ignore = "FIXTURE: requires local C64 ROMs and Thinker TAP archive"]

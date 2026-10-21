@@ -36,7 +36,13 @@ pub(super) fn create(
         #[cfg(feature = "commodore-amiga")]
         "commodore-amiga" => build::<runtime_commodore_amiga::AmigaRuntimeKind>(variant, firmware),
         #[cfg(feature = "commodore-c64")]
-        "commodore-c64" => build::<runtime_commodore_c64::C64Runtime>(variant, firmware),
+        // With the C64's own queries: tape autoload waits on `tape.loaded`
+        // and the screen text.
+        "commodore-c64" => build_with_queries::<runtime_commodore_c64::C64Runtime, _>(
+            variant,
+            firmware,
+            runtime_commodore_c64::C64SessionQueryProvider,
+        ),
         #[cfg(feature = "commodore-pet")]
         "commodore-pet" => build::<runtime_commodore_pet::PetRuntime>(variant, firmware),
         #[cfg(feature = "commodore-vic-20")]

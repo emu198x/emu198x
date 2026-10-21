@@ -7,7 +7,8 @@
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
     ControlCommand, HeadlessSession, InputEvent, MachineTime, MediaTransportAction,
-    MediaTransportCommand, NullTraceSink, SessionError, SessionQueryProvider, TraceSink,
+    MediaTransportCommand, NullTraceSink, SessionDriver, SessionError, SessionQueryProvider,
+    TraceSink,
 };
 use thiserror::Error;
 
@@ -173,6 +174,92 @@ pub fn autoload_basic_tape_with_trace_sink(
         slot: slot.to_owned(),
         boot,
         reached: session.time(),
+    })
+}
+
+/// [`autoload_basic_tape`] for any session driver, such as the `WebMachine`
+/// the browser and Apple hosts run: the same keys, prompt and transport,
+/// without trace events.
+///
+/// # Errors
+///
+/// As [`autoload_basic_tape`].
+pub fn autoload_basic_tape_on<D: SessionDriver>(
+    session: &mut D,
+    slot: &str,
+    max_boot_frames: u32,
+    max_prompt_frames: u32,
+) -> Result<C64TapeAutoloadResult, C64AutoloadError> {
+    if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
+        return Err(C64AutoloadError::UnsupportedSlot {
+            expected: DEFAULT_TAPE_AUTOLOAD_SLOT,
+            actual: slot.to_owned(),
+        });
+    }
+    if !session.query_bool("tape.loaded")? {
+        return Err(C64AutoloadError::MissingTape {
+            slot: slot.to_owned(),
+        });
+    }
+
+    let boot = session.wait_for_boot(max_boot_frames)?;
+    let chord = ["lshift", "runstop"];
+    for key in chord {
+        session.queue_input(InputEvent::Key {
+            name: key.into(),
+            pressed: true,
+        });
+        session.run_frames(KEY_EDGE_FRAMES)?;
+    }
+    for key in chord.iter().rev() {
+        session.queue_input(InputEvent::Key {
+            name: (*key).into(),
+            pressed: false,
+        });
+        session.run_frames(KEY_EDGE_FRAMES)?;
+    }
+    session.run_frames(COMMAND_SETTLE_FRAMES)?;
+    wait_for_screen_text(session, PRESS_PLAY_PROMPT, max_prompt_frames)?;
+    session.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+        slot.to_owned(),
+        MediaTransportAction::Start,
+    )))?;
+
+    Ok(C64TapeAutoloadResult {
+        slot: slot.to_owned(),
+        boot,
+        reached: session.time(),
+    })
+}
+
+/// Runs frames until `screen.text.lines` shows `needle`, as
+/// `HeadlessSession::wait_for_query_text_contains` does for a session.
+fn wait_for_screen_text<D: SessionDriver>(
+    session: &mut D,
+    needle: &str,
+    max_frames: u32,
+) -> Result<(), SessionError> {
+    const PATH: &str = "screen.text.lines";
+    for frame in 0..=max_frames {
+        let value = session.query(PATH)?.value;
+        let shows = match &value {
+            serde_json::Value::String(line) => line.contains(needle),
+            serde_json::Value::Array(lines) => lines
+                .iter()
+                .any(|line| line.as_str().is_some_and(|line| line.contains(needle))),
+            _ => false,
+        };
+        if shows {
+            return Ok(());
+        }
+        if frame < max_frames {
+            session.run_frames(1)?;
+        }
+    }
+    Err(SessionError::QueryTextTimeout {
+        path: PATH.to_owned(),
+        needle: needle.to_owned(),
+        max_frames,
     })
 }
 
