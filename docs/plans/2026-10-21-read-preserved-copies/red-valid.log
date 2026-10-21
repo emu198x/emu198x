@@ -1,0 +1,60 @@
+   Compiling runtime-sinclair-zx-spectrum v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.93s
+     Running tests/read_preserved_copies.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/read_preserved_copies-7c65c0a8c8f86f79)
+
+running 5 tests
+test visited_interrupted_field_consumes_one_copy_without_generating_bytes ... FAILED
+test prepared_but_unvisited_field_does_not_consume_a_copy ... FAILED
+test component_restore_preserves_selected_copy_and_next_rotation ... FAILED
+test parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media ... FAILED
+test switching_physical_key_restarts_the_existing_consecutive_read_sequence ... FAILED
+
+failures:
+
+---- visited_interrupted_field_consumes_one_copy_without_generating_bytes stdout ----
+
+thread 'visited_interrupted_field_consumes_one_copy_without_generating_bytes' (144920793) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- prepared_but_unvisited_field_does_not_consume_a_copy stdout ----
+
+thread 'prepared_but_unvisited_field_does_not_consume_a_copy' (144920791) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+---- component_restore_preserves_selected_copy_and_next_rotation stdout ----
+
+thread 'component_restore_preserves_selected_copy_and_next_rotation' (144920789) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+---- parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media stdout ----
+
+thread 'parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media' (144920790) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+---- switching_physical_key_restarts_the_existing_consecutive_read_sequence stdout ----
+
+thread 'switching_physical_key_restarts_the_existing_consecutive_read_sequence' (144920792) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+
+failures:
+    component_restore_preserves_selected_copy_and_next_rotation
+    parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media
+    prepared_but_unvisited_field_does_not_consume_a_copy
+    switching_physical_key_restarts_the_existing_consecutive_read_sequence
+    visited_interrupted_field_consumes_one_copy_without_generating_bytes
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --test read_preserved_copies`

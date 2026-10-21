@@ -1,0 +1,19 @@
+   Compiling nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/nec-upd765a)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling format-amstrad-dsk v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-amstrad-dsk)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus3)
+   Compiling machine-sinclair-zx-spectrum-plus2a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus2a)
+   Compiling machine-sinclair-zx-spectrum-plus2b v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus2b)
+   Compiling runtime-sinclair-zx-spectrum v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.62s
+     Running tests/read_preserved_copies.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/read_preserved_copies-7c65c0a8c8f86f79)
+
+running 5 tests
+test prepared_but_unvisited_field_does_not_consume_a_copy ... ok
+test visited_interrupted_field_consumes_one_copy_without_generating_bytes ... ok
+test switching_physical_key_restarts_the_existing_consecutive_read_sequence ... ok
+test parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media ... ok
+test component_restore_preserves_selected_copy_and_next_rotation ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
