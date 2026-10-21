@@ -153,11 +153,11 @@ impl KempstonJoystick {
 
 impl Peripheral for KempstonJoystick {
     fn claims_port(&self, port: u16) -> bool {
-        // Standard Kempston decoding: A5=0 AND A0=1. Canonically `$1F`
-        // (and any port mirror that satisfies the mask). Honours
-        // `attached` so a disconnected interface presents floating bus
-        // through the machine's normal fallthrough.
-        self.attached && (port & 0x00E0) == 0x0000 && (port & 0x0001) != 0
+        // Standard Kempston decoding: A5=0 AND A0=1, nothing else.
+        // Canonically `$1F`, but `$DF` and the other mirrors answer too.
+        // Honours `attached` so a disconnected interface presents
+        // floating bus through the machine's normal fallthrough.
+        self.attached && (port & 0x0020) == 0x0000 && (port & 0x0001) != 0
     }
 
     fn read(&mut self, _port: u16) -> u8 {
@@ -202,6 +202,11 @@ mod tests {
         assert!(k.claims_port(0x001F));
         assert!(k.claims_port(0xFF1F));
         assert!(k.claims_port(0x0001));
+        // A6 and A7 are not decoded, so `$DF` is the same register; the
+        // ZX Spectrum Next reads its Kempston port there.
+        assert!(k.claims_port(0x00DF));
+        assert!(k.claims_port(0x005F));
+        assert!(k.claims_port(0x009F));
         // A5=0, A0=0 — not claimed (even-port range belongs to ULA).
         assert!(!k.claims_port(0x001E));
         assert!(!k.claims_port(0x0000));
