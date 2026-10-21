@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use machine_jupiter_ace::JupiterAce;
 
 /// Ink. The control renders none of it — a blank screen is all paper.
-const INK: u32 = 0xFF00_0000;
+const INK: u32 = 0xFFCF_CFCF;
 
 fn firmware(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
