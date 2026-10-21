@@ -24,6 +24,12 @@ use crate::mcp::tools::register_amiga_tools;
 
 pub(crate) const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 
+/// Media slots of the external drives, DF1 to DF3.
+const EXTERNAL_FLOPPY_SLOTS: [&str; 3] = ["floppy-1", "floppy-2", "floppy-3"];
+
+/// The most drives an Amiga takes: DF0 and three external drives.
+const MAX_FLOPPY_DRIVES: usize = 4;
+
 /// The machine configuration the flags build up. The default is the
 /// canonical Amiga — A500 OCS PAL with Kickstart 1.3 — that vAmiga /
 /// FS-UAE / WinUAE also default to.
@@ -33,6 +39,10 @@ pub struct Amiga {
     pub rom_dir: Option<PathBuf>,
     pub kickstart: Option<PathBuf>,
     pub disk: Option<PathBuf>,
+    /// Disks for DF1 to DF3 (`--disk1` to `--disk3`); each fits its drive.
+    pub external_disks: [Option<PathBuf>; 3],
+    /// Drives to fit, DF0 included, whether or not they hold a disk.
+    pub drives: Option<usize>,
     pub wait_for_boot: Option<u32>,
     pub print_queries: Vec<String>,
 }
@@ -44,6 +54,8 @@ impl Default for Amiga {
             rom_dir: None,
             kickstart: None,
             disk: None,
+            external_disks: [None, None, None],
+            drives: None,
             wait_for_boot: None,
             print_queries: Vec::new(),
         }
@@ -65,6 +77,36 @@ impl Amiga {
             }
         }
         overrides
+    }
+
+    /// Fit the drives `--drives` asks for, then load every disk named on
+    /// the command line into its drive.
+    pub(crate) fn load_disks(&self, runtime: &mut AmigaRuntimeKind) -> Result<(), LaunchError> {
+        if let Some(count) = self.drives {
+            runtime
+                .fit_floppy_drives(count)
+                .map_err(|err| err.to_string())?;
+        }
+        let disks = self.read_disks()?;
+        let mut media = MediaSet::new();
+        for (slot, bytes) in &disks {
+            media.push(MediaImage::new(*slot, MediaKind::Disk, bytes));
+        }
+        runtime.load_media(&media).map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    /// Every disk named on the command line, with the slot it goes in.
+    pub(crate) fn read_disks(&self) -> Result<Vec<(&'static str, Vec<u8>)>, LaunchError> {
+        std::iter::once((DEFAULT_FLOPPY_SLOT, &self.disk))
+            .chain(EXTERNAL_FLOPPY_SLOTS.into_iter().zip(&self.external_disks))
+            .filter_map(|(slot, path)| path.as_ref().map(|path| (slot, path)))
+            .map(|(slot, path)| {
+                read_media_asset(path, MediaKind::Disk)
+                    .map(|disk| (slot, disk.bytes))
+                    .map_err(|err| format!("failed to read disk {}: {err}", path.display()).into())
+            })
+            .collect()
     }
 }
 
@@ -89,6 +131,10 @@ impl MachineApp for Amiga {
                          | a500-maxed | a600 | a1200 | a2000 [default: a500]
                          Unsuffixed ids select PAL; append -ntsc for NTSC.
     --disk PATH          insert one ADF image into DF0:
+    --disk1 PATH         insert an ADF into DF1:, fitting that drive
+    --disk2 PATH         insert an ADF into DF2:, fitting that drive
+    --disk3 PATH         insert an ADF into DF3:, fitting that drive
+    --drives N           fit N drives, DF0 included, even if empty (1-4)
     --wait-for-boot N    run up to N frames until boot.detected is true (headless)
     --print-query PATH   resolve one query path after running (repeatable, headless)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
@@ -116,6 +162,18 @@ impl MachineApp for Amiga {
                 })?;
             }
             "--disk" => self.disk = Some(args.path(flag)?),
+            "--disk1" => self.external_disks[0] = Some(args.path(flag)?),
+            "--disk2" => self.external_disks[1] = Some(args.path(flag)?),
+            "--disk3" => self.external_disks[2] = Some(args.path(flag)?),
+            "--drives" => {
+                let count: usize = args.parse(flag, "a drive count from 1 to 4")?;
+                if !(1..=MAX_FLOPPY_DRIVES).contains(&count) {
+                    return Err(LaunchError::Usage(format!(
+                        "--drives expects 1 to {MAX_FLOPPY_DRIVES}, got {count}"
+                    )));
+                }
+                self.drives = Some(count);
+            }
             "--wait-for-boot" => {
                 self.wait_for_boot = Some(args.parse(flag, "a non-negative integer")?);
             }
@@ -135,31 +193,20 @@ impl MachineApp for Amiga {
     }
 
     /// The runtime for the window: resolve the model's Kickstart, build the
-    /// chipset variant, and insert the DF0 ADF if `--disk` was given. Script
-    /// mode boots for itself in `script.rs` so its media load is part of the
-    /// session it reports on.
+    /// chipset variant, fit the drives `--drives` asks for and insert the
+    /// ADFs `--disk` to `--disk3` name. Script mode boots for itself in
+    /// `script.rs` so its media load is part of the session it reports on.
     fn build_runtime(&self) -> Result<AmigaRuntimeKind, LaunchError> {
         let mut runtime = build_variant::<AmigaRuntimeKind>(self.model, &self.firmware_overrides())
             .map_err(|err| err.to_string())?;
-
-        if let Some(path) = &self.disk {
-            let disk = read_media_asset(path, MediaKind::Disk)
-                .map_err(|err| format!("failed to read disk {}: {err}", path.display()))?;
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new(
-                DEFAULT_FLOPPY_SLOT,
-                MediaKind::Disk,
-                &disk.bytes,
-            ));
-            runtime.load_media(&media).map_err(|err| err.to_string())?;
-        }
-
+        self.load_disks(&mut runtime)?;
         Ok(runtime)
     }
 
-    /// The MCP session boots the chosen model from its raw ROM file; media
-    /// named on the command line is loaded by the launcher, and the
-    /// `insert_media` / `set_machine` tools change it at runtime.
+    /// The MCP session boots the chosen model from its raw ROM file, fits
+    /// the drives `--drives` asks for and loads the disks `--disk` to
+    /// `--disk3` name; the `insert_media` / `set_machine` tools change them
+    /// at runtime.
     fn build_mcp_runtime(&self) -> Result<AmigaRuntimeKind, LaunchError> {
         let resolved = resolve_firmware::<AmigaRuntimeKind>(self.model, &self.firmware_overrides())
             .map_err(|err| LaunchError::Run(format!("Kickstart ROM not found: {err}")))?;
@@ -168,7 +215,21 @@ impl MachineApp for Amiga {
             .next()
             .ok_or_else(|| LaunchError::Run("the model boots no ROM".to_owned()))?;
         let rom_bytes = std::fs::read(&rom_path).map_err(|err| err.to_string())?;
-        AmigaRuntimeKind::new(self.model, rom_bytes).map_err(|err| err.to_string().into())
+        let mut runtime =
+            AmigaRuntimeKind::new(self.model, rom_bytes).map_err(|err| err.to_string())?;
+        self.load_disks(&mut runtime)?;
+        Ok(runtime)
+    }
+
+    /// [`build_mcp_runtime`](Self::build_mcp_runtime) has already loaded
+    /// every disk flag, `--disk1` to `--disk3` included, which the
+    /// launcher's generic `--disk` discovery does not know.
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        Ok(Vec::new())
     }
 
     /// The Amiga's report is built by `script::run`, which
@@ -305,6 +366,32 @@ mod tests {
         // --disk and the firmware flags are shared with the window.
         let (.., mode) = parsed(&["--model", "a500-a501", "--disk", "wb.adf"]);
         assert_eq!(mode, Mode::Ui);
+    }
+
+    #[test]
+    fn flags_fit_external_drives() {
+        let (app, _, mode) = parsed(&[
+            "--disk", "one.adf", "--disk1", "two.adf", "--disk3", "four.adf", "--drives", "3",
+        ]);
+        assert_eq!(app.disk, Some(PathBuf::from("one.adf")));
+        assert_eq!(
+            app.external_disks,
+            [
+                Some(PathBuf::from("two.adf")),
+                None,
+                Some(PathBuf::from("four.adf"))
+            ]
+        );
+        assert_eq!(app.drives, Some(3));
+        assert_eq!(mode, Mode::Ui);
+    }
+
+    #[test]
+    fn a_drive_count_outside_one_to_four_is_a_usage_error() {
+        for count in ["0", "5"] {
+            let err = parse::<Amiga>(&args(&["--drives", count])).expect_err("rejects");
+            assert!(matches!(err, LaunchError::Usage(ref message) if message.contains("1 to 4")));
+        }
     }
 
     #[test]

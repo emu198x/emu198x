@@ -17,7 +17,6 @@ use emu198x_shell::launch::{CommonCli, LaunchError, MachineApp};
 use emu198x_shell::{
     BootArtifacts, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
     MediaImage, MediaKind, MediaSet, ScriptObservation, boot_machine, read_firmware,
-    read_media_asset,
 };
 use runtime_commodore_amiga::{AmigaRuntimeKind, AmigaSessionQueryProvider};
 use serde::Serialize;
@@ -27,7 +26,7 @@ use serde_json::Value;
 // resolved by the shell for every mode; script mode used to carry a
 // parallel copy whose ROM-candidate lists had drifted (A500+ tried KS1.3
 // before KS2.04).
-use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
+use crate::app::Amiga;
 
 #[derive(Debug, Serialize)]
 struct RunnerReport {
@@ -106,17 +105,16 @@ fn run_cli(cli: &Amiga, common: &CommonCli) -> Result<RunnerReport, LaunchError>
         AmigaSessionQueryProvider,
     );
 
-    let mut media_storage = Vec::new();
+    if let Some(count) = cli.drives {
+        session
+            .machine_mut()
+            .fit_floppy_drives(count)
+            .map_err(|err| format!("fitting {count} drives failed: {err}"))?;
+    }
+    let disks = cli.read_disks()?;
     let mut media = MediaSet::new();
-    if let Some(path) = &cli.disk {
-        let loaded = read_media_asset(path, MediaKind::Disk)
-            .map_err(|err| format!("failed to read disk {}: {err}", path.display()))?;
-        media_storage.push(loaded);
-        let bytes = &media_storage
-            .last()
-            .expect("media_storage just received one disk image")
-            .bytes;
-        media.push(MediaImage::new(DEFAULT_FLOPPY_SLOT, MediaKind::Disk, bytes));
+    for (slot, bytes) in &disks {
+        media.push(MediaImage::new(*slot, MediaKind::Disk, bytes));
     }
 
     session
