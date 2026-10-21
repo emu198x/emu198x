@@ -48,6 +48,6 @@ Fresh reference execution, requiring the existing reference checkout, clang, MAM
 python3 docs/plans/2026-10-21-read-data-dtl-zero/capture.py
 ```
 
-Capture refuses an existing `runs/` output directory. It creates only local research outputs and a temporary private firmware directory, which is removed on exit. The readonly auditor enforces unique/exact cases, vectors/results, bounded receipts, source/artifact hashes and honest identity/qualification classes. Eight semantic negative controls reject false qualification, missing/duplicate cases, zero/256 replacement payloads, CRC failures presented clean, invented MAME source identity and zero processes.
+Capture refuses an existing `runs/` output directory. It creates only local research outputs and a temporary private firmware directory, which is removed on exit. The readonly auditor enforces unique/exact cases, vectors/results, bounded receipts, source/artifact hashes and honest identity/qualification classes. Nine semantic negative controls reject false qualification, missing/duplicate cases, zero/256 replacement payloads, CRC failures presented clean, invented MAME source identity, changed DTL command and zero processes.
 
 `verification.json` is a pass for **auditing these captured reference-model observations** with `qualified=false` and `silicon_semantics=unresolved`. It is not a machine, operation, release or hardware qualification verdict. Existing Read Data DTL fixes and the required native/guest contract remain separate work.

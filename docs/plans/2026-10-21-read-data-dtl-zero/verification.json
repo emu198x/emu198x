@@ -21,6 +21,7 @@
     "wrong-256-payload",
     "crc-error-presented-clean",
     "invented-mame-source",
+    "wrong-dtl-command",
     "zero-processes"
   ]
 }

@@ -57,6 +57,16 @@ def check(record: dict, files: dict[str, bytes]) -> dict:
         command = commands[row['name']]
         if command['exit'] != 0 or not 0 < command['host_timeout_seconds'] <= 45:
             raise ValueError('bad process receipt')
+        if row['engine'] == 'fuse':
+            expected = [str(value) for value in [row['opcode'], 0, 0, 0, 1, 0, 1, 42, row['dtl']]]
+            if command['argv'][-9:] != expected or Path(command['argv'][-10]).name != row['media']:
+                raise ValueError('wrong executed Fuse command')
+        else:
+            environment = command['environment']
+            if environment.get('PROBE_DTL') != str(row['dtl']) or environment.get('PROBE_OPCODE') != str(row['opcode']):
+                raise ValueError('wrong executed MAME command')
+            if '-cfg_directory' not in command['argv'] or command['argv'][-2:] != ['-seconds_to_run', '10']:
+                raise ValueError('wrong MAME host bounds or private settings')
         if files[row['name'] + '.stdout'] == b'' and row['engine'] == 'fuse':
             raise ValueError('empty source-controller output')
     if seen != expected_keys:
@@ -97,6 +107,7 @@ def controls(record: dict, files: dict[str, bytes]) -> list[str]:
         ('wrong-256-payload', lambda r: r['observations'][0]['observed'].update(data=list(range(256)))),
         ('crc-error-presented-clean', lambda r: next(o for o in r['observations'] if o['bad_crc'])['observed'].update(result=[64, 128, 0, 0, 0, 1, 0])),
         ('invented-mame-source', lambda r: r['mame_executable'].update(source_commit='attested')),
+        ('wrong-dtl-command', lambda r: next(c for c in r['commands'] if c['name'] == 'mame-1-46-dtl000-crc0')['environment'].update(PROBE_DTL='128')),
         ('zero-processes', lambda r: r.update(observations=[])),
     ]:
         candidate = copy.deepcopy(record)

@@ -175,7 +175,8 @@ def main() -> None:
                         observation.unlink(missing_ok=True)
                         argv = [str(mame), 'specpls3', '-bios', 'en', '-rompath', str(private),
                                 '-flop1', str(disk), '-video', 'none', '-sound', 'none', '-nothrottle',
-                                '-skip_gameinfo', '-noreadconfig', '-nowriteconfig', '-autoboot_delay', '0',
+                                '-skip_gameinfo', '-noreadconfig', '-nowriteconfig',
+                                '-cfg_directory', str(private / 'cfg'), '-autoboot_delay', '0',
                                 '-autoboot_script', str(HERE / 'mame-probe.lua'), '-seconds_to_run', '10']
                         run(name, argv, 45, {'SDL_VIDEODRIVER': 'dummy', 'SDL_AUDIODRIVER': 'dummy',
                                              'PROBE_OUTPUT': str(observation), 'PROBE_DTL': str(dtl),
