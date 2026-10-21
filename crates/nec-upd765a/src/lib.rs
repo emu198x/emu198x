@@ -1456,6 +1456,18 @@ impl Upd765a {
             as u32
     }
 
+    // NEC December 1978 p12: DTL limits host delivery for N=0, while
+    // the whole represented field is still read and its CRC checked. Fuse
+    // upd_fdc_read_data consumes that unseen suffix too. Keep Read Track's
+    // separate existing size contract. DTL=0 is not independently resolved.
+    fn read_host_length(&self) -> usize {
+        if self.command != Command::ReadTrack && self.cmd_buf[5] == 0 && self.cmd_buf[8] != 0 {
+            usize::from(self.cmd_buf[8]).min(self.exec_buf.len())
+        } else {
+            self.exec_buf.len()
+        }
+    }
+
     fn read_byte_ticks(&self) -> u32 {
         let slot = self.read_preamble_slots() + self.exec_pos as u64;
         self.read_slot_boundary(slot + 1) - self.read_slot_boundary(slot)
@@ -2017,6 +2029,15 @@ impl Peripheral for Upd765a {
                     // A later field cannot contribute EN/CRC/CHRN.
                     self.st1 |= 0x10;
                     self.read_result();
+                } else if self.exec_pos >= self.read_host_length() {
+                    // Consume one unrequested physical byte on its original
+                    // slot. Existing position retains this phase in snapshots;
+                    // early data-register polling cannot advance the suffix.
+                    self.exec_timeout = self.read_byte_ticks();
+                    self.exec_pos += 1;
+                    if self.exec_pos == self.exec_buf.len() {
+                        self.finish_read_sector();
+                    }
                 } else {
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.read_byte_ticks();

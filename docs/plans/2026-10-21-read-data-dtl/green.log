@@ -1,0 +1,13 @@
+   Compiling nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.96s
+     Running tests/read_dtl.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/read_dtl-dcb2f2deacd1533f)
+
+running 5 tests
+test missed_prefix_request_still_overruns ... ok
+test read_track_keeps_its_existing_full_field_contract ... ok
+test crc_status_waits_for_the_unseen_suffix ... ok
+test nonzero_n_and_full_dtl_keep_the_full_payload ... ok
+test zero_n_sends_dtl_prefix_then_drains_the_complete_field ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
