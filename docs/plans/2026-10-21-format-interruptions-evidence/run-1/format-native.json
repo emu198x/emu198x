@@ -1,0 +1,7711 @@
+{
+  "case_count": 328,
+  "cases": [
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/8/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/false/success/8/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/false/protect/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/false/overrun/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/false/reset/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/0",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/1",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/2",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/3",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/4",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/5",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/6",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/false/7",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/0",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/1",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/2",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/3",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/4",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/5",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/6",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "0d/false/initial-protection/true/7",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/8/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "0d/true/success/8/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "0d/true/protect/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "0d/true/overrun/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "0d/true/reset/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/0",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/1",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/2",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/3",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/4",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/5",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/6",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/false/7",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/0",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/1",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/2",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/3",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/4",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/5",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/6",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "0d/true/initial-protection/true/7",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 13,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/8/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/false/success/8/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/false/protect/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/false/overrun/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/0/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/0/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/1/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/1/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/2/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/2/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/3/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/3/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/4/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/4/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/5/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/5/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/6/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/6/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/7/false",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/false/reset/7/true",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/0",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/1",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/2",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/3",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/4",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/5",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/6",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/false/7",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/0",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/1",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/2",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/3",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/4",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/5",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/6",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "4d/false/initial-protection/true/7",
+      "native_equal": true,
+      "nd": false,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/8/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 8,
+      "action": "success",
+      "export_reopened": true,
+      "id": "4d/true/success/8/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        0,
+        0,
+        0,
+        4,
+        5,
+        10,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "protect",
+      "export_reopened": true,
+      "id": "4d/true/protect/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "overrun",
+      "export_reopened": true,
+      "id": "4d/true/overrun/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        16,
+        0,
+        7,
+        8,
+        255,
+        3
+      ],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        16,
+        0
+      ]
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/0/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 0,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/0/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/1/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 1,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/1/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/2/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 2,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/2/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/3/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 3,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/3/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/4/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 4,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/4/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/5/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 5,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/5/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/6/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 6,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/6/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/7/false",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": false,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "aborted_chrn_adjudicated": false,
+      "accepted": 7,
+      "action": "reset",
+      "export_reopened": true,
+      "id": "4d/true/reset/7/true",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [],
+      "rqm_high": true,
+      "source_unchanged": true,
+      "status_expected": []
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/0",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/1",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/2",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/3",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/4",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/5",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/6",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/false/7",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": false
+    },
+    {
+      "action": "initial-protection",
+      "drained": 0,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/0",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 1,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/1",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 2,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/2",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 3,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/3",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 4,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/4",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 5,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/5",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 6,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/6",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    },
+    {
+      "action": "initial-protection",
+      "drained": 7,
+      "export_reopened": true,
+      "id": "4d/true/initial-protection/true/7",
+      "native_equal": true,
+      "nd": true,
+      "opcode": 77,
+      "result_observed": [
+        64,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "source_unchanged": true,
+      "status_expected": [
+        64,
+        2,
+        0
+      ],
+      "writable": true
+    }
+  ],
+  "qualified": false,
+  "required_unresolved": [
+    "active READY sampling/status",
+    "applicable Fault",
+    "aborted CHRN hardware oracle",
+    "full Format qualification"
+  ],
+  "schema_version": 1,
+  "scope": "synthetic component/native continuation and EDSK reopen; no ROM or reference execution",
+  "snapshot_version": 10
+}

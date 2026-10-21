@@ -1,0 +1,11 @@
+   Compiling runtime-sinclair-zx-spectrum v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.98s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions/debug/deps/runtime_sinclair_zx_spectrum-e7307314ae6cc43a)
+
+running 1 test
+test snapshot::tests::format_native_protection_interruption_and_reopen_matrix has been running for over 60 seconds
+FORMAT_NATIVE_CASES=328
+test snapshot::tests::format_native_protection_interruption_and_reopen_matrix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 137 filtered out; finished in 92.95s
+

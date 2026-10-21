@@ -1,0 +1,21 @@
+   Compiling runtime-sinclair-zx-spectrum v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.54s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions/debug/deps/runtime_sinclair_zx_spectrum-e7307314ae6cc43a)
+
+running 1 test
+
+thread 'snapshot::tests::format_native_protection_interruption_and_reopen_matrix' (148097895) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot/format_tests.rs:242:22:
+assertion `left == right` failed: Format success result
+  left: [0, 0, 0, 4, 5, 10, 0]
+ right: [0, 0, 0, 4, 5, 11, 0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test snapshot::tests::format_native_protection_interruption_and_reopen_matrix ... FAILED
+
+failures:
+
+failures:
+    snapshot::tests::format_native_protection_interruption_and_reopen_matrix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 137 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --lib`

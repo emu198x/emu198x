@@ -1,0 +1,122 @@
+    Checking format-sinclair-zx-spectrum-snapshot v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-sinclair-zx-spectrum-snapshot)
+    Checking objc2-encode v4.1.0
+    Checking bitflags v2.11.1
+    Checking cfg-if v1.0.4
+    Checking simd-adler32 v0.3.9
+    Checking serde_core v1.0.229
+    Checking libc v0.2.186
+    Checking adler2 v2.0.1
+    Checking memchr v2.8.0
+    Checking thiserror v2.0.20
+    Checking zmij v1.0.21
+    Checking log v0.4.29
+    Checking crc32fast v1.5.0
+    Checking itoa v1.0.18
+    Checking zlib-rs v0.6.3
+    Checking miniz_oxide v0.9.1
+    Checking hashbrown v0.17.1
+    Checking bumpalo v3.20.2
+    Checking equivalent v1.0.2
+    Checking vec_map v0.8.2
+    Checking uuid v1.23.1
+    Checking zerocopy v0.8.48
+    Checking miniz_oxide v0.8.9
+    Checking zopfli v0.8.3
+    Checking objc2 v0.6.4
+    Checking fdeflate v0.3.7
+    Checking cobs v0.3.0
+    Checking dasp_sample v0.11.0
+    Checking fnv v1.0.7
+    Checking typed-path v0.12.3
+    Checking isa198x v0.1.0
+    Checking mach2 v0.6.0
+    Checking format-sinclair-zx-spectrum-z80 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-sinclair-zx-spectrum-z80)
+    Checking indexmap v2.14.0
+    Checking either v1.16.0
+    Checking regex-syntax v0.8.10
+    Checking anstyle v1.0.14
+    Checking ciborium-io v0.2.2
+    Checking clap_lex v1.1.0
+    Checking format198x-tzx v0.1.0
+    Checking itertools v0.13.0
+    Checking clap_builder v4.6.0
+    Checking same-file v1.0.6
+    Checking format198x-amstrad-cpc-dsk v0.1.1
+    Checking cast v0.3.0
+    Checking walkdir v2.5.0
+    Checking num-traits v0.2.19
+    Checking alloca v0.4.0
+    Checking page_size v0.6.0
+    Checking format198x-sinclair-zx-spectrum-bas v0.1.3
+    Checking oorandom v11.1.5
+    Checking flate2 v1.1.10
+    Checking anes v0.1.6
+    Checking format198x-sinclair-zx-spectrum-tap v0.1.1
+    Checking format-sinclair-zx-spectrum-sna v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-sinclair-zx-spectrum-sna)
+    Checking emu198x-test-skip v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/emu198x-test-skip)
+    Checking twox-hash v2.1.4
+    Checking dispatch2 v0.3.1
+    Checking block2 v0.6.2
+    Checking objc2-foundation v0.3.2
+    Checking objc2-core-audio-types v0.3.2
+    Checking png v0.18.1
+    Checking zip v8.6.0
+    Checking regex-automata v0.4.14
+    Checking format-sinclair-zx-spectrum-szx v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-sinclair-zx-spectrum-szx)
+    Checking isa198x-disasm v0.1.0
+    Checking objc2-core-foundation v0.3.2
+    Checking criterion-plot v0.8.2
+    Checking serde v1.0.229
+    Checking serde_json v1.0.151
+    Checking clap v4.6.1
+    Checking emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/emu198x-gi-ay-3-8910)
+    Checking common-tape v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/common-tape)
+    Checking emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/emu198x-zilog-z80)
+    Checking serde-big-array v0.5.1
+    Checking postcard v1.1.3
+    Checking debug198x v0.1.0
+    Checking tinytemplate v1.2.1
+    Checking format-tzx v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-tzx)
+    Checking gi-ay-3-8912 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/gi-ay-3-8912)
+    Checking regex v1.12.3
+    Checking common-sinclair-zx-spectrum v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/common-sinclair-zx-spectrum)
+    Checking objc2-core-audio v0.3.2
+    Checking objc2-io-kit v0.3.2
+    Checking objc2-audio-toolbox v0.3.2
+    Checking nec-upd765a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/nec-upd765a)
+    Checking peripheral-kempston-joystick v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/peripheral-kempston-joystick)
+    Checking ferranti-ula-6c001e v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/ferranti-ula-6c001e)
+    Checking amstrad-ula-40077 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/amstrad-ula-40077)
+    Checking sinclair-ula-7k010e v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/sinclair-ula-7k010e)
+    Checking timex-scld v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/timex-scld)
+    Checking beta-disk-interface v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/beta-disk-interface)
+    Checking pentagon-ula v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/pentagon-ula)
+    Checking scorpion-ula v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/scorpion-ula)
+    Checking format-sinclair-zx-spectrum-tzx v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-sinclair-zx-spectrum-tzx)
+    Checking half v2.7.1
+    Checking common-sinclair-zx-spectrum-128k-class v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/common-sinclair-zx-spectrum-128k-class)
+    Checking machine-timex-tc2048 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-timex-tc2048)
+    Checking machine-timex-ts2068 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-timex-ts2068)
+    Checking gilrs-core v0.6.8
+    Checking common-sinclair-zx-spectrum-48k-class v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/common-sinclair-zx-spectrum-48k-class)
+    Checking machine-scorpion-zs256 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-scorpion-zs256)
+    Checking machine-pentagon-128 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-pentagon-128)
+    Checking machine-sinclair-zx-spectrum-plus2 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-plus2)
+    Checking machine-sinclair-zx-spectrum-128k v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-128k)
+    Checking ciborium-ll v0.2.2
+    Checking coreaudio-rs v0.14.2
+    Checking gilrs v0.11.2
+    Checking machine-sinclair-zx-spectrum-16k v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-16k)
+    Checking machine-sinclair-zx-spectrum-plus v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-plus)
+    Checking ciborium v0.2.2
+    Checking common-sinclair-zx-spectrum-amstrad-class v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/common-sinclair-zx-spectrum-amstrad-class)
+    Checking format-amstrad-dsk v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/format-amstrad-dsk)
+    Checking cpal v0.18.2
+    Checking criterion v0.8.2
+    Checking machine-sinclair-zx-spectrum-plus2a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-plus2a)
+    Checking machine-sinclair-zx-spectrum-plus3 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-plus3)
+    Checking machine-sinclair-zx-spectrum-plus2b v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-plus2b)
+    Checking emu198x-shell v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/emu198x-shell)
+    Checking machine-sinclair-zx-spectrum-48k v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/machine-sinclair-zx-spectrum-48k)
+    Checking runtime-sinclair-zx-spectrum v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/crates/runtime-sinclair-zx-spectrum)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.65s
