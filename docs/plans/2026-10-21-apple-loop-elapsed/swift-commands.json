@@ -1,0 +1,24 @@
+[
+  {
+    "command": [
+      "swift",
+      "test"
+    ],
+    "name": "swift-all",
+    "host_timeout_seconds": 180,
+    "exit": 0,
+    "elapsed_seconds": 45.06
+  },
+  {
+    "command": [
+      "swift",
+      "test",
+      "--filter",
+      "runsInRealTime"
+    ],
+    "name": "timing-repeat",
+    "host_timeout_seconds": 180,
+    "exit": 0,
+    "elapsed_seconds": 10.94
+  }
+]

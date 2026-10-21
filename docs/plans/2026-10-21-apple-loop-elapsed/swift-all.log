@@ -1,0 +1,69 @@
+Building for debugging...
+[1 / 5]
+[2 / 6] Emu198xKitTests-product
+[4 / 8] Emu198xKitTests-product
+[9 / 11] Emu198xKitTests-product
+Build complete! (2.73 secs)
+Test Suite 'All tests' started at 2026-10-21 13:22:55.693.
+Test Suite 'All tests' passed at 2026-10-21 13:22:55.696.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.002) seconds
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite MachineTests started.
+◇ Suite EmulatorLoopTests started.
+◇ Suite ControllerMapTests started.
+◇ Test advanceRunsTheFramesWallClockTimeOwes() started.
+◇ Test autoloadWithoutATapeIsRefusedByTheRuntime() started.
+◇ Test aPALSpectrumHasWidePixels() started.
+◇ Test matchesDirectRustExecution() started.
+◇ Test aSavedStateResumesIdentically() started.
+◇ Test theCatalogueListsTheSpectrum() started.
+◇ Test theRealROMBootsToTheCopyrightScreen() started.
+◇ Test autoloadTypesLoadAndPlaysTheTape() started.
+◇ Test machinesTearDownRepeatedly() started.
+◇ Test refusalsArriveAsErrors() started.
+◇ Test runsInRealTime(observationMilliseconds:) started.
+◇ Test aSharedTargetIsReleasedOnlyWhenNothingHoldsIt() started.
+◇ Test changingTheMapReleasesWhatTheOldOneHeld() started.
+◇ Test eachControlReachesItsTarget() started.
+◇ Test case passing 1 argument observationMilliseconds → 1000 to runsInRealTime(observationMilliseconds:) started.
+✔ Test theCatalogueListsTheSpectrum() passed after 0.009 seconds.
+✔ Test aPALSpectrumHasWidePixels() passed after 0.009 seconds.
+✔ Test autoloadWithoutATapeIsRefusedByTheRuntime() passed after 0.009 seconds.
+✔ Test aSharedTargetIsReleasedOnlyWhenNothingHoldsIt() passed after 0.009 seconds.
+✔ Test changingTheMapReleasesWhatTheOldOneHeld() passed after 0.009 seconds.
+✔ Test eachControlReachesItsTarget() passed after 0.009 seconds.
+✔ Suite ControllerMapTests passed after 0.009 seconds.
+✔ Test refusalsArriveAsErrors() passed after 0.010 seconds.
+✔ Test advanceRunsTheFramesWallClockTimeOwes() passed after 0.021 seconds.
+✔ Test machinesTearDownRepeatedly() passed after 0.540 seconds.
+✔ Test theRealROMBootsToTheCopyrightScreen() passed after 0.861 seconds.
+real-time observation: requested=1000ms elapsed=1.063906125s frames=53 samples=101654
+◇ Test case passing 1 argument observationMilliseconds → 1500 to runsInRealTime(observationMilliseconds:) started.
+✔ Test aSavedStateResumesIdentically() passed after 1.884 seconds.
+✔ Test matchesDirectRustExecution() passed after 1.895 seconds.
+✔ Test autoloadTypesLoadAndPlaysTheTape() passed after 1.921 seconds.
+✔ Suite MachineTests passed after 1.922 seconds.
+real-time observation: requested=1500ms elapsed=1.5988207079999999s frames=78 samples=149604
+✔ Test runsInRealTime(observationMilliseconds:) with 2 test cases passed after 2.766 seconds.
+◇ Test pausingStopsTheMachine() started.
+✔ Test pausingStopsTheMachine() passed after 0.970 seconds.
+◇ Test savesAndFailedCommandsReachTheHost() started.
+✔ Test savesAndFailedCommandsReachTheHost() passed after 0.223 seconds.
+◇ Test queriesAnswerTheHost() started.
+✔ Test queriesAnswerTheHost() passed after 0.227 seconds.
+◇ Test aMachineThatCannotStartEndsTheLoop() started.
+✔ Test aMachineThatCannotStartEndsTheLoop() passed after 0.103 seconds.
+◇ Test theAudioRingWaitsForItsPrebufferAndRefillsAfterRunningDry() started.
+✔ Test theAudioRingWaitsForItsPrebufferAndRefillsAfterRunningDry() passed after 0.001 seconds.
+◇ Test theAudioRingDropsTheOldestAndCountsShortReads() started.
+✔ Test theAudioRingDropsTheOldestAndCountsShortReads() passed after 0.001 seconds.
+◇ Test theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) started.
+◇ Test case passing 1 argument drift → 0.003 to theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) started.
+◇ Test case passing 1 argument drift → -0.003 to theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) started.
+✔ Test theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) with 2 test cases passed after 33.485 seconds.
+◇ Test aMatchedMachinePlaysEverySampleUnchanged() started.
+✔ Test aMatchedMachinePlaysEverySampleUnchanged() passed after 2.493 seconds.
+✔ Suite EmulatorLoopTests passed after 40.273 seconds.
+✔ Test run with 22 tests in 3 suites passed after 40.273 seconds.

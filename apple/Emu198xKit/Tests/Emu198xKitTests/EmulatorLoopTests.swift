@@ -13,18 +13,33 @@ func finish(_ loop: EmulatorLoop) async throws {
 }
 
 @Suite(.serialized) struct EmulatorLoopTests {
-    @Test func runsInRealTime() async throws {
+    @Test(arguments: [1_000, 1_500])
+    func runsInRealTime(observationMilliseconds: Int) async throws {
         let loop = EmulatorLoop(sampleRate: 48_000) { try spectrum() }
-        try await Task.sleep(for: .seconds(1))
-        let frames = loop.framesRun
-        let written = loop.audio.statistics.written
+        defer { loop.stop() }
+        // Machine creation runs on the loop thread, before its clock starts.
+        for _ in 0..<200 where loop.framesRun == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(loop.framesRun > 0, "the machine started within the warm-up deadline")
+        let clock = ContinuousClock()
+        let started = clock.now
+        let initialFrames = loop.framesRun
+        let initialSamples = loop.audio.statistics.written
+        try await Task.sleep(for: .milliseconds(observationMilliseconds))
+        let frames = loop.framesRun - initialFrames
+        let written = loop.audio.statistics.written - initialSamples
+        let elapsed = (clock.now - started).milliseconds / 1_000
+        print("real-time observation: requested=\(observationMilliseconds)ms elapsed=\(elapsed)s frames=\(frames) samples=\(written)")
         try await finish(loop)
 
         #expect(loop.failure == nil)
-        // 1,000 ms of 19.97 ms frames is 50; scheduling allows a little slack.
-        #expect((45...55).contains(frames), "ran \(frames) frames in a second")
-        // One second of stereo at 48 kHz.
-        #expect((86_000...106_000).contains(written), "produced \(written) samples")
+        // Sleep is a minimum: the observer may resume late while the loop runs.
+        // Keep the same rate tolerances over the interval actually observed.
+        let framesPerSecond = Double(frames) / elapsed
+        let samplesPerSecond = Double(written) / elapsed
+        #expect((45.0...55.0).contains(framesPerSecond), "ran \(framesPerSecond) frames per second")
+        #expect((86_000.0...106_000.0).contains(samplesPerSecond), "produced \(samplesPerSecond) stereo samples per second")
         #expect(loop.frames.frame(after: 0) != nil)
     }
 

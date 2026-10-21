@@ -1,0 +1,12 @@
+{
+  "command": [
+    "swift",
+    "test",
+    "--filter",
+    "runsInRealTime"
+  ],
+  "host_timeout_seconds": 180,
+  "exit": 1,
+  "elapsed_seconds": 8.79,
+  "mutation": "frames per second expected range 45...55 -> 90...110"
+}

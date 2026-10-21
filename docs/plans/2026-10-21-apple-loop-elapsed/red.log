@@ -1,0 +1,38 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 5]
+[2 / 6] Emu198xKitTests-product
+[4 / 8] Emu198xKitTests-product
+[9 / 11] Emu198xKitTests-product
+[11 / 11] Emu198xKitTests-product
+Build complete! (3.64 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite EmulatorLoopTests started.
+◇ Test runsInRealTime(observationMilliseconds:) started.
+◇ Test case passing 1 argument observationMilliseconds → 1000 to runsInRealTime(observationMilliseconds:) started.
+real-time observation: requested=1000ms elapsed=1.0651310840000001s frames=53 samples=101654
+◇ Test case passing 1 argument observationMilliseconds → 1500 to runsInRealTime(observationMilliseconds:) started.
+real-time observation: requested=1500ms elapsed=1.5996189159999998s frames=80 samples=153440
+✘ Test runsInRealTime(observationMilliseconds:) recorded an issue with 1 argument observationMilliseconds → 1500 at EmulatorLoopTests.swift:37:9: Expectation failed: (45...55).contains(frames)
+↳ // 1,000 ms of 19.97 ms frames is 50; scheduling allows a little slack.
+↳ ran 80 frames in a second
+↳ (45...55).contains(frames) → false
+↳   (45...55) → 45 ... 55
+↳     lowerBound → 45
+↳     upperBound → 55
+↳   frames → 80
+✘ Test runsInRealTime(observationMilliseconds:) recorded an issue with 1 argument observationMilliseconds → 1500 at EmulatorLoopTests.swift:39:9: Expectation failed: (86_000...106_000).contains(written)
+↳ // One second of stereo at 48 kHz.
+↳ produced 153440 samples
+↳ (86_000...106_000).contains(written) → false
+↳   (86_000...106_000) → 86000 ... 106000
+↳     lowerBound → 86000
+↳     upperBound → 106000
+↳   written → 153440
+✘ Test runsInRealTime(observationMilliseconds:) with 2 test cases failed after 2.755 seconds with 2 issues.
+✘ Suite EmulatorLoopTests failed after 2.756 seconds with 2 issues.
+✘ Test run with 1 test in 1 suite failed after 2.756 seconds with 2 issues.
+Note: Some test targets reported failures:
+  - Emu198xKitTests (Swift Testing)

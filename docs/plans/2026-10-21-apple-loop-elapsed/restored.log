@@ -1,0 +1,19 @@
+Building for debugging...
+[Using on-disk description]
+[1 / 5]
+[2 / 6] Emu198xKitTests-product
+[4 / 8] Emu198xKitTests-product
+[9 / 11] Emu198xKitTests-product
+Build complete! (2.88 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite EmulatorLoopTests started.
+◇ Test runsInRealTime(observationMilliseconds:) started.
+◇ Test case passing 1 argument observationMilliseconds → 1000 to runsInRealTime(observationMilliseconds:) started.
+real-time observation: requested=1000ms elapsed=1.0661079580000001s frames=53 samples=101654
+◇ Test case passing 1 argument observationMilliseconds → 1500 to runsInRealTime(observationMilliseconds:) started.
+real-time observation: requested=1500ms elapsed=1.599769s frames=80 samples=153440
+✔ Test runsInRealTime(observationMilliseconds:) with 2 test cases passed after 2.789 seconds.
+✔ Suite EmulatorLoopTests passed after 2.789 seconds.
+✔ Test run with 1 test in 1 suite passed after 2.789 seconds.
