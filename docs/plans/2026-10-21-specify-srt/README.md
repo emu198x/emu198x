@@ -11,11 +11,23 @@
 
 The diagnostic supplies READY=true, allows100000 idle polling ticks, drains READY attention, and verifies no stale IRQ before seeking. Each Seek is bounded to2000000 ticks and must return exact SIS `[20,target]`. Its timer stops at IRQ assertion. MSR drive-busy remains set until SIS consumes ST0; falling busy is deliberately not the timer.
 
-Run from this repository, with a disposable build cache:
+Run from an Emu198x repository using the immutable source-and-fixture commit below. It contains the captured controller source plus this diagnostic; later release version bumps cannot invalidate its captured path-dependency lockfile.
 
 ```sh
-CARGO_TARGET_DIR=/tmp/198x-specify-srt cargo run --locked --manifest-path docs/plans/2026-10-21-specify-srt/reproducer/Cargo.toml
+git fetch origin 171899d9eeb6f0aebbd91134ea885c9b1991a5e1
+repro_dir="$(mktemp -d /tmp/198x-specify-srt.XXXXXX)"
+git worktree add --detach "$repro_dir/source" 171899d9eeb6f0aebbd91134ea885c9b1991a5e1
+CARGO_TARGET_DIR="$repro_dir/target" cargo run --locked --manifest-path "$repro_dir/source/docs/plans/2026-10-21-specify-srt/reproducer/Cargo.toml"
 ```
+
+After the expected failure, remove that disposable checkout and cache:
+
+```sh
+git worktree remove "$repro_dir/source"
+rm -r "$repro_dir"
+```
+
+Do not run the captured lockfile against an arbitrary newer checkout. The immutable commit includes the original dependency versions; the retained observations and hashes below describe the original executions, not a later release.
 
 The captured current implementation exits101 with `SPECIFY SRT=1 must take longer than SRT=F; got 256 and 256`. This is an intentionally red standalone diagnostic outside the workspace test suite. It does not disable or skip a normal CI regression. After a fix, retain these receipts and move the invariant into ordinary passing tests; update any now-stale reproduction instructions explicitly.
 
