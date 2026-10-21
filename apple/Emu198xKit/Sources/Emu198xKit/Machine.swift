@@ -205,4 +205,12 @@ public final class Machine {
         try check(emu198x_machine_keymap(handle, &buffer))
         return take(buffer)
     }
+
+    /// The runtime's answer to a query path, such as `tape.playing`, as
+    /// JSON.
+    public func query(_ path: String) throws -> Data {
+        var buffer = Emu198xBuffer(data: nil, len: 0)
+        try check(emu198x_machine_query(handle, path, &buffer))
+        return take(buffer)
+    }
 }

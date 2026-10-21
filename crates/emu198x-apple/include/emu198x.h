@@ -80,6 +80,8 @@ int32_t emu198x_machine_key(Emu198xMachine *machine, const char *name, bool pres
 int32_t emu198x_machine_button(Emu198xMachine *machine, uint8_t port, const char *name, bool pressed);
 /* Browser key code to machine-key map as UTF-8 JSON. */
 int32_t emu198x_machine_keymap(Emu198xMachine *machine, Emu198xBuffer *out);
+/* Answers a runtime query path, such as "tape.playing", as UTF-8 JSON. */
+int32_t emu198x_machine_query(Emu198xMachine *machine, const char *path, Emu198xBuffer *out);
 
 /* Turns on interleaved stereo sound at rate samples per second. */
 int32_t emu198x_machine_configure_audio(Emu198xMachine *machine, uint32_t rate);

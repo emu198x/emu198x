@@ -55,6 +55,19 @@ func finish(_ loop: EmulatorLoop) async throws {
         try await finish(loop)
     }
 
+    @Test func queriesAnswerTheHost() async throws {
+        let loop = EmulatorLoop(sampleRate: 48_000) { try spectrum() }
+        let answer = OSAllocatedUnfairLockBox<String?>(nil)
+        loop.send(.query("tape.playing") { result in
+            answer.set((try? result.get()).flatMap { String(data: $0, encoding: .utf8) })
+        })
+        loop.send(.query("no.such.path") { _ in })
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(answer.get() == "false")
+        #expect(loop.takeCommandFailures().isEmpty, "a query's failure goes to its reply")
+        try await finish(loop)
+    }
+
     @Test func aMachineThatCannotStartEndsTheLoop() async throws {
         let loop = EmulatorLoop(sampleRate: 48_000) {
             try Machine(family: "sinclair-zx-spectrum", variant: "no-such-model")
