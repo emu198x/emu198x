@@ -98,3 +98,68 @@ fn result_irq_asserts_for_success_and_errors_and_first_byte_acknowledges() {
         );
     }
 }
+
+#[test]
+fn recorded_order_duplicate_ids_and_physical_drive_cursors_remain_distinct() {
+    let mut fdc = Upd765a::new();
+    fdc.enabled = true;
+    let mut source = image();
+    let mut duplicate = source.tracks[0][0].sectors[0].clone();
+    duplicate.c = 8;
+    duplicate.h = 2;
+    duplicate.n = 0;
+    duplicate.data = vec![0x71; 128];
+    source.tracks[0][0].sectors.insert(1, duplicate);
+    source.tracks[0][0].sectors[2].id = 3;
+    source.sides = 2;
+    let mut back = source.tracks[0].clone();
+    for sector in &mut back[0].sectors {
+        sector.c = 19;
+        sector.h = 1;
+    }
+    source.tracks.push(back);
+    for drive in 0..4 {
+        fdc.insert_disk(drive, source.clone());
+    }
+    let inspect = |fdc: &mut Upd765a, select, expected| {
+        command(fdc, select);
+        assert_eq!(drain(fdc), expected);
+    };
+    // Duplicate R=7 IDs with different CHN must retain recorded order.
+    inspect(&mut fdc, 0, [0, 0, 0, 4, 3, 7, 1]);
+    inspect(&mut fdc, 0, [0, 0, 0, 8, 2, 7, 0]);
+    // Other physical drives have not consumed either preceding ID.
+    for drive in 1..4 {
+        inspect(&mut fdc, drive, [drive, 0, 0, 4, 3, 7, 1]);
+    }
+    inspect(&mut fdc, 0, [0, 0, 0, 4, 3, 3, 1]);
+    inspect(&mut fdc, 0, [0, 0, 0, 4, 3, 7, 1]);
+    // On a fresh controller each selected physical head reads its own IDs.
+    // This does not claim head-independent rotational phases or timed rotation.
+    for drive in 0..4 {
+        let mut head = Upd765a::new();
+        head.enabled = true;
+        head.insert_disk(usize::from(drive), source.clone());
+        inspect(&mut head, drive | 4, [drive | 4, 0, 0, 19, 1, 7, 1]);
+    }
+    for drive in 0..4 {
+        let live = fdc.disk_for_export(drive).expect("mounted image");
+        assert_eq!(live.sides, source.sides);
+        assert_eq!(live.tracks_per_side, source.tracks_per_side);
+        for (source_side, live_side) in source.tracks.iter().zip(&live.tracks) {
+            assert_eq!(source_side.len(), live_side.len());
+            for (source_track, live_track) in source_side.iter().zip(live_side) {
+                assert_eq!(source_track.sectors.len(), live_track.sectors.len());
+                for (before, after) in source_track.sectors.iter().zip(&live_track.sectors) {
+                    assert_eq!(
+                        (
+                            before.c, before.h, before.id, before.n, before.st1, before.st2
+                        ),
+                        (after.c, after.h, after.id, after.n, after.st1, after.st2)
+                    );
+                    assert_eq!(before.data, after.data, "Read ID cannot change payloads");
+                }
+            }
+        }
+    }
+}

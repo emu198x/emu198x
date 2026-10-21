@@ -995,8 +995,8 @@ impl Upd765a {
                         // NEC December 1978 data sheet, p14 (Read ID),
                         // pp17–18 (ST0/ST1): no readable ID terminates
                         // abnormally with MA and ND. This sector-image
-                        // model does not time the two-index-pulse search
-                        // timing. CHRN is unspecified
+                        // model does not time the two-index-pulse search.
+                        // CHRN is unspecified
                         // on this error; retain the existing filler bytes.
                         self.st0 |= 0x40;
                         self.st1 = 0x05;
