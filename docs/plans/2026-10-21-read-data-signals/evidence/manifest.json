@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "scope": "fail-first research, not qualification",
+  "original_seven_test_probe_commit": "b1f230245",
+  "shared_probe_sha256": "be3f4988ada09c6316fdc3b8537e5cf5780b45c9625a55741f01af74527343de",
+  "files": [
+    {
+      "path": "read-data-signals-regression-receipt.json",
+      "sha256": "8c02d610052a516f191593c749f94288005a19da0d145a844d4d2e642089d0a2"
+    },
+    {
+      "path": "read-data-signals-regression.log.gz",
+      "sha256": "e08d4509a3b2333fe8f2f08418570a8f85dcd924a5b3b2a019c16f443e351681"
+    },
+    {
+      "path": "receipt.json",
+      "sha256": "15354ae1382412059785980010bae5853d83701b6ced5f9db7b8c19348f2ff97"
+    },
+    {
+      "path": "reference-identities.json",
+      "sha256": "bde40199593a0ca4416574541f86f188ee517bfdd3154ce6c20c4721448d2b5f"
+    },
+    {
+      "path": "shared-receipt.json",
+      "sha256": "f93a33b49f75bf05b674afef53b14319aba20b2775afb65525c8cc5df5f1a28d"
+    },
+    {
+      "path": "shared-stderr.log.gz",
+      "sha256": "7f91a7f368b6a03036ee172b80818036bc2f87c3f18a0dc38ce27c6f2fd4dd7d"
+    },
+    {
+      "path": "shared-stdout.log.gz",
+      "sha256": "b1191fe7ba6da295e029c54b08b2db936537cb45c2083ada45c40ee83d5eb008"
+    },
+    {
+      "path": "stderr.log.gz",
+      "sha256": "9dbca4822fa128a9c01e7ce04a83effde3e2f39827bda98a6ac9cac2e20838a9"
+    },
+    {
+      "path": "stdout.log.gz",
+      "sha256": "695b1de78cd628fe0ab1c23c427ef088118c90ba622f39c5f010aeeac0433ea4"
+    }
+  ]
+}
