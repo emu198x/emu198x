@@ -241,8 +241,16 @@ sharing `apple/Emu198x/Shared` with the Mac app.
   `LOAD ""`, press play. `Fleet` now builds its Spectrum with
   `SpectrumSessionQueryProvider` so autoload can ask whether the machine
   has booted and a tape is loaded. Tapes still load at real speed.
-- Input: a game controller is the Kempston joystick (port 0), as on the
-  Mac. The Siri Remote's d-pad and click are a fallback joystick. The
+- Input: a game controller plays each game through a preset (Steve
+  chose, 2026-10-21), because Kempston alone suits few Spectrum games;
+  many read only the keyboard, or a Sinclair or Cursor joystick. Controls
+  under the pause menu sets the stick and A as a Kempston (port 0),
+  Sinclair (Interface 2 port 1) or Cursor (keys 5–8 and 0) joystick, or
+  as Q, A, O and P with Space, and a key for each of B, X, Y and the
+  shoulder buttons. Each game's choice is saved by file name in
+  `UserDefaults`; a game starts on Kempston with B as Space.
+  `Emu198xKit`'s `ControllerMap` does the routing and is machine-neutral.
+  The Siri Remote's d-pad, click and Play/Pause are a fallback. The
   remote's Menu button pauses and opens a menu with Resume, Keyboard,
   Restart and Back to Library. Keyboard is the Spectrum's keys on screen,
   with Caps Shift and Symbol Shift held for the next key, for the keys a
@@ -276,7 +284,15 @@ A capture of the first minute of the app's output was clean (an even
 807 Hz pilot tone), so that is most likely the beeper itself; the drift
 fault in step 4 came later.
 
-Still to verify: playing with a controller, and a real Apple TV. Steve has an
+Controller (2026-10-21): the tvOS simulator does not see game
+controllers, nor does Device Hub's remote reach the app as one, so the
+routing was tested in the Mac app, which shares it. With Steve's Xbox
+controller in Dizzy, B sent Space and Dizzy jumped; after K, the d-pad
+and A sent Kempston directions and fire, and Dizzy walked and jumped.
+The Sinclair, Cursor and QAOP presets use the same two paths but have
+not been tried in a game.
+
+Still to verify: a controller and the Siri Remote on a real Apple TV. Steve has an
 Apple TV 4K (3rd generation) on tvOS 26.6, which needs signing with his
 team.
 
