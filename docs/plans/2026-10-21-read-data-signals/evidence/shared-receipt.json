@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "kind": "fail-first-investigation",
+  "source_commit": "b1f2302454871abd48e6ec6a7c03e92e4c739afd",
+  "argv": [
+    "cargo",
+    "+1.99.0",
+    "test",
+    "--locked",
+    "-p",
+    "nec-upd765a",
+    "--test",
+    "read_data_signals_probe",
+    "--",
+    "--nocapture"
+  ],
+  "relevant_environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-signals"
+  },
+  "host_timeout_seconds": 120,
+  "elapsed_seconds": 1.9397662919946015,
+  "returncode": 101,
+  "probe_sha256": "be3f4988ada09c6316fdc3b8537e5cf5780b45c9625a55741f01af74527343de",
+  "test_executable": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-signals/debug/deps/read_data_signals_probe-691321082b742be6",
+  "test_executable_sha256": "2cf984be7b896825270c082d81e315ec294ca962415dc6f1d156fe76b59bfd05",
+  "library_source_sha256": "f6e52cea13d67f3c0ad0446550ca359767c10f513a2a45b655b38ebbf71450be",
+  "cargo_lock_sha256": "1995126431a51edcf5db9853e2edcff870fc1d045f90337669abcc202272e766",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)"
+}

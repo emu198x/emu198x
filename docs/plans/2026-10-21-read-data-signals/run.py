@@ -85,8 +85,21 @@ print(completed.stderr)
 print(json.dumps(receipt, indent=2))
 if (
     completed.returncode != 101
-    or "3 passed; 4 failed; 0 ignored" not in completed.stdout
+    or "3 passed; 5 failed; 0 ignored" not in completed.stdout
 ):
     raise SystemExit(
-        "probe did not produce the expected bounded 3-pass/4-fail current-code result"
+        "probe did not produce the expected bounded 3-pass/5-fail current-code result"
+    )
+
+shared_rows = [
+    line for line in completed.stdout.splitlines() if line.startswith("SHARED ")
+]
+identities = {(line.split()[1], line.split()[2]) for line in shared_rows}
+if (
+    len(shared_rows) != 18
+    or len(identities) != 18
+    or "shared transfer-mode/IRQ mismatches" not in completed.stderr
+):
+    raise SystemExit(
+        "shared probe did not observe all18intended command/mode identities"
     )
