@@ -31,7 +31,7 @@ struct ControlsView: View {
                 }
                 .pickerStyle(.navigationLink)
             } footer: {
-                Text("The key the game asks for to choose a joystick, such as K in Dizzy. It is pressed for you on your first move once the game has loaded.")
+                Text(selectFooter)
             }
             Section("Buttons") {
                 ForEach(SpectrumControls.buttons, id: \.self) { control in
@@ -64,14 +64,26 @@ struct ControlsView: View {
         }
     }
 
+    /// The first select key. Choosing one here replaces a longer sequence
+    /// from the game's controls file.
     private var selectKey: Binding<String?> {
         Binding {
-            session.controls.selectKey
+            session.controls.selectKeys.first
         } set: { code in
             var controls = session.controls
-            controls.selectKey = code
+            controls.selectKeys = code.map { [$0] } ?? []
             session.setControls(controls)
         }
+    }
+
+    private var selectFooter: String {
+        let explanation = "The key the game asks for to choose a joystick, such as K in Dizzy. It is pressed for you on your first move once the game has loaded."
+        let keys = session.controls.selectKeys
+        guard keys.count > 1 else { return explanation }
+        let names = keys.map { code in
+            SpectrumControls.keys.first { $0.code == code }?.name ?? code
+        }
+        return explanation + " This game's file presses " + names.joined(separator: ", ") + "."
     }
 
     private func key(_ control: Control) -> Binding<String?> {

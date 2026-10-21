@@ -41,9 +41,10 @@ struct SpectrumControls: Codable, Equatable {
     var stick: Stick = .kempston
     /// Key codes by control. A button missing here does nothing.
     var keys: [Control: String] = [.b: "Space"]
-    /// The key the game asks for to choose its joystick (K in Dizzy),
-    /// pressed for the player on their first move after the game loads.
-    var selectKey: String?
+    /// The keys the game asks for, in order, to choose its joystick and
+    /// start (K in Dizzy; 3 then 1 in Crystal Kingdom Dizzy), pressed for
+    /// the player on their first move after the game loads.
+    var selectKeys: [String] = []
 
     var targets: [Control: ControlTarget] {
         var targets: [Control: ControlTarget] = [:]
@@ -70,13 +71,21 @@ struct SpectrumControls: Codable, Equatable {
 
 extension SpectrumControls {
     /// Any field may be missing, so a hand-written file can name only what
-    /// it changes: `{"stick": "kempston", "selectKey": "KeyK"}`.
+    /// it changes: `{"stick": "kempston", "selectKeys": ["KeyK"]}`. A
+    /// single `selectKey`, as the first version wrote, still reads.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = SpectrumControls()
         stick = try container.decodeIfPresent(Stick.self, forKey: .stick) ?? defaults.stick
         keys = try container.decodeIfPresent([Control: String].self, forKey: .keys) ?? defaults.keys
-        selectKey = try container.decodeIfPresent(String.self, forKey: .selectKey)
+        let single = try decoder.container(keyedBy: LegacyKeys.self)
+            .decodeIfPresent(String.self, forKey: .selectKey)
+        selectKeys = try container.decodeIfPresent([String].self, forKey: .selectKeys)
+            ?? single.map { [$0] } ?? []
+    }
+
+    private enum LegacyKeys: String, CodingKey {
+        case selectKey
     }
 }
 
