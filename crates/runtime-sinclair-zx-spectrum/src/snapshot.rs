@@ -1464,6 +1464,343 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum SdsNativeBoundary {
+        Idle,
+        ParameterPending,
+        ResultPending,
+        Drained,
+    }
+
+    impl SdsNativeBoundary {
+        fn name(self) -> &'static str {
+            match self {
+                Self::Idle => "idle",
+                Self::ParameterPending => "parameter-pending",
+                Self::ResultPending => "result-pending",
+                Self::Drained => "drained",
+            }
+        }
+
+        fn msr(self) -> u8 {
+            match self {
+                Self::Idle | Self::Drained => 0x80,
+                Self::ParameterPending => 0x90,
+                Self::ResultPending => 0xd0,
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum SdsNativeControl {
+        None,
+        IdleCheckpoint,
+        WrongResult,
+    }
+
+    fn sds_native_inputs(runtime: &mut SpectrumPlus3Runtime, signals: u8) {
+        for unit in 0..4 {
+            // A/B differ. Unwired inputs2/3 disagree with their +3 aliases,
+            // so accidentally using a four-drive mask cannot pass this test.
+            // These supplied levels are not the +3 board's physical wiring.
+            let bits = if matches!(unit, 0 | 3) {
+                signals
+            } else {
+                signals ^ 31
+            };
+            let fdc = &mut runtime.machine_mut().fdc;
+            fdc.set_two_side(unit, bits & 1 != 0);
+            fdc.set_track_zero(unit, bits & 2 != 0);
+            fdc.set_ready(unit, bits & 4 != 0);
+            fdc.set_write_protect(unit, bits & 8 != 0);
+            fdc.set_fault(unit, bits & 16 != 0);
+        }
+    }
+
+    fn sds_native_expected(signals: u8, selected: u8) -> u8 {
+        let physical_signals = if selected & 1 == 0 {
+            signals
+        } else {
+            signals ^ 31
+        };
+        selected | (physical_signals << 3)
+    }
+
+    fn sds_native_read(runtime: &mut SpectrumPlus3Runtime, expected: u8) -> u8 {
+        assert_eq!(
+            runtime.machine().fdc.read_status(),
+            0xd0,
+            "SDS one-byte result"
+        );
+        let observed = runtime.machine_mut().fdc.read_data();
+        assert_eq!(observed, expected, "SDS sampled result");
+        assert_eq!(
+            runtime.machine().fdc.read_status(),
+            0x80,
+            "SDS fully drained"
+        );
+        assert_eq!(
+            runtime.machine_mut().fdc.read_data(),
+            0xff,
+            "no duplicate SDS result"
+        );
+        observed
+    }
+
+    fn sds_native_continue(
+        runtime: &mut SpectrumPlus3Runtime,
+        boundary: SdsNativeBoundary,
+        signals: u8,
+        selected: u8,
+        control: SdsNativeControl,
+    ) -> (Vec<u8>, Vec<[u8; 2]>) {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        assert_eq!(
+            runtime.machine().fdc.read_status(),
+            boundary.msr(),
+            "SDS checkpoint MSR"
+        );
+        if boundary == SdsNativeBoundary::Idle {
+            send_fdc_command(runtime, &[4]);
+        }
+        if matches!(
+            boundary,
+            SdsNativeBoundary::Idle | SdsNativeBoundary::ParameterPending
+        ) {
+            // Sample after the parameter, not when the opcode was accepted.
+            sds_native_inputs(runtime, signals);
+            send_fdc_command(runtime, &[selected]);
+            sds_native_inputs(runtime, signals ^ 31);
+        }
+        let mut results = Vec::with_capacity(2);
+        if boundary != SdsNativeBoundary::Drained {
+            let expected = sds_native_expected(signals, selected)
+                ^ if control == SdsNativeControl::WrongResult {
+                    16
+                } else {
+                    0
+                };
+            results.push(sds_native_read(runtime, expected));
+        } else {
+            assert_eq!(
+                runtime.machine_mut().fdc.read_data(),
+                0xff,
+                "drained result stays drained"
+            );
+        }
+        send_fdc_command(runtime, &[4, selected]);
+        results.push(sds_native_read(
+            runtime,
+            sds_native_expected(signals ^ 31, selected),
+        ));
+
+        // Continue the chip's existing READY event engine. This is a bounded
+        // preservation check, not evidence for an exact hardware poll latency.
+        for _ in 0..8000 {
+            runtime.machine_mut().fdc.tick(0);
+        }
+        assert!(runtime.machine().fdc.interrupt, "retained READY attention");
+        let mut attention = Vec::with_capacity(3);
+        for unit in 0_u8..4 {
+            let initially_ready = if matches!(unit, 0 | 3) {
+                signals & 4 == 0
+            } else {
+                signals & 4 != 0
+            };
+            if initially_ready {
+                send_fdc_command(runtime, &[8]);
+                assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                let st0 = runtime.machine_mut().fdc.read_data();
+                assert_eq!(st0, 0xc0 | unit, "READY attention selects logical unit");
+                assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                let pcn = runtime.machine_mut().fdc.read_data();
+                assert_eq!(pcn, 0);
+                assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                attention.push([st0, pcn]);
+            }
+        }
+        send_fdc_command(runtime, &[8]);
+        assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+        assert_eq!(
+            runtime.machine_mut().fdc.read_data(),
+            0x80,
+            "terminal Invalid SIS"
+        );
+        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+        assert!(!runtime.machine().fdc.interrupt);
+        attention.push([0x80, 255]);
+        (results, attention)
+    }
+
+    fn sds_native_case(
+        signals: u8,
+        selected: u8,
+        boundary: SdsNativeBoundary,
+        control: SdsNativeControl,
+    ) -> serde_json::Value {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        let (mut original, source) = writable_sector_runtime(false);
+        let live = postcard::to_allocvec(
+            original
+                .machine()
+                .fdc
+                .disk_for_export(0)
+                .expect("live disk"),
+        )
+        .expect("live image identity");
+        sds_native_inputs(&mut original, signals ^ 31);
+        for _ in 0..8000 {
+            original.machine_mut().fdc.tick(0);
+        }
+        assert!(
+            original.machine().fdc.interrupt,
+            "create READY attention before checkpoint"
+        );
+        let idle_checkpoint = (control == SdsNativeControl::IdleCheckpoint)
+            .then(|| original.snapshot().expect("negative idle checkpoint"));
+        if boundary != SdsNativeBoundary::Idle {
+            send_fdc_command(&mut original, &[4]);
+            assert_eq!(original.machine().fdc.read_status(), 0x90);
+        }
+        if matches!(
+            boundary,
+            SdsNativeBoundary::ResultPending | SdsNativeBoundary::Drained
+        ) {
+            sds_native_inputs(&mut original, signals);
+            send_fdc_command(&mut original, &[selected]);
+            sds_native_inputs(&mut original, signals ^ 31);
+        }
+        let precheckpoint_result = (boundary == SdsNativeBoundary::Drained)
+            .then(|| sds_native_read(&mut original, sds_native_expected(signals, selected)));
+        assert_eq!(original.machine().fdc.read_status(), boundary.msr());
+        let saved = original.snapshot().expect("save SDS boundary");
+        let applied = idle_checkpoint.as_ref().unwrap_or(&saved);
+        let mut restored = SpectrumPlus3Runtime::blank();
+        restored.restore(applied).expect("restore SDS boundary");
+        assert!(
+            restored.snapshot().expect("round trip") == *applied,
+            "SDS byte-identical round trip"
+        );
+        // Check the restored phase before any recovery commands can mask loss
+        // of the partially received command. The idle-checkpoint control fails here.
+        assert_eq!(
+            restored.machine().fdc.read_status(),
+            boundary.msr(),
+            "SDS checkpoint MSR"
+        );
+        let baseline = sds_native_continue(&mut original, boundary, signals, selected, control);
+        let observed = sds_native_continue(&mut restored, boundary, signals, selected, control);
+        assert_eq!(
+            observed, baseline,
+            "SDS uninterrupted/restored continuation"
+        );
+        for runtime in [&original, &restored] {
+            assert_eq!(
+                runtime.disk_images()[0].bytes,
+                source,
+                "immutable source disk"
+            );
+            assert!(
+                postcard::to_allocvec(runtime.machine().fdc.disk_for_export(0).expect("live disk"))
+                    .expect("live image")
+                    == live,
+                "immutable live disk"
+            );
+        }
+        assert!(
+            original.snapshot().expect("baseline state")
+                == restored.snapshot().expect("continued state"),
+            "SDS final machine states agree"
+        );
+        serde_json::json!({
+            "signals": signals, "selected": selected, "boundary": boundary.name(),
+            "checkpoint_msr": boundary.msr(), "checkpoint_bytes":saved.len(),
+            "precheckpoint_result": precheckpoint_result,
+            "expected_sample": sds_native_expected(signals, selected),
+            "expected_next": sds_native_expected(signals ^ 31, selected),
+            "continuation_original": baseline.0, "continuation_restored": observed.0,
+            "ready_original": baseline.1, "ready_restored": observed.1,
+            "roundtrip_equal": true, "final_state_equal": true,
+            "source_unchanged": true, "live_unchanged": true
+        })
+    }
+
+    #[test]
+    fn sds_native_boundaries_preserve_sampling_and_continuation() {
+        let mut cases = Vec::with_capacity(1024);
+        for signals in 0..32 {
+            for selected in 0..8 {
+                for boundary in [
+                    SdsNativeBoundary::Idle,
+                    SdsNativeBoundary::ParameterPending,
+                    SdsNativeBoundary::ResultPending,
+                    SdsNativeBoundary::Drained,
+                ] {
+                    cases.push(sds_native_case(
+                        signals,
+                        selected,
+                        boundary,
+                        SdsNativeControl::None,
+                    ));
+                }
+            }
+        }
+        assert_eq!(cases.len(), 1024, "complete nonzero SDS native matrix");
+        let (fixture, source) = writable_sector_runtime(false);
+        native_field_artifact("sds-native-source.dsk", &source);
+        native_field_artifact(
+            "sds-native-live-disk.postcard",
+            &postcard::to_allocvec(
+                fixture
+                    .machine()
+                    .fdc
+                    .disk_for_export(0)
+                    .expect("synthetic live image"),
+            )
+            .expect("synthetic live image identity"),
+        );
+        // Reuse the optional native-test sink. Only JSON and the synthetic
+        // disk are emitted, never firmware or runtime native save states.
+        // READ_TRACK_NATIVE_ARTIFACTS is the existing sink name.
+        native_field_artifact("sds-native-boundaries.json", &serde_json::to_vec_pretty(
+            &serde_json::json!({"schema_version":1,"qualified":false,"snapshot_version":SNAPSHOT_VERSION,
+                "physical_signal_vectors":"A=s,B=s^31,unwired2=s^31,unwired3=s",
+                "scope":"source-built digital SDS native continuation, not ROM loading or physical timing",
+                "case_count":cases.len(),"cases":cases})
+        ).expect("SDS evidence JSON"));
+    }
+
+    #[test]
+    fn sds_native_oracle_rejects_idle_checkpoint_and_wrong_result() {
+        let mut controls = Vec::with_capacity(2);
+        for (control, message) in [
+            (SdsNativeControl::IdleCheckpoint, "SDS checkpoint MSR"),
+            (SdsNativeControl::WrongResult, "SDS sampled result"),
+        ] {
+            let failure = std::panic::catch_unwind(|| {
+                sds_native_case(0, 0, SdsNativeBoundary::ParameterPending, control)
+            })
+            .expect_err("deliberate SDS control must be rejected");
+            let observed = failure
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| failure.downcast_ref::<&str>().copied())
+                .expect("assertion message");
+            assert!(
+                observed.contains(message),
+                "intended SDS control failed: {observed}"
+            );
+            controls.push(serde_json::json!({
+                "control": if control == SdsNativeControl::IdleCheckpoint { "idle-checkpoint" } else { "wrong-result" },
+                "status":"fail", "expected_failure":true, "diagnostic":observed
+            }));
+        }
+        assert_eq!(controls.len(), 2);
+        native_field_artifact("sds-native-controls.json", &serde_json::to_vec_pretty(
+            &serde_json::json!({"schema_version":1,"status":"pass","qualified":false,"controls":controls})
+        ).expect("SDS controls JSON"));
+    }
+
     #[test]
     fn drive_status_inputs_and_pending_results_survive_native_restore() {
         for bits in [0_u8, 0x10, 0x40, 0x80, 0xd0] {
