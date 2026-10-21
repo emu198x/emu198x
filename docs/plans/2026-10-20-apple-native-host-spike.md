@@ -213,9 +213,17 @@ keys for at least a frame.
   exactly as it should". That covers the TZX path, the tape deck, the ROM
   loader, beeper sound, picture and keyboard input in the packaged app.
 
+The 10-minute count found a fault (#1914). The Spectrum makes 959
+samples a channel for each 50.08 Hz frame, about 0.056% more than a
+48 kHz device plays. So the ring filled, and after 10.5 minutes in the
+tvOS simulator it dropped about 60 samples a second, with the sound half
+a second behind the picture. The ring now holds its queue near its
+starting level, playing up to 0.5% faster or slower when it strays.
+After that change there were no drops in 16 minutes.
+
 Still to verify: play with a physical controller (Kempston, in the
-build after the port change), save, quit, reopen
-and restore, a 10-minute underrun count, and the alert for a failed load.
+build after the port change), save, quit, reopen and restore, and the
+alert for a failed load.
 
 ### 5. Apple TV target (same project, tvOS target) (in progress)
 
@@ -263,8 +271,12 @@ Menu on the keyboard goes straight back to the game rather than to the
 pause menu. Two attempts to make it step back one level changed nothing,
 and the cause isn't established; the behaviour is usable as it stands.
 
-Still to verify: playing with a controller; sound, which the simulator
-plays through the Mac and I can't hear; and a real Apple TV. Steve has an
+Sound (Steve, 2026-10-21): it plays in the simulator, with some crackle.
+A capture of the first minute of the app's output was clean (an even
+807 Hz pilot tone), so that is most likely the beeper itself; the drift
+fault in step 4 came later.
+
+Still to verify: playing with a controller, and a real Apple TV. Steve has an
 Apple TV 4K (3rd generation) on tvOS 26.6, which needs signing with his
 team.
 
