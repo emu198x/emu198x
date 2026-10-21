@@ -1339,9 +1339,41 @@ impl Upd765a {
                 self.reread_key = Some(key);
                 self.reread_count = 0;
             }
-            // Existing Fuse-derived marginal recipe, applied only when this
-            // field is actually visited. No future field advances its counter.
-            if (progress.pending_st1 | progress.pending_st2) & 0x20 != 0 && self.reread_count > 0 {
+            // Extended DSK Rev5 stores complete versions as integral
+            // multiples of the nominal field length. The accepted marginal-
+            // encoding model prefers these verbatim, rotating with the
+            // existing consecutive-read counter only when the field is
+            // visited. Preparation/skip cannot consume a future version.
+            let length = self.exec_buf.len();
+            let copies = self.disks[drive]
+                .as_ref()
+                .and_then(|image| image.tracks.get(usize::from(self.head)))
+                .and_then(|side| side.get(usize::from(self.track[drive])))
+                .and_then(|track| {
+                    track.sectors.iter().find(|sector| {
+                        (sector.c, sector.h, sector.id, sector.n)
+                            == (
+                                self.cmd_buf[2],
+                                self.cmd_buf[3],
+                                self.sector,
+                                self.cmd_buf[5],
+                            )
+                    })
+                })
+                .filter(|sector| {
+                    length != 0
+                        && sector.data.len() > length
+                        && sector.data.len().is_multiple_of(length)
+                });
+            if let Some(sector) = copies {
+                let start = (self.reread_count as usize % (sector.data.len() / length)) * length;
+                self.exec_buf
+                    .copy_from_slice(&sector.data[start..start + length]);
+            } else if (progress.pending_st1 | progress.pending_st2) & 0x20 != 0
+                && self.reread_count > 0
+            {
+                // Fuse-derived fallback when complete versions are absent;
+                // never distort a preserved version supplied by the image.
                 apply_marginal_variation(&mut self.exec_buf, self.reread_count);
             }
         }

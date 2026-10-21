@@ -1,0 +1,184 @@
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling objc2 v0.6.4
+   Compiling objc2-encode v4.1.0
+   Compiling bitflags v2.11.1
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling simd-adler32 v0.3.9
+   Compiling crc32fast v1.5.0
+   Compiling zmij v1.0.21
+   Compiling adler2 v2.0.1
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.0
+   Compiling log v0.4.29
+   Compiling miniz_oxide v0.9.1
+   Compiling itoa v1.0.18
+   Compiling zlib-rs v0.6.3
+   Compiling syn v2.0.117
+   Compiling zerocopy v0.8.48
+   Compiling hashbrown v0.17.1
+   Compiling uuid v1.23.1
+   Compiling gilrs v0.11.2
+   Compiling cpal v0.18.2
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling bumpalo v3.20.2
+   Compiling equivalent v1.0.2
+   Compiling vec_map v0.8.2
+   Compiling indexmap v2.14.0
+   Compiling cc v1.2.62
+   Compiling fdeflate v0.3.7
+   Compiling miniz_oxide v0.8.9
+   Compiling cobs v0.3.0
+   Compiling mach2 v0.6.0
+   Compiling zopfli v0.8.3
+   Compiling typed-path v0.12.3
+   Compiling isa198x v0.1.0
+   Compiling fnv v1.0.7
+   Compiling dasp_sample v0.11.0
+   Compiling autocfg v1.5.0
+   Compiling alloca v0.4.0
+   Compiling format-sinclair-zx-spectrum-z80 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-sinclair-zx-spectrum-z80)
+   Compiling format198x-tzx v0.1.0
+   Compiling regex-syntax v0.8.10
+   Compiling num-traits v0.2.19
+   Compiling clap_lex v1.1.0
+   Compiling ciborium-io v0.2.2
+   Compiling either v1.16.0
+   Compiling anstyle v1.0.14
+   Compiling format198x-amstrad-cpc-dsk v0.1.1
+   Compiling clap_builder v4.6.0
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling dispatch2 v0.3.1
+   Compiling block2 v0.6.2
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling itertools v0.13.0
+   Compiling walkdir v2.5.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling page_size v0.6.0
+   Compiling format198x-sinclair-zx-spectrum-bas v0.1.3
+   Compiling isa198x-disasm v0.1.0
+   Compiling oorandom v11.1.5
+   Compiling format198x-sinclair-zx-spectrum-tap v0.1.1
+   Compiling regex-automata v0.4.14
+   Compiling anes v0.1.6
+   Compiling format-sinclair-zx-spectrum-sna v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-sinclair-zx-spectrum-sna)
+   Compiling twox-hash v2.1.4
+   Compiling emu198x-test-skip v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/emu198x-test-skip)
+   Compiling criterion-plot v0.8.2
+   Compiling regex v1.12.3
+   Compiling clap v4.6.1
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/emu198x-gi-ay-3-8910)
+   Compiling common-tape v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/common-tape)
+   Compiling serde-big-array v0.5.1
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/emu198x-zilog-z80)
+   Compiling postcard v1.1.3
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-io-kit v0.3.2
+   Compiling format-tzx v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-tzx)
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling gi-ay-3-8912 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/gi-ay-3-8912)
+   Compiling debug198x v0.1.0
+   Compiling tinytemplate v1.2.1
+   Compiling flate2 v1.1.10
+   Compiling coreaudio-rs v0.14.2
+   Compiling gilrs-core v0.6.8
+   Compiling png v0.18.1
+   Compiling zip v8.6.0
+   Compiling format-sinclair-zx-spectrum-szx v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-sinclair-zx-spectrum-szx)
+   Compiling common-sinclair-zx-spectrum v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/common-sinclair-zx-spectrum)
+   Compiling emu198x-shell v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/emu198x-shell)
+   Compiling peripheral-kempston-joystick v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/peripheral-kempston-joystick)
+   Compiling nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/nec-upd765a)
+   Compiling amstrad-ula-40077 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/amstrad-ula-40077)
+   Compiling ferranti-ula-6c001e v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/ferranti-ula-6c001e)
+   Compiling sinclair-ula-7k010e v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/sinclair-ula-7k010e)
+   Compiling beta-disk-interface v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/beta-disk-interface)
+   Compiling timex-scld v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/timex-scld)
+   Compiling scorpion-ula v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/scorpion-ula)
+   Compiling pentagon-ula v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/pentagon-ula)
+   Compiling common-sinclair-zx-spectrum-128k-class v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/common-sinclair-zx-spectrum-128k-class)
+   Compiling format-sinclair-zx-spectrum-tzx v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-sinclair-zx-spectrum-tzx)
+   Compiling machine-timex-ts2068 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-timex-ts2068)
+   Compiling common-sinclair-zx-spectrum-48k-class v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/common-sinclair-zx-spectrum-48k-class)
+   Compiling machine-pentagon-128 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-pentagon-128)
+   Compiling machine-scorpion-zs256 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-scorpion-zs256)
+   Compiling machine-timex-tc2048 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-timex-tc2048)
+   Compiling machine-sinclair-zx-spectrum-plus2 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus2)
+   Compiling machine-sinclair-zx-spectrum-128k v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-128k)
+   Compiling machine-sinclair-zx-spectrum-plus v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus)
+   Compiling machine-sinclair-zx-spectrum-16k v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-16k)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling format-amstrad-dsk v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/format-amstrad-dsk)
+   Compiling machine-sinclair-zx-spectrum-plus2a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus2a)
+   Compiling machine-sinclair-zx-spectrum-plus2b v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus2b)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-plus3)
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling criterion v0.8.2
+   Compiling machine-sinclair-zx-spectrum-48k v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/machine-sinclair-zx-spectrum-48k)
+   Compiling runtime-sinclair-zx-spectrum v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 57.73s
+     Running tests/read_preserved_copies.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/read_preserved_copies-7c65c0a8c8f86f79)
+
+running 5 tests
+test switching_physical_key_restarts_the_existing_consecutive_read_sequence ... FAILED
+test prepared_but_unvisited_field_does_not_consume_a_copy ... FAILED
+test visited_interrupted_field_consumes_one_copy_without_generating_bytes ... FAILED
+test component_restore_preserves_selected_copy_and_next_rotation ... FAILED
+test parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media ... FAILED
+
+failures:
+
+---- switching_physical_key_restarts_the_existing_consecutive_read_sequence stdout ----
+
+thread 'switching_physical_key_restarts_the_existing_consecutive_read_sequence' (144911511) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- prepared_but_unvisited_field_does_not_consume_a_copy stdout ----
+
+thread 'prepared_but_unvisited_field_does_not_consume_a_copy' (144911510) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:47:49:
+assertion `left == right` failed
+  left: 112
+ right: 208
+
+---- visited_interrupted_field_consumes_one_copy_without_generating_bytes stdout ----
+
+thread 'visited_interrupted_field_consumes_one_copy_without_generating_bytes' (144911512) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+---- component_restore_preserves_selected_copy_and_next_rotation stdout ----
+
+thread 'component_restore_preserves_selected_copy_and_next_rotation' (144911508) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+---- parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media stdout ----
+
+thread 'parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media' (144911509) panicked at crates/runtime-sinclair-zx-spectrum/tests/read_preserved_copies.rs:44:76:
+assertion `left == right` failed: verbatim preserved copy
+  left: 32
+ right: 48
+
+
+failures:
+    component_restore_preserves_selected_copy_and_next_rotation
+    parsed_edsk_rotates_all_copies_verbatim_and_never_mutates_media
+    prepared_but_unvisited_field_does_not_consume_a_copy
+    switching_physical_key_restarts_the_existing_consecutive_read_sequence
+    visited_interrupted_field_consumes_one_copy_without_generating_bytes
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --test read_preserved_copies`
