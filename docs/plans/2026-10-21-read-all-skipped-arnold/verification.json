@@ -1,0 +1,85 @@
+{
+  "status": "blocked_dependency",
+  "qualified": false,
+  "scope": "captured component model observations only",
+  "fresh_processes": 88,
+  "skip_off_payload_controls_passed": 16,
+  "genuine_all_skipped_clean_runs": 16,
+  "repeat_and_poll_agreement": true,
+  "observations": [
+    {
+      "case": "CRC metadata, matching",
+      "runs": 8,
+      "payload_bytes": 512,
+      "result": "40 20 20 00 00 01 02"
+    },
+    {
+      "case": "CRC metadata, skipped",
+      "runs": 8,
+      "payload_bytes": 0,
+      "result": "40 80 40 00 00 01 02"
+    },
+    {
+      "case": "SK-off mismatch",
+      "runs": 16,
+      "payload_bytes": 512,
+      "result": "00 00 40 00 00 01 02"
+    },
+    {
+      "case": "SK-on mismatch",
+      "runs": 16,
+      "payload_bytes": 0,
+      "result": "40 80 40 00 00 01 02"
+    },
+    {
+      "case": "matching",
+      "runs": 32,
+      "payload_bytes": 512,
+      "result": "40 80 00 00 00 01 02"
+    },
+    {
+      "case": "skip then R2",
+      "runs": 8,
+      "payload_bytes": 512,
+      "result": "40 80 40 00 00 02 02"
+    }
+  ],
+  "negative_controls": [
+    {
+      "control": "payload",
+      "rejected": "raw payload"
+    },
+    {
+      "control": "phantom_payload",
+      "rejected": "raw payload"
+    },
+    {
+      "control": "result",
+      "rejected": "raw result"
+    },
+    {
+      "control": "recovery",
+      "rejected": "SDS recovery"
+    },
+    {
+      "control": "media",
+      "rejected": "source/live media changed"
+    },
+    {
+      "control": "reference",
+      "rejected": "reference identity"
+    },
+    {
+      "control": "matrix",
+      "rejected": "case matrix"
+    },
+    {
+      "control": "false_qualification",
+      "rejected": "qualification scope"
+    },
+    {
+      "control": "empty_execution",
+      "rejected": "result framing"
+    }
+  ]
+}
