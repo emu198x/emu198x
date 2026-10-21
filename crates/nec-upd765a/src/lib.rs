@@ -1805,6 +1805,14 @@ impl Upd765a {
         self.exec_buf.clear();
         self.exec_pos = 0;
         let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        // NEC December 1978 p14: initially missing READY terminates Format
+        // abnormally. MAME format_track_start checks READY before protection.
+        // A mounted image must not override the separately supplied level.
+        if !self.drive_ready(drive) {
+            self.st0 |= 0x08;
+            self.format_result(0, true);
+            return;
+        }
         let Some(image) = self.disks[drive].as_ref() else {
             self.st0 |= 0x08;
             self.format_result(0, true);

@@ -395,3 +395,58 @@ fn transfer_native_preserves_programmed_mode_requests_and_results() {
         "case_count":cases.len(),"cases":cases
     })).expect("transfer native JSON"));
 }
+
+#[test]
+fn format_initial_not_ready_and_result_survive_native_restore() {
+    for nd in [false, true] {
+        // Idle READY, partial command, then every rejected result boundary.
+        for boundary in 0_usize..=9 {
+            let (mut original, _) = writable_sector_runtime(true);
+            original.machine_mut().fdc.set_ready(0, false);
+            send_fdc_command(&mut original, &[3, 0xdf, 2 | u8::from(nd)]);
+            let command = [0x4d, 0, 2, 1, 42, 0x69];
+            if boundary == 1 {
+                send_fdc_command(&mut original, &command[..5]);
+            } else if boundary >= 2 {
+                send_fdc_command(&mut original, &command);
+                for expected in [0x48, 0, 0, 0, 0, 0, 2].into_iter().take(boundary - 2) {
+                    assert_eq!(original.machine_mut().fdc.read_data(), expected);
+                }
+            }
+            let saved = original.snapshot().expect("save rejected format boundary");
+            let mut restored = SpectrumPlus3Runtime::blank();
+            restored
+                .restore(&saved)
+                .expect("restore rejected format boundary");
+            assert_eq!(restored.snapshot().expect("fixed point"), saved);
+            for runtime in [&mut original, &mut restored] {
+                if boundary < 2 {
+                    send_fdc_command(runtime, &command[if boundary == 0 { 0 } else { 5 }..]);
+                }
+                let drained = boundary.saturating_sub(2);
+                assert_eq!(runtime.machine().fdc.interrupt, drained == 0);
+                for expected in [0x48, 0, 0, 0, 0, 0, 2].into_iter().skip(drained) {
+                    assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                    assert_eq!(runtime.machine_mut().fdc.read_data(), expected);
+                    assert!(!runtime.machine().fdc.interrupt);
+                }
+                assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                assert_eq!(
+                    runtime
+                        .machine()
+                        .fdc
+                        .disk_for_export(0)
+                        .expect("inactive disk")
+                        .tracks[0][0]
+                        .sectors[0]
+                        .data,
+                    vec![0xe5; 512]
+                );
+            }
+            assert_eq!(
+                original.snapshot().expect("continued"),
+                restored.snapshot().expect("restored continued")
+            );
+        }
+    }
+}

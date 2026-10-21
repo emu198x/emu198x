@@ -1,0 +1,10 @@
+
+running 2 tests
+test not_ready_mounted_image_rejects_format_without_execution ... ok
+test ready_assertion_after_rejection_allows_a_fresh_format ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+   Compiling nec-upd765a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.87s
+     Running tests/format_ready.rs (/Users/stevehill/Projects/198x/output/qualification/build/format-ready/debug/deps/format_ready-cc829f5292453f58)

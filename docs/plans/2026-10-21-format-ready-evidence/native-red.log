@@ -1,0 +1,30 @@
+
+running 1 test
+test snapshot::tests::format_initial_not_ready_and_result_survive_native_restore ... FAILED
+
+failures:
+
+---- snapshot::tests::format_initial_not_ready_and_result_survive_native_restore stdout ----
+
+thread 'snapshot::tests::format_initial_not_ready_and_result_survive_native_restore' (147295864) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot/transfer_signal_tests.rs:425:17:
+assertion `left == right` failed
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    snapshot::tests::format_initial_not_ready_and_result_survive_native_restore
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 136 filtered out; finished in 0.02s
+
+   Compiling nec-upd765a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/nec-upd765a)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling format-amstrad-dsk v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/format-amstrad-dsk)
+   Compiling machine-sinclair-zx-spectrum-plus2a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/machine-sinclair-zx-spectrum-plus2a)
+   Compiling machine-sinclair-zx-spectrum-plus2b v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/machine-sinclair-zx-spectrum-plus2b)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/machine-sinclair-zx-spectrum-plus3)
+   Compiling runtime-sinclair-zx-spectrum v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.80s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build/format-ready/debug/deps/runtime_sinclair_zx_spectrum-e7307314ae6cc43a)
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --lib`

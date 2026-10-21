@@ -1,0 +1,33 @@
+
+running 2 tests
+test not_ready_mounted_image_rejects_format_without_execution ... FAILED
+test ready_assertion_after_rejection_allows_a_fresh_format ... FAILED
+
+failures:
+
+---- not_ready_mounted_image_rejects_format_without_execution stdout ----
+
+thread 'not_ready_mounted_image_rejects_format_without_execution' (147294426) panicked at crates/nec-upd765a/tests/format_ready.rs:25:5:
+assertion `left == right` failed: must enter result, not execution
+  left: 16
+ right: 208
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ready_assertion_after_rejection_allows_a_fresh_format stdout ----
+
+thread 'ready_assertion_after_rejection_allows_a_fresh_format' (147294427) panicked at crates/nec-upd765a/tests/format_ready.rs:25:5:
+assertion `left == right` failed: must enter result, not execution
+  left: 48
+ right: 208
+
+
+failures:
+    not_ready_mounted_image_rejects_format_without_execution
+    ready_assertion_after_rejection_allows_a_fresh_format
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling nec-upd765a v0.43.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/format-ready/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+     Running tests/format_ready.rs (/Users/stevehill/Projects/198x/output/qualification/build/format-ready/debug/deps/format_ready-cc829f5292453f58)
+error: test failed, to rerun pass `-p nec-upd765a --test format_ready`
