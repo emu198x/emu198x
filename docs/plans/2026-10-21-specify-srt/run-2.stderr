@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `/Users/stevehill/Projects/198x/output/qualification/build/specify-srt/debug/specify-srt-reproducer`
+
+thread 'main' (148566333) panicked at src/main.rs:67:5:
+SPECIFY SRT=1 must take longer than SRT=F; got 256 and 256
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "status": "fail",
+  "evidence_class": "fresh_source_build_standalone_controller",
+  "source_commit": "cacb63cfb78b080c681a5b1a436b4abb07447230",
+  "command": [
+    "cargo",
+    "run",
+    "--locked",
+    "--manifest-path",
+    "docs/plans/2026-10-21-specify-srt/reproducer/Cargo.toml"
+  ],
+  "host_timeout_seconds": 60,
+  "emulated_tick_bound_per_case": 2000000,
+  "ready_settle_ticks": 100000,
+  "environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/specify-srt"
+  },
+  "host": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "executable_sha256": "30201897743979b5981a9199b29511dd49f500a859995563f8c8cc1d8b0138d7",
+  "artifacts": {
+    "reproducer/Cargo.lock": "f049e7b9682deb7c49a79267531b2969c31fcc3aaf72ade7001ca4307f9f0570",
+    "reproducer/Cargo.toml": "2cec831194c2904c5ebb3ef5babc5c3d1c0bdcf590e26650c81598042c511bc6",
+    "reproducer/src/main.rs": "c73cfae27b0d1b85eecdd04c746b1636f0fb8275353fd65d9c262f979be27a1d",
+    "run-1.stderr": "910458b9a2335ead5dbef2854885d201fc194bf63a2645fda57a4e5aae3ce09f",
+    "run-1.stdout": "9342866baf26db9ba9cd0d4ebae6a3d264f2a1da66ac86955ccac609333eef15",
+    "run-2.stderr": "e7b2f0b66d8a48f4fa6a73a2316ad41d2c7784759fd167e54b54d52fbd96a51a",
+    "run-2.stdout": "9342866baf26db9ba9cd0d4ebae6a3d264f2a1da66ac86955ccac609333eef15"
+  },
+  "runs": [
+    {
+      "repeat": 1,
+      "returncode": 101,
+      "observations": [
+        {
+          "srt": 1,
+          "target": 1,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 1
+        },
+        {
+          "srt": 15,
+          "target": 1,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 1
+        },
+        {
+          "srt": 1,
+          "target": 2,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 2
+        },
+        {
+          "srt": 15,
+          "target": 2,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 2
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "returncode": 101,
+      "observations": [
+        {
+          "srt": 1,
+          "target": 1,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 1
+        },
+        {
+          "srt": 15,
+          "target": 1,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 1
+        },
+        {
+          "srt": 1,
+          "target": 2,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 2
+        },
+        {
+          "srt": 15,
+          "target": 2,
+          "completion_ticks": 256,
+          "st0": 32,
+          "pcn": 2
+        }
+      ]
+    }
+  ]
+}
