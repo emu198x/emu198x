@@ -28,6 +28,7 @@ trait Host {
     fn keymap(&self) -> Value;
     fn pixel_aspect_ratio(&self) -> f32;
     fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, String>;
+    fn query(&self, path: &str) -> Result<Value, String>;
 }
 /// `Q` answers the family's own query paths. Most families need none; the
 /// Spectrum's tape autoload waits on `boot.detected` and `tape.loaded`.
@@ -66,6 +67,12 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
         }
         let _ = max_boot_frames;
         Err("tape autoload is available only on the Spectrum".into())
+    }
+    fn query(&self, path: &str) -> Result<Value, String> {
+        self.web
+            .query(path)
+            .map(|result| result.value)
+            .map_err(|e| e.to_string())
     }
     fn pixel_aspect_ratio(&self) -> f32 {
         let (width, height) = self.web.frame_size();
@@ -484,6 +491,13 @@ impl Fleet {
     /// requires a booted machine.
     pub fn keymap(&self) -> Result<String, String> {
         Ok(self.host_ref()?.keymap().to_string())
+    }
+    /// Answers a runtime query path, such as `tape.playing`, as JSON text.
+    ///
+    /// # Errors
+    /// requires a booted machine and a path the runtime answers.
+    pub fn query(&self, path: &str) -> Result<String, String> {
+        Ok(self.host_ref()?.query(path)?.to_string())
     }
 }
 impl Fleet {

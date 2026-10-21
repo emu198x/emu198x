@@ -203,6 +203,27 @@ fn autoload_reaches_the_runtime_and_is_spectrum_only() {
     assert!(message.contains("only on the Spectrum"), "{message}");
 }
 
+#[test]
+fn queries_answer_as_fleet_does() {
+    let mut spectrum =
+        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+    spectrum
+        .firmware(
+            "sinclair-zx-spectrum-48k-rom",
+            &common::beeper::beeper_rom(),
+        )
+        .expect("firmware");
+    spectrum.boot().expect("boot");
+    assert_eq!(spectrum.query("tape.playing").expect("known path"), "false");
+    spectrum.load("tape-1", &print_seven_tape()).expect("tape");
+    spectrum.transport("tape-1", true).expect("play");
+    assert_eq!(spectrum.query("tape.playing").expect("known path"), "true");
+
+    let (code, message) = spectrum.query("no.such.path").expect_err("unknown path");
+    assert_eq!(code, status::ERROR);
+    assert!(message.contains("no.such.path"), "{message}");
+}
+
 /// A two-block tape holding `10 PRINT 7`, as in the runtime's own autoload
 /// test (`autoload_running_machine.rs`).
 fn print_seven_tape() -> Vec<u8> {

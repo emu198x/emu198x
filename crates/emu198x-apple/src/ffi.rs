@@ -570,6 +570,33 @@ pub unsafe extern "C" fn emu198x_machine_keymap(
     }
 }
 
+/// Answers a runtime query path, such as `tape.playing`, as UTF-8 JSON.
+///
+/// # Safety
+/// See `with_machine`, `text` and `put`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn emu198x_machine_query(
+    machine: *mut Emu198xMachine,
+    path: *const c_char,
+    out: *mut Emu198xBuffer,
+) -> i32 {
+    // SAFETY: the caller upholds `with_machine`, `text` and `put`.
+    unsafe {
+        with_machine(machine, |m| {
+            let path = text(path, "query path is null or not UTF-8")?;
+            if out.is_null() {
+                return Err(Failure::Invalid("out is null"));
+            }
+            let answer = m.fleet.query(path)?;
+            put(
+                out,
+                Emu198xBuffer::from_vec(answer.into_bytes()),
+                "out is null",
+            )
+        })
+    }
+}
+
 /// Exports the compiled families and variants as UTF-8 JSON.
 ///
 /// # Safety

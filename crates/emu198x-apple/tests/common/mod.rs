@@ -111,6 +111,12 @@ impl CMachine {
         })
     }
 
+    pub fn transport(&mut self, slot: &str, playing: bool) -> Result<(), Failure> {
+        let slot = c_string(slot);
+        // SAFETY: a live handle owned by `self` and a NUL-terminated slot.
+        check(unsafe { ffi::emu198x_machine_transport(self.0, slot.as_ptr(), playing) })
+    }
+
     pub fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, Failure> {
         let mut frames = 0;
         // SAFETY: a live handle owned by `self` and a writable count.
@@ -130,6 +136,16 @@ impl CMachine {
         let name = c_string(name);
         // SAFETY: a live handle owned by `self` and a NUL-terminated name.
         check(unsafe { ffi::emu198x_machine_button(self.0, port, name.as_ptr(), pressed) })
+    }
+
+    /// The runtime's answer to a query path, as JSON text.
+    pub fn query(&mut self, path: &str) -> Result<String, Failure> {
+        let path = c_string(path);
+        let mut buffer = empty_buffer();
+        // SAFETY: a live handle owned by `self`, a NUL-terminated path and a
+        // writable buffer.
+        check(unsafe { ffi::emu198x_machine_query(self.0, path.as_ptr(), &raw mut buffer) })?;
+        Ok(String::from_utf8(take(buffer)).expect("UTF-8 JSON"))
     }
 
     pub fn configure_audio(&mut self, rate: u32) -> Result<(), Failure> {

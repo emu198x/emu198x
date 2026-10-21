@@ -16,6 +16,9 @@ public enum HostCommand: Sendable {
     case restoreState(Data)
     /// The reply runs on the loop's thread.
     case saveState(@Sendable (Result<Data, any Error>) -> Void)
+    /// Asks the runtime a query path, such as `tape.playing`. The reply,
+    /// JSON, runs on the loop's thread.
+    case query(String, @Sendable (Result<Data, any Error>) -> Void)
 }
 
 /// The newest frame, handed from the loop to whatever draws it.
@@ -312,6 +315,7 @@ public final class EmulatorLoop: Sendable {
                 _ = try machine.drainAudio()
                 audio.clear()
             case let .saveState(reply): reply(Result { try machine.saveState() })
+            case let .query(path, reply): reply(Result { try machine.query(path) })
             }
         } catch {
             let failure = error as? EmulatorError
