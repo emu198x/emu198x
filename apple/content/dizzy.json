@@ -2,7 +2,7 @@
   "games": [
     {
       "name": "Dizzy",
-      "tape": "Games/[TZX]/Dizzy - The Ultimate Cartoon Adventure (1987)(Code Masters).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy - The Ultimate Cartoon Adventure (1987)(Code Masters).zip",
       "cover": {
         "wos": "games-inlays/d/Dizzy1.jpg",
         "left": 0.548
@@ -17,12 +17,22 @@
               "KeyK"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Dizzy 01 - The Ultimate Cartoon Adventure (1988)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
         }
       ]
     },
     {
       "name": "Treasure Island Dizzy",
-      "tape": "Games/[TZX]/Dizzy 2 - Treasure Island Dizzy (1989)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy 2 - Treasure Island Dizzy (1989)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/d/Dizzy2-TreasureIslandDizzy.jpg",
         "left": 0.535
@@ -47,12 +57,35 @@
               "KeyK"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Misc/[TAP]/Dizzy 02 - Treasure Island Dizzy (1989)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Treasure Island Dizzy (1989)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Fantasy World Dizzy",
-      "tape": "Games/[TZX]/Dizzy 3 - Fantasy World Dizzy (1989)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy 3 - Fantasy World Dizzy (1989)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/d/Dizzy3-FantasyWorldDizzy.jpg",
         "left": 0.535
@@ -71,12 +104,35 @@
           "controls": {
             "stick": "kempston"
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Dizzy 03 - Fantasy World Dizzy (1990)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (SR crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Fantasy World Dizzy (1991)(Codemasters)[cr SR].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Magicland Dizzy",
-      "tape": "Games/[TZX]/Dizzy 4 - Magicland Dizzy (1990)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy 4 - Magicland Dizzy (1990)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/d/Dizzy4-MagiclandDizzy.jpg",
         "left": 0.535
@@ -95,12 +151,35 @@
           "controls": {
             "stick": "kempston"
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Misc/[TAP]/Dizzy 04 - Magicland Dizzy (1990)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (TRSI crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Magicland Dizzy (1991)(Codemasters)[cr TRSI].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Spellbound Dizzy",
-      "tape": "Games/[TZX]/Dizzy 5 - Spellbound Dizzy (1991)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy 5 - Spellbound Dizzy (1991)(Code Masters)(48K-128K).zip",
       "cover": {
         "url": "https://spectrumcomputing.co.uk/zxdb/sinclair/entries/0009337/SpellboundDizzy.jpg",
         "sha256": "a5883f699daec564a834d768b2a4013a193d1b5cb031f54ed7c1d399631c4c96",
@@ -125,12 +204,25 @@
           "controls": {
             "stick": "kempston"
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Dizzy 05 - Spellbound Dizzy (1991)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "selectKeys": [
+              "Space"
+            ]
+          }
         }
       ]
     },
     {
       "name": "Prince of the Yolkfolk",
-      "tape": "Games/[TZX]/Dizzy 6 - Dizzy, Prince of the YolkFolk (1991)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy 6 - Dizzy, Prince of the YolkFolk (1991)(Code Masters)(48K-128K).zip",
       "cover": {
         "url": "https://spectrumcomputing.co.uk/zxdb/sinclair/entries/0009338/DizzyPrinceOfTheYolkFolk.jpg",
         "sha256": "6a9c3661efd696e0e93594d84443a308473119d05f7f78776e7dd9cb703e026f",
@@ -155,12 +247,35 @@
           "controls": {
             "stick": "kempston"
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Misc/[TAP]/Dizzy 06 - Dizzy Prince of the Yolkfolk (1990)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (Flashtro crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Dizzy - Prince of the Yolkfolk (1992)(Codemasters)[cr Flashtro].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Crystal Kingdom Dizzy",
-      "tape": "Games/[TZX]/Dizzy 7 - Crystal Kingdom Dizzy (1992)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy 7 - Crystal Kingdom Dizzy (1992)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/d/Dizzy7-CrystalKingdomDizzy_Front.jpg"
       },
@@ -187,12 +302,36 @@
               "Digit1"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Crystal Kingdom Dizzy (1992)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (FLT crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Crystal Kingdom Dizzy (1993)(Codemasters)(Disk 1 of 2)[cr FLT].zip",
+            "Commodore/Amiga/Games/[ADF]/Crystal Kingdom Dizzy (1993)(Codemasters)(Disk 2 of 2)[cr FLT].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Fast Food",
-      "tape": "Games/[TZX]/Fast Food (1989)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Fast Food (1989)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/f/FastFood.jpg",
         "left": 0.535
@@ -219,12 +358,35 @@
               "Space"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Fast Food! (1989)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (SR crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Fast Food (1992)(Codemasters)[cr SR].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Kwik Snax",
-      "tape": "Games/[TZX]/Kwik Snax (1990)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Kwik Snax (1990)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/k/KwikSnax.jpg"
       },
@@ -248,12 +410,35 @@
               "Digit2"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Dizzy 11 - Kwik Snax (1990)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (FLT crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Kwik Snax (1992)(Codemasters)[cr FLT][t ATX].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Bubble Dizzy",
-      "tape": "Games/[TZX]/Bubble Dizzy (1991)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Bubble Dizzy (1991)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/b/BubbleDizzy.jpg",
         "left": 0.548
@@ -280,12 +465,35 @@
               "Digit0"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Misc/[TAP]/Dizzy 08 - Bubble Dizzy (1992)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (SR crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Bubble Dizzy v1.01 (1992)(Codemasters)[cr SR].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Panic Dizzy",
-      "tape": "Games/[TZX]/Panic Dizzy (1991)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Panic Dizzy (1991)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/p/PanicDizzy.jpg",
         "left": 0.535
@@ -310,12 +518,35 @@
               "Digit3"
             ]
           }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Arcade/[TAP]/Dizzy 12 - Panic Dizzy (1991)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        },
+        {
+          "name": "Amiga (ATX crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Dizzy Panic (1992)(Codemasters)[cr ATX].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
         }
       ]
     },
     {
       "name": "Dizzy Down the Rapids",
-      "tape": "Games/[TZX]/Dizzy Down the Rapids (1991)(Code Masters)(48K-128K).zip",
+      "tape": "Sinclair/ZX Spectrum/Games/[TZX]/Dizzy Down the Rapids (1991)(Code Masters)(48K-128K).zip",
       "cover": {
         "wos": "games-inlays/d/DizzyDownTheRapids.jpg",
         "left": 0.535
@@ -351,6 +582,118 @@
               "KeyY",
               "Enter"
             ]
+          }
+        },
+        {
+          "name": "C64",
+          "machine": "c64",
+          "media": [
+            "Commodore/C64/Games/Misc/[TAP]/Dizzy 09 - Dizzy Down the Rapids (1991)(Codemasters).zip"
+          ],
+          "controls": {
+            "stick": "port2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fantastic Dizzy",
+      "versions": [
+        {
+          "name": "Master System",
+          "machine": "master_system",
+          "media": [
+            "Sega/Mark III & Master System/Games/Fantastic Dizzy (1993)(Codemasters)(EU)(M5).zip"
+          ]
+        },
+        {
+          "name": "Game Gear",
+          "machine": "game_gear",
+          "media": [
+            "Sega/Game Gear/Games/Fantastic Dizzy (1993)(Codemasters)(EU)(M5).zip"
+          ]
+        },
+        {
+          "name": "NES",
+          "machine": "nes",
+          "media": [
+            "Nintendo/Famicom & Entertainment System/Games/[NES]/Fantastic Adventures of Dizzy, The (1991)(Camerica)(US).zip"
+          ]
+        },
+        {
+          "name": "Amiga 1200",
+          "machine": "amiga_1200",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Fantastic Dizzy (1994-08-22)(Codemasters)(AGA)(M6)(Disk 1 of 2).zip",
+            "Commodore/Amiga/Games/[ADF]/Fantastic Dizzy (1994-08-22)(Codemasters)(AGA)(M6)(Disk 2 of 2).zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dizzy the Adventurer",
+      "versions": [
+        {
+          "name": "NES",
+          "machine": "nes",
+          "media": [
+            "Nintendo/Famicom & Entertainment System/Games/[NES]/Dizzy The Adventurer (1993)(Camerica)(US).zip"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The Excellent Dizzy Collection",
+      "versions": [
+        {
+          "name": "Game Gear (Master System mode)",
+          "machine": "master_system",
+          "media": [
+            "Sega/Game Gear/Games/Excellent Dizzy Collection, The (1994)(Codemasters)(EU)(M5).zip"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The Dizzy Collection",
+      "versions": [
+        {
+          "name": "Amiga (SR crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Dizzy Collection (1991)(Codemasters)(Disk 1 of 2)[cr SR][compilation].zip",
+            "Commodore/Amiga/Games/[ADF]/Dizzy Collection (1991)(Codemasters)(Disk 2 of 2)[cr SR][bootable][compilation].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dizzy's Excellent Adventures",
+      "versions": [
+        {
+          "name": "Amiga (Flashtro crack)",
+          "machine": "amiga_500",
+          "media": [
+            "Commodore/Amiga/Games/[ADF]/Dizzy's Excellent Adventures (1992)(Codemasters)(Disk 1 of 2)[cr Flashtro][compilation].zip",
+            "Commodore/Amiga/Games/[ADF]/Dizzy's Excellent Adventures (1992)(Codemasters)(Disk 2 of 2)[cr Flashtro][bootable][compilation].zip"
+          ],
+          "controls": {
+            "stick": "port2",
+            "keys": {
+              "b": "MouseLeft"
+            }
           }
         }
       ]
