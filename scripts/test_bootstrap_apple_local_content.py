@@ -47,6 +47,21 @@ class TapeTests(unittest.TestCase):
         with self.assertRaises(bootstrap.BootstrapError):
             bootstrap.extract_tape(self.zip_with("a.tzx", "b.tap"), self.directory / "Game")
 
+    def test_a_cartridge_takes_the_extension_the_app_reads(self):
+        version = {"name": "Game Gear", "machine": "game_gear", "media": ["game.zip"]}
+        self.zip_with("Game (1993)(Codemasters)(EU).bin")
+        names = bootstrap.extract_media(version, "Game", self.directory, self.directory)
+        self.assertEqual(names, ["Game (Game Gear).gg"])
+
+    def test_disks_are_numbered_in_order(self):
+        for disk in ("1", "2"):
+            with zipfile.ZipFile(self.directory / f"disk{disk}.zip", "w") as archive:
+                archive.writestr(f"Game (Disk {disk} of 2).adf", disk.encode())
+        version = {"name": "Amiga", "machine": "amiga_500", "media": ["disk1.zip", "disk2.zip"]}
+        names = bootstrap.extract_media(version, "Game", self.directory, self.directory)
+        self.assertEqual(names, ["Game (Amiga) 1.adf", "Game (Amiga) 2.adf"])
+        self.assertEqual((self.directory / names[1]).read_bytes(), b"2")
+
 
 class FirmwareTests(unittest.TestCase):
     def test_a_modified_rom_is_refused(self):
@@ -80,18 +95,31 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual([v["file"] for v in manifest["versions"]], ["Game.tzx", "Game.tzx"])
         self.assertEqual(manifest["versions"][0]["machine"], "spectrum_128k")
 
+    def test_a_version_with_its_own_disks_names_them(self):
+        game = {"versions": [
+            {"name": "48K", "machine": "spectrum_48k"},
+            {"name": "Amiga", "machine": "amiga_500", "media": ["1.zip", "2.zip"]},
+        ]}
+        manifest = bootstrap.manifest(game, "Game.tzx", {"Amiga": ["Game (Amiga) 1.adf", "Game (Amiga) 2.adf"]})
+        amiga = manifest["versions"][1]
+        self.assertEqual(amiga["file"], "Game (Amiga) 1.adf")
+        self.assertEqual(amiga["disks"], ["Game (Amiga) 2.adf"])
+        self.assertNotIn("media", amiga)
+        self.assertEqual(manifest["versions"][0]["file"], "Game.tzx")
+
 
 class RecipeTests(unittest.TestCase):
     """The committed recipes, checked against what the script and the app
     accept, so a slip shows here rather than on a television."""
 
-    # SpectrumControls.keys in apple/Emu198x/Shared/SpectrumControls.swift.
+    # MachineModel.keys and GameControls.Stick in apple/Emu198x/Shared.
     KEY_CODES = (
-        {"Space", "Enter", "ShiftLeft", "AltLeft"}
+        {"Space", "Enter", "ShiftLeft", "AltLeft", "Escape", "MouseLeft", "MouseRight"}
+        | {f"F{n}" for n in range(1, 11)}
         | {f"Digit{d}" for d in "1234567890"}
         | {f"Key{c}" for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
     )
-    STICKS = {"kempston", "sinclair", "cursor", "qaop"}
+    STICKS = {"kempston", "sinclair", "cursor", "qaop", "port2", "port1"}
 
     def test_every_recipe_names_what_the_script_and_app_accept(self):
         recipes = sorted((SCRIPT.parent.parent / "apple/content").glob("*.json"))
@@ -101,12 +129,21 @@ class RecipeTests(unittest.TestCase):
             self.assertEqual(len({g["name"] for g in games}), len(games), f"{recipe.name}: duplicate names")
             for game in games:
                 where = f"{recipe.name}: {game['name']}"
-                self.assertTrue(game["tape"].endswith(".zip"), where)
-                cover = game["cover"]
-                self.assertTrue("wos" in cover or ("url" in cover and len(cover.get("sha256", "")) == 64), where)
+                if "tape" in game:
+                    self.assertTrue(game["tape"].endswith(".zip"), where)
+                cover = game.get("cover")
+                if cover is not None:
+                    self.assertTrue("wos" in cover or ("url" in cover and len(cover.get("sha256", "")) == 64), where)
                 self.assertTrue(game["versions"], where)
                 for version in game["versions"]:
                     self.assertIn(version["machine"], bootstrap.FIRMWARE, where)
+                    if "media" in version:
+                        self.assertIn(version["machine"], bootstrap.IMAGES, where)
+                        self.assertTrue(all(m.endswith(".zip") for m in version["media"]), where)
+                        # More disks than an Amiga has drives would be dropped.
+                        self.assertLessEqual(len(version["media"]), 4, where)
+                    else:
+                        self.assertIn("tape", game, where)
                     controls = version.get("controls", {})
                     self.assertIn(controls.get("stick", "kempston"), self.STICKS, where)
                     for code in controls.get("selectKeys", []) + list(controls.get("keys", {}).values()):
