@@ -19,6 +19,8 @@
     "invented-mame-source",
     "wrong-sk-command",
     "stale-executable-description",
-    "zero-processes"
+    "zero-processes",
+    "fuse-rehashed-raw-summary-disagreement",
+    "mame-rehashed-raw-summary-disagreement"
   ]
 }

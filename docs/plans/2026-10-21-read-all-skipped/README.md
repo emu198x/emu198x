@@ -25,7 +25,7 @@ Executed Fuse source is `0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2`. In `peripher
 
 Inspected MAME source `9391e1eff80eb04abd58d48218a1d3b9643c1ea8`, `src/devices/machine/upd765.cpp` lines1139–1142, pushes data when TC is absent without checking SK; its SECTOR_READ path around2030 reaches EOT with SK set. This is source inspection only. The executed Homebrew MAME 0.289 binary has an unknown source commit, so the packet does not attest it was built from that checkout. No upstream issue or production workaround is proposed.
 
-Source-built Fuse executable SHA256: `7307f905544baa0a247dc0a19b9eb0f3deca58c483335e7000866a539121b3f9`. Distributed MAME executable SHA256: `6d40df87963c58cdd3857d203e186af854fea49ae03b2ab555e30ef1029636d9`. Full source, tool, firmware, command, environment, bounds and artifact identities are in `runs.tar.gz`.
+Source-built Fuse executable SHA256: `e6c043b51a1d6be0834c7cfaa11b52fadb528d29cc1a3155e0d9d4165ffed350`. Distributed MAME executable SHA256: `6d40df87963c58cdd3857d203e186af854fea49ae03b2ab555e30ef1029636d9`. Full source, tool, firmware, command, environment, bounds and artifact identities are in `runs.tar.gz`.
 
 ## Reproduce and inspect
 
@@ -38,3 +38,11 @@ python3 docs/plans/2026-10-21-read-all-skipped/audit.py
 `capture.py` reruns the bounded fresh study using the existing local Fuse checkout, Apple clang, Homebrew MAME and legitimate local +3 ROMs. It refuses to replace an existing `runs` directory. Each Fuse phase is limited to two emulated seconds and each process to15 host seconds; MAME has10 total emulated seconds and45 host seconds. No new dependency is required. Exact commands and exit statuses are retained. `audit.py` validates the archive and deliberately rejects altered evidence; `verification.json` records that audit, not a hardware pass.
 
 The next requirement is a part-applicable primary trace or independent implementation that actually suppresses host payload for this case, with exact final status, CHRN and recovery measured. Until then this boundary remains required and blocked by research.
+
+## Raw-observation audit repair
+
+Review reproduced a semantic audit gap: the old auditor accepted altered Fuse raw payload after archive hashes were refreshed, because it trusted the unchanged summary. Original MAME observation JSON had been parsed but not retained. `audit-gap-before.json` records the fail-first result through an actual rehashed archive and the exact old audit commit.
+
+`legacy-summary-only-runs.tar.gz` preserves the original archive byte-for-byte; `legacy-verification.json` preserves its old audit output. Those legacy records lack retained MAME raw JSON and are not complete independently auditable observation proof. They are not inputs to the current successful audit.
+
+The corrected capture retains MAME JSON as well as Fuse stdout. A fresh bounded matrix was executed with the corrected source and executable identities in `runs.tar.gz`; no raw JSON was reconstructed from old summaries. Current `audit.py` reparses each engine's raw observation and requires exact equality with its row summary before checking expected payload/status. Two additional controls alter raw payload while leaving the summary intact, refresh artifact hashes, write real archives, traverse the ordinary loader, and require rejection specifically for raw/summary disagreement. Existing observation conclusions and unresolved hardware limits remain unchanged.

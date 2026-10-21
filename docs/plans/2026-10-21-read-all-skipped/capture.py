@@ -192,7 +192,9 @@ def main() -> None:
                         run(name, argv, 45, {'SDL_VIDEODRIVER': 'dummy', 'SDL_AUDIODRIVER': 'dummy',
                                              'PROBE_OUTPUT': str(observation), 'PROBE_DTL': '255',
                                              'PROBE_OPCODE': str(opcode)})
-                        observed = json.loads(observation.read_text())
+                        raw_observation = observation.read_bytes()
+                        (out / (name + '.json')).write_bytes(raw_observation)
+                        observed = json.loads(raw_observation)
                     assert sha(media) == digest, 'source media changed'
                     assert len(observed['result']) == 7 and observed['idle_msr'] == 128
                     assert observed['recovery_msr'] == 128
