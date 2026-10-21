@@ -288,3 +288,74 @@ fn immediate_error_results_raise_completion_irq_and_acknowledge_on_first_byte() 
         }
     }
 }
+
+#[test]
+fn queued_ready_attention_survives_payload_irq_acknowledgements() {
+    let mut fdc = controller(1);
+    for drive in 0..4 {
+        fdc.set_ready(drive, false);
+    }
+    fdc.reset();
+    for byte in [3, 0xdf, 3] {
+        fdc.write_data(byte);
+    }
+    fdc.set_ready(1, true);
+    for hc in 0..8_000 {
+        fdc.tick(hc);
+    }
+    assert!(fdc.interrupt, "create independent READY attention");
+    fdc.write_data(4);
+    fdc.write_data(1);
+    let _ = fdc.read_data();
+    assert!(fdc.interrupt, "SDS does not acknowledge READY attention");
+    fdc.set_ready(0, true);
+    start(&mut fdc);
+    for expected in 0..=255 {
+        await_byte(&mut fdc);
+        assert_eq!(fdc.read_data(), expected);
+    }
+    for _ in 0..7 {
+        let _ = fdc.read_data();
+    }
+    assert!(
+        !fdc.interrupt,
+        "payload/result acknowledgement deasserts output"
+    );
+    fdc.write_data(8);
+    assert_eq!(
+        fdc.read_data(),
+        0xc1,
+        "the independent READY record is retained"
+    );
+    assert_eq!(fdc.read_data(), 0, "READY attention PCN");
+    assert_eq!(fdc.read_status(), 0x80);
+    fdc.write_data(8);
+    assert_eq!(fdc.read_data(), 0x80, "no duplicate attention record");
+}
+
+#[test]
+fn unread_payload_request_becomes_an_acknowledgeable_overrun_result() {
+    for nd in [0, 1] {
+        let mut fdc = controller(nd);
+        start(&mut fdc);
+        await_byte(&mut fdc);
+        assert_eq!(fdc.interrupt, nd != 0);
+        // Observe the existing bounded sector-model timeout, without claiming
+        // an exact silicon service deadline from its particular tick count.
+        for hc in 0..10_000 {
+            if fdc.read_status() == 0xd0 && fdc.interrupt {
+                break;
+            }
+            fdc.tick(hc);
+        }
+        assert_eq!(fdc.read_status(), 0xd0);
+        assert!(fdc.interrupt, "overrun has completion IRQ in both modes");
+        assert_eq!(fdc.read_data(), 0x40);
+        assert!(!fdc.interrupt, "first error result acknowledges IRQ");
+        assert_eq!(fdc.read_data() & 0x10, 0x10, "actual overrun result");
+        for _ in 2..7 {
+            let _ = fdc.read_data();
+        }
+        assert_eq!(fdc.read_status(), 0x80);
+    }
+}
