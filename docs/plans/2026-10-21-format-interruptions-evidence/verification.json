@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "scope": "328 synthetic Format native continuation and EDSK reopen cases; not complete operation qualification",
+  "evidence_kind": "fresh source build",
+  "base_commit": "f2a6213be7654a1d146cf8574772696f9f095ef9",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "tools": {
+    "cargo": {
+      "path": "/Users/stevehill/.rustup/toolchains/1.99.0-aarch64-apple-darwin/bin/cargo",
+      "sha256": "fc7aa5077deca8abc0651f329e8ec1d968f520e996a93b428f9935014362b382",
+      "version": "cargo 1.99.0 (5f94df478 2026-08-27)"
+    },
+    "rustc": {
+      "path": "/Users/stevehill/.rustup/toolchains/1.99.0-aarch64-apple-darwin/bin/rustc",
+      "sha256": "dd6f58440b3418aa9157ae3f05d71eecff741ca41bc4eec120e7e8f2d933b9a0",
+      "version": "rustc 1.99.0 (b940084d7 2026-09-28)"
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--lib",
+        "format_native_protection_interruption",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "log": "wrong-result.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 2.12,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions"
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--lib",
+        "format_native_protection_interruption",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 101,
+      "log": "idle-checkpoint.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 1.286,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions"
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--lib",
+        "format_native_protection_interruption",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "log": "positive-1.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 94.222,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions",
+        "READ_TRACK_NATIVE_ARTIFACTS": "/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/docs/plans/2026-10-21-format-interruptions-evidence/run-1"
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--lib",
+        "format_native_protection_interruption",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "log": "positive-2.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 100.587,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions",
+        "READ_TRACK_NATIVE_ARTIFACTS": "/Users/stevehill/Projects/198x/output/qualification/workspaces/format-interruptions/docs/plans/2026-10-21-format-interruptions-evidence/run-2"
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "runtime-sinclair-zx-spectrum"
+      ],
+      "exit_code": 0,
+      "log": "owning-suites.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 147.932,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions"
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "fmt.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 3.805,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions"
+      }
+    },
+    {
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "crates/runtime-sinclair-zx-spectrum/src/snapshot/format_tests.rs"
+      ],
+      "exit_code": 0,
+      "log": "included-file-fmt.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 0.044,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions"
+      }
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "clippy.log",
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 11.814,
+      "environment": {
+        "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions"
+      }
+    }
+  ],
+  "source_hashes": {
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot/format_tests.rs": "a9cf0a5d0a03dc2c2ff92fd47ad540a9f9645f9e5ba4f348488bce36066a740b",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "207c45e5676a569fe53a4fd70924034755dbef987ee440a8670e71164df4603e",
+    "crates/nec-upd765a/src/lib.rs": "e34d6b4eba5aed98bb12ddb14dbfea0a1f7b5cfec5bcff409bc91907f1287630",
+    "Cargo.toml": "1ef33a848779af1c58b8fe230da8ae74301d67aff6d46755ce518cd0a716af96",
+    "Cargo.lock": "f0b2cc78d2bcdbc6cbb72156a2d36965a0ad1ea32a19f1f4baff26edb9ed3a14",
+    "crates/runtime-sinclair-zx-spectrum/Cargo.toml": "cef0b3617a35c364a9a51136b8975eada36837d54ec18184506ad60c477a8804",
+    "docs/plans/2026-10-21-format-interruptions.md": "8b7df207cf3617d88124f667ba50be1a7c68e390a3b325e7d00a972cab514c76",
+    "docs/plans/2026-10-21-format-interruptions-evidence/verify.py": "94c02a4056e6075a0e4cb0f46d5cdfb94319440d99ff7ea79bfc719b7adb4f9e",
+    "docs/plans/2026-10-21-format-interruptions-evidence/test_verify.py": "2cc6059eca4d7cc560033b1687bf33c8001e8b37c6db6c20df41800de489c25d"
+  },
+  "artifact_hashes": {
+    "wrong-result.log": "2f1cc0054893826eae7fa6751b470285980c6594f729b6a5a88c458b35ea18be",
+    "owning-suites.log": "3450f8d13b9172e7b739d7a3570549a1db9a1b5cb29300855a2c18c66c915467",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "included-file-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "clippy.log": "764d03ff2bfea8673777e1aaf9b0f2d2cd1b94eeee773e0dc36d0afc373d4a1d",
+    "idle-checkpoint.log": "f813d1bb082d9aeae144dc6497af8258077901b50ec955cc037627a1954230ef",
+    "positive-1.log": "01627f05628206aa4ba1bcafe08fad3b43ca874a8a62a0f422a66dbb7f175ed1",
+    "positive-2.log": "7adbd6bfce78a72317c6b6fe1f9b9cceec25a11dca5ee0b5aad440aba0e412fd",
+    "verify.py": "94c02a4056e6075a0e4cb0f46d5cdfb94319440d99ff7ea79bfc719b7adb4f9e",
+    "run-2/format-native.json": "8e233537f59d6500eba352f46b4f89985dc4fdbadd8920709367da3582a0b9d9",
+    "run-1/format-native.json": "8e233537f59d6500eba352f46b4f89985dc4fdbadd8920709367da3582a0b9d9"
+  },
+  "unresolved": [
+    "active READY sampling/status",
+    "applicable Fault",
+    "aborted CHRN hardware oracle",
+    "full operation qualification",
+    "released and ROM/reference execution"
+  ],
+  "test_executable": {
+    "path": "/Users/stevehill/Projects/198x/output/qualification/build/format-interruptions/debug/deps/runtime_sinclair_zx_spectrum-e7307314ae6cc43a",
+    "sha256": "fbc9208780717a6593071672728d5aae4375e1778ad9bdc19502840ca8dd36da",
+    "kind": "source-built Rust test executable; not distributed emulator"
+  },
+  "relevant_environment": {
+    "RUSTFLAGS": null,
+    "RUSTUP_TOOLCHAIN": "1.99.0",
+    "SDKROOT": null,
+    "MACOSX_DEPLOYMENT_TARGET": null,
+    "CC": null,
+    "CXX": null
+  },
+  "compiled_dependency_graph_attestation": "unknown",
+  "packet_auditor_checks": [
+    {
+      "command": [
+        "python3",
+        "-B",
+        "docs/plans/2026-10-21-format-interruptions-evidence/verify.py"
+      ],
+      "exit_code": 0,
+      "output": "{\n  \"packet_checks\": \"pass\",\n  \"cases_per_run\": 328,\n  \"runs\": 2,\n  \"qualified\": false\n}\n"
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "docs/plans/2026-10-21-format-interruptions-evidence",
+        "-v"
+      ],
+      "exit_code": 0,
+      "output": "test_duplicate_replaces_required_case (test_verify.PacketControls.test_duplicate_replaces_required_case) ... ok\ntest_false_source_preservation (test_verify.PacketControls.test_false_source_preservation) ... ok\ntest_false_success_exit (test_verify.PacketControls.test_false_success_exit) ... ok\ntest_forged_expected_status (test_verify.PacketControls.test_forged_expected_status) ... ok\ntest_retained_packet (test_verify.PacketControls.test_retained_packet) ... ok\ntest_wrong_mode_identity (test_verify.PacketControls.test_wrong_mode_identity) ... ok\ntest_wrong_observed_protection_status (test_verify.PacketControls.test_wrong_observed_protection_status) ... ok\ntest_wrong_success_chrn (test_verify.PacketControls.test_wrong_success_chrn) ... ok\ntest_zero_cases (test_verify.PacketControls.test_zero_cases) ... ok\n\n----------------------------------------------------------------------\nRan 9 tests in 0.078s\n\nOK\n"
+    },
+    {
+      "command": [
+        "ruff",
+        "check",
+        "docs/plans/2026-10-21-format-interruptions-evidence/verify.py",
+        "docs/plans/2026-10-21-format-interruptions-evidence/test_verify.py"
+      ],
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "command": [
+        "ruff",
+        "format",
+        "--check",
+        "docs/plans/2026-10-21-format-interruptions-evidence/verify.py",
+        "docs/plans/2026-10-21-format-interruptions-evidence/test_verify.py"
+      ],
+      "exit_code": 0,
+      "output": "2 files already formatted\n"
+    }
+  ]
+}

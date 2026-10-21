@@ -2141,4 +2141,5 @@ mod tests {
     include!("snapshot/read_id_tests.rs");
     include!("snapshot/transfer_signal_tests.rs");
     include!("snapshot/read_data_tests.rs");
+    include!("snapshot/format_tests.rs");
 }
