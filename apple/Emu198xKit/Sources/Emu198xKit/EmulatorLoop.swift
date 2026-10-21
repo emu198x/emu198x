@@ -43,6 +43,14 @@ public final class FrameSlot: Sendable {
 /// until `prebuffer` samples are queued, and plays silence meanwhile. If it
 /// then runs dry, it counts one underrun and holds back again.
 ///
+/// The machine and the device keep slightly different time: a Spectrum
+/// frame's sound arrives rounded up to whole samples, and the two clocks
+/// drift apart. Left alone, the ring would slowly fill until it dropped
+/// samples, or empty until it ran dry. So while the queue strays more than
+/// a quarter from where it began playing, the ring plays up to 0.5% faster
+/// or slower, interpolating between samples, to bring the queue back.
+/// Within that band it copies samples unchanged.
+///
 /// Bounded: when full, the oldest samples are dropped and counted, so both
 /// kinds of glitch show up in ``statistics``.
 public final class AudioRing: Sendable {
@@ -57,8 +65,22 @@ public final class AudioRing: Sendable {
         var start = 0
         var count = 0
         var playing = false
+        /// The queue length, averaged over about a fifth of a second so the
+        /// rate does not follow each frame's arrival.
+        var smoothedCount = 0.0
+        /// The queue length when playing began, which the rate holds it to.
+        /// A frame's sound arrives at once, so this can be most of a frame
+        /// above `prebuffer`.
+        var target = 0.0
+        /// How far past `start` the next output frame falls, in frames.
+        var phase = 0.0
         var statistics = Statistics()
     }
+
+    private static let channels = 2
+    private static let maximumRateChange = 0.005
+    private static let band = 0.25
+    private static let smoothing = 0.05
 
     private let state: OSAllocatedUnfairLock<State>
     private let prebuffer: Int
@@ -85,7 +107,7 @@ public final class AudioRing: Sendable {
     }
 
     /// Fills `out`, padding with silence when too few samples are queued or
-    /// the ring is still filling. Returns how many real samples it copied.
+    /// the ring is still filling. Returns how many real samples it wrote.
     @discardableResult
     public func read(into out: UnsafeMutableBufferPointer<Float>) -> Int {
         // Unchecked because the closure captures `out`, which is not
@@ -93,25 +115,62 @@ public final class AudioRing: Sendable {
         // is valid; copying through an array instead would allocate on the
         // audio thread.
         state.withLockUnchecked { [prebuffer] ring in
+            let channels = Self.channels
             let capacity = ring.samples.count
             if !ring.playing && ring.count >= max(prebuffer, 1) {
                 ring.playing = true
+                ring.smoothedCount = Double(ring.count)
+                ring.target = Double(ring.count)
+                ring.phase = 0
             }
-            let copied = ring.playing ? min(out.count, ring.count) : 0
-            for index in 0..<copied {
-                out[index] = ring.samples[(ring.start + index) % capacity]
+            let wanted = out.count / channels
+            let queued = ring.count / channels
+            var written = 0
+            if ring.playing {
+                ring.smoothedCount += (Double(ring.count) - ring.smoothedCount) * Self.smoothing
+                let step = prebuffer > 0
+                    ? Self.rate(queued: ring.smoothedCount, target: ring.target) : 1
+                var position = ring.phase
+                while written < wanted {
+                    let index = Int(position)
+                    let fraction = Float(position - Double(index))
+                    let needed = fraction == 0 ? index : index + 1
+                    if needed >= queued { break }
+                    for channel in 0..<channels {
+                        let at = ring.start + index * channels + channel
+                        let here = ring.samples[at % capacity]
+                        let next = fraction == 0 ? here : ring.samples[(at + channels) % capacity]
+                        out[written * channels + channel] = here + (next - here) * fraction
+                    }
+                    written += 1
+                    position += step
+                }
+                let consumed = min(Int(position), queued)
+                ring.phase = position - Double(consumed)
+                ring.start = (ring.start + consumed * channels) % capacity
+                ring.count -= consumed * channels
+                if written < wanted {
+                    ring.statistics.underruns += 1
+                    ring.playing = false
+                }
             }
-            for index in copied..<out.count {
+            for index in (written * channels)..<out.count {
                 out[index] = 0
             }
-            ring.start = (ring.start + copied) % capacity
-            ring.count -= copied
-            if ring.playing && copied < out.count {
-                ring.statistics.underruns += 1
-                ring.playing = false
-            }
-            return copied
+            return written * channels
         }
+    }
+
+    /// Frames of queue to consume per output frame: 1 while the queue is
+    /// within a quarter of `target` of it, then changing in proportion to
+    /// how far beyond that it has strayed, up to half a percent at half of
+    /// `target` away. Below the target there is only `target` of room, so
+    /// the band leaves most of it for correcting.
+    private static func rate(queued: Double, target: Double) -> Double {
+        let error = (queued - target) / target
+        let beyond = error > band ? error - band : error < -band ? error + band : 0
+        let change = beyond / band * maximumRateChange
+        return 1 + max(-maximumRateChange, min(maximumRateChange, change))
     }
 
     public var statistics: Statistics {
@@ -125,6 +184,7 @@ public final class AudioRing: Sendable {
             ring.start = 0
             ring.count = 0
             ring.playing = false
+            ring.phase = 0
         }
     }
 }

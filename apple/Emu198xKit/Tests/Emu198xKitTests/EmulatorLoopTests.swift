@@ -91,6 +91,66 @@ func finish(_ loop: EmulatorLoop) async throws {
         #expect(out == [3, 4, 5, 6, 0, 0])
         #expect(ring.statistics == AudioRing.Statistics(written: 6, dropped: 2, underruns: 1))
     }
+
+    /// Plays `seconds` of 50 Hz frames into the ring as a 48 kHz device
+    /// reads 512-frame blocks. `drift` is how much faster the machine makes
+    /// sound than the device plays it. Returns the ring and the samples read.
+    private func play(seconds: Double, drift: Double, capture: Bool = false) -> (AudioRing, [Float]) {
+        let rate = 48_000.0
+        let ring = AudioRing(capacity: 48_000, prebuffer: 6_000)
+        let framesPerMachineFrame = 960.0 * (1 + drift)
+        var made = 0.0
+        var sent = 0
+        var value: Float = 0
+        var block = [Float](repeating: 0, count: 1_024)
+        var heard: [Float] = []
+        let blocks = Int(rate * seconds / 512)
+        for index in 0..<blocks {
+            // Machine frames due by the time this block is read.
+            let now = Double(index) * 512 / rate
+            while Double(sent) / 50 <= now {
+                made += framesPerMachineFrame
+                let frames = Int(made) - Int(made - framesPerMachineFrame)
+                var input: [Float] = []
+                for _ in 0..<frames {
+                    value += 1
+                    input.append(value)
+                    input.append(-value)
+                }
+                ring.write(input)
+                sent += 1
+            }
+            _ = block.withUnsafeMutableBufferPointer { ring.read(into: $0) }
+            if capture { heard.append(contentsOf: block) }
+        }
+        return (ring, heard)
+    }
+
+    /// A Spectrum makes 959 samples a channel for each 50.08 Hz frame, 0.056%
+    /// more than a 48 kHz device plays, so an uncorrected half-second ring
+    /// fills in about 13 minutes. These drifts are five times that, and 200
+    /// seconds is long enough for them to overflow or run dry without
+    /// correction.
+    @Test(arguments: [0.003, -0.003])
+    func theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift: Double) {
+        let (ring, _) = play(seconds: 200, drift: drift)
+        let statistics = ring.statistics
+        #expect(statistics.dropped == 0)
+        #expect(statistics.underruns == 0)
+    }
+
+    @Test func aMatchedMachinePlaysEverySampleUnchanged() {
+        let (ring, heard) = play(seconds: 10, drift: 0, capture: true)
+        #expect(ring.statistics.dropped == 0)
+        #expect(ring.statistics.underruns == 0)
+        // Ignore the silence while the prebuffer fills.
+        let played = Array(heard.drop { $0 == 0 })
+        let expected = (0..<(played.count / 2)).flatMap { frame -> [Float] in
+            let value = Float(frame + 1)
+            return [value, -value]
+        }
+        #expect(played == expected, "no sample was interpolated, repeated or skipped")
+    }
 }
 
 /// A value the loop's thread sets and the test reads.
