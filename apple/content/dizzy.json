@@ -1,0 +1,359 @@
+{
+  "games": [
+    {
+      "name": "Dizzy",
+      "tape": "Games/[TZX]/Dizzy - The Ultimate Cartoon Adventure (1987)(Code Masters).zip",
+      "cover": {
+        "wos": "games-inlays/d/Dizzy1.jpg",
+        "left": 0.548
+      },
+      "versions": [
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "KeyK"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Treasure Island Dizzy",
+      "tape": "Games/[TZX]/Dizzy 2 - Treasure Island Dizzy (1989)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/d/Dizzy2-TreasureIslandDizzy.jpg",
+        "left": 0.535
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "KeyK"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "KeyK"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fantasy World Dizzy",
+      "tape": "Games/[TZX]/Dizzy 3 - Fantasy World Dizzy (1989)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/d/Dizzy3-FantasyWorldDizzy.jpg",
+        "left": 0.535
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston"
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Magicland Dizzy",
+      "tape": "Games/[TZX]/Dizzy 4 - Magicland Dizzy (1990)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/d/Dizzy4-MagiclandDizzy.jpg",
+        "left": 0.535
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston"
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Spellbound Dizzy",
+      "tape": "Games/[TZX]/Dizzy 5 - Spellbound Dizzy (1991)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "url": "https://spectrumcomputing.co.uk/zxdb/sinclair/entries/0009337/SpellboundDizzy.jpg",
+        "sha256": "a5883f699daec564a834d768b2a4013a193d1b5cb031f54ed7c1d399631c4c96",
+        "crop": [
+          664,
+          0,
+          580,
+          900
+        ]
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston"
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prince of the Yolkfolk",
+      "tape": "Games/[TZX]/Dizzy 6 - Dizzy, Prince of the YolkFolk (1991)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "url": "https://spectrumcomputing.co.uk/zxdb/sinclair/entries/0009338/DizzyPrinceOfTheYolkFolk.jpg",
+        "sha256": "6a9c3661efd696e0e93594d84443a308473119d05f7f78776e7dd9cb703e026f",
+        "crop": [
+          662,
+          0,
+          570,
+          900
+        ]
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston"
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Crystal Kingdom Dizzy",
+      "tape": "Games/[TZX]/Dizzy 7 - Crystal Kingdom Dizzy (1992)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/d/Dizzy7-CrystalKingdomDizzy_Front.jpg"
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit3",
+              "Digit1",
+              "Digit1"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit3",
+              "Digit1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fast Food",
+      "tape": "Games/[TZX]/Fast Food (1989)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/f/FastFood.jpg",
+        "left": 0.535
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Space",
+              "Space"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Space",
+              "Space"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Kwik Snax",
+      "tape": "Games/[TZX]/Kwik Snax (1990)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/k/KwikSnax.jpg"
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit2"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bubble Dizzy",
+      "tape": "Games/[TZX]/Bubble Dizzy (1991)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/b/BubbleDizzy.jpg",
+        "left": 0.548
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit3",
+              "Digit0"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit3",
+              "Digit0"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Panic Dizzy",
+      "tape": "Games/[TZX]/Panic Dizzy (1991)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/p/PanicDizzy.jpg",
+        "left": 0.535
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit3"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Digit3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dizzy Down the Rapids",
+      "tape": "Games/[TZX]/Dizzy Down the Rapids (1991)(Code Masters)(48K-128K).zip",
+      "cover": {
+        "wos": "games-inlays/d/DizzyDownTheRapids.jpg",
+        "left": 0.535
+      },
+      "versions": [
+        {
+          "name": "128K",
+          "machine": "spectrum_128k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Space",
+              "Digit1",
+              "Digit3",
+              "KeyD",
+              "KeyZ",
+              "KeyY",
+              "Enter"
+            ]
+          }
+        },
+        {
+          "name": "48K",
+          "machine": "spectrum_48k",
+          "controls": {
+            "stick": "kempston",
+            "selectKeys": [
+              "Space",
+              "Digit1",
+              "Digit3",
+              "KeyD",
+              "KeyZ",
+              "KeyY",
+              "Enter"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

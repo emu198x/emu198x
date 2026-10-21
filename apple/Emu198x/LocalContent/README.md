@@ -4,6 +4,10 @@ An Apple TV has no file picker, so the tvOS app plays what is built into
 it. Everything in this folder except this README is git-ignored and is
 copied into local builds of the tvOS target.
 
+`scripts/bootstrap-apple-local-content.py` fills it from a recipe in
+`apple/content` and your own TOSEC set, World of Spectrum archive and
+`~/.emu198x/roms`. To add things by hand:
+
 - `48.rom`: the Sinclair 48K ROM, unmodified (SHA-1
   `5ea7c2b824672e914525d1d5c419d71b84a426a2`). The app refuses any other
   image. Copy it from `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`.
