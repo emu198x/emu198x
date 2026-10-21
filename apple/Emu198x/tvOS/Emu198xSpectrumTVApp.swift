@@ -106,6 +106,7 @@ struct PauseMenu: View {
             List {
                 Button("Resume") { showsMenu = false }
                 NavigationLink("Keyboard") { KeyPadView(session: session) }
+                NavigationLink("Controls") { ControlsView(session: session) }
                 Button("Restart") {
                     session.restart()
                     showsMenu = false
