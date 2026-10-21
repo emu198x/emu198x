@@ -6,6 +6,8 @@ import Foundation
 struct LocalLibrary {
     struct Program: Identifiable, Hashable {
         let url: URL
+        /// `<name>.jpg` or `<name>.png` beside the program: its box art.
+        let cover: URL?
         var id: URL { url }
         var name: String { url.deletingPathExtension().lastPathComponent }
         var kind: String { url.pathExtension.uppercased() }
@@ -20,7 +22,13 @@ struct LocalLibrary {
     init(bundle: Bundle = .main) {
         programs = Self.extensions
             .flatMap { bundle.urls(forResourcesWithExtension: $0, subdirectory: nil) ?? [] }
-            .map { Program(url: $0) }
+            .map { url in
+                let name = url.deletingPathExtension().lastPathComponent
+                let cover = ["jpg", "png"].lazy
+                    .compactMap { bundle.url(forResource: name, withExtension: $0) }
+                    .first
+                return Program(url: url, cover: cover)
+            }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         rom = bundle.url(forResource: "48", withExtension: "rom")
     }

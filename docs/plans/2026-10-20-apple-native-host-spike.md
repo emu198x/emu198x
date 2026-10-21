@@ -305,6 +305,47 @@ Steve). In the tvOS simulator, `tape.playing` stayed true through
 Dizzy's load and went false about 4.5 minutes in, as the title screen
 appeared.
 
+The Dizzy set (Steve, 2026-10-21): the twelve Codemasters Dizzy games
+from TOSEC's 48K TZX images, with box art from the WoS archive's
+cassette inlays, cropped to the front panel. TOSEC-PIX has no Spectrum
+inlays. The library shows a cover beside each program; Spellbound Dizzy
+and Prince of the Yolkfolk have no inlay locally and show their names.
+
+Each was autoloaded headlessly (`emu198x-spectrum --headless
+--autoload-tape --script`), then driven on Kempston from its title. All
+twelve reach their titles on the 48K. Findings:
+- Most of them look for a Kempston when they start, and the runtime
+  leaves the interface unplugged until a Kempston event arrives. The app
+  now plugs it in (a fire release) for a Kempston preset, after any load
+  or restore, since a saved state carries its own setting. Without it,
+  Fantasy World, Magicland, Spellbound and Prince ignored the stick.
+- One select key is not always enough, so a game's file can name a
+  sequence (`selectKeys`), pressed 1.2 seconds apart; the press that
+  starts it, and any until it ends, do not reach the game:
+
+  | Game | Keys |
+  |---|---|
+  | Dizzy, Treasure Island Dizzy | K |
+  | Fantasy World, Magicland, Spellbound, Prince | none: fire starts |
+  | Crystal Kingdom Dizzy | 3 (Kempston), 1 (start) |
+  | Bubble Dizzy | 3 (Kempston), 0 (start) |
+  | Panic Dizzy | 3 (Kempston) |
+  | Kwik Snax | 2 (Kempston) |
+  | Fast Food | Space, Space: its title reads only the keyboard |
+  | Dizzy Down the Rapids | Space, 1 (Kempston), 3, then initials and Enter |
+
+- Spellbound's and Kwik Snax's tapes play on for about 4 minutes after
+  the game has loaded (128K extras the 48K never reads), so Kwik Snax's
+  select key waits for the tape to stop.
+- The Kempston decoded only ports with A5, A6 and A7 low, not A5 alone
+  (#1917). None of these games needed the fix: Fast Food's title, the
+  suspect, reads the keyboard.
+
+Verified in the Mac app with Steve's controller: Crystal Kingdom Dizzy,
+restored at its options menu, started on Kempston from one press of A
+once the state restore no longer unplugged the interface. Bubble Dizzy
+started, but its steering has not been checked.
+
 Still to verify: a controller and the Siri Remote on a real Apple TV. Steve has an
 Apple TV 4K (3rd generation) on tvOS 26.6, which needs signing with his
 team.

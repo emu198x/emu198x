@@ -78,10 +78,16 @@ struct LibraryView: View {
                 } else if library.programs.isEmpty {
                     message("Put .tap, .tzx, .sna, .z80 or .state files in apple/Emu198x/LocalContent, then build again.")
                 } else {
-                    List(library.programs) { program in
-                        Button { start(program) } label: {
-                            LabeledContent(program.name, value: program.kind)
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 48)], spacing: 64) {
+                            ForEach(library.programs) { program in
+                                Button { start(program) } label: {
+                                    CoverView(program: program)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
+                        .padding(.horizontal, 80)
                     }
                 }
             }
@@ -121,6 +127,39 @@ struct PauseMenu: View {
             // simulator Menu on the keyboard resumes too, rather than
             // stepping back to this menu.
             .onExitCommand { showsMenu = false }
+        }
+    }
+}
+
+/// One game in the library: its box art, or its name on a plain card when
+/// it has none, with the name beneath.
+struct CoverView: View {
+    let program: LocalLibrary.Program
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Group {
+                if let cover = program.cover, let image = UIImage(contentsOfFile: cover.path) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Text(program.name)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.quaternary)
+                }
+            }
+            // Cassette inlays are about 5:8.
+            .frame(width: 260, height: 400)
+            .clipped()
+            Text(program.name)
+                .font(.caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(width: 260)
         }
     }
 }
