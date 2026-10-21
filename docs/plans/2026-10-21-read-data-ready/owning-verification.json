@@ -1,0 +1,59 @@
+{
+  "base_commit": "1e1fb7957e48c5d196e16b908acbf2af8caddd4b",
+  "env": {
+    "RUSTUP_TOOLCHAIN": "1.99.0",
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-id-signals"
+  },
+  "checks": [
+    {
+      "name": "owning-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "common-sinclair-zx-spectrum-amstrad-class",
+        "-p",
+        "runtime-sinclair-zx-spectrum"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 600,
+      "elapsed_seconds": 84.72
+    },
+    {
+      "name": "owning-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "common-sinclair-zx-spectrum-amstrad-class",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 600,
+      "elapsed_seconds": 19.85
+    },
+    {
+      "name": "owning-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 600,
+      "elapsed_seconds": 7.18
+    }
+  ]
+}

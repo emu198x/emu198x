@@ -22,4 +22,8 @@ The first full pinned-toolchain run passed the three new tests, then exposed fou
 
 ## Local verification
 
-Explicit Rust1.99.0: controller suite177passed,0failed,0ignored; strict all-target controller Clippy and workspace format passed. Commands,300second host limits and elapsed times are in `2026-10-21-read-data-ready/verification.json`, with logs, source hashes and compiler identity alongside it. Broader owning +3/common/runtime suites remain pending; this PR is not merge-ready until those checks finish. Read ID proof/cache is in use by another task and is not touched here.
+Explicit Rust1.99.0: controller suite177passed,0failed,0ignored; strict all-target controller Clippy and workspace format passed. Commands,300second host limits and elapsed times are in `2026-10-21-read-data-ready/verification.json`, with logs, source hashes and compiler identity alongside it. Broader owning +3/common/runtime checks were subsequently run after the separate Read ID proof was sealed and its cache explicitly handed off. The frozen source worktree and receipts were not altered.
+
+## Broader owning verification
+
+With explicit Rust1.99.0, the controller/+3 common/runtime suites passed563tests,0failed,62ignored across59 result blocks. The ignores remain uncredited firmware prerequisites, not passes. Strict all-target Clippy for all three owning crates and workspace format passed. No runtime/native fixture changes were needed. `owning-verification.json` and `owning-{tests,clippy,fmt}.log` retain exact commands,600second host limits and outputs. Review scope remains admission only; the broader Read Data qualification ticket is still open.
