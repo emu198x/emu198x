@@ -2121,4 +2121,5 @@ mod tests {
         assert_eq!(drain_fdc_result(&mut restored), [0x40, 2, 0, 0, 0, 1, 2]);
         assert_saved_bytes(&mut restored, &vec![0xe5; 512]);
     }
+    include!("snapshot/read_id_tests.rs");
 }
