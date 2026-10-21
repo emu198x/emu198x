@@ -22,6 +22,17 @@ struct ControlsView: View {
             } footer: {
                 Text("The d-pad, left stick and A, and the remote's touch surface and click.")
             }
+            Section {
+                Picker("Select key", selection: selectKey) {
+                    Text("None").tag(String?.none)
+                    ForEach(SpectrumControls.keys, id: \.code) { key in
+                        Text(key.name).tag(String?.some(key.code))
+                    }
+                }
+                .pickerStyle(.navigationLink)
+            } footer: {
+                Text("The key the game asks for to choose a joystick, such as K in Dizzy. It is pressed for you on your first move once the game has loaded.")
+            }
             Section("Buttons") {
                 ForEach(SpectrumControls.buttons, id: \.self) { control in
                     Picker(Self.label(control), selection: key(control)) {
@@ -49,6 +60,16 @@ struct ControlsView: View {
         } set: { stick in
             var controls = session.controls
             controls.stick = stick
+            session.setControls(controls)
+        }
+    }
+
+    private var selectKey: Binding<String?> {
+        Binding {
+            session.controls.selectKey
+        } set: { code in
+            var controls = session.controls
+            controls.selectKey = code
             session.setControls(controls)
         }
     }

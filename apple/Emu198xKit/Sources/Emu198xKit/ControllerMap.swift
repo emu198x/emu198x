@@ -1,5 +1,6 @@
-/// One physical control on a game controller.
-public enum Control: String, CaseIterable, Codable, Sendable {
+/// One physical control on a game controller. Its name is its key in
+/// JSON, so a mapping reads `{"b": "Space"}`.
+public enum Control: String, CaseIterable, Codable, CodingKeyRepresentable, Sendable {
     case up, down, left, right
     case a, b, x, y
     case leftShoulder, rightShoulder
