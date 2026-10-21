@@ -1269,6 +1269,15 @@ impl Upd765a {
                 self.read_result();
                 return false;
             }
+            // A matching ID does not imply a readable data field. NEC A/B
+            // ST1.MA/ST2.MD (printed 5-12), MAME SEARCH_ADDRESS_MARK_DATA_FAILED:
+            // missing DAM/DDAM ends Data/Deleted before SK or any payload.
+            if !is_track && sec.st2 & 1 != 0 {
+                self.st1 |= 1;
+                self.st2 |= 1;
+                self.read_result();
+                return false;
+            }
             let mark_mismatch =
                 (sec.st2 & ST2_CM != 0) != (self.command == Command::ReadDeletedData);
             if !is_track && mark_mismatch && self.cmd_buf[0] & 0x20 != 0 {

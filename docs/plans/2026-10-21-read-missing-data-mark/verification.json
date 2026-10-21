@@ -1,0 +1,63 @@
+{
+  "base_commit": "569b0b1f0448aaace5da97dc8ed0ba897646ee5d",
+  "env": {
+    "RUSTUP_TOOLCHAIN": "1.99.0",
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-missing-data-mark"
+  },
+  "checks": [
+    {
+      "name": "tests",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "format-amstrad-dsk",
+        "-p",
+        "common-sinclair-zx-spectrum-amstrad-class",
+        "-p",
+        "runtime-sinclair-zx-spectrum"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 600,
+      "elapsed_seconds": 107.9
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "-p",
+        "format-amstrad-dsk",
+        "-p",
+        "common-sinclair-zx-spectrum-amstrad-class",
+        "-p",
+        "runtime-sinclair-zx-spectrum",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 600,
+      "elapsed_seconds": 16.87
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 600,
+      "elapsed_seconds": 4.59
+    }
+  ]
+}

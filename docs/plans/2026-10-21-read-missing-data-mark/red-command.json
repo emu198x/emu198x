@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "runtime-sinclair-zx-spectrum",
+    "--test",
+    "read_missing_data_mark"
+  ],
+  "exit": 101,
+  "host_timeout_seconds": 600,
+  "elapsed_seconds": 35.8,
+  "env": {
+    "RUSTUP_TOOLCHAIN": "1.99.0",
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-missing-data-mark"
+  }
+}
