@@ -1272,7 +1272,7 @@ impl Upd765a {
             let mark_mismatch =
                 (sec.st2 & ST2_CM != 0) != (self.command == Command::ReadDeletedData);
             if !is_track && mark_mismatch && self.cmd_buf[0] & 0x20 != 0 {
-                if self.sector >= self.cmd_buf[6] {
+                if !self.advance_read_sector() {
                     // Keep the existing all-skipped/after-data convention.
                     if completed == 0 {
                         self.sector = self.cmd_buf[4];
@@ -1283,7 +1283,6 @@ impl Upd765a {
                     self.read_result();
                     return false;
                 }
-                self.sector = self.sector.wrapping_add(1);
                 continue;
             }
             let size = 128_usize << self.cmd_buf[5];
@@ -1348,6 +1347,25 @@ impl Upd765a {
         }
     }
 
+    // NEC A/B printed 5-7 MT definition; MAME SECTOR_READ switches to
+    // side 1, sector 1 after side-0 EOT. Reuse the selected physical HD and
+    // recorded H fields independently of the current physical cylinder.
+    fn advance_read_sector(&mut self) -> bool {
+        if self.sector < self.cmd_buf[6] {
+            self.sector = self.sector.wrapping_add(1);
+            true
+        } else if self.sector == self.cmd_buf[6] && self.cmd_buf[0] & 0x80 != 0 && self.head == 0 {
+            self.head = 1;
+            self.cmd_buf[1] |= 4;
+            self.cmd_buf[3] = 1;
+            self.st0 |= 4;
+            self.sector = 1;
+            true
+        } else {
+            false
+        }
+    }
+
     fn finish_read_sector(&mut self) {
         let Some(progress) = &mut self.read_progress else {
             return;
@@ -1366,14 +1384,13 @@ impl Upd765a {
                 self.read_result();
                 return;
             }
-            if self.sector >= self.cmd_buf[6] {
+            if !self.advance_read_sector() {
                 if self.st1 == 0 && self.st2 == 0 {
                     self.st1 |= 0x80;
                 }
                 self.read_result();
                 return;
             }
-            self.sector = self.sector.wrapping_add(1);
         }
         // Keep the pending byte-clock boundary, including host latency. This
         // does not add a new inter-sector timing model.
