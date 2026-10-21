@@ -1,0 +1,14 @@
+{
+  "revision": "ce2d755aff02770c1bc9561f7211b30fadbbd255",
+  "modified": true,
+  "features": "sinclair-zx-spectrum",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "xcode": "Xcode 27.1",
+  "sdks": {
+    "macosx": "27.0",
+    "appletvos": "27.0",
+    "appletvsimulator": "27.0"
+  },
+  "deploymentTargets": {"macos": "14.0", "tvos": "17.0"},
+  "linkFlags": {"aarch64-apple-darwin":"-framework IOKit -framework AudioToolbox -framework CoreAudio -framework Foundation -framework CoreFoundation -lSystem -liconv -lSystem -lobjc -framework Foundation -lSystem -lc -lm","aarch64-apple-tvos":"-framework AVFAudio -framework AudioToolbox -framework CoreAudio -framework Foundation -framework CoreFoundation -lc -lm -liconv -lSystem -lobjc -framework Foundation -lSystem -lc -lm","aarch64-apple-tvos-sim":"-framework AVFAudio -framework AudioToolbox -framework CoreAudio -framework Foundation -framework CoreFoundation -lc -lm -liconv -lSystem -lobjc -framework Foundation -lSystem -lc -lm"}
+}

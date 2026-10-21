@@ -1,0 +1,16 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 5]
+Build complete! (1.20 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite EmulatorLoopTests started.
+◇ Test runsInRealTime(observationMilliseconds:) started.
+◇ Test case passing 1 argument observationMilliseconds → 1000 to runsInRealTime(observationMilliseconds:) started.
+real-time observation: requested=1000ms elapsed=1.0666725s frames=54 samples=103572
+◇ Test case passing 1 argument observationMilliseconds → 1500 to runsInRealTime(observationMilliseconds:) started.
+real-time observation: requested=1500ms elapsed=1.599090208s frames=80 samples=153440
+✔ Test runsInRealTime(observationMilliseconds:) with 2 test cases passed after 2.798 seconds.
+✔ Suite EmulatorLoopTests passed after 2.799 seconds.
+✔ Test run with 1 test in 1 suite passed after 2.800 seconds.

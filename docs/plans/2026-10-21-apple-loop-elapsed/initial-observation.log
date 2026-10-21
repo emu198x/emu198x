@@ -1,0 +1,44 @@
+Building for debugging...
+[Computing dependencies]
+[Pre-planning 1 / 96]
+[Planning deferred tasks]
+[13 / 53]
+[29 / 53]
+[30 / 54] Emu198xKit
+[39 / 95]
+[40 / 95]
+[42 / 95]
+[45 / 95]
+[49 / 95]
+[50 / 95]
+[51 / 95]
+[54 / 95]
+[55 / 95]
+[56 / 95]
+[58 / 95]
+[61 / 95]
+[64 / 95]
+[66 / 95]
+[67 / 95]
+[71 / 95] Emu198xKit
+[79 / 95] Emu198xKit
+[83 / 96] Emu198xKitTests-product
+[85 / 96] Emu198xKit-product
+[85 / 96] Emu198xKitTests-product
+[86 / 104]
+[87 / 104]
+[93 / 104] Emu198xKitTests-product
+[98 / 104] Emu198xKitTests-product
+[100 / 104] Emu198xKitTests-product
+[102 / 104] Emu198xKitTests-product
+Build complete! (29.41 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite EmulatorLoopTests started.
+◇ Test runsInRealTime(observationMilliseconds:) started.
+◇ Test case passing 1 argument observationMilliseconds → 1000 to runsInRealTime(observationMilliseconds:) started.
+◇ Test case passing 1 argument observationMilliseconds → 1500 to runsInRealTime(observationMilliseconds:) started.
+✔ Test runsInRealTime(observationMilliseconds:) with 2 test cases passed after 3.077 seconds.
+✔ Suite EmulatorLoopTests passed after 3.077 seconds.
+✔ Test run with 1 test in 1 suite passed after 3.078 seconds.

@@ -1,0 +1,40 @@
+== aarch64-apple-darwin
+warning: function `build` is never used
+   --> crates/emu198x-fleet-web/src/lib.rs:239:4
+    |
+239 | fn build<R: FamilyRuntime + 'static>(
+    |    ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+note: native artifacts to link against have been written to /Users/stevehill/Projects/198x/output/qualification/build/apple-loop-elapsed/aarch64-apple-darwin/release/emu198x-apple.native-static-libs. The order and any duplication can be significant on some platforms
+
+ld: warning: ignoring duplicate libraries: '-lSystem'
+link-check: ok
+== aarch64-apple-tvos
+warning: function `build` is never used
+   --> crates/emu198x-fleet-web/src/lib.rs:239:4
+    |
+239 | fn build<R: FamilyRuntime + 'static>(
+    |    ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+note: native artifacts to link against have been written to /Users/stevehill/Projects/198x/output/qualification/build/apple-loop-elapsed/aarch64-apple-tvos/release/emu198x-apple.native-static-libs. The order and any duplication can be significant on some platforms
+
+ld: warning: ignoring duplicate libraries: '-lSystem', '-lc', '-lm'
+link-check: linked (not runnable on this Mac)
+== aarch64-apple-tvos-sim
+warning: function `build` is never used
+   --> crates/emu198x-fleet-web/src/lib.rs:239:4
+    |
+239 | fn build<R: FamilyRuntime + 'static>(
+    |    ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+note: native artifacts to link against have been written to /Users/stevehill/Projects/198x/output/qualification/build/apple-loop-elapsed/aarch64-apple-tvos-sim/release/emu198x-apple.native-static-libs. The order and any duplication can be significant on some platforms
+
+ld: warning: ignoring duplicate libraries: '-lSystem', '-lc', '-lm'
+link-check: linked (not runnable on this Mac)
+Built /Users/stevehill/Projects/198x/output/qualification/workspaces/apple-loop-elapsed/apple/build/Emu198xCore.xcframework

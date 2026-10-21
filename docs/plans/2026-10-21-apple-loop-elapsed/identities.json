@@ -1,0 +1,12 @@
+{
+  "base_commit": "ce2d755aff02770c1bc9561f7211b30fadbbd255",
+  "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.0.0",
+  "xcode": "Xcode 27.1\nBuild version 27A9275",
+  "test_sha256": "b3282a7dc8dd7b576db87cffeb158ca64088411c24c3de9b59e0386a7a85cf43",
+  "fixture_rom": {
+    "path": "/Users/stevehill/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom",
+    "sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+    "bytes": 16384
+  },
+  "source_class": "source_build; Apple test modified; production Rust unchanged from base"
+}

@@ -1,0 +1,93 @@
+Apple hosts	Swift must match direct Rust execution	﻿2026-10-21T11:56:21.4079750Z ##[group]Run swift test
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.4082060Z ^[[36;1mswift test^[[0m
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5819840Z shell: /bin/bash -e {0}
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5820440Z env:
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5820780Z   CARGO_HOME: /Users/runner/.cargo
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5821160Z   CARGO_INCREMENTAL: 0
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5821460Z   CARGO_TERM_COLOR: always
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5821780Z   CACHE_ON_FAILURE: false
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:21.5822030Z ##[endgroup]
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:33.7166710Z Building for debugging...
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:33.7250370Z [0/8] Copying libemu198x_apple.a
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:33.7269440Z [1/8] Write sources
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:33.7274280Z [3/8] /Users/runner/work/emu198x/emu198x/apple/Emu198xKit/.build/arm64-apple-macosx/debug/Emu198xKitPackageTests.derived/runner.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:33.7275330Z [4/8] Write sources
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:33.9225510Z [5/8] Write swift-version-7974D3F7F03D5E95.txt
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:42.7296610Z [7/11] Emitting module Emu198xKit
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:42.7419810Z [8/11] Compiling Emu198xKit EmulatorLoop.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:42.7534100Z [9/11] Compiling Emu198xKit ControllerMap.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:43.5629000Z [10/12] Compiling Emu198xKit Machine.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:50.8578430Z [11/16] Emitting module Emu198xKitTests
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:50.8683350Z [12/16] Compiling Emu198xKitTests ControllerMapTests.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:50.8787600Z [13/16] Compiling Emu198xKitTests EmulatorLoopTests.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:50.8891650Z [14/16] Compiling Emu198xKitTests Fixtures.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:52.5837010Z [15/17] Compiling Emu198xKitTests MachineTests.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:54.4614130Z [16/19] Compiling Emu198xKitPackageTests runner.swift
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:54.6791540Z [17/19] Emitting module Emu198xKitPackageTests
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:54.6894470Z [17/19] Write Objects.LinkFileList
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:56.0148900Z [18/19] Linking Emu198xKitPackageTests
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:56:56.0182340Z Build complete! (22.39s)
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5407670Z Test Suite 'All tests' started at 2026-10-21 11:56:58.035.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5442170Z Test Suite 'All tests' passed at 2026-10-21 11:56:58.128.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5452800Z 	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.093) seconds
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5495020Z ◇ Test run started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5499000Z ↳ Testing Library Version: 1902
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5499530Z ↳ Target Platform: arm64e-apple-macos14.0
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5500080Z ◇ Suite EmulatorLoopTests started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5500410Z ◇ Suite ControllerMapTests started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5500980Z ◇ Suite MachineTests started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5504010Z ◇ Test runsInRealTime() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5504540Z ◇ Test changingTheMapReleasesWhatTheOldOneHeld() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5508000Z ◇ Test aSharedTargetIsReleasedOnlyWhenNothingHoldsIt() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5511360Z ◇ Test eachControlReachesItsTarget() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5511880Z ◇ Test aSavedStateResumesIdentically() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5515800Z ◇ Test aPALSpectrumHasWidePixels() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5517200Z ➜ Test theRealROMBootsToTheCopyrightScreen() skipped: "needs the 48K ROM (EMU198X_SPECTRUM_48K_ROM)"
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5517910Z ◇ Test theCatalogueListsTheSpectrum() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5518440Z ◇ Test advanceRunsTheFramesWallClockTimeOwes() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5520420Z ➜ Test autoloadTypesLoadAndPlaysTheTape() skipped: "needs the 48K ROM (EMU198X_SPECTRUM_48K_ROM)"
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5521000Z ◇ Test matchesDirectRustExecution() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5524710Z ◇ Test autoloadWithoutATapeIsRefusedByTheRuntime() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5530800Z ◇ Test refusalsArriveAsErrors() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5534000Z ◇ Test machinesTearDownRepeatedly() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5536830Z ✔ Test changingTheMapReleasesWhatTheOldOneHeld() passed after 0.081 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5537610Z ✔ Test aSharedTargetIsReleasedOnlyWhenNothingHoldsIt() passed after 0.081 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5538230Z ✔ Test eachControlReachesItsTarget() passed after 0.081 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5539940Z ✔ Test theCatalogueListsTheSpectrum() passed after 1.548 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5540470Z ✔ Test aPALSpectrumHasWidePixels() passed after 1.549 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5541130Z ✔ Test advanceRunsTheFramesWallClockTimeOwes() passed after 1.549 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5541810Z ✔ Test autoloadWithoutATapeIsRefusedByTheRuntime() passed after 1.549 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5542400Z ✔ Test refusalsArriveAsErrors() passed after 1.549 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5542920Z ✔ Test machinesTearDownRepeatedly() passed after 1.550 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5543600Z ✔ Suite ControllerMapTests passed after 1.550 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5544380Z ✘ Test runsInRealTime() recorded an issue at EmulatorLoopTests.swift:25:9: Expectation failed: ((45...55) → 45 ... 55).contains(frames → 76)
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5545120Z ↳ // 1,000 ms of 19.97 ms frames is 50; scheduling allows a little slack.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5545950Z ↳ ran 76 frames in a second
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5546670Z ✘ Test runsInRealTime() recorded an issue at EmulatorLoopTests.swift:27:9: Expectation failed: ((86_000...106_000) → 86000 ... 106000).contains(written → 145768)
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5550820Z ↳ // One second of stereo at 48 kHz.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5551220Z ↳ produced 145768 samples
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5551680Z ✘ Test runsInRealTime() failed after 1.599 seconds with 2 issues.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5552250Z ◇ Test pausingStopsTheMachine() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5552820Z ✔ Test pausingStopsTheMachine() passed after 1.215 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5553330Z ◇ Test savesAndFailedCommandsReachTheHost() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5553880Z ✔ Test savesAndFailedCommandsReachTheHost() passed after 0.384 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5557380Z ◇ Test queriesAnswerTheHost() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5557940Z ✔ Test queriesAnswerTheHost() passed after 0.310 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5558370Z ◇ Test aMachineThatCannotStartEndsTheLoop() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5558880Z ✔ Test matchesDirectRustExecution() passed after 3.524 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5559470Z ✔ Test aSavedStateResumesIdentically() passed after 3.546 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5562290Z ✔ Suite MachineTests passed after 3.546 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5566750Z ✔ Test aMachineThatCannotStartEndsTheLoop() passed after 0.106 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5570470Z ◇ Test theAudioRingWaitsForItsPrebufferAndRefillsAfterRunningDry() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5571440Z ✔ Test theAudioRingWaitsForItsPrebufferAndRefillsAfterRunningDry() passed after 0.001 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5572130Z ◇ Test theAudioRingDropsTheOldestAndCountsShortReads() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5572790Z ✔ Test theAudioRingDropsTheOldestAndCountsShortReads() passed after 0.001 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5573480Z ◇ Test theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5574480Z ◇ Test case passing 1 argument drift → 0.003 to theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5584950Z ◇ Test case passing 1 argument drift → -0.003 to theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5590000Z ✔ Test theAudioRingAbsorbsDriftBetweenTheMachineAndTheDevice(drift:) with 2 test cases passed after 22.621 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5591040Z ◇ Test aMatchedMachinePlaysEverySampleUnchanged() started.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5591590Z ✔ Test aMatchedMachinePlaysEverySampleUnchanged() passed after 0.858 seconds.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5592300Z ✘ Suite EmulatorLoopTests failed after 27.100 seconds with 2 issues.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5592990Z ✘ Test run with 22 tests in 3 suites failed after 27.101 seconds with 2 issues.
+Apple hosts	Swift must match direct Rust execution	2026-10-21T11:57:25.5669640Z ##[error]Process completed with exit code 1.
