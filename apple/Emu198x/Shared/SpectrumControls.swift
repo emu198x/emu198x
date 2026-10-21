@@ -2,7 +2,8 @@ import Emu198xKit
 import Foundation
 
 /// How a controller plays one Spectrum game: which joystick the stick is,
-/// and which key each spare button presses.
+/// which key each spare button presses, and the key that chooses the
+/// joystick in the game's own menu.
 struct SpectrumControls: Codable, Equatable {
     /// The joystick standards Spectrum games read.
     enum Stick: String, Codable, CaseIterable, Identifiable {
@@ -40,6 +41,9 @@ struct SpectrumControls: Codable, Equatable {
     var stick: Stick = .kempston
     /// Key codes by control. A button missing here does nothing.
     var keys: [Control: String] = [.b: "Space"]
+    /// The key the game asks for to choose its joystick (K in Dizzy),
+    /// pressed for the player on their first move after the game loads.
+    var selectKey: String?
 
     var targets: [Control: ControlTarget] {
         var targets: [Control: ControlTarget] = [:]
@@ -64,15 +68,32 @@ struct SpectrumControls: Codable, Equatable {
     }
 }
 
-/// Each game's controls, kept in `UserDefaults` by file name.
+extension SpectrumControls {
+    /// Any field may be missing, so a hand-written file can name only what
+    /// it changes: `{"stick": "kempston", "selectKey": "KeyK"}`.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = SpectrumControls()
+        stick = try container.decodeIfPresent(Stick.self, forKey: .stick) ?? defaults.stick
+        keys = try container.decodeIfPresent([Control: String].self, forKey: .keys) ?? defaults.keys
+        selectKey = try container.decodeIfPresent(String.self, forKey: .selectKey)
+    }
+}
+
+/// Each game's controls: what the player chose, kept in `UserDefaults` by
+/// file name, or else the game's own `<name>.controls.json` beside it.
 enum SpectrumControlsStore {
     private static func key(for game: String) -> String { "controls.\(game)" }
 
-    static func load(for game: String) -> SpectrumControls {
-        guard let data = UserDefaults.standard.data(forKey: key(for: game)),
-              let controls = try? JSONDecoder().decode(SpectrumControls.self, from: data)
-        else { return SpectrumControls() }
-        return controls
+    static func load(for url: URL) -> SpectrumControls {
+        let game = url.lastPathComponent
+        let sidecar = url.deletingPathExtension().appendingPathExtension("controls.json")
+        for data in [UserDefaults.standard.data(forKey: key(for: game)), try? Data(contentsOf: sidecar)] {
+            if let data, let controls = try? JSONDecoder().decode(SpectrumControls.self, from: data) {
+                return controls
+            }
+        }
+        return SpectrumControls()
     }
 
     static func save(_ controls: SpectrumControls, for game: String) {

@@ -10,6 +10,15 @@ copied into local builds of the tvOS target.
 - Programs: `.tap` and `.tzx` tapes (autoloaded: the runtime types
   `LOAD ""` and presses play), `.sna` and `.z80` snapshots, and `.state`
   files saved with Save State in the Mac app.
+- Controls (optional): `<name>.controls.json` beside a program sets how a
+  controller plays it until the player changes it under Pause, Controls.
+  Any field may be left out, for example
+  `{"stick": "kempston", "selectKey": "KeyK"}` for Dizzy. `stick` is
+  `kempston`, `sinclair`, `cursor` or `qaop`; `selectKey` is the key the
+  game asks for to choose a joystick, pressed on the player's first move
+  once the tape has stopped; `keys` maps `b`, `x`, `y`, `leftShoulder`
+  and `rightShoulder` to keys. Keys are browser key codes (`KeyK`,
+  `Digit1`, `Space`, `Enter`).
 
 Builds that contain these files are for your own devices. Do not commit
 them or distribute such a build: `knowledge/decisions/test-rom-policy.md`

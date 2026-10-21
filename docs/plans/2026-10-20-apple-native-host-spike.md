@@ -249,6 +249,12 @@ sharing `apple/Emu198x/Shared` with the Mac app.
   as Q, A, O and P with Space, and a key for each of B, X, Y and the
   shoulder buttons. Each game's choice is saved by file name in
   `UserDefaults`; a game starts on Kempston with B as Space.
+  A game can also name a select key, the key its own menu asks for to
+  choose a joystick (Dizzy's K), so a controller alone gets past it
+  (Steve, 2026-10-21). The app presses it on the player's first move,
+  held back while `tape.playing` is true, which `Fleet::query` now
+  exposes (Steve approved). It is set under Controls or in a
+  `<name>.controls.json` file beside the game in `LocalContent`.
   `Emu198xKit`'s `ControllerMap` does the routing and is machine-neutral.
   The Siri Remote's d-pad, click and Play/Pause are a fallback. The
   remote's Menu button pauses and opens a menu with Resume, Keyboard,
@@ -291,6 +297,13 @@ controller in Dizzy, B sent Space and Dizzy jumped; after K, the d-pad
 and A sent Kempston directions and fire, and Dizzy walked and jumped.
 The Sinclair, Cursor and QAOP presets use the same two paths but have
 not been tried in a game.
+
+Select key (2026-10-21): in the Mac app, opened on Dizzy's title screen
+with K as its select key, the first press of A tapped K once, and Dizzy
+started in Kempston mode with the controller alone ("works nicely",
+Steve). In the tvOS simulator, `tape.playing` stayed true through
+Dizzy's load and went false about 4.5 minutes in, as the title screen
+appeared.
 
 Still to verify: a controller and the Siri Remote on a real Apple TV. Steve has an
 Apple TV 4K (3rd generation) on tvOS 26.6, which needs signing with his

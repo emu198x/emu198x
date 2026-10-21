@@ -39,6 +39,12 @@ final class SpectrumSession {
     @ObservationIgnored private let audio = AudioOutput()
     @ObservationIgnored private var controller: ControllerInput?
     @ObservationIgnored private var controllerMap = ControllerMap(targets: SpectrumControls().targets)
+    /// The game's select key is still to be pressed: set when a game
+    /// starts, and cleared by the first controller press once its tape has
+    /// stopped.
+    @ObservationIgnored private var selectPending = false
+    /// Whether the tape is still playing, as the runtime last answered.
+    @ObservationIgnored private var tapeBusy = false
     @ObservationIgnored private var monitor: Timer?
     @ObservationIgnored private var lastSample = (time: Date(), frames: 0)
 
@@ -64,6 +70,7 @@ final class SpectrumSession {
         if controller == nil {
             controller = ControllerInput { [weak self] control, pressed in
                 guard let self else { return }
+                if pressed { pressSelectKeyIfDue() }
                 route(controllerMap.set(control, pressed: pressed))
             }
         }
@@ -120,12 +127,15 @@ final class SpectrumSession {
     /// and a `.state` file saved by an Emu198x host is restored.
     func play(_ url: URL) {
         game = url.lastPathComponent
-        setControls(SpectrumControlsStore.load(for: url.lastPathComponent))
+        apply(SpectrumControlsStore.load(for: url))
+        selectPending = controls.selectKey != nil
+        tapeBusy = false
         switch url.pathExtension.lowercased() {
         case "tap", "tzx":
             open(url)
             loop?.send(.autoloadTape)
             tapePlaying = true
+            tapeBusy = true
         case "state":
             loadState(from: url)
         default:
@@ -133,11 +143,28 @@ final class SpectrumSession {
         }
     }
 
-    /// Changes how the controller plays this game, and remembers it.
+    /// Changes how the controller plays this game, and remembers it. A new
+    /// select key is pressed on the next controller press.
     func setControls(_ controls: SpectrumControls) {
-        self.controls = controls
+        if controls.selectKey != self.controls.selectKey {
+            selectPending = controls.selectKey != nil
+        }
+        apply(controls)
         if let game { SpectrumControlsStore.save(controls, for: game) }
+    }
+
+    private func apply(_ controls: SpectrumControls) {
+        self.controls = controls
         route(controllerMap.replace(with: controls.targets))
+    }
+
+    /// Presses the game's select key before the player's first move, so a
+    /// controller alone gets past a menu such as Dizzy's "K for Kempston".
+    /// Held back while the tape plays, when the game is not yet listening.
+    private func pressSelectKeyIfDue() {
+        guard selectPending, !tapeBusy, let key = controls.selectKey else { return }
+        selectPending = false
+        tap(codes: [key])
     }
 
     /// Sends controller changes on: joystick inputs as buttons on their
@@ -226,6 +253,12 @@ final class SpectrumSession {
 
     private func checkLoop() {
         guard let loop else { return }
+        if selectPending && tapeBusy {
+            loop.send(.query("tape.playing") { [weak self] result in
+                let playing = (try? result.get()) == Data("true".utf8)
+                Task { @MainActor in self?.tapeBusy = playing }
+            })
+        }
         if let failure = loop.takeCommandFailures().first {
             report("The Spectrum refused that", failure)
         }
