@@ -1,0 +1,8 @@
+{
+  "crates/nec-upd765a/src/lib.rs": "f6e52cea13d67f3c0ad0446550ca359767c10f513a2a45b655b38ebbf71450be",
+  "crates/nec-upd765a/tests/read_ready.rs": "b1039c7b1f2a2a493910a99391101cfef8b2fc6369b1dbcbbee6ded3ca630721",
+  "crates/nec-upd765a/tests/read_size_bound.rs": "d30e7c0048e921f38bf764e48ef0bd8c74421b1052c9ad247f18c4c1f5763dc9",
+  "Cargo.lock": "1995126431a51edcf5db9853e2edcff870fc1d045f90337669abcc202272e766",
+  "rust-toolchain.toml": "5fe758af7534ce034ce85361ab7c78c3b64793dce46fcd6e950b063cf21fcad6",
+  "release_controller_sha256": "959bbf57a1a5c4fe37b5852efbe836f242ca351c85d8371c7984457f51dd15e9"
+}

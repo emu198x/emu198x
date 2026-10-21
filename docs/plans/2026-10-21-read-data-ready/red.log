@@ -1,0 +1,42 @@
+   Compiling nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.79s
+     Running tests/read_ready.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-ready/debug/deps/read_ready-bfe85e621b28427a)
+
+running 3 tests
+test read_track_samples_physical_ready_and_recovers ... FAILED
+test read_deleted_data_samples_physical_ready_and_recovers ... FAILED
+test read_data_samples_physical_ready_and_recovers ... FAILED
+
+failures:
+
+---- read_track_samples_physical_ready_and_recovers stdout ----
+
+thread 'read_track_samples_physical_ready_and_recovers' (144382939) panicked at crates/nec-upd765a/tests/read_ready.rs:32:9:
+assertion `left == right` failed: result without any execution bytes
+  left: 112
+ right: 208
+
+---- read_deleted_data_samples_physical_ready_and_recovers stdout ----
+
+thread 'read_deleted_data_samples_physical_ready_and_recovers' (144382938) panicked at crates/nec-upd765a/tests/read_ready.rs:32:9:
+assertion `left == right` failed: result without any execution bytes
+  left: 112
+ right: 208
+
+---- read_data_samples_physical_ready_and_recovers stdout ----
+
+thread 'read_data_samples_physical_ready_and_recovers' (144382937) panicked at crates/nec-upd765a/tests/read_ready.rs:32:9:
+assertion `left == right` failed: result without any execution bytes
+  left: 112
+ right: 208
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    read_data_samples_physical_ready_and_recovers
+    read_deleted_data_samples_physical_ready_and_recovers
+    read_track_samples_physical_ready_and_recovers
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_ready`

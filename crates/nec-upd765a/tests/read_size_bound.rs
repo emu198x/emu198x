@@ -5,6 +5,9 @@ use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 fn oversized_n(opcode: u8) {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Size/search guards are independent of drive readiness, including
+    // the intentionally empty-media cases below.
+    fdc.set_ready(0, true);
     for byte in [opcode, 0, 0, 0, 1, 255, 1, 0x2a, 0xff] {
         fdc.write_data(byte);
     }
@@ -40,6 +43,9 @@ fn result(fdc: &mut Upd765a) -> [u8; 7] {
 fn controller(data: Option<Vec<u8>>, deleted: bool) -> Upd765a {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Size/search guards are independent of drive readiness, including
+    // the intentionally empty-media cases below.
+    fdc.set_ready(0, true);
     if let Some(data) = data {
         fdc.insert_disk(
             0,

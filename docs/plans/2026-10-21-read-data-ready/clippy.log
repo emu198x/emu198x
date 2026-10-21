@@ -1,0 +1,12 @@
+    Checking format-sinclair-zx-spectrum-snapshot v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/format-sinclair-zx-spectrum-snapshot)
+    Checking serde_core v1.0.229
+    Checking thiserror v2.0.20
+    Checking serde v1.0.229
+    Checking emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/emu198x-gi-ay-3-8910)
+    Checking serde-big-array v0.5.1
+    Checking emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/emu198x-zilog-z80)
+    Checking common-tape v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/common-tape)
+    Checking gi-ay-3-8912 v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/gi-ay-3-8912)
+    Checking common-sinclair-zx-spectrum v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/common-sinclair-zx-spectrum)
+    Checking nec-upd765a v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-ready/crates/nec-upd765a)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 27s
