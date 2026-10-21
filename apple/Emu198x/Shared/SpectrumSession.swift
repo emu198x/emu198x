@@ -43,6 +43,8 @@ final class SpectrumSession {
     /// starts, and cleared by the first controller press once its tape has
     /// stopped.
     @ObservationIgnored private var selectPending = false
+    /// The select keys are being pressed, and the controller waits.
+    @ObservationIgnored private var selecting = false
     /// Whether the tape is still playing, as the runtime last answered.
     @ObservationIgnored private var tapeBusy = false
     @ObservationIgnored private var monitor: Timer?
@@ -70,7 +72,7 @@ final class SpectrumSession {
         if controller == nil {
             controller = ControllerInput { [weak self] control, pressed in
                 guard let self else { return }
-                if pressed { pressSelectKeyIfDue() }
+                if selecting || (pressed && pressSelectKeysIfDue()) { return }
                 route(controllerMap.set(control, pressed: pressed))
             }
         }
@@ -128,7 +130,7 @@ final class SpectrumSession {
     func play(_ url: URL) {
         game = url.lastPathComponent
         apply(SpectrumControlsStore.load(for: url))
-        selectPending = controls.selectKey != nil
+        selectPending = !controls.selectKeys.isEmpty
         tapeBusy = false
         switch url.pathExtension.lowercased() {
         case "tap", "tzx":
@@ -141,13 +143,16 @@ final class SpectrumSession {
         default:
             open(url)
         }
+        // Again after the load: a restored state carries its own Kempston
+        // setting, which would unplug the one `apply` attached.
+        attachKempstonIfChosen()
     }
 
     /// Changes how the controller plays this game, and remembers it. A new
     /// select key is pressed on the next controller press.
     func setControls(_ controls: SpectrumControls) {
-        if controls.selectKey != self.controls.selectKey {
-            selectPending = controls.selectKey != nil
+        if controls.selectKeys != self.controls.selectKeys {
+            selectPending = !controls.selectKeys.isEmpty
         }
         apply(controls)
         if let game { SpectrumControlsStore.save(controls, for: game) }
@@ -156,15 +161,39 @@ final class SpectrumSession {
     private func apply(_ controls: SpectrumControls) {
         self.controls = controls
         route(controllerMap.replace(with: controls.targets))
+        attachKempstonIfChosen()
     }
 
-    /// Presses the game's select key before the player's first move, so a
+    /// Plugs the Kempston interface in when the stick is one: until a
+    /// Kempston event arrives the runtime leaves it unattached, and games
+    /// that look for one when they start (Fantasy World Dizzy) would not
+    /// find it.
+    private func attachKempstonIfChosen() {
+        guard controls.stick == .kempston else { return }
+        loop?.send(.button("fire", port: 0, pressed: false))
+    }
+
+    /// Presses the game's select keys before the player's first move, so a
     /// controller alone gets past a menu such as Dizzy's "K for Kempston".
     /// Held back while the tape plays, when the game is not yet listening.
-    private func pressSelectKeyIfDue() {
-        guard selectPending, !tapeBusy, let key = controls.selectKey else { return }
+    /// Returns whether it started, so the press that began it, and any
+    /// until it ends, do not reach the game in the middle of its menus.
+    private func pressSelectKeysIfDue() -> Bool {
+        guard selectPending, !tapeBusy, !controls.selectKeys.isEmpty else { return false }
         selectPending = false
-        tap(codes: [key])
+        selecting = true
+        let keys = controls.selectKeys
+        Task { @MainActor [weak self] in
+            for key in keys {
+                self?.key(code: key, pressed: true)
+                try? await Task.sleep(for: .milliseconds(200))
+                self?.key(code: key, pressed: false)
+                // Time for the game to draw its next menu.
+                try? await Task.sleep(for: .milliseconds(1_200))
+            }
+            self?.selecting = false
+        }
+        return true
     }
 
     /// Sends controller changes on: joystick inputs as buttons on their
