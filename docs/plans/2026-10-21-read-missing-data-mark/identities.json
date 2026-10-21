@@ -1,0 +1,26 @@
+{
+  "base_commit": "569b0b1f0448aaace5da97dc8ed0ba897646ee5d",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "a7c5668bf05f6aec48afa63517d572f65f18933d976e54bb469aa81f7cafda2b",
+    "crates/runtime-sinclair-zx-spectrum/tests/read_missing_data_mark.rs": "78e9936f7f5ce591165906c1cdb777dc173c4a4429f8c9d3bcb361753cdbc03f",
+    "Cargo.lock": "1995126431a51edcf5db9853e2edcff870fc1d045f90337669abcc202272e766",
+    "rust-toolchain.toml": "5fe758af7534ce034ce85361ab7c78c3b64793dce46fcd6e950b063cf21fcad6"
+  },
+  "reference_sha256": {
+    "reference/by-topic/fdc-765/nec-upd765ab-datasheet.txt": "f934e29c13bff245098c735ab6d2127c5e859ac446ac6d366af0fb8f392a9a04",
+    "reference/by-topic/fdc-765/nec-upd765ab-datasheet.source.json": "a84183aaa4ed0afd31bbaca5515907188c3190c35b11ef5ad9f168e95ef29d3e",
+    "emulators/multi-system/mame/src/devices/machine/upd765.cpp": "71f284cdbbbded75012919220442a2e45cb808b376f4dfffa0d7722c182bde15",
+    "emulators/multi-system/mame/src/lib/formats/dsk_dsk.cpp": "88a1362a7a588b67908f089901e0e87c9399899078fe85bfe1f54000a63812c3",
+    "emulators/zx-spectrum/fuse-1.7.0/peripherals/disk/upd_fdc.c": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d",
+    "emulators/zx-spectrum/fuse-1.7.0/peripherals/disk/disk.c": "d459f6b7681249641de490c7a2307cff94ab538480cb5876cd1cbd9b9bf987e3"
+  },
+  "release_controller_sha256": "f6e52cea13d67f3c0ad0446550ca359767c10f513a2a45b655b38ebbf71450be",
+  "evidence_class": "fresh direct parser/controller source-build execution; independent source inspection, not reference-runtime replay; no ROM or native-state artifacts",
+  "test_executable": {
+    "path": "/Users/stevehill/Projects/198x/output/qualification/build/read-missing-data-mark/debug/deps/read_missing_data_mark-1a1ac3a92d1d4ff4",
+    "sha256": "4281215c0ededbe59f6c94dbbba706b08b8e2dc7ebbb520412484872eb22a476",
+    "bytes": 1612360
+  }
+}
