@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "qualified": false,
+  "scope": "captured independent reference-model observations only",
+  "final_status_oracle": "unresolved",
+  "observations": 32,
+  "fuse_processes": 16,
+  "mame_processes": 16,
+  "observed_payload_bytes_every_case": 512,
+  "genuine_all_skipped_transfer_observed": false,
+  "false_evidence_controls_rejected": [
+    "false-qualification",
+    "missing-case",
+    "duplicate-case",
+    "wrong-zero-payload",
+    "wrong-256-payload",
+    "invented-all-skipped-status",
+    "invented-mame-source",
+    "wrong-sk-command",
+    "stale-executable-description",
+    "zero-processes"
+  ]
+}
