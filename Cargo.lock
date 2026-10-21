@@ -1258,6 +1258,7 @@ dependencies = [
  "emu198x-fleet-web",
  "emu198x-shell",
  "emu198x-spectrum-web",
+ "emu198x-test-skip",
  "emu198x-web",
  "runtime-acorn-atom",
  "runtime-acorn-bbc-micro",
