@@ -1,0 +1,258 @@
+{
+  "status": "blocked_dependency",
+  "qualified": false,
+  "fresh_processes": 36,
+  "failed_skip_off_controls": 8,
+  "observations": [
+    {
+      "name": "op06-sk0-match0-two0-crc0-r0",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op06-sk0-match0-two1-crc0-r0",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op06-sk0-match1-two0-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk0-match1-two1-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match0-two0-crc0-r0",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match0-two1-crc0-r0",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match1-two0-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match1-two1-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk0-match0-two0-crc0-r0",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op0c-sk0-match0-two1-crc0-r0",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op0c-sk0-match1-two0-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk0-match1-two1-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match0-two0-crc0-r0",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match0-two1-crc0-r0",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match1-two0-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match1-two1-crc0-r0",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match0-two1-crc1-r0",
+      "payload_bytes": 0,
+      "result": "40 20 20 00 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match0-two1-crc1-r0",
+      "payload_bytes": 0,
+      "result": "40 20 20 00 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk0-match0-two0-crc0-r1",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op06-sk0-match0-two1-crc0-r1",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op06-sk0-match1-two0-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk0-match1-two1-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match0-two0-crc0-r1",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match0-two1-crc0-r1",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match1-two0-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match1-two1-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk0-match0-two0-crc0-r1",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op0c-sk0-match0-two1-crc0-r1",
+      "payload_bytes": 0,
+      "result": "40 00 40 00 00 01 02",
+      "skip_off_payload_control": "fail"
+    },
+    {
+      "name": "op0c-sk0-match1-two0-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk0-match1-two1-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match0-two0-crc0-r1",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match0-two1-crc0-r1",
+      "payload_bytes": 0,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match1-two0-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match1-two1-crc0-r1",
+      "payload_bytes": 512,
+      "result": "00 80 00 01 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op06-sk1-match0-two1-crc1-r1",
+      "payload_bytes": 0,
+      "result": "40 20 20 00 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    },
+    {
+      "name": "op0c-sk1-match0-two1-crc1-r1",
+      "payload_bytes": 0,
+      "result": "40 20 20 00 00 01 02",
+      "skip_off_payload_control": "not_applicable"
+    }
+  ],
+  "negative_controls": [
+    {
+      "control": "payload",
+      "rejected": "raw payload"
+    },
+    {
+      "control": "phantom_payload",
+      "rejected": "raw payload"
+    },
+    {
+      "control": "status",
+      "rejected": "raw result"
+    },
+    {
+      "control": "recovery",
+      "rejected": "SDS recovery"
+    },
+    {
+      "control": "reference",
+      "rejected": "reference identity"
+    },
+    {
+      "control": "matrix",
+      "rejected": "case matrix"
+    },
+    {
+      "control": "zero_assertions",
+      "rejected": "result framing"
+    },
+    {
+      "control": "media",
+      "rejected": "live media changed"
+    }
+  ]
+}
