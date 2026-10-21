@@ -18,7 +18,6 @@ struct SessionAlert: Identifiable {
 @MainActor @Observable
 final class SpectrumSession {
     nonisolated static let family = "sinclair-zx-spectrum"
-    nonisolated static let variant = "spectrum_48k"
     nonisolated static let tapeSlot = "tape-1"
 
     private(set) var loop: EmulatorLoop?
@@ -29,12 +28,17 @@ final class SpectrumSession {
     var alert: SessionAlert?
     var showsStatistics = false
     private(set) var statistics = ""
-    /// The file name of the game started with ``play(_:)``, whose controls
-    /// are remembered.
+    /// The game started with ``play(_:game:controls:)``, by the name its
+    /// controls are remembered under.
     private(set) var game: String?
     private(set) var controls = SpectrumControls()
+    /// Whether the player has changed this game's own controls.
+    private(set) var hasChangedControls = false
+    /// The game's own controls, which the player's changes sit on.
+    @ObservationIgnored private var gameControls = SpectrumControls()
 
-    @ObservationIgnored private var rom: Data?
+    /// The model and ROMs the running machine was built from, for restart.
+    @ObservationIgnored private var build: (model: SpectrumModel, firmware: [String: Data])?
     @ObservationIgnored private var keyboard: KeyChords?
     @ObservationIgnored private let audio = AudioOutput()
     @ObservationIgnored private var controller: ControllerInput?
@@ -52,18 +56,24 @@ final class SpectrumSession {
 
     /// Boots a fresh 48K from `rom`, replacing any running machine.
     func start(rom: Data) {
+        start(.spectrum48k, firmware: [SpectrumModel.spectrum48k.firmware[0].id: rom])
+    }
+
+    /// Boots a fresh `model` from `firmware`, its ROMs by firmware id,
+    /// replacing any running machine.
+    func start(_ model: SpectrumModel, firmware: [String: Data]) {
         stop()
         do {
-            let probe = try Self.makeMachine(rom: rom)
+            let probe = try Self.makeMachine(model, firmware: firmware)
             keyboard = try KeyChords(json: probe.keymap())
             pixelAspect = try probe.pixelAspectRatio()
         } catch {
             report("The Spectrum could not start", error)
             return
         }
-        self.rom = rom
+        build = (model, firmware)
         let loop = EmulatorLoop(sampleRate: AudioOutput.sampleRate) {
-            try Self.makeMachine(rom: rom)
+            try Self.makeMachine(model, firmware: firmware)
         }
         self.loop = loop
         isPaused = false
@@ -83,8 +93,8 @@ final class SpectrumSession {
     }
 
     func restart() {
-        guard let rom else { return }
-        start(rom: rom)
+        guard let build else { return }
+        start(build.model, firmware: build.firmware)
     }
 
     func stop() {
@@ -127,10 +137,18 @@ final class SpectrumSession {
     /// Starts a program with no typing: a tape is inserted and autoloaded
     /// (the runtime types `LOAD ""` and presses play), a snapshot is loaded,
     /// and a `.state` file saved by an Emu198x host is restored.
-    func play(_ url: URL) {
-        game = url.lastPathComponent
-        apply(SpectrumControlsStore.load(for: url))
-        selectPending = !controls.selectKeys.isEmpty
+    ///
+    /// `game` names the game for its remembered controls, the file name
+    /// when not given; `controls` are the ones it starts with until the
+    /// player changes them.
+    func play(_ url: URL, game: String? = nil, controls: SpectrumControls? = nil) {
+        let game = game ?? url.lastPathComponent
+        self.game = game
+        gameControls = SpectrumControlsStore.base(for: url, defaults: controls)
+        let changes = SpectrumControlsStore.overrides(for: game)
+        hasChangedControls = changes != nil
+        apply(changes?.applied(to: gameControls) ?? gameControls)
+        selectPending = !self.controls.selectKeys.isEmpty
         tapeBusy = false
         switch url.pathExtension.lowercased() {
         case "tap", "tzx":
@@ -148,14 +166,22 @@ final class SpectrumSession {
         attachKempstonIfChosen()
     }
 
-    /// Changes how the controller plays this game, and remembers it. A new
-    /// select key is pressed on the next controller press.
+    /// Changes how the controller plays this game, and remembers how that
+    /// differs from the game's own controls. A new select key is pressed on
+    /// the next controller press.
     func setControls(_ controls: SpectrumControls) {
         if controls.selectKeys != self.controls.selectKeys {
             selectPending = !controls.selectKeys.isEmpty
         }
         apply(controls)
-        if let game { SpectrumControlsStore.save(controls, for: game) }
+        let changes = SpectrumControlsOverrides(base: gameControls, chosen: controls)
+        hasChangedControls = !changes.isEmpty
+        if let game { SpectrumControlsStore.save(changes, for: game) }
+    }
+
+    /// Forgets the player's changes, so the game's own controls apply.
+    func resetControls() {
+        setControls(gameControls)
     }
 
     private func apply(_ controls: SpectrumControls) {
@@ -264,9 +290,13 @@ final class SpectrumSession {
     }
 
     /// Runs on the loop's thread as well as the main actor's.
-    nonisolated private static func makeMachine(rom: Data) throws -> Machine {
-        let machine = try Machine(family: family, variant: variant)
-        try machine.supplyFirmware(id: SpectrumFirmware.id, data: rom)
+    nonisolated private static func makeMachine(
+        _ model: SpectrumModel, firmware: [String: Data]
+    ) throws -> Machine {
+        let machine = try Machine(family: family, variant: model.rawValue)
+        for (id, data) in firmware.sorted(by: { $0.key < $1.key }) {
+            try machine.supplyFirmware(id: id, data: data)
+        }
         try machine.boot()
         return machine
     }

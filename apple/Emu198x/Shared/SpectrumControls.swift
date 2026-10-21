@@ -89,24 +89,67 @@ extension SpectrumControls {
     }
 }
 
-/// Each game's controls: what the player chose, kept in `UserDefaults` by
-/// file name, or else the game's own `<name>.controls.json` beside it.
-enum SpectrumControlsStore {
-    private static func key(for game: String) -> String { "controls.\(game)" }
+/// What the player changed from a game's own controls. Only the changes
+/// are kept, so a later fix to the game's own controls still reaches every
+/// setting the player left alone.
+struct SpectrumControlsOverrides: Codable, Equatable {
+    var stick: SpectrumControls.Stick?
+    /// Key codes by button; an empty code means the player chose none.
+    var keys: [Control: String] = [:]
+    var selectKeys: [String]?
 
-    static func load(for url: URL) -> SpectrumControls {
-        let game = url.lastPathComponent
+    var isEmpty: Bool { stick == nil && keys.isEmpty && selectKeys == nil }
+
+    /// The changes that turn `base` into `chosen`. A setting the player
+    /// puts back to the game's own is no longer a change.
+    init(base: SpectrumControls, chosen: SpectrumControls) {
+        stick = chosen.stick == base.stick ? nil : chosen.stick
+        for control in SpectrumControls.buttons where chosen.keys[control] != base.keys[control] {
+            keys[control] = chosen.keys[control] ?? ""
+        }
+        selectKeys = chosen.selectKeys == base.selectKeys ? nil : chosen.selectKeys
+    }
+
+    func applied(to base: SpectrumControls) -> SpectrumControls {
+        var controls = base
+        if let stick { controls.stick = stick }
+        for (control, code) in keys {
+            controls.keys[control] = code.isEmpty ? nil : code
+        }
+        if let selectKeys { controls.selectKeys = selectKeys }
+        return controls
+    }
+}
+
+/// Each game's controls: its own, from its library entry or else its
+/// `<name>.controls.json` beside it, with the player's changes kept in
+/// `UserDefaults` under the game's key.
+enum SpectrumControlsStore {
+    private static func key(for game: String) -> String { "controlOverrides.\(game)" }
+
+    /// The game's own controls: those its library entry gives, or else its
+    /// `<name>.controls.json`, or else the defaults.
+    static func base(for url: URL, defaults: SpectrumControls?) -> SpectrumControls {
+        if let defaults { return defaults }
         let sidecar = url.deletingPathExtension().appendingPathExtension("controls.json")
-        for data in [UserDefaults.standard.data(forKey: key(for: game)), try? Data(contentsOf: sidecar)] {
-            if let data, let controls = try? JSONDecoder().decode(SpectrumControls.self, from: data) {
-                return controls
-            }
+        if let data = try? Data(contentsOf: sidecar),
+           let controls = try? JSONDecoder().decode(SpectrumControls.self, from: data) {
+            return controls
         }
         return SpectrumControls()
     }
 
-    static func save(_ controls: SpectrumControls, for game: String) {
-        guard let data = try? JSONEncoder().encode(controls) else { return }
+    static func overrides(for game: String) -> SpectrumControlsOverrides? {
+        guard let data = UserDefaults.standard.data(forKey: key(for: game)) else { return nil }
+        return try? JSONDecoder().decode(SpectrumControlsOverrides.self, from: data)
+    }
+
+    /// Keeps the player's changes, or forgets them when there are none.
+    static func save(_ overrides: SpectrumControlsOverrides, for game: String) {
+        guard !overrides.isEmpty, let data = try? JSONEncoder().encode(overrides) else {
+            UserDefaults.standard.removeObject(forKey: key(for: game))
+            return
+        }
         UserDefaults.standard.set(data, forKey: key(for: game))
     }
 }

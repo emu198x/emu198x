@@ -45,6 +45,12 @@ struct ControlsView: View {
                     .pickerStyle(.navigationLink)
                 }
             }
+            Section {
+                Button("Reset to the Game's Settings") { session.resetControls() }
+                    .disabled(!session.hasChangedControls)
+            } footer: {
+                Text("Undoes your changes on this screen, so the game's own settings apply again, including any later fixes to them.")
+            }
         }
         .navigationTitle(title)
     }
