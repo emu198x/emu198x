@@ -86,6 +86,9 @@ jobs:
       - name: Check Homebrew publication reads large plans from disk
         run: python3 scripts/test_release_homebrew.py
 
+      - name: Check Apple TV content bootstrap refuses bad inputs
+        run: python3 scripts/test_bootstrap_apple_local_content.py
+
       - name: Check crates.io probes identify themselves
         run: python3 scripts/check-crates-io-user-agent.py --self-test
 
