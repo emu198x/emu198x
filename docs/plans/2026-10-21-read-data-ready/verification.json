@@ -1,0 +1,52 @@
+{
+  "base_commit": "1e1fb7957e48c5d196e16b908acbf2af8caddd4b",
+  "env": {
+    "RUSTUP_TOOLCHAIN": "1.99.0",
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-ready"
+  },
+  "fail_first_toolchain": "1.98.0",
+  "checks": [
+    {
+      "name": "tests",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "nec-upd765a"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 127.89
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "nec-upd765a",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 89.24
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "host_timeout_seconds": 300,
+      "elapsed_seconds": 41.23
+    }
+  ]
+}

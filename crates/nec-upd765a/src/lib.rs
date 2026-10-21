@@ -1195,7 +1195,14 @@ impl Upd765a {
             pending_st1: 0,
             pending_st2: 0,
         });
-        if self.prepare_read_sector() {
+        // NEC A/B ST0.NR (printed 5-12); MAME read_data_start and
+        // read_track_start sample physical READY before searching media.
+        // Mounted bytes do not override an explicitly deasserted input.
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        if !self.drive_ready(drive) {
+            self.st0 |= 0x48;
+            self.read_result();
+        } else if self.prepare_read_sector() {
             self.phase = Phase::Execution;
             self.start_read_preamble();
         }
