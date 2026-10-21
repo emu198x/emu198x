@@ -3,8 +3,9 @@ import GameController
 
 /// Reports the connected game controllers' controls.
 ///
-/// The d-pad and left stick are the four directions; A, B, X, Y and the
-/// shoulder buttons are themselves. What each control does is the
+/// The d-pad and left stick are the four directions; A, B, X, Y, the
+/// shoulder buttons and Options (View on an Xbox controller) are
+/// themselves. What each control does is the
 /// session's ``ControllerMap``. Disconnecting a controller releases
 /// everything it held.
 @MainActor
@@ -51,6 +52,7 @@ final class ControllerInput {
                 .y: pad.buttonY.isPressed,
                 .leftShoulder: pad.leftShoulder.isPressed,
                 .rightShoulder: pad.rightShoulder.isPressed,
+                .options: pad.buttonOptions?.isPressed ?? false,
             ]
             MainActor.assumeIsolated { self?.apply(state) }
         }

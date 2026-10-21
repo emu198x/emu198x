@@ -19,7 +19,7 @@ struct LocalLibrary {
     struct Version: Identifiable {
         let name: String
         let url: URL
-        let model: SpectrumModel
+        let model: MachineModel
         let controls: SpectrumControls?
         /// The name its remembered controls are kept under.
         let key: String
@@ -31,14 +31,15 @@ struct LocalLibrary {
         struct Entry: Decodable {
             let name: String
             let file: String
-            let machine: SpectrumModel?
+            let machine: MachineModel?
             let controls: SpectrumControls?
         }
 
         let versions: [Entry]
     }
 
-    static let extensions = ["tap", "tzx", "sna", "z80", "state"]
+    /// Spectrum programs, then console cartridges.
+    static let extensions = ["tap", "tzx", "sna", "z80", "state", "nes", "sms", "gg"]
 
     let games: [Game]
     /// Where the ROMs were put: the app's resources.
@@ -63,13 +64,15 @@ struct LocalLibrary {
             guard !versions.isEmpty else { continue }
             games.append(Game(name: name, cover: Self.cover(named: name, in: bundle), versions: versions))
         }
-        // Programs no game lists stand on their own, on the 48K.
+        // Programs no game lists stand on their own: a cartridge on its
+        // console, anything else on the 48K.
         for url in Self.extensions.flatMap({ bundle.urls(forResourcesWithExtension: $0, subdirectory: nil) ?? [] })
         where !named.contains(url.lastPathComponent) {
             let name = url.deletingPathExtension().lastPathComponent
+            let model = MachineModel(fileExtension: url.pathExtension)
             let version = Version(
-                name: url.pathExtension.uppercased(), url: url, model: .spectrum48k,
-                controls: nil, key: url.lastPathComponent)
+                name: model.isSpectrum ? url.pathExtension.uppercased() : model.name,
+                url: url, model: model, controls: nil, key: url.lastPathComponent)
             games.append(Game(name: name, cover: Self.cover(named: name, in: bundle), versions: [version]))
         }
         self.games = games.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

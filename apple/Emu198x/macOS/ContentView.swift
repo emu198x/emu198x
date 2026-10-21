@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    @Bindable var session: SpectrumSession
+    @Bindable var session: MachineSession
     @State private var firmwareProblem: String?
 
     var body: some View {
@@ -45,12 +45,12 @@ struct ContentView: View {
 
     private func startFromDefaultLocation() {
         guard session.loop == nil else { return }
-        start(from: SpectrumFirmware.defaultLocation)
+        start(from: Firmware.defaultLocation)
     }
 
     private func start(from url: URL) {
         do {
-            let rom = try url.withSecurityScope { try SpectrumFirmware.load(from: url) }
+            let rom = try url.withSecurityScope { try Firmware.load(from: url) }
             firmwareProblem = nil
             session.start(rom: rom)
         } catch {

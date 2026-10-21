@@ -17,19 +17,27 @@ copied into local builds of the tvOS target.
 - Programs: `.tap` and `.tzx` tapes (autoloaded: the runtime types
   `LOAD ""` and presses play), `.sna` and `.z80` snapshots, and `.state`
   files saved with Save State in the Mac app.
+- Cartridges: `.nes` for the NES (NTSC), `.sms` for the Master System
+  (PAL) and `.gg` for the Game Gear. Rename a TOSEC `.bin` to match. They
+  need no ROM. The controller is the console's own: the bottom face
+  button is NES B or Sega button 1, the right one NES A or button 2,
+  Options (View) is Start (Pause on the Master System) and the left
+  shoulder is the NES's Select.
 - Box art (optional): `<name>.jpg` or `<name>.png` beside a program or
   game is its cover in the library. A cassette inlay's front panel, about
   5:8, fits best.
 - Versions (optional): `<Game>.game.json` makes one library entry of
   several ways to play a game. Each version names its file, its machine
-  (`spectrum_48k` or `spectrum_128k`) and its controls, as below; the
+  (`spectrum_48k`, `spectrum_128k`, `nes`, `master_system` or
+  `game_gear`) and, on the Spectrum, its controls, as below; the
   first is the one selecting the game plays, and a long press offers the
   rest:
   `{"versions": [{"name": "128K", "file": "Fantasy World Dizzy.tzx",
   "machine": "spectrum_128k", "controls": {"stick": "kempston"}},
   {"name": "48K", "file": "Fantasy World Dizzy.tzx",
   "machine": "spectrum_48k", "controls": {"stick": "kempston"}}]}`.
-  A program no game lists has an entry of its own, on the 48K.
+  A program no game lists has an entry of its own, on the 48K or, for a
+  cartridge, its console.
 - Controls (optional): `<name>.controls.json` beside a program sets how a
   controller plays it. What the player changes under Pause, Controls is
   kept as changes on top of it, so a later fix to the file still applies

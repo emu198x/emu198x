@@ -19,7 +19,9 @@ scripts/build-apple-xcframework.sh
 This writes `apple/build/Emu198xCore.xcframework`, with the macOS, Apple TV
 and Apple TV simulator libraries, and `apple/build/baseline.json`. The
 script links a small C program against each library and runs the macOS
-one before it packages anything. Run it again after any Rust change.
+one before it packages anything. Run it again after any Rust change. It
+builds the families the apps run (the Spectrum, NES, Master System and
+Game Gear); `EMU198X_APPLE_FEATURES` picks others.
 
 ## Apps
 
@@ -31,9 +33,9 @@ shared code (`apple/Emu198x/Shared`):
   Kempston joystick.
 - **Emu198x Spectrum TV** (tvOS): plays what is built into it from
   `apple/Emu198x/LocalContent`, which is git-ignored apart from its README.
-  Put `48.rom` and your programs there and build. Tapes autoload; the
-  remote's Menu button pauses, with an on-screen keyboard for keys a
-  controller cannot press.
+  Put `48.rom` and your programs there, or NES, Master System and Game
+  Gear cartridges, and build. Tapes autoload; the remote's Menu button
+  pauses, with an on-screen keyboard for keys a controller cannot press.
 
 Both read the ROM you supply. Neither build is signed for distribution.
 

@@ -5,7 +5,7 @@ import SwiftUI
 /// is, and a key for each spare button. Changes apply at once and are
 /// remembered for the game.
 struct ControlsView: View {
-    let session: SpectrumSession
+    let session: MachineSession
 
     var body: some View {
         List {
