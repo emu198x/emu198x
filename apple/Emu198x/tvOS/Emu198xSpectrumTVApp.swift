@@ -128,7 +128,7 @@ struct PauseMenu: View {
             List {
                 Button("Resume") { showsMenu = false }
                 // A console has no keyboard, and its controller is its own.
-                if session.model?.isSpectrum ?? false {
+                if session.model?.pad == nil {
                     NavigationLink("Keyboard") { KeyPadView(session: session) }
                     NavigationLink("Controls") { ControlsView(session: session) }
                 }

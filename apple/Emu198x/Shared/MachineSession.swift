@@ -33,25 +33,25 @@ final class MachineSession {
     /// The game started with ``play(_:game:controls:)``, by the name its
     /// controls are remembered under.
     private(set) var game: String?
-    private(set) var controls = SpectrumControls()
+    private(set) var controls = GameControls()
     /// Whether the player has changed this game's own controls.
     private(set) var hasChangedControls = false
     /// The game's own controls, which the player's changes sit on.
-    @ObservationIgnored private var gameControls = SpectrumControls()
+    @ObservationIgnored private var gameControls = GameControls()
 
     /// What the running machine was built from, for restart.
     @ObservationIgnored private var build: Build?
     @ObservationIgnored private var keyboard: KeyChords?
     @ObservationIgnored private let audio = AudioOutput()
     @ObservationIgnored private var controller: ControllerInput?
-    @ObservationIgnored private var controllerMap = ControllerMap(targets: SpectrumControls().targets)
+    @ObservationIgnored private var controllerMap = ControllerMap(targets: GameControls().targets)
     /// The game's select key is still to be pressed: set when a game
     /// starts, and cleared by the first controller press once its tape has
     /// stopped.
     @ObservationIgnored private var selectPending = false
     /// The select keys are being pressed, and the controller waits.
     @ObservationIgnored private var selecting = false
-    /// Whether the tape is still playing, as the runtime last answered.
+    /// Whether the tape is still loading, as the runtime last answered.
     @ObservationIgnored private var tapeBusy = false
     @ObservationIgnored private var monitor: Timer?
     @ObservationIgnored private var lastSample = (time: Date(), frames: 0)
@@ -159,7 +159,7 @@ final class MachineSession {
     /// when not given; `controls` are the ones it starts with until the
     /// player changes them. A console's cartridge is already in it, from
     /// ``start(_:firmware:cartridge:)``, and its controller is its own.
-    func play(_ url: URL, game: String? = nil, controls: SpectrumControls? = nil) {
+    func play(_ url: URL, game: String? = nil, controls: GameControls? = nil) {
         let game = game ?? url.lastPathComponent
         self.game = game
         if let pad = model?.pad {
@@ -168,8 +168,13 @@ final class MachineSession {
             route(controllerMap.replace(with: pad))
             return
         }
-        gameControls = SpectrumControlsStore.base(for: url, defaults: controls)
-        let changes = SpectrumControlsStore.overrides(for: game)
+        gameControls = GameControlsStore.base(for: url, defaults: controls)
+        // A stick this machine has not got, as a Spectrum default on a C64,
+        // becomes the machine's own first one.
+        if let sticks = model?.sticks, !sticks.isEmpty, !sticks.contains(gameControls.stick) {
+            gameControls.stick = sticks[0]
+        }
+        let changes = GameControlsStore.overrides(for: game)
         hasChangedControls = changes != nil
         apply(changes?.applied(to: gameControls) ?? gameControls)
         selectPending = !self.controls.selectKeys.isEmpty
@@ -193,14 +198,14 @@ final class MachineSession {
     /// Changes how the controller plays this game, and remembers how that
     /// differs from the game's own controls. A new select key is pressed on
     /// the next controller press.
-    func setControls(_ controls: SpectrumControls) {
+    func setControls(_ controls: GameControls) {
         if controls.selectKeys != self.controls.selectKeys {
             selectPending = !controls.selectKeys.isEmpty
         }
         apply(controls)
-        let changes = SpectrumControlsOverrides(base: gameControls, chosen: controls)
+        let changes = GameControlsOverrides(base: gameControls, chosen: controls)
         hasChangedControls = !changes.isEmpty
-        if let game { SpectrumControlsStore.save(changes, for: game) }
+        if let game { GameControlsStore.save(changes, for: game) }
     }
 
     /// Forgets the player's changes, so the game's own controls apply.
@@ -208,7 +213,7 @@ final class MachineSession {
         setControls(gameControls)
     }
 
-    private func apply(_ controls: SpectrumControls) {
+    private func apply(_ controls: GameControls) {
         self.controls = controls
         route(controllerMap.replace(with: model?.pad ?? controls.targets))
         attachKempstonIfChosen()
@@ -340,10 +345,7 @@ final class MachineSession {
     private func checkLoop() {
         guard let loop else { return }
         if selectPending && tapeBusy {
-            loop.send(.query("tape.playing") { [weak self] result in
-                let playing = (try? result.get()) == Data("true".utf8)
-                Task { @MainActor in self?.tapeBusy = playing }
-            })
+            checkTape(on: loop)
         }
         if let failure = loop.takeCommandFailures().first {
             report("The \(system) refused that", failure)
@@ -364,6 +366,28 @@ final class MachineSession {
                 rate, audio.underruns, audio.dropped)
             lastSample = (now, frames)
         }
+    }
+
+    /// Asks whether the tape is still loading. The Spectrum's deck stops at
+    /// the end of a load. A C64 loader stops the motor between blocks, for
+    /// as long as 12 seconds after the KERNAL's FOUND, so the C64's tape
+    /// is busy until it has played to its end.
+    private func checkTape(on loop: EmulatorLoop) {
+        guard model == .c64 else {
+            loop.send(.query("tape.playing") { [weak self] result in
+                let playing = (try? result.get()) == Data("true".utf8)
+                Task { @MainActor in self?.tapeBusy = playing }
+            })
+            return
+        }
+        loop.send(.query("tape.pulse_index") { [weak self] index in
+            loop.send(.query("tape.pulse_count") { count in
+                let number = { (data: Data?) in data.flatMap { Int(String(decoding: $0, as: UTF8.self)) } }
+                guard let index = number(try? index.get()), let count = number(try? count.get()) else { return }
+                let loading = index + 1 < count
+                Task { @MainActor in self?.tapeBusy = loading }
+            })
+        })
     }
 
     private var system: String { model?.system ?? "machine" }

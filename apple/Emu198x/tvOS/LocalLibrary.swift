@@ -20,7 +20,7 @@ struct LocalLibrary {
         let name: String
         let url: URL
         let model: MachineModel
-        let controls: SpectrumControls?
+        let controls: GameControls?
         /// The name its remembered controls are kept under.
         let key: String
         var id: String { key }
@@ -32,7 +32,7 @@ struct LocalLibrary {
             let name: String
             let file: String
             let machine: MachineModel?
-            let controls: SpectrumControls?
+            let controls: GameControls?
         }
 
         let versions: [Entry]
