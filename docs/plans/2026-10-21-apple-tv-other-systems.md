@@ -6,8 +6,6 @@ more kind of version: Treasure Island Dizzy offers the Spectrum 128K and
 48K, the Commodore 64, the Amstrad CPC and the Amiga under one cover. It
 builds on `2026-10-21-apple-tv-game-versions.md`.
 
-Waiting on disk space: Steve, 2026-10-21, asked to hold the builds until
-there is room (about 15 GB for the other cores and Xcode).
 
 ## What is known
 
@@ -57,6 +55,27 @@ Spectrum disks: no Codemasters disk release of a Dizzy game is known.
 TOSEC's Spectrum disk images of them are TR-DOS conversions by scene
 groups, all flagged as hacks, so they are left out.
 
+## Findings (step 1, 2026-10-21)
+
+Headless, on the desktop binaries:
+
+- NES: both Camerica cartridges reach their titles and play; Start on
+  input port 1 starts them.
+- Master System and Game Gear: Codemasters cartridges drew garbage until
+  the Codemasters mapper landed (#204, #214). Fantastic Dizzy now plays
+  on both; on the Game Gear it starts with button 1 after a long intro.
+  The Game Gear Excellent Dizzy Collection is a Master System-mode
+  cartridge, shown cropped by the Game Gear core (#1932), so the app runs
+  it on the Master System.
+- C64: all twelve tapes autoload and reach their titles; the joystick in
+  port 2 starts most, Spellbound wants Space.
+- Amiga: crack intros wait for the left mouse button; Bubble, Fantasy
+  World and Magicland then play. Fantastic Dizzy (AGA) and Crystal
+  Kingdom need their second disk, and Fantastic Dizzy reads both, so the
+  machine takes up to four drives (Steve, 2026-10-21; its own plan,
+  `2026-10-21-amiga-four-drives.md`). Prince of the Yolkfolk, Dizzy Panic
+  and both compilations stay black after the intro: not yet looked at.
+
 ## Design
 
 - A version gains a system: `"machine"` becomes a family and variant
@@ -85,6 +104,8 @@ groups, all flagged as hacks, so they are left out.
    the Spectrum set plays as before.
 3. Cartridge systems: NES, Game Gear and Master System versions, with
    their covers. Verify in the simulator and with Steve's controller.
+   Each console's controller is its own pad, by button position; Options
+   (View) is Start because Menu pauses.
 4. C64: tape autoload through `Fleet` (asked for first), joystick presets
    for port 2, keys per game. Verify as for the Spectrum.
 5. The bootstrap recipe gains the new versions and their covers.

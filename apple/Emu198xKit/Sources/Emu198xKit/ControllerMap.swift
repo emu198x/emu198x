@@ -4,6 +4,9 @@ public enum Control: String, CaseIterable, Codable, CodingKeyRepresentable, Send
     case up, down, left, right
     case a, b, x, y
     case leftShoulder, rightShoulder
+    /// The Options or View button. The Menu button is the app's own: it
+    /// pauses.
+    case options
 }
 
 /// What a control drives on the machine.
@@ -14,6 +17,9 @@ public enum ControlTarget: Hashable, Codable, Sendable {
     /// A host key by browser key code (`KeyQ`, `Space`), which reaches the
     /// machine through the runtime's keymap like a typed key.
     case key(String)
+    /// A machine key by the runtime's own name, sent as it is: a console
+    /// button with no host key, such as the Game Gear's `start`.
+    case machineKey(String)
 }
 
 /// Routes controller controls to machine inputs.

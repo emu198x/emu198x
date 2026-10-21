@@ -8,7 +8,7 @@ import SwiftUI
 struct ScreenView: NSViewRepresentable {
     let loop: EmulatorLoop
     let pixelAspect: Float
-    let session: SpectrumSession
+    let session: MachineSession
 
     func makeNSView(context: Context) -> ScreenNSView {
         ScreenNSView(loop: loop, pixelAspect: pixelAspect, session: session)
@@ -20,11 +20,11 @@ struct ScreenView: NSViewRepresentable {
 }
 
 final class ScreenNSView: MTKView {
-    private weak var session: SpectrumSession?
+    private weak var session: MachineSession?
     private var renderer: SharpRenderer?
     private var heldModifiers: Set<String> = []
 
-    init(loop: EmulatorLoop, pixelAspect: Float, session: SpectrumSession) {
+    init(loop: EmulatorLoop, pixelAspect: Float, session: MachineSession) {
         self.session = session
         super.init(frame: .zero, device: MTLCreateSystemDefaultDevice())
         (layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)

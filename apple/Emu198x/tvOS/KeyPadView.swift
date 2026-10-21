@@ -6,7 +6,7 @@ import SwiftUI
 /// key, as one-finger typing on the real machine needed. The game keeps
 /// running behind it, so each key's effect shows straight away.
 struct KeyPadView: View {
-    let session: SpectrumSession
+    let session: MachineSession
     @State private var capsShift = false
     @State private var symbolShift = false
 

@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 @main
 struct Emu198xSpectrumApp: App {
-    @State private var session = SpectrumSession()
+    @State private var session = MachineSession()
 
     var body: some Scene {
         Window("Emu198x Spectrum", id: "spectrum") {
@@ -16,7 +16,7 @@ struct Emu198xSpectrumApp: App {
 
 /// The menus. Each item calls the same session method its shortcut does.
 struct SpectrumCommands: Commands {
-    let session: SpectrumSession
+    let session: MachineSession
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {

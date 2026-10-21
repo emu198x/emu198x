@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct Emu198xSpectrumTVApp: App {
-    @State private var session = SpectrumSession()
+    @State private var session = MachineSession()
 
     var body: some Scene {
         WindowGroup {
@@ -14,7 +14,7 @@ struct Emu198xSpectrumTVApp: App {
 /// The library until a program starts, then the machine full screen. The
 /// remote's Menu button pauses and opens the pause menu.
 struct TVRootView: View {
-    @Bindable var session: SpectrumSession
+    @Bindable var session: MachineSession
     @State private var library = LocalLibrary()
     @State private var showsMenu = false
     /// The screen must hold focus, or the remote's Menu press reaches no
@@ -48,7 +48,7 @@ struct TVRootView: View {
         guard let folder = library.firmware else { return }
         let firmware: [String: Data]
         do {
-            firmware = try SpectrumFirmware.load(version.model, from: folder)
+            firmware = try Firmware.load(version.model, from: folder)
         } catch {
             let files = version.model.firmware.map(\.file).joined(separator: " and ")
             session.alert = SessionAlert(
@@ -56,7 +56,12 @@ struct TVRootView: View {
                 message: "Put \(files) in apple/Emu198x/LocalContent, then build again. \(error)")
             return
         }
-        session.start(version.model, firmware: firmware)
+        var cartridge: Data?
+        if version.model.pad != nil {
+            guard let data = session.cartridge(at: version.url) else { return }
+            cartridge = data
+        }
+        session.start(version.model, firmware: firmware, cartridge: cartridge)
         session.play(version.url, game: version.key, controls: version.controls)
     }
 
@@ -79,7 +84,7 @@ struct LibraryView: View {
         NavigationStack {
             Group {
                 if library.games.isEmpty {
-                    message("Put .tap, .tzx, .sna, .z80 or .state files and the Spectrum ROMs in apple/Emu198x/LocalContent, then build again.")
+                    message("Put .tap, .tzx, .sna, .z80 or .state files and the Spectrum ROMs, or .nes, .sms or .gg cartridges, in apple/Emu198x/LocalContent, then build again.")
                 } else {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 48)], spacing: 64) {
@@ -115,15 +120,18 @@ struct LibraryView: View {
 
 /// Paused: carry on, type keys the remote cannot, restart, or leave.
 struct PauseMenu: View {
-    let session: SpectrumSession
+    let session: MachineSession
     @Binding var showsMenu: Bool
 
     var body: some View {
         NavigationStack {
             List {
                 Button("Resume") { showsMenu = false }
-                NavigationLink("Keyboard") { KeyPadView(session: session) }
-                NavigationLink("Controls") { ControlsView(session: session) }
+                // A console has no keyboard, and its controller is its own.
+                if session.model?.isSpectrum ?? false {
+                    NavigationLink("Keyboard") { KeyPadView(session: session) }
+                    NavigationLink("Controls") { ControlsView(session: session) }
+                }
                 Button("Restart") {
                     session.restart()
                     showsMenu = false

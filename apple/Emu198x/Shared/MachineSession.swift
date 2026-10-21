@@ -9,18 +9,20 @@ struct SessionAlert: Identifiable {
     let message: String
 }
 
-/// The Spectrum one window shows: a running ``EmulatorLoop`` and what the
+/// The machine one window shows: a running ``EmulatorLoop`` and what the
 /// menus, screen and controls need to drive it.
 ///
 /// Every action reaches the machine as a ``HostCommand``, applied by the
 /// loop between frames, whether it came from a menu, a shortcut, the
 /// keyboard or a controller.
 @MainActor @Observable
-final class SpectrumSession {
-    nonisolated static let family = "sinclair-zx-spectrum"
+final class MachineSession {
     nonisolated static let tapeSlot = "tape-1"
+    nonisolated static let cartridgeSlot = "cartridge-1"
 
     private(set) var loop: EmulatorLoop?
+    /// The machine running, or last run.
+    private(set) var model: MachineModel?
     private(set) var isPaused = false
     private(set) var tapePlaying = false
     /// Width of one picture pixel relative to its height, from the runtime.
@@ -37,8 +39,8 @@ final class SpectrumSession {
     /// The game's own controls, which the player's changes sit on.
     @ObservationIgnored private var gameControls = SpectrumControls()
 
-    /// The model and ROMs the running machine was built from, for restart.
-    @ObservationIgnored private var build: (model: SpectrumModel, firmware: [String: Data])?
+    /// What the running machine was built from, for restart.
+    @ObservationIgnored private var build: Build?
     @ObservationIgnored private var keyboard: KeyChords?
     @ObservationIgnored private let audio = AudioOutput()
     @ObservationIgnored private var controller: ControllerInput?
@@ -54,26 +56,36 @@ final class SpectrumSession {
     @ObservationIgnored private var monitor: Timer?
     @ObservationIgnored private var lastSample = (time: Date(), frames: 0)
 
-    /// Boots a fresh 48K from `rom`, replacing any running machine.
-    func start(rom: Data) {
-        start(.spectrum48k, firmware: [SpectrumModel.spectrum48k.firmware[0].id: rom])
+    /// A model, its ROMs by firmware id, and the cartridge in its slot.
+    private struct Build {
+        let model: MachineModel
+        let firmware: [String: Data]
+        let cartridge: Data?
     }
 
-    /// Boots a fresh `model` from `firmware`, its ROMs by firmware id,
-    /// replacing any running machine.
-    func start(_ model: SpectrumModel, firmware: [String: Data]) {
+    /// Boots a fresh 48K from `rom`, replacing any running machine.
+    func start(rom: Data) {
+        start(.spectrum48k, firmware: [MachineModel.spectrum48k.firmware[0].id: rom])
+    }
+
+    /// Boots a fresh `model` from `firmware`, its ROMs by firmware id, with
+    /// `cartridge` in its slot, replacing any running machine. The
+    /// cartridge is part of the machine, so restarting keeps it.
+    func start(_ model: MachineModel, firmware: [String: Data], cartridge: Data? = nil) {
         stop()
+        let build = Build(model: model, firmware: firmware, cartridge: cartridge)
         do {
-            let probe = try Self.makeMachine(model, firmware: firmware)
+            let probe = try Self.makeMachine(build)
             keyboard = try KeyChords(json: probe.keymap())
             pixelAspect = try probe.pixelAspectRatio()
         } catch {
-            report("The Spectrum could not start", error)
+            report("The \(model.system) could not start", error)
             return
         }
-        build = (model, firmware)
+        self.build = build
+        self.model = model
         let loop = EmulatorLoop(sampleRate: AudioOutput.sampleRate) {
-            try Self.makeMachine(model, firmware: firmware)
+            try Self.makeMachine(build)
         }
         self.loop = loop
         isPaused = false
@@ -94,7 +106,7 @@ final class SpectrumSession {
 
     func restart() {
         guard let build else { return }
-        start(build.model, firmware: build.firmware)
+        start(build.model, firmware: build.firmware, cartridge: build.cartridge)
     }
 
     func stop() {
@@ -134,16 +146,28 @@ final class SpectrumSession {
         if slot == Self.tapeSlot { tapePlaying = false }
     }
 
+    /// Reads a cartridge to start a console with.
+    func cartridge(at url: URL) -> Data? {
+        read(url)
+    }
+
     /// Starts a program with no typing: a tape is inserted and autoloaded
     /// (the runtime types `LOAD ""` and presses play), a snapshot is loaded,
     /// and a `.state` file saved by an Emu198x host is restored.
     ///
     /// `game` names the game for its remembered controls, the file name
     /// when not given; `controls` are the ones it starts with until the
-    /// player changes them.
+    /// player changes them. A console's cartridge is already in it, from
+    /// ``start(_:firmware:cartridge:)``, and its controller is its own.
     func play(_ url: URL, game: String? = nil, controls: SpectrumControls? = nil) {
         let game = game ?? url.lastPathComponent
         self.game = game
+        if let pad = model?.pad {
+            hasChangedControls = false
+            selectPending = false
+            route(controllerMap.replace(with: pad))
+            return
+        }
         gameControls = SpectrumControlsStore.base(for: url, defaults: controls)
         let changes = SpectrumControlsStore.overrides(for: game)
         hasChangedControls = changes != nil
@@ -186,7 +210,7 @@ final class SpectrumSession {
 
     private func apply(_ controls: SpectrumControls) {
         self.controls = controls
-        route(controllerMap.replace(with: controls.targets))
+        route(controllerMap.replace(with: model?.pad ?? controls.targets))
         attachKempstonIfChosen()
     }
 
@@ -195,7 +219,7 @@ final class SpectrumSession {
     /// that look for one when they start (Fantasy World Dizzy) would not
     /// find it.
     private func attachKempstonIfChosen() {
-        guard controls.stick == .kempston else { return }
+        guard model?.isSpectrum ?? false, controls.stick == .kempston else { return }
         loop?.send(.button("fire", port: 0, pressed: false))
     }
 
@@ -231,6 +255,8 @@ final class SpectrumSession {
                 loop?.send(.button(name, port: port, pressed: change.pressed))
             case let .key(code):
                 key(code: code, pressed: change.pressed)
+            case let .machineKey(name):
+                loop?.send(.key(name, pressed: change.pressed))
             }
         }
     }
@@ -290,14 +316,15 @@ final class SpectrumSession {
     }
 
     /// Runs on the loop's thread as well as the main actor's.
-    nonisolated private static func makeMachine(
-        _ model: SpectrumModel, firmware: [String: Data]
-    ) throws -> Machine {
-        let machine = try Machine(family: family, variant: model.rawValue)
-        for (id, data) in firmware.sorted(by: { $0.key < $1.key }) {
+    nonisolated private static func makeMachine(_ build: Build) throws -> Machine {
+        let machine = try Machine(family: build.model.family, variant: build.model.variant)
+        for (id, data) in build.firmware.sorted(by: { $0.key < $1.key }) {
             try machine.supplyFirmware(id: id, data: data)
         }
         try machine.boot()
+        if let cartridge = build.cartridge {
+            try machine.load(slot: cartridgeSlot, data: cartridge)
+        }
         return machine
     }
 
@@ -319,11 +346,11 @@ final class SpectrumSession {
             })
         }
         if let failure = loop.takeCommandFailures().first {
-            report("The Spectrum refused that", failure)
+            report("The \(system) refused that", failure)
         }
         if let failure = loop.failure {
             stop()
-            report("The Spectrum stopped", failure)
+            report("The \(system) stopped", failure)
             return
         }
         let now = Date()
@@ -338,6 +365,8 @@ final class SpectrumSession {
             lastSample = (now, frames)
         }
     }
+
+    private var system: String { model?.system ?? "machine" }
 
     private func report(_ title: String, _ error: any Error) {
         alert = SessionAlert(title: title, message: String(describing: error))
