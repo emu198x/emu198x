@@ -1,0 +1,11 @@
+[package]
+name = "specify-srt-reproducer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+nec-upd765a = { path = "../../../../crates/nec-upd765a" }
+common-sinclair-zx-spectrum = { path = "../../../../crates/common-sinclair-zx-spectrum" }
