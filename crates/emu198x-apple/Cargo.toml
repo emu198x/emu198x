@@ -22,13 +22,13 @@ sega-master-system = ["emu198x-fleet-web/sega-master-system"]
 sinclair-zx-spectrum = ["emu198x-fleet-web/sinclair-zx-spectrum"]
 
 [dependencies]
-emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.43.0", default-features = false }
+emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.44.0", default-features = false }
 
 [dev-dependencies]
 # The tests drive the repository's synthetic Game Boy cartridge, so their
 # build links that family whichever features the caller selected.
 emu198x-apple = { path = ".", features = ["nintendo-game-boy", "sinclair-zx-spectrum"] }
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.43.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
 
 # The workspace forbids unsafe code, and `forbid` cannot be relaxed by an
 # `allow`, so this crate carries its own copy of the workspace lints with

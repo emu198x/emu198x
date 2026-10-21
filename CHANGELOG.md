@@ -4,6 +4,29 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.44.0] - 2026-10-21
+
+
+### Added
+
+- Model a chain of up to four Amiga floppy drives
+- Wire the Amiga machines to four floppy drive positions
+- Let the Amiga runtime load disks into DF1 to DF3
+- Fit up to four floppy drives from the Amiga command line
+- Give the C64 a blank tape to SAVE onto through Fleet
+- Play C64 tapes on Apple TV
+- Play Amiga disks on Apple TV
+- Fill the Apple TV app with Dizzy on every system with one command
+
+
+### Fixed
+
+- Reject raw observation disagreements in DTL research evidence
+- Reject raw observation disagreements in SK research evidence
+- Keep the contents of C64 tapes loaded through Fleet
+- Build the workspace again after the 0.43.0 release
+- Reject Format Track when supplied READY is absent
+
 ## [0.43.0] - 2026-10-21
 
 
