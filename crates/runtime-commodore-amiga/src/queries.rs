@@ -18,6 +18,7 @@ use commodore_agnus_ocs::{
 };
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use motorola_68000::CpuModel;
+use peripheral_commodore_amiga_floppy::MAX_DRIVES;
 use serde_json::{Value, json};
 
 use crate::live_access::AmigaLiveAccess;
@@ -214,7 +215,7 @@ pub(crate) fn runtime_snapshot<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Va
         "non_white_pixels": runtime.non_white_pixels(),
         "first_active_row": runtime.first_active_row(),
         "firmware_rom_bytes": runtime.firmware_rom().len(),
-        "floppy0_image_bytes": runtime.floppy0_bytes().map(<[u8]>::len),
+        "floppy0_image_bytes": runtime.floppy_bytes(0).map(<[u8]>::len),
         "audio_sample_accumulator": runtime.audio_sample_accumulator(),
         "audio_buffer_samples": runtime.audio_buffer_samples(),
         "rgba_framebuffer_bytes": runtime.rgba_framebuffer_bytes(),
@@ -1423,7 +1424,31 @@ pub(crate) fn blitter_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// DF0 drive state. `motor_spinning` reports the mechanical state while
 /// `ready_low` and the raw four-line `status` report the multiplexed drive
 /// pins; READY can carry identification bits while the motor is off.
+/// `drives` summarises every position, DF0 to DF3, and `dma_unit` names
+/// the drive disk DMA reads and writes.
 pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let drives = m.drives();
+    let drive_positions: serde_json::Map<String, Value> = (0..MAX_DRIVES)
+        .map(|unit| {
+            let entry = drives.drive(unit).map_or_else(
+                || json!({ "fitted": false }),
+                |drive| {
+                    let mechanism = drive.diagnostic_snapshot();
+                    json!({
+                        "fitted": true,
+                        "inserted": mechanism.has_disk,
+                        "writable": mechanism.disk_writable,
+                        "selected": mechanism.selected,
+                        "cylinder": mechanism.cylinder,
+                        "head": mechanism.head,
+                        "motor_on": mechanism.motor_on,
+                        "motor_spinning": mechanism.motor_spinning,
+                    })
+                },
+            );
+            (format!("df{unit}"), entry)
+        })
+        .collect();
     let drive = m.drive();
     let mechanism = drive.diagnostic_snapshot();
     let controller = m.paula().disk_diagnostic_snapshot();
@@ -1441,6 +1466,8 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "ready_low": mechanism.ready,
         "step_events": mechanism.step_event_counter,
         "selected": mechanism.selected,
+        "dma_unit": drives.dma_unit(),
+        "drives": drive_positions,
         "status": {
             "disk_change_low": mechanism.disk_change,
             "write_protect_low": mechanism.write_protect,

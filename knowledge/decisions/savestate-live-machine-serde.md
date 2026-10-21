@@ -160,6 +160,20 @@ Codemasters' (#214), and the two page through different addresses. The
 live machine records which one its cartridge has, so the class runtime
 advances its envelope from 8 to 9 and rejects version 8 before decoding.
 
+## Amiga floppy drive chain amendment
+
+An Amiga takes up to four floppy drives, DF0 to DF3 (HRM Appendix E). The
+live machine holds them as one chain: which external drives are fitted,
+each drive's mechanism, and the select lines from the last CIA-B port B
+write. The encoded-track cache is keyed by drive as well as cylinder and
+head. The runtime envelope carries the image in each drive, not only DF0's,
+so a restore reattaches every disk without modelling a new insertion, and
+rejects an image persisted for a drive that is not fitted.
+
+The Amiga runtime envelope therefore advances from version 62 to version 63
+and rejects version 62 before decoding, because the positional payload
+replaces the single drive and the single DF0 image.
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled

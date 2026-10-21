@@ -133,9 +133,10 @@ fn load_media_rejects_unknown_slot() {
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
-    media.push(MediaImage::new("floppy-1", MediaKind::Disk, &disk));
+    // DF0 to DF3 are floppy-0 to floppy-3; there is no fifth drive.
+    media.push(MediaImage::new("floppy-4", MediaKind::Disk, &disk));
     let err = runtime.load_media(&media).expect_err("unknown slot");
-    matches!(err, MachineError::UnknownMediaSlot { .. });
+    assert!(matches!(err, MachineError::UnknownMediaSlot { .. }));
 }
 
 #[test]
