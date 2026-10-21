@@ -1,0 +1,86 @@
+[
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "nec-upd765a",
+      "-p",
+      "format-amstrad-dsk",
+      "-p",
+      "common-sinclair-zx-spectrum-amstrad-class",
+      "-p",
+      "runtime-sinclair-zx-spectrum"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 0,
+    "elapsed_seconds": 61.746,
+    "log": "final-draft-tests.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "nec-upd765a",
+      "-p",
+      "format-amstrad-dsk",
+      "-p",
+      "common-sinclair-zx-spectrum-amstrad-class",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 0,
+    "elapsed_seconds": 2.601,
+    "log": "final-draft-clippy.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 0,
+    "elapsed_seconds": 3.254,
+    "log": "final-draft-fmt.log"
+  },
+  {
+    "command": [
+      "rustfmt",
+      "--edition",
+      "2024",
+      "--check",
+      "crates/runtime-sinclair-zx-spectrum/src/snapshot/read_data_tests.rs"
+    ],
+    "environment": {
+      "RUSTUP_TOOLCHAIN": "1.99.0",
+      "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths"
+    },
+    "host_timeout_seconds": 600,
+    "exit_code": 0,
+    "elapsed_seconds": 0.069,
+    "log": "final-draft-include-fmt.log"
+  }
+]

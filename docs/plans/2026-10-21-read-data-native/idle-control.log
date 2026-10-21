@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/runtime_sinclair_zx_spectrum-ba2301d26382dfcd)
+
+running 1 test
+test snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media ... FAILED
+
+failures:
+
+---- snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media stdout ----
+
+thread 'snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media' (145496419) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot/read_data_tests.rs:416:5:
+assertion `left == right` failed: Read Data restored checkpoint MSR
+  left: 128
+ right: 240
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 135 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --lib`

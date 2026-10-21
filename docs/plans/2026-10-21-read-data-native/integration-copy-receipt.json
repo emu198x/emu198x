@@ -1,0 +1,16 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "runtime-sinclair-zx-spectrum",
+    "--lib",
+    "read_data_native_boundaries_preserve_payload_result_irq_and_media"
+  ],
+  "host_timeout_seconds": 600,
+  "exit_code": 101,
+  "elapsed_seconds": 33.864,
+  "source_commit": "2a6a29373066d7e89e1f4a9390708329c54ecc7b",
+  "native_driver": "uncommitted task source, not final qualification pin"
+}

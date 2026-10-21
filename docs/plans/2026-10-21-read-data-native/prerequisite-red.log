@@ -1,0 +1,24 @@
+   Compiling runtime-sinclair-zx-spectrum v0.42.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-lengths/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.74s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build/read-data-lengths/debug/deps/runtime_sinclair_zx_spectrum-ba2301d26382dfcd)
+
+running 1 test
+test snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media ... FAILED
+
+failures:
+
+---- snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media stdout ----
+
+thread 'snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media' (145430726) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot/read_data_tests.rs:487:5:
+assertion `left == right` failed: Read Data native proof requires approved SPECIFY ND state
+  left: 9
+ right: 10
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    snapshot::tests::read_data_native_boundaries_preserve_payload_result_irq_and_media
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 133 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --lib`
