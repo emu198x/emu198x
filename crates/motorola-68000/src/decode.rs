@@ -27,11 +27,12 @@ use crate::cpu::{
     TAG_EXC_STACK_INSTR_ADDR_HI, TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI,
     TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXC_SYNC_PC_HI, TAG_EXC_SYNC_SR, TAG_EXECUTE,
     TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE,
-    TAG_LINK_DISP, TAG_LONG_BRANCH_LO, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE,
-    TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI, TAG_RTE_READ_FMT2_LO,
-    TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO,
-    TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI,
-    TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_JUMP_ABS_LO, TAG_LINK_DISP, TAG_LONG_BRANCH_LO, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI,
+    TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI,
+    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
+    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_SR_REFETCH, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO,
+    TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -77,6 +78,64 @@ impl Cpu68000 {
             self.begin_group1_exception(vector, self.instr_start_pc);
         }
         decoded
+    }
+
+    /// Work out a 68000 JMP/JSR target straight from the extension words.
+    /// The 68000 does not refill the prefetch past them, since it is about
+    /// to jump, and it spends two clocks on a displacement or short
+    /// address and six on an index (SingleStepTests, Moira). Only an
+    /// absolute long address refills once, for its low word.
+    fn begin_68000_jump_address(&mut self) {
+        let Some(mode) = self.src_mode else {
+            return;
+        };
+        let brief_index = |cpu: &Self, ext: u16| -> u32 {
+            let reg = ((ext >> 12) & 7) as usize;
+            let value = if ext & 0x8000 != 0 {
+                cpu.regs.a(reg)
+            } else {
+                cpu.regs.d[reg]
+            };
+            let index = if ext & 0x0800 != 0 {
+                value
+            } else {
+                value as i16 as i32 as u32
+            };
+            index.wrapping_add((ext & 0xFF) as i8 as i32 as u32)
+        };
+        let (addr, clocks) = match mode {
+            AddrMode::AddrInd(r) => (self.regs.a(r as usize), 0),
+            AddrMode::AddrIndDisp(r) => (
+                self.regs
+                    .a(r as usize)
+                    .wrapping_add(self.irc as i16 as i32 as u32),
+                2,
+            ),
+            AddrMode::AddrIndIndex(r) => (
+                self.regs
+                    .a(r as usize)
+                    .wrapping_add(brief_index(self, self.irc)),
+                6,
+            ),
+            AddrMode::AbsShort => (self.irc as i16 as i32 as u32, 2),
+            AddrMode::PcDisp => (self.irc_addr.wrapping_add(self.irc as i16 as i32 as u32), 2),
+            AddrMode::PcIndex => (self.irc_addr.wrapping_add(brief_index(self, self.irc)), 6),
+            AddrMode::AbsLong => {
+                self.src_val = u32::from(self.irc) << 16;
+                self.followup_tag = TAG_JUMP_ABS_LO;
+                self.micro_ops.push(MicroOp::FetchIRC);
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
+            // Not control addresses; the opcode checks reject them.
+            _ => (0, 0),
+        };
+        self.addr = addr;
+        if clocks > 0 {
+            self.micro_ops.push(MicroOp::Internal(clocks));
+        }
+        self.followup_tag = TAG_JSR_EXECUTE;
+        self.micro_ops.push(MicroOp::Execute);
     }
 
     /// Decode the opcode in IR and begin execution.
@@ -422,7 +481,12 @@ impl Cpu68000 {
                     self.src_val = u32::from(self.irc);
                     self.in_followup = true;
                     self.followup_tag = TAG_DBCC_EXECUTE;
-                    self.micro_ops.push(MicroOp::FetchIRC);
+                    // The 68000 decides before refilling past the
+                    // displacement; TAG_DBCC_EXECUTE refills only when it
+                    // falls through.
+                    if !self.mc68000_timing() {
+                        self.micro_ops.push(MicroOp::FetchIRC);
+                    }
                     self.micro_ops.push(MicroOp::Execute);
                     return;
                 } else {
@@ -503,9 +567,11 @@ impl Cpu68000 {
                 };
                 self.regs.sr = (self.regs.sr & 0xFF00) | (result as u16 & 0xFF);
             }
-            let d: u8 = 8;
-            if d > 0 {
-                self.micro_ops.push(MicroOp::Internal(d));
+            self.micro_ops.push(MicroOp::Internal(8));
+            if self.mc68000_timing() {
+                self.in_followup = true;
+                self.followup_tag = TAG_SR_REFETCH;
+                self.micro_ops.push(MicroOp::Execute);
             }
             return;
         }
@@ -861,7 +927,8 @@ impl Cpu68000 {
             }
 
             if cond == 1 {
-                // BSR: push return PC, then branch
+                // BSR: push return PC, then branch. The 68000 spends two
+                // clocks first.
                 self.followup_tag = TAG_BSR_EXECUTE;
                 let return_pc = if disp8 == 0 {
                     self.instr_start_pc.wrapping_add(4)
@@ -869,6 +936,9 @@ impl Cpu68000 {
                     self.instr_start_pc.wrapping_add(2)
                 };
                 self.data = return_pc;
+                if self.mc68000_timing() {
+                    self.micro_ops.push(MicroOp::Internal(2));
+                }
                 self.micro_ops.push(MicroOp::PushLongHi);
                 self.micro_ops.push(MicroOp::PushLongLo);
             } else {
@@ -877,9 +947,13 @@ impl Cpu68000 {
 
             if disp8 == 0 {
                 // 16-bit displacement: read from IRC now, before FetchIRC
-                // overwrites it. Queue FetchIRC to advance past the word.
+                // overwrites it. The 68000 never refills past it when it
+                // branches, and TAG_BCC_EXECUTE refills when it does not;
+                // the 68020+ model refills here.
                 self.src_val = u32::from(self.irc);
-                self.micro_ops.push(MicroOp::FetchIRC);
+                if !self.mc68000_timing() {
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                }
                 // followup_tag stays as TAG_BCC_EXECUTE / TAG_BSR_EXECUTE
                 // (no separate FETCH_DISP phase needed)
             } else {
@@ -918,6 +992,10 @@ impl Cpu68000 {
                 self.dst_val = return_pc;
             }
 
+            if self.mc68000_timing() {
+                self.begin_68000_jump_address();
+                return;
+            }
             self.continue_instruction();
             return;
         }
@@ -1497,12 +1575,13 @@ impl Cpu68000 {
             0x4E71 => { /* NOP */ }
             0x4E70 => {
                 // RESET (supervisor only). Per M68000 Programmer's Reference:
-                // 132 total clocks (4 decode + 124 /RESET asserted + 4 exit).
+                // 132 total clocks, of which the final prefetch is 4
+                // (SingleStepTests: 128 idle, then the prefetch).
                 if self.check_supervisor() {
                     return;
                 }
                 self.micro_ops.push(MicroOp::AssertReset);
-                self.micro_ops.push(MicroOp::Internal(132));
+                self.micro_ops.push(MicroOp::Internal(128));
             }
             _ => {
                 // Treat unknown opcodes as illegal for this CPU core model and
@@ -1688,11 +1767,13 @@ impl Cpu68000 {
             }
 
             TAG_FETCH_DST_DATA => {
-                // MOVE and Scc are write-only: skip the destination read.
-                // Read-modify-write instructions (ALU ops, CLR) need the read.
+                // MOVE is write-only: skip the destination read. Read-modify-
+                // write instructions (ALU ops, CLR) need it, and so does Scc
+                // on the 68000, which reads before writing (SingleStepTests,
+                // MAME); the 68020+ model writes only.
                 let is_move = (self.ir & 0xC000) == 0 && (self.ir & 0x3000) != 0;
                 let is_scc = (self.ir & 0xF0C0) == 0x50C0 && (self.ir & 0x0038) != 0x0008;
-                if is_move || is_scc {
+                if is_move || (is_scc && !self.mc68000_timing()) {
                     self.followup_tag = TAG_EXECUTE;
                     self.micro_ops.push(MicroOp::Execute);
                     return;
@@ -1859,7 +1940,11 @@ impl Cpu68000 {
 
             // --- Branch handlers ---
             TAG_BCC_EXECUTE => {
+                // 68000 (SingleStepTests, Moira): taken, two clocks then the
+                // target; not taken, four clocks and, past a word
+                // displacement, the refill it skipped at decode.
                 let cond = ((self.ir >> 8) & 0x0F) as u8;
+                let mc68000 = self.mc68000_timing();
                 if self.check_condition(cond) {
                     let disp = self.src_val as i16 as i32;
                     self.regs.pc = self
@@ -1868,18 +1953,39 @@ impl Cpu68000 {
                         .wrapping_add(disp as u32);
                     self.next_fetch_addr = self.regs.pc;
                     self.micro_ops.clear();
+                    if mc68000 {
+                        self.micro_ops.push(MicroOp::Internal(2));
+                    }
                     self.micro_ops.push(MicroOp::FetchIRC);
                     self.micro_ops.push(MicroOp::PromoteIRC);
+                } else if mc68000 {
+                    self.micro_ops.push(MicroOp::Internal(4));
+                    if self.ir & 0xFF == 0 {
+                        self.micro_ops.push(MicroOp::FetchIRC);
+                    }
                 }
                 self.in_followup = false;
             }
 
             TAG_DBCC_EXECUTE => {
+                // 68000 (SingleStepTests, Moira execDbcc): two clocks, then
+                // condition true, two more and the refill (12); looping,
+                // the target (10); expired, a read of the next word, then
+                // the refill (14).
                 let cond = ((self.ir >> 8) & 0x0F) as u8;
                 let reg = self.ea_reg as usize;
                 let disp = self.src_val as i16 as i32;
+                let mc68000 = self.mc68000_timing();
+                if mc68000 {
+                    self.micro_ops.push(MicroOp::Internal(2));
+                }
 
-                if !self.check_condition(cond) {
+                if self.check_condition(cond) {
+                    if mc68000 {
+                        self.micro_ops.push(MicroOp::Internal(2));
+                        self.micro_ops.push(MicroOp::FetchIRC);
+                    }
+                } else {
                     let counter = (self.regs.d[reg] & 0xFFFF) as u16;
                     // Save original for undo on branch AE (odd target).
                     self.dbcc_dn_undo = Some((reg as u8, counter));
@@ -1894,8 +2000,18 @@ impl Cpu68000 {
                             .wrapping_add(disp as u32);
                         self.next_fetch_addr = self.regs.pc;
                         self.micro_ops.clear();
+                        if mc68000 {
+                            self.micro_ops.push(MicroOp::Internal(2));
+                        }
                         self.micro_ops.push(MicroOp::FetchIRC);
                         self.micro_ops.push(MicroOp::PromoteIRC);
+                    } else if mc68000 {
+                        // Expired: a discarded read of the word after the
+                        // displacement, then the refill.
+                        self.addr = self.instr_start_pc.wrapping_add(4);
+                        self.program_space_access = true;
+                        self.micro_ops.push(MicroOp::ReadWord);
+                        self.micro_ops.push(MicroOp::FetchIRC);
                     }
                 }
                 self.in_followup = false;
@@ -2075,6 +2191,21 @@ impl Cpu68000 {
                     self.micro_ops.push(MicroOp::InterruptAck);
                     self.micro_ops.push(MicroOp::Execute);
                 }
+            }
+
+            TAG_JUMP_ABS_LO => {
+                self.addr = self.src_val | u32::from(self.irc);
+                self.followup_tag = TAG_JSR_EXECUTE;
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            TAG_SR_REFETCH => {
+                // The 68000 rereads the next instruction's first word after
+                // changing SR or CCR, then refills as usual (SingleStepTests:
+                // ANDI to SR reads $C04, idles, then reads $C04 and $C06).
+                self.next_fetch_addr = self.next_fetch_addr.wrapping_sub(2);
+                self.micro_ops.push(MicroOp::FetchIRC);
+                self.in_followup = false;
             }
 
             TAG_EXC_SYNC_SR => {

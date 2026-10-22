@@ -36,9 +36,10 @@ fn boot_places_execbase_in_chip_ram() {
     let mut amiga = AmigaOcs::new(rom);
 
     // Phase 8 (ExecBase construction) follows Phase 7 (chip RAM
-    // probe), which itself follows the busy-wait delay. ~5M CCKs
-    // (~700ms emulated) is comfortably past Phase 8.
-    for _ in 0..5_000_000 {
+    // probe), which itself follows the busy-wait delay. ExecBase is
+    // written about 5.26M system ticks in with 68000 instruction
+    // timing; 7M ticks is comfortably past Phase 8.
+    for _ in 0..7_000_000 {
         amiga.tick();
     }
 
