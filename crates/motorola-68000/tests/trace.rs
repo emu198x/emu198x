@@ -32,6 +32,7 @@ fn handler(vector: u32) -> u32 {
 struct Machine {
     cpu: Cpu68000,
     mem: HashMap<u32, u8>,
+    clocks: u32,
 }
 
 impl Machine {
@@ -40,6 +41,7 @@ impl Machine {
         let mut machine = Self {
             cpu: Cpu68000::new(),
             mem: HashMap::new(),
+            clocks: 0,
         };
         for vector in 0..256 {
             let target = handler(vector);
@@ -118,6 +120,7 @@ impl Machine {
             };
         }
         self.cpu.tick();
+        self.clocks += 1;
     }
 
     /// The addresses of the next `count` instruction starts.
@@ -150,6 +153,20 @@ fn a_traced_instruction_is_followed_by_a_trace_exception() {
     assert_eq!(machine.starts(2), [CODE + 2, handler(9)]);
     assert_eq!(machine.frame(0), (0xA700, CODE + 2));
     assert_eq!(machine.cpu.regs.sr, 0x2700, "trace clears T1");
+}
+
+/// Trace processing takes 34 clocks (MC68000 User's Manual Table 8-14):
+/// four idle, three stack writes, two vector reads and the handler's two
+/// prefetches with two idle between. The traced NOP still completes its own
+/// prefetch, so from the NOP to the handler takes 34 clocks more than from
+/// an untraced NOP to the next instruction.
+#[test]
+fn trace_takes_34_clocks() {
+    let mut untraced = Machine::new(0x2700, &[NOP, NOP]);
+    assert_eq!(untraced.starts(1), [CODE + 2]);
+    let mut traced = Machine::new(0xA700, &[NOP, NOP]);
+    assert_eq!(traced.starts(2), [CODE + 2, handler(9)]);
+    assert_eq!(traced.clocks - untraced.clocks, 34);
 }
 
 #[test]

@@ -168,6 +168,10 @@ pub const TAG_EXC_STACK_SR: u8 = 40;
 pub const TAG_EXC_FETCH_VECTOR: u8 = 41;
 /// Exception: load PC from vector and enter supervisor mode.
 pub const TAG_EXC_FINISH: u8 = 42;
+/// 68000 group-1/2 exception: PC low word written at SP+4; write SR at SP.
+pub const TAG_EXC_SYNC_SR: u8 = 133;
+/// 68000 group-1/2 exception: SR written; write PC high word at SP+2.
+pub const TAG_EXC_SYNC_PC_HI: u8 = 134;
 /// Exception: 68010+ Format/Vector word just pushed; restore the
 /// pending PC into `self.data` and continue with the regular PC
 /// push. Only used when `variant_six_word_frame` is enabled.
@@ -1870,10 +1874,24 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
         } else {
-            // 68000: push PC directly (6-byte frame: PC + SR).
-            self.data = pc_to_push;
-            self.followup_tag = TAG_EXC_STACK_PC_HI;
-            self.micro_ops.push(MicroOp::PushLongHi);
+            // 68000: a six-byte frame written PC low, SR, PC high, as
+            // SingleStepTests records and Moira's writeStackFrame0000 does.
+            // TRAP and the exceptions whose instruction never executes
+            // wait four clocks first (MC68000 User's Manual Table 8-14:
+            // 34 clocks), and divide by zero eight (Moira's DIVU/DIVS).
+            // TRAPV and CHK bring their own lead-in.
+            match vector {
+                4 | 8 | 9 | 10 | 11 | 32..=47 => self.micro_ops.push(MicroOp::Internal(4)),
+                5 => self.micro_ops.push(MicroOp::Internal(8)),
+                _ => {}
+            }
+            let sp = self.regs.active_sp().wrapping_sub(6);
+            self.regs.set_active_sp(sp);
+            self.exc_pending_pc = pc_to_push;
+            self.addr = sp.wrapping_add(4);
+            self.data = pc_to_push & 0xFFFF;
+            self.followup_tag = TAG_EXC_SYNC_SR;
+            self.micro_ops.push(MicroOp::WriteWord);
             self.micro_ops.push(MicroOp::Execute);
         }
     }
