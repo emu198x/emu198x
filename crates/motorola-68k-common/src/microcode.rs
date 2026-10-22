@@ -77,6 +77,15 @@ pub enum MicroOp {
     PushLong,
     /// Pop one logical long through the dynamic-sizing sequencer.
     PopLong,
+
+    // --- MC68000 early final prefetch ---
+    //
+    // Appended last for the same reason.
+    /// Fetch the word after the next instruction's opcode into a holding
+    /// slot, leaving IRC alone. The 68000 makes an instruction's final
+    /// prefetch before its trailing internal clocks or its last write; the
+    /// next PromoteIRC takes the held word instead of fetching it.
+    PrefetchAhead,
 }
 
 impl MicroOp {

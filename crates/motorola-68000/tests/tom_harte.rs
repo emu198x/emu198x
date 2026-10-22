@@ -1296,6 +1296,10 @@ fn run_recording(cpu: &mut Cpu68000, mem: &mut SparseMem) -> Option<Vec<BusToken
         tokens.push(BusToken::Access(kind, addr));
         i = begin + 4;
     }
+    // Internal clocks after an early final prefetch end the instruction.
+    if clocks.len() > i {
+        tokens.push(BusToken::Idle((clocks.len() - i) as u64));
+    }
     Some(tokens)
 }
 
@@ -1417,6 +1421,13 @@ fn harte_bus_sequence_report() {
             .unwrap()
             .to_string_lossy()
             .replace(".json.gz", "");
+        // EMU198X_BUS_REPORT_ONLY limits the report to fixture files whose
+        // names start with any of its comma-separated prefixes.
+        if let Ok(only) = std::env::var("EMU198X_BUS_REPORT_ONLY")
+            && !only.split(',').any(|prefix| name.starts_with(prefix))
+        {
+            continue;
+        }
         let tests = load_fixture(&path).expect("fixture");
         let (mut compared, mut total_ok, mut exact_ok) = (0usize, 0usize, 0usize);
         let mut shapes: HashMap<(String, String), (usize, String)> = HashMap::new();
@@ -1469,10 +1480,11 @@ fn harte_bus_sequence_report() {
     println!("ALL rows {all}  total-clock {all_total}  exact {all_exact}");
 }
 
-/// Every row's total clocks, up to the next instruction's first prefetch,
-/// must match the corpus, as recorded in its transaction list. Rows where
-/// the core takes an address error are left out; they have their own
-/// comparison above.
+/// Every row's bus sequence, up to the next instruction's first prefetch,
+/// must match the corpus's transaction list: each access, its address and
+/// kind, and the idle clocks between, so both the total clocks and where
+/// they fall inside the instruction. Rows where the core takes an address
+/// error are left out; they have their own comparison above.
 ///
 /// Two families are known corpus errors, counted and pinned rather than
 /// matched. In both, MAME's microcoded 68000 (SingleStepTests/m68000) and
@@ -1485,7 +1497,7 @@ fn harte_bus_sequence_report() {
 ///   operand; MAME and Moira run the full division (about 130).
 #[test]
 #[ignore = "FIXTURE: needs the SingleStepTests 680x0 corpus; see fixture_root"]
-fn harte_bus_totals() {
+fn harte_bus_sequences() {
     const EXPECTED_ADDQ_AN_LONG: usize = 731;
     const EXPECTED_DIVS_LATE_OVERFLOW: usize = 1_265;
     let root = fixture_root();
@@ -1512,11 +1524,12 @@ fn harte_bus_totals() {
                 continue;
             }
             compared += 1;
-            let ours = token_clocks(&actual) as i64;
-            let corpus = token_clocks(&fixture_tokens(test)) as i64;
-            if ours == corpus {
+            let expected = fixture_tokens(test);
+            if actual == expected {
                 continue;
             }
+            let ours = token_clocks(&actual) as i64;
+            let corpus = token_clocks(&expected) as i64;
             let opcode = test["name"]
                 .as_str()
                 .and_then(|n| n.split_whitespace().next())
@@ -1528,7 +1541,12 @@ fn harte_bus_totals() {
             } else if opcode & 0xF1C0 == 0x81C0 && final_v && corpus < 40 && ours > 100 {
                 divs_late_overflow += 1;
             } else if failures.len() < 20 {
-                failures.push(format!("{}: ours {ours}, corpus {corpus}", test["name"]));
+                failures.push(format!(
+                    "{}: ours {}, corpus {}",
+                    test["name"],
+                    token_shape(&actual),
+                    token_shape(&expected)
+                ));
             }
         }
     }
@@ -1538,7 +1556,7 @@ fn harte_bus_totals() {
     assert!(compared > 800_000, "too few rows compared: {compared}");
     assert!(
         failures.is_empty(),
-        "total clocks differ:\n{}",
+        "bus sequences differ:\n{}",
         failures.join("\n")
     );
     assert_eq!(

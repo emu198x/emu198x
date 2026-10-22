@@ -28,11 +28,11 @@ use crate::cpu::{
     TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXC_SYNC_PC_HI, TAG_EXC_SYNC_SR, TAG_EXECUTE,
     TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE,
     TAG_JUMP_ABS_LO, TAG_LINK_DISP, TAG_LONG_BRANCH_LO, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
-    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI,
-    TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI,
-    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
-    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_SR_REFETCH, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO,
-    TAG_WRITEBACK,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RETURN_PC_HI, TAG_RETURN_PC_LO,
+    TAG_RETURN_SR, TAG_RTE_READ_FMT2_HI, TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FMTA_STEP,
+    TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR,
+    TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_SR_REFETCH,
+    TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -41,9 +41,25 @@ impl Cpu68000 {
     /// remember that bank until the frame has been consumed.
     fn begin_rte_frame(&mut self) {
         self.rte_stack_bank = self.regs.active_stack_bank();
+        if self.mc68000_timing() && !self.variant_six_word_frame {
+            self.micro_ops.clear();
+            self.begin_68000_return();
+            return;
+        }
         self.addr = self.regs.active_sp();
         self.followup_tag = TAG_RTE_READ_SR;
         self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::ReadWord);
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Read a 68000 RTE or RTR frame in the order the 68000 does: the PC's
+    /// high word, then SR (or CCR), then the PC's low word (SingleStepTests).
+    /// The stack pointer moves once the whole frame is read.
+    fn begin_68000_return(&mut self) {
+        self.src_val = self.regs.active_sp();
+        self.addr = self.src_val.wrapping_add(2);
+        self.followup_tag = TAG_RETURN_PC_HI;
         self.micro_ops.push(MicroOp::ReadWord);
         self.micro_ops.push(MicroOp::Execute);
     }
@@ -78,6 +94,17 @@ impl Cpu68000 {
             self.begin_group1_exception(vector, self.instr_start_pc);
         }
         decoded
+    }
+
+    /// Queue an ADDX/SUBX operand read from -(An). The 68000 reads a long's
+    /// low word first, as the address counts down (SingleStepTests).
+    fn queue_extended_read_ops(&mut self, size: Size) {
+        if self.mc68000_timing() && size == Size::Long {
+            self.micro_ops.push(MicroOp::ReadLongLo);
+            self.micro_ops.push(MicroOp::ReadLongHi);
+        } else {
+            self.queue_read_ops(size);
+        }
     }
 
     /// Work out a 68000 JMP/JSR target straight from the extension words.
@@ -280,7 +307,7 @@ impl Cpu68000 {
                         self.micro_ops.push(MicroOp::Internal(d));
                     }
                     self.followup_tag = TAG_ADDX_READ_SRC;
-                    self.queue_read_ops(size);
+                    self.queue_extended_read_ops(size);
                     self.micro_ops.push(MicroOp::Execute);
                 }
                 return;
@@ -620,9 +647,9 @@ impl Cpu68000 {
                         }
                     }
                 };
-                if extra > 0 {
-                    self.micro_ops.push(MicroOp::Internal(extra));
-                }
+                // The prefetch comes before the clocks (SingleStepTests:
+                // `r r n2`).
+                self.push_trailing_clocks(extra);
             } else {
                 // Memory destination: byte, bit mod 8
                 self.bit_op = match bit_type {
@@ -1454,8 +1481,12 @@ impl Cpu68000 {
 
         // --- RTR (0x4E77) ---
         if opcode == 0x4E77 {
-            // Read CCR word from stack
             self.in_followup = true;
+            if self.mc68000_timing() {
+                self.begin_68000_return();
+                return;
+            }
+            // Read CCR word from stack
             self.followup_tag = TAG_RTR_READ_CCR;
             self.micro_ops.push(MicroOp::PopWord);
             self.micro_ops.push(MicroOp::Execute);
@@ -1493,6 +1524,11 @@ impl Cpu68000 {
             self.ea_reg = r;
             self.in_followup = true;
             self.followup_tag = TAG_LINK_DISP;
+            // The 68000 takes the displacement, refilling the prefetch,
+            // before it pushes (SingleStepTests: `r w w r`).
+            if self.mc68000_timing() {
+                self.src_val = u32::from(self.consume_irc());
+            }
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
             self.micro_ops.push(MicroOp::Execute);
@@ -1854,7 +1890,13 @@ impl Cpu68000 {
             }
 
             TAG_EA_DST_LONG => {
-                self.addr |= u32::from(self.consume_irc());
+                // A 68000 MOVE from memory refills past the address's low
+                // word only after its write (SingleStepTests: `r r w r r`).
+                self.addr |= if self.move_refills_after_write() {
+                    u32::from(self.irc)
+                } else {
+                    u32::from(self.consume_irc())
+                };
                 self.followup_tag = TAG_FETCH_DST_DATA;
                 self.micro_ops.push(MicroOp::Execute);
             }
@@ -2375,6 +2417,40 @@ impl Cpu68000 {
             }
 
             // --- RTR handlers ---
+            TAG_RETURN_PC_HI => {
+                self.rte_saved_pc = (self.data & 0xFFFF) << 16;
+                self.addr = self.src_val;
+                self.followup_tag = TAG_RETURN_SR;
+                self.micro_ops.push(MicroOp::ReadWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            TAG_RETURN_SR => {
+                self.rte_saved_sr = self.data as u16;
+                self.addr = self.src_val.wrapping_add(4);
+                self.followup_tag = TAG_RETURN_PC_LO;
+                self.micro_ops.push(MicroOp::ReadWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+            TAG_RETURN_PC_LO => {
+                self.rte_saved_pc |= self.data & 0xFFFF;
+                let sp = self.src_val.wrapping_add(6);
+                if self.ir == 0x4E73 {
+                    self.rte_saved_sr &= self.sr_write_mask();
+                    self.regs.set_stack_pointer(self.rte_stack_bank, sp);
+                    self.finish_rte_frame();
+                } else {
+                    // RTR: only the condition codes come back.
+                    self.regs.set_active_sp(sp);
+                    self.regs.sr = (self.regs.sr & 0xFF00) | (self.rte_saved_sr & 0x001F);
+                    self.regs.pc = self.rte_saved_pc;
+                    self.next_fetch_addr = self.regs.pc;
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.micro_ops.push(MicroOp::PromoteIRC);
+                    self.in_followup = false;
+                }
+            }
+
             TAG_RTR_READ_CCR => {
                 // data has the CCR word. Apply only bits 0-4.
                 let ccr = self.data as u16;
@@ -2403,7 +2479,11 @@ impl Cpu68000 {
                 let r = self.ea_reg as usize;
                 let sp = self.regs.active_sp();
                 self.regs.set_a(r, sp);
-                let disp = self.consume_irc() as i16 as i32;
+                let disp = if self.mc68000_timing() {
+                    self.src_val as u16
+                } else {
+                    self.consume_irc()
+                } as i16 as i32;
                 self.regs.set_active_sp(sp.wrapping_add(disp as u32));
                 self.in_followup = false;
             }
@@ -2494,7 +2574,14 @@ impl Cpu68000 {
                     }
 
                     self.data = val;
-                    self.queue_write_ops(self.size);
+                    if self.mc68000_timing() && self.movem_an_reg != 0xFF && self.size == Size::Long
+                    {
+                        // Predecrement writes each long low word first.
+                        self.micro_ops.push(MicroOp::WriteLongLo);
+                        self.micro_ops.push(MicroOp::WriteLongHi);
+                    } else {
+                        self.queue_write_ops(self.size);
+                    }
 
                     if self.movem_an_reg == 0xFF {
                         // Defer address advance until next iteration (after
@@ -2569,7 +2656,7 @@ impl Cpu68000 {
                 self.ae_undo_reg = Some((rx, dec, false, true));
 
                 self.followup_tag = TAG_ADDX_READ_DST;
-                self.queue_read_ops(self.size);
+                self.queue_extended_read_ops(self.size);
                 self.micro_ops.push(MicroOp::Execute);
             }
 
@@ -2587,7 +2674,14 @@ impl Cpu68000 {
                 self.data = result;
 
                 self.followup_tag = TAG_ADDX_WRITE;
-                self.queue_write_ops(self.size);
+                if self.mc68000_timing() && self.size == Size::Long {
+                    // Low word, final prefetch, high word (SingleStepTests).
+                    self.micro_ops.push(MicroOp::WriteLongLo);
+                    self.micro_ops.push(MicroOp::PrefetchAhead);
+                    self.micro_ops.push(MicroOp::WriteLongHi);
+                } else {
+                    self.queue_final_write_ops(self.size);
+                }
                 self.micro_ops.push(MicroOp::Execute);
             }
 
@@ -2826,7 +2920,11 @@ impl Cpu68000 {
 
                 self.set_bcd_flags(result, carry, overflow);
                 self.data = u32::from(result);
-                // Write result back to destination (addr already set to Ax)
+                // Write result back to destination (addr already set to Ax),
+                // after the final prefetch on the 68000.
+                if self.mc68000_timing() {
+                    self.micro_ops.push(MicroOp::PrefetchAhead);
+                }
                 self.micro_ops.push(MicroOp::WriteByte);
                 self.in_followup = false;
             }
