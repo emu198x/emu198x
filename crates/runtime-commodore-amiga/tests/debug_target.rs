@@ -112,3 +112,38 @@ fn repeated_debug_steps_on_a530_each_cross_one_boundary() {
         );
     }
 }
+
+/// The debugger's PC is the address of the next instruction to run, as on
+/// every other machine, not the 68000's prefetch address two bytes on. Run
+/// to an address and breakpoints compare against it, so a prefetch PC
+/// never matches an instruction longer than one word.
+///
+/// The synthetic Kickstart enters at `$F80008` with an 8-byte
+/// `move.w #$0F00,$DFF180`, then spins on `bra.s *` at `$F80010`.
+#[test]
+fn debug_pc_is_the_next_instruction() {
+    let rom = std::fs::read(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/synthetic-firmware/commodore-amiga-kickstart.rom"),
+    )
+    .expect("synthetic kickstart image");
+    for model in [
+        Model::A500OcsPal,
+        Model::A500OcsPalGvpA530,
+        Model::A1200AgaPal,
+    ] {
+        let mut runtime = AmigaRuntimeKind::new(model, rom.clone()).expect("runtime");
+        let dbg = runtime.debug_target_mut().expect("debug target");
+        let pcs: Vec<u32> = (0..4)
+            .map(|_| {
+                dbg.step_instruction();
+                dbg.pc()
+            })
+            .collect();
+        assert_eq!(
+            pcs,
+            [0x00F8_0008, 0x00F8_0010, 0x00F8_0010, 0x00F8_0010],
+            "{model:?}: the entry instruction, then the spin loop"
+        );
+    }
+}
