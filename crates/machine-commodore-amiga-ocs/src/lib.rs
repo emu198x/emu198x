@@ -2038,53 +2038,69 @@ impl AmigaOcs {
         <Self as AmigaDriver>::advance_to_cpu_boundary(self)
     }
 
-    /// CIA-A is wired to the low data byte (D0-D7) at `$BFExxx`. The
-    /// chip side-effects on every access — reading ICR clears its
-    /// flags — so the dispatcher routes all reads (byte or word, any
-    /// parity) through the chip and lets `BusResponse::Byte` deliver
-    /// the value.
-    fn dispatch_cia_a(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
-        let reg = cia::decode_cia_a(tx.addr)?;
-        Some(if tx.is_read {
-            BusResponse::Byte(self.cia_a.read(reg))
-        } else {
-            self.debug_cia_a_cr_log.push((
-                self.tick_count / TICKS_PER_CCK,
-                self.cpu.regs.pc,
-                reg,
-                tx.data as u8,
-            ));
-            self.cia_a.write(reg, tx.data as u8);
-            self.memory.set_overlay(self.cia_a.ovl());
-            BusResponse::WriteAck
-        })
-    }
-
-    /// CIA-B sits on the high data byte (D8-D15) at `$BFDxxx`. Word
-    /// writes deliver the data via the high byte; byte writes deliver
-    /// via the low byte (LDS-side). Reads are byte-wide, like CIA-A.
-    fn dispatch_cia_b(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
-        let reg = cia::decode_cia_b(tx.addr)?;
-        Some(if tx.is_read {
-            BusResponse::Byte(self.cia_b.read(reg))
-        } else {
-            let byte = if tx.is_word {
-                (tx.data >> 8) as u8
-            } else {
-                tx.data as u8
+    /// The CIAs (Amiga Hardware Reference Manual, appendix F). CIA-A drives
+    /// data bits 7-0 and CIA-B bits 15-8, so a byte read takes the CIA on
+    /// its lane and a word read both halves. A lane no selected CIA drives
+    /// floats; on the 68000 WinUAE gives it the prefetch word, as here. The
+    /// 68000 puts a written byte on both lanes, so each selected CIA takes
+    /// it; a word write gives CIA-B the high byte and CIA-A the low.
+    fn dispatch_cias(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let select = cia::decode_cia_select(tx.addr, self.cia_decoder())?;
+        let reg = select.reg;
+        if tx.is_read {
+            let floating = self.cpu_base().irc;
+            let high = |amiga: &mut Self| {
+                if select.b {
+                    amiga.cia_b.read(reg)
+                } else {
+                    (floating >> 8) as u8
+                }
             };
+            let low = |amiga: &mut Self| {
+                if select.a {
+                    amiga.cia_a.read(reg)
+                } else {
+                    floating as u8
+                }
+            };
+            return Some(if tx.is_word {
+                let hi = high(self);
+                let lo = low(self);
+                BusResponse::Word((u16::from(hi) << 8) | u16::from(lo))
+            } else if tx.addr & 1 == 1 {
+                BusResponse::Byte(low(self))
+            } else {
+                BusResponse::Byte(high(self))
+            });
+        }
+        let (high_byte, low_byte) = if tx.is_word {
+            ((tx.data >> 8) as u8, tx.data as u8)
+        } else {
+            (tx.data as u8, tx.data as u8)
+        };
+        if select.b {
             self.debug_cia_b_cr_log.push((
                 self.tick_count / TICKS_PER_CCK,
                 self.cpu.regs.pc,
                 reg,
-                byte,
+                high_byte,
             ));
-            self.cia_b.write(reg, byte);
+            self.cia_b.write(reg, high_byte);
             if matches!(reg, 0x01 | 0x03) {
                 self.apply_drive_control_from_cia_b();
             }
-            BusResponse::WriteAck
-        })
+        }
+        if select.a {
+            self.debug_cia_a_cr_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                reg,
+                low_byte,
+            ));
+            self.cia_a.write(reg, low_byte);
+            self.memory.set_overlay(self.cia_a.ovl());
+        }
+        Some(BusResponse::WriteAck)
     }
 
     /// Old-address battery-backed RTC at `$DC0000-$DC003F`. Word
@@ -2427,6 +2443,10 @@ impl AmigaDriver for AmigaOcs {
     fn paula_mut(&mut self) -> &mut Paula8364 {
         &mut self.paula
     }
+    fn cia_decoder(&self) -> cia::CiaDecoder {
+        cia::CiaDecoder::Gary
+    }
+
     fn cia_a(&self) -> &Cia {
         &self.cia_a
     }
@@ -2724,8 +2744,7 @@ impl AmigaDriver for AmigaOcs {
     }
 
     fn dispatch_bus(&mut self, tx: &BusTransaction) -> BusResponse {
-        self.dispatch_cia_a(tx)
-            .or_else(|| self.dispatch_cia_b(tx))
+        self.dispatch_cias(tx)
             .or_else(|| self.dispatch_rtc(tx))
             .or_else(|| self.dispatch_autoconfig(tx))
             .or_else(|| self.dispatch_fast_ram(tx))
@@ -3461,7 +3480,7 @@ mod tests {
     #[test]
     fn cia_b_bus_writes_are_recorded_for_diagnostics() {
         let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        let response = amiga.dispatch_cia_b(&BusTransaction {
+        let response = amiga.dispatch_cias(&BusTransaction {
             addr: 0x00BF_D100,
             is_read: false,
             is_word: true,
