@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import io
 import json
+import os
 import re
 import struct
 import subprocess
@@ -17,6 +18,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import tomllib
 from source_lock import (
@@ -248,6 +250,57 @@ class ProducerTests(unittest.TestCase):
         last.write_text(json.dumps(changed))
         with self.assertRaisesRegex(ValueError, "archive_sha256 differs"):
             verify(self.root, target, manifest, dist)
+
+    def test_release_retry_keeps_attempt_identity_and_explains_full_rerun(self) -> None:
+        target = native_target()
+        plan = plan_for(target)
+        dist = self.root / "distrib"
+        write_archives(dist, target, plan)
+        (self.root / "input.json").write_text(json.dumps(plan))
+        manifest = self.root / "manifest.json"
+        env = {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_JOB": "build-local-artifacts",
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "1",
+        }
+        with patch.dict(os.environ, env):
+            receipts = build(
+                self.root,
+                target,
+                manifest,
+                dist,
+                self.command(
+                    "from pathlib import Path;print(Path('input.json').read_text())"
+                ),
+            )
+            self.assertTrue(verify(self.root, target, manifest, dist)["verified"])
+        originals = {
+            path: path.read_bytes() for path in dist.glob("*-source-lock.json")
+        }
+        # A partial retry retains producer 1 while downstream verification is 2.
+        with (
+            patch.dict(os.environ, {**env, "GITHUB_RUN_ATTEMPT": "2"}),
+            self.assertRaisesRegex(
+                ValueError, "producer=1, verifier=2.*rerun all jobs"
+            ),
+        ):
+            verify(self.root, target, manifest, dist)
+        self.assertEqual({p: p.read_bytes() for p in originals}, originals)
+        artifact = archive_records(plan, target, dist, EXPECTED)[0]
+        source = source_identity(self.root)
+        for attempt in ("1", "3", "local"):
+            receipt = copy.deepcopy(receipts[0])
+            receipt["build"]["run_attempt"] = attempt
+            before = copy.deepcopy(receipt)
+            with (
+                self.subTest(attempt=attempt),
+                self.assertRaisesRegex(ValueError, "producer attempt differs"),
+            ):
+                verify_receipt(
+                    receipt, artifact, source, {**env, "GITHUB_RUN_ATTEMPT": "2"}
+                )
+            self.assertEqual(receipt, before, "rejection cannot rewrite evidence")
 
     def test_every_receipt_identity_must_match_observations(self) -> None:
         source = source_identity(self.root)
