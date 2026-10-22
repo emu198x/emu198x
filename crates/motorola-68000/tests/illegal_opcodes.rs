@@ -118,7 +118,8 @@ fn run(sr: u16, opcode: u16, ext: u16) -> (u32, u32, u32) {
         }
     }
     let sp = cpu.regs.a(7);
-    let stacked_pc = (u32::from(mem.read_word(sp + 2)) << 16) | u32::from(mem.read_word(sp + 4));
+    let stacked_pc = (u32::from(mem.read_word(sp.wrapping_add(2))) << 16)
+        | u32::from(mem.read_word(sp.wrapping_add(4)));
     (cpu.instr_start_pc, stacked_pc, clocks)
 }
 
