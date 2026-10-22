@@ -519,7 +519,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         }
         for (unit, (bytes, writable)) in media.into_iter().enumerate() {
             if let Some(bytes) = bytes {
-                self.insert_floppy_bytes(unit, &bytes, writable)
+                self.insert_floppy_bytes(unit, &bytes, writable, self.model().is_a1000())
                     .expect("re-mounting a cached floppy image should not fail");
             }
         }
@@ -542,7 +542,11 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
             if image.kind != MediaKind::Disk {
                 return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
             }
-            self.insert_floppy_bytes(unit, image.bytes, image.writable)?;
+            // Before execution, preserve the firmware's startup mount policy.
+            // A live insertion must leave /DSKCHANGE for the guest to observe;
+            // only the drive's selected step pulse acknowledges that change.
+            let change_pending = self.time.get() != 0 || self.model().is_a1000();
+            self.insert_floppy_bytes(unit, image.bytes, image.writable, change_pending)?;
         }
         Ok(())
     }
@@ -701,6 +705,7 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         unit: usize,
         bytes: &[u8],
         writable: bool,
+        change_pending: bool,
     ) -> Result<(), MachineError> {
         let slot = FLOPPY_SLOTS[unit];
         if bytes.starts_with(b"CAPS") {
@@ -714,10 +719,6 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
             slot: slot.to_owned(),
             reason: reason.to_string(),
         })?;
-        // Both A1000 PAL and A1000 NTSC need disk-change-pending
-        // bookkeeping during the bootstrap-to-Kickstart-disk handoff.
-        // Other (Kickstart-resident) variants insert without it.
-        let change_pending = self.model().is_a1000();
         self.machine
             .insert_floppy(unit, adf, change_pending, writable);
         self.set_floppy_media(unit, Some(bytes.to_vec()), writable);
