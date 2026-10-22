@@ -1153,10 +1153,24 @@ impl Cpu68000 {
             }
         }
 
+        // --- ILLEGAL (0x4AFC) --- must be before TAS, whose mask it matches
+        if opcode == 0x4AFC {
+            self.begin_group1_exception(4, self.instr_start_pc);
+            return;
+        }
+
         // --- TAS (0x4AC0) --- must be before CLR/TST which matches 0x4A00
         if (opcode & 0xFFC0) == 0x4AC0 {
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
+
+            // TAS takes a data-alterable destination on every 680x0: An
+            // (mode 001) and PC-relative / immediate (mode 111, reg ≥ 2) are
+            // illegal.
+            if ea_mode_bits == 1 || (ea_mode_bits == 7 && ea_reg >= 2) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+                return;
+            }
 
             if ea_mode_bits == 0 {
                 // TAS Dn: test and set bit 7
@@ -1209,12 +1223,6 @@ impl Cpu68000 {
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_EA;
             self.continue_instruction();
-            return;
-        }
-
-        // --- ILLEGAL (0x4AFC) ---
-        if opcode == 0x4AFC {
-            self.begin_group1_exception(4, self.instr_start_pc);
             return;
         }
 
