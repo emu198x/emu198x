@@ -168,10 +168,10 @@ pub trait AmigaMachine {
     fn floppy_drive_fitted(&self, unit: usize) -> bool;
 
     /// Insert an ADF image into the drive at `unit`, fitting the drive if
-    /// that position is empty. The `change_pending` flag drives the
-    /// disk-change-pending bookkeeping the A1000 boot path needs;
-    /// post-A1000 firmware boots happily without it. Returns `false`,
-    /// inserting nothing, for a unit beyond DF3.
+    /// that position is empty. Leave `change_pending` set for live
+    /// insertions and A1000 bootstrap media. Resident-firmware startup and
+    /// reset mounts acknowledge the already-present disk instead. Returns
+    /// `false`, inserting nothing, for a unit beyond DF3.
     fn insert_floppy(
         &mut self,
         unit: usize,
