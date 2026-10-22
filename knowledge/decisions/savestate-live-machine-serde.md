@@ -187,6 +187,20 @@ runtime envelope advances from version 63 to version 64 and rejects
 version 63 before decoding. The Amiga is the only runtime built on the
 680x0 cores.
 
+
+## MC68000 early final prefetch amendment
+
+The 68000 makes an instruction's final prefetch before its trailing
+internal clocks or its last write, not after (SingleStepTests' bus
+transactions; MAME and Moira agree). The core reads that word into a
+holding slot and installs it when the next instruction is promoted, so
+between the prefetch and the promotion the held word is live state. A
+snapshot taken there must carry it, or a restore would refetch the word and
+shift every later bus access by one cycle.
+
+The CPU's live state therefore includes the held word, and the Amiga
+runtime envelope advances from version 64 to version 65 and rejects
+version 64 before decoding.
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled

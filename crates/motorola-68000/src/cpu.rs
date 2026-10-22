@@ -177,6 +177,12 @@ pub const TAG_EXC_SYNC_PC_HI: u8 = 134;
 pub const TAG_SR_REFETCH: u8 = 135;
 /// 68000 JMP/JSR (xxx).l: the address's low word is in IRC.
 pub const TAG_JUMP_ABS_LO: u8 = 136;
+/// 68000 RTE/RTR: the PC's high word has been read (at SP+2).
+pub const TAG_RETURN_PC_HI: u8 = 137;
+/// 68000 RTE/RTR: SR or CCR has been read (at SP).
+pub const TAG_RETURN_SR: u8 = 138;
+/// 68000 RTE/RTR: the PC's low word has been read (at SP+4).
+pub const TAG_RETURN_PC_LO: u8 = 139;
 /// Exception: 68010+ Format/Vector word just pushed; restore the
 /// pending PC into `self.data` and continue with the regular PC
 /// push. Only used when `variant_six_word_frame` is enabled.
@@ -663,6 +669,14 @@ pub struct Cpu68000 {
     /// zero) keeps it, so trace follows that exception's processing. A
     /// snapshot can fall mid-instruction, so it is saved.
     pub(crate) trace_pending: Option<u32>,
+
+    /// The word an early final prefetch (`MicroOp::PrefetchAhead`) read,
+    /// with its address: the word after the next instruction's opcode. The
+    /// next promotion installs it in IRC instead of fetching it. IRC still
+    /// holds the next opcode until then, so an exception before promotion
+    /// stacks the right PC and discards this word. A snapshot can fall
+    /// between the two, so it is saved.
+    pub(crate) prefetch_ahead: Option<(u32, u16)>,
 
     /// **Output:** True when the CPU wants to assert the RESET
     /// line on the bus (from a RESET instruction). The machine
@@ -1267,6 +1281,7 @@ impl Cpu68000 {
             sampled_ipl: 0,
             level7_transition_pending: false,
             trace_pending: None,
+            prefetch_ahead: None,
             reset_out: false,
             instruction_starts: 0,
             opcode_at_start: 0,
@@ -1400,6 +1415,7 @@ impl Cpu68000 {
         self.regs.pc = pc;
         self.regs.sr = 0x2700;
         self.trace_pending = None;
+        self.prefetch_ahead = None;
         self.regs.cacr = 0;
         if let Some(cache) = self.variant_icache.as_mut() {
             cache.clear();
@@ -1449,6 +1465,7 @@ impl Cpu68000 {
         self.state = State::Idle;
         self.instruction_starts = 1;
         self.trace_pending = None;
+        self.prefetch_ahead = None;
     }
 
     /// Take the most recent internally rejected odd-address transfer.
@@ -1653,6 +1670,42 @@ impl Cpu68000 {
                 BusStatus::Wait => unreachable!("wait responses are not completion events"),
             }
         }
+
+        self.retire_fetched_ahead_instruction();
+    }
+
+    /// End an instruction that already made its final prefetch at its last
+    /// clock. The next instruction is promoted now, between ticks, and its
+    /// decode waits for the next tick, which is that instruction's first
+    /// clock. Without the prefetch to wait for there would otherwise be no
+    /// tick between the two, and anything that stops at an instruction
+    /// boundary (debugger, trace, tests) would see the next instruction's
+    /// effects.
+    fn retire_fetched_ahead_instruction(&mut self) {
+        if self.prefetch_ahead.is_none() || !matches!(self.state, State::Idle) {
+            return;
+        }
+        // The instruction's remaining steps take no time.
+        while let Some(op) = self.micro_ops.front() {
+            if !op.is_instant() || matches!(op, MicroOp::PromoteIRC) {
+                break;
+            }
+            self.micro_ops.pop();
+            match op {
+                MicroOp::Execute => {
+                    self.decode_and_execute();
+                    self.place_final_prefetch();
+                }
+                MicroOp::AssertReset => self.reset_out = true,
+                _ => {}
+            }
+        }
+        if self.micro_ops.is_empty()
+            && matches!(self.state, State::Idle)
+            && self.prefetch_ahead.is_some()
+        {
+            self.end_instruction();
+        }
     }
 
     /// Process all instant ops at the front of the queue.
@@ -1666,33 +1719,73 @@ impl Cpu68000 {
                 .pop()
                 .expect("instant op queue should contain the requested micro-op");
             match op {
-                MicroOp::Execute => self.decode_and_execute(),
-                MicroOp::PromoteIRC => {
-                    // A 68881/2 arithmetic exception raised by the just-retired
-                    // FP instruction is delivered here, before the next
-                    // instruction (and before interrupt sampling): `irc_addr`
-                    // is the following instruction's address — the stacked PC
-                    // for this post-instruction trap.
-                    if let Some(vector) = self.fp_exc_pending.take() {
-                        self.begin_group1_exception(vector, self.irc_addr);
-                    } else {
-                        // The 68000 samples interrupts at instruction
-                        // boundaries. A pending trace comes first; the
-                        // interrupt is taken at the trace handler's boundary.
-                        if self.trace_pending.is_none()
-                            && let Some(level) = self.take_interrupt_at_boundary()
-                        {
-                            self.initiate_interrupt_exception(level);
-                        } else {
-                            self.promote_pipeline();
-                        }
-                    }
+                MicroOp::Execute => {
+                    self.decode_and_execute();
+                    self.place_final_prefetch();
                 }
+                MicroOp::PromoteIRC => self.end_instruction(),
                 MicroOp::AssertReset => {
                     self.reset_out = true;
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// The boundary after an instruction: deliver a pending FPU exception,
+    /// take an interrupt, or promote the next instruction.
+    fn end_instruction(&mut self) {
+        // A 68881/2 arithmetic exception raised by the just-retired
+        // FP instruction is delivered here, before the next
+        // instruction (and before interrupt sampling): `irc_addr`
+        // is the following instruction's address — the stacked PC
+        // for this post-instruction trap.
+        if let Some(vector) = self.fp_exc_pending.take() {
+            self.begin_group1_exception(vector, self.irc_addr);
+        } else {
+            // The 68000 samples interrupts at instruction
+            // boundaries. A pending trace comes first; the
+            // interrupt is taken at the trace handler's boundary.
+            if self.trace_pending.is_none()
+                && let Some(level) = self.take_interrupt_at_boundary()
+            {
+                self.initiate_interrupt_exception(level);
+            } else {
+                self.promote_pipeline();
+            }
+        }
+    }
+
+    /// Move the final prefetch ahead of an instruction's trailing internal
+    /// clocks, where the 68000 makes it (SingleStepTests: ADDA is `r n4`,
+    /// EXG `r n2`). Runs after every decode step: once all that is left of
+    /// the instruction is internal clocks, nothing can queue more work, so
+    /// the prefetch goes first.
+    fn place_final_prefetch(&mut self) {
+        // Bcc not taken, DIVU/DIVS and RESET spend their clocks before the
+        // final prefetch, as an indexed LEA or PEA spends its last two.
+        let opcode = self.ir;
+        let clocks_first = opcode & 0xF000 == 0x6000
+            || opcode & 0xF0C0 == 0x80C0
+            || opcode == 0x4E70
+            || opcode & 0xF1C0 == 0x41C0
+            || opcode & 0xFFC0 == 0x4840;
+        if !self.mc68000_timing()
+            || clocks_first
+            || self.micro_ops.is_empty()
+            || self.prefetch_ahead.is_some()
+            || !matches!(self.state, State::Idle)
+        {
+            return;
+        }
+        let only_clocks = self
+            .micro_ops
+            .diagnostic_operations()
+            .iter()
+            .flatten()
+            .all(|op| matches!(op, MicroOp::Internal(n) if *n > 0));
+        if only_clocks {
+            self.micro_ops.push_front(MicroOp::PrefetchAhead);
         }
     }
 
@@ -1734,6 +1827,7 @@ impl Cpu68000 {
     /// and we queue a fetch for the next word plus an Execute to
     /// decode the new opcode.
     fn promote_pipeline(&mut self) {
+        let fetched_ahead = self.prefetch_ahead.take();
         self.instr_start_pc = self.irc_addr;
         self.ir = self.irc;
         self.opcode_at_start = self.ir;
@@ -1745,7 +1839,14 @@ impl Cpu68000 {
         self.src_mode = None;
         self.dst_mode = None;
         self.clear_address_error_execution_state();
-        self.micro_ops.push(MicroOp::FetchIRC);
+        if let Some((addr, word)) = fetched_ahead {
+            // The previous instruction already fetched this word.
+            self.irc = word;
+            self.irc_addr = addr;
+            self.regs.pc = self.next_fetch_addr;
+        } else {
+            self.micro_ops.push(MicroOp::FetchIRC);
+        }
         self.micro_ops.push(MicroOp::Execute);
     }
 
@@ -1754,6 +1855,7 @@ impl Cpu68000 {
     /// This does not clear the public observation: callers may inspect that after
     /// the exception handler's prefetch has promoted the pipeline.
     fn clear_address_error_execution_state(&mut self) {
+        self.prefetch_ahead = None;
         self.ae_in_progress = false;
         self.group0_or_group1_processing = false;
         self.ae_from_fetch_irc = false;
@@ -1941,6 +2043,36 @@ impl Cpu68000 {
     ///
     /// Public so variant crates can stage a memory write-back (e.g. 68020
     /// CAS writing the update register on a successful compare).
+    /// Queue an instruction's trailing internal clocks, preceded on the
+    /// 68000 by its final prefetch, when a register writeback step still
+    /// follows them (so `place_final_prefetch` cannot see they are last).
+    pub(crate) fn push_trailing_clocks(&mut self, clocks: u8) {
+        if self.mc68000_timing() && self.prefetch_ahead.is_none() {
+            self.micro_ops.push(MicroOp::PrefetchAhead);
+        }
+        self.micro_ops.push(MicroOp::Internal(clocks));
+    }
+
+    /// Queue an instruction's last write, preceded on the 68000 by its final
+    /// prefetch: read-modify-write instructions and MOVE to -(An) prefetch
+    /// before they write (SingleStepTests: `r r w` for CLR (An)+).
+    pub(crate) fn queue_final_write_ops(&mut self, size: Size) {
+        if !self.mc68000_timing() {
+            self.queue_write_ops(size);
+            return;
+        }
+        if self.prefetch_ahead.is_none() {
+            self.micro_ops.push(MicroOp::PrefetchAhead);
+        }
+        // These writes put a long's low word first (SingleStepTests).
+        if size == Size::Long {
+            self.micro_ops.push(MicroOp::WriteLongLo);
+            self.micro_ops.push(MicroOp::WriteLongHi);
+        } else {
+            self.queue_write_ops(size);
+        }
+    }
+
     pub fn queue_write_ops(&mut self, size: Size) {
         match size {
             Size::Byte => self.micro_ops.push(MicroOp::WriteByte),
@@ -2023,6 +2155,7 @@ impl Cpu68000 {
         };
 
         let (addr, fc, is_read, is_word, data) = match op {
+            MicroOp::PrefetchAhead => (self.next_fetch_addr, fc_prog, true, true, None),
             MicroOp::FetchIRC => (
                 if self.variant_longword_prefetch {
                     self.next_fetch_addr & !3
@@ -2348,6 +2481,11 @@ impl Cpu68000 {
     /// Write operations don't touch internal state at all.
     fn finish_bus_cycle(&mut self, op: MicroOp, read_data: u16) {
         match op {
+            MicroOp::PrefetchAhead => {
+                self.prefetch_ahead = Some((self.next_fetch_addr, read_data));
+                self.next_fetch_addr = self.next_fetch_addr.wrapping_add(2);
+                self.regs.pc = self.next_fetch_addr;
+            }
             MicroOp::FetchIRC => {
                 let fetched_addr = self.next_fetch_addr;
                 self.irc = read_data;
@@ -2379,8 +2517,10 @@ impl Cpu68000 {
                 self.data = u32::from(read_data);
             }
             // Long hi-word reads: shift into upper 16 bits
+            // Long hi-word reads keep a low word already read, for the
+            // 68000 reads that take the low word first.
             MicroOp::ReadLongHi | MicroOp::PopLongHi => {
-                self.data = u32::from(read_data) << 16;
+                self.data = (self.data & 0xFFFF) | (u32::from(read_data) << 16);
             }
             // Long lo-word reads: combine with previously stored hi word
             MicroOp::ReadLongLo | MicroOp::PopLongLo => {
@@ -2403,11 +2543,16 @@ impl Cpu68000 {
     fn check_address_error(&mut self, op: MicroOp) -> bool {
         // Byte ops and non-memory ops never trigger address errors
         let (check_addr, is_read) = match op {
-            MicroOp::FetchIRC => (self.next_fetch_addr, true),
+            MicroOp::FetchIRC | MicroOp::PrefetchAhead => (self.next_fetch_addr, true),
             MicroOp::ReadWord | MicroOp::ReadLongHi | MicroOp::ReadLong => (self.addr, true),
-            MicroOp::ReadLongLo => (self.addr.wrapping_add(2), true),
+            // As for WriteLongLo: an odd long faults at its base address.
+            MicroOp::ReadLongLo => (self.addr, true),
             MicroOp::WriteWord | MicroOp::WriteLongHi | MicroOp::WriteLong => (self.addr, false),
-            MicroOp::WriteLongLo => (self.addr.wrapping_add(2), false),
+            // An odd long faults before either half is written, at its base
+            // address, whichever half goes first (SingleStepTests: MOVE.l
+            // to an odd -(An) writes low first and reports the base). In
+            // high-first order the high half has already faulted.
+            MicroOp::WriteLongLo => (self.addr, false),
             MicroOp::PushWord => (self.regs.active_sp().wrapping_sub(2), false),
             MicroOp::PushLongHi | MicroOp::PushLong => {
                 (self.regs.active_sp().wrapping_sub(4), false)
@@ -2443,7 +2588,7 @@ impl Cpu68000 {
         // and PC-relative operand reads use program space; other operands use
         // data space.
         let is_sup = self.regs.is_supervisor();
-        let is_program = matches!(op, MicroOp::FetchIRC)
+        let is_program = matches!(op, MicroOp::FetchIRC | MicroOp::PrefetchAhead)
             || (self.program_space_access
                 && matches!(
                     op,
@@ -2459,7 +2604,7 @@ impl Cpu68000 {
             (false, false) => FunctionCode::UserData,
         };
 
-        self.ae_from_fetch_irc = matches!(op, MicroOp::FetchIRC);
+        self.ae_from_fetch_irc = matches!(op, MicroOp::FetchIRC | MicroOp::PrefetchAhead);
         self.begin_address_error(check_addr, is_read, fc);
         true
     }
@@ -2479,6 +2624,7 @@ impl Cpu68000 {
     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
         self.clear_active_bus_transfer();
         self.trace_pending = None;
+        self.prefetch_ahead = None;
         let not_processing_instruction = self.group0_or_group1_processing;
         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
         self.ae_in_progress = true;
@@ -2636,6 +2782,7 @@ impl Cpu68000 {
 
         let not_processing_instruction = self.group0_or_group1_processing;
         self.trace_pending = None;
+        self.prefetch_ahead = None;
         self.ae_in_progress = true;
         self.group0_or_group1_processing = true;
         self.ae_saved_sr = self.regs.sr;
@@ -3120,6 +3267,74 @@ mod tests {
         cpu.addr = 0x0012_3457;
         assert!(cpu.check_address_error(MicroOp::ReadWord));
         assert!(!matches!(cpu.state, State::Halted));
+    }
+
+    /// Tick once, answering any bus cycle with `word` after four clocks.
+    /// Returns whether this tick started a bus cycle.
+    fn tick_with_memory(cpu: &mut Cpu68000, word: u16) -> bool {
+        let was_busy = matches!(cpu.state, State::BusCycle { .. });
+        cpu.bus_status = match cpu.state {
+            State::BusCycle { cycle_count, .. } if cycle_count >= 3 => BusStatus::Ready(word),
+            _ => BusStatus::Wait,
+        };
+        cpu.tick();
+        !was_busy && matches!(cpu.state, State::BusCycle { .. })
+    }
+
+    /// ADDA.W A5,A2 with NOPs after it: the 68000 prefetches, then spends
+    /// four clocks (8 in all, SingleStepTests `r n4`).
+    fn cpu_running_adda() -> Cpu68000 {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2700;
+        cpu.regs.pc = 0x1004;
+        cpu.setup_prefetch(0xD4CD, 0x4E71);
+        cpu
+    }
+
+    #[test]
+    fn early_final_prefetch_promotes_without_another_bus_cycle() {
+        let mut cpu = cpu_running_adda();
+        let start = cpu.instruction_starts;
+        let mut clocks = 0;
+        let mut accesses = 0;
+        while cpu.instruction_starts == start {
+            accesses += usize::from(tick_with_memory(&mut cpu, 0x4E71));
+            clocks += 1;
+            assert!(clocks <= 20, "ADDA never ended");
+        }
+        // One prefetch, then the clocks; promotion fetches nothing.
+        assert_eq!(clocks, 8);
+        assert_eq!(accesses, 1);
+        assert!(cpu.prefetch_ahead.is_none());
+        assert_eq!(cpu.instr_start_pc, 0x1002);
+        assert_eq!((cpu.irc_addr, cpu.irc), (0x1004, 0x4E71));
+        // The boundary is clean: the next instruction decodes on its own
+        // first clock, not with the promotion.
+        assert!(matches!(cpu.state, State::Idle));
+        assert_eq!(cpu.micro_ops.front(), Some(MicroOp::Execute));
+    }
+
+    #[test]
+    fn early_final_prefetch_survives_serde() {
+        let mut cpu = cpu_running_adda();
+        while cpu.prefetch_ahead.is_none() {
+            tick_with_memory(&mut cpu, 0x4E71);
+        }
+        let serialized = serde_json::to_vec(&cpu).expect("serialize CPU holding a prefetched word");
+        let mut restored: Cpu68000 =
+            serde_json::from_slice(&serialized).expect("deserialize CPU holding a prefetched word");
+        assert_eq!(restored.prefetch_ahead, cpu.prefetch_ahead);
+
+        let start = cpu.instruction_starts;
+        for _ in 0..6 {
+            assert_eq!(
+                tick_with_memory(&mut cpu, 0x4E71),
+                tick_with_memory(&mut restored, 0x4E71)
+            );
+        }
+        assert!(cpu.instruction_starts > start);
+        assert_eq!(restored.instruction_starts, cpu.instruction_starts);
+        assert_eq!((restored.irc_addr, restored.irc), (cpu.irc_addr, cpu.irc));
     }
 
     #[test]

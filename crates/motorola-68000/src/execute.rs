@@ -106,7 +106,7 @@ impl Cpu68000 {
                 && self.data != 0
                 && matches!(self.dst_mode, Some(AddrMode::DataReg(_)))
             {
-                self.micro_ops.push(MicroOp::Internal(2));
+                self.push_trailing_clocks(2);
             }
             return;
         }
@@ -178,7 +178,7 @@ impl Cpu68000 {
                 };
                 // BTST Dn,#imm takes two more clocks (10).
                 if self.mc68000_timing() && matches!(self.dst_mode, Some(AddrMode::Immediate)) {
-                    self.micro_ops.push(MicroOp::Internal(2));
+                    self.push_trailing_clocks(2);
                 }
                 if matches!(self.bit_op, BitOp::Btst) {
                     // BTST: no writeback needed (Z flag already set above).
@@ -237,6 +237,21 @@ impl Cpu68000 {
         self.data = self.exec_alu(self.alu_op, self.src_val, self.dst_val, self.size);
     }
 
+    /// Whether this is a 68000 MOVE from memory to an absolute long address,
+    /// which refills past the address's low word after its write rather
+    /// than before (SingleStepTests: `r r w r r`; from a register or
+    /// immediate it is `r r w r`, refilling first).
+    pub(crate) fn move_refills_after_write(&self) -> bool {
+        let is_move = (self.ir & 0xC000) == 0 && (self.ir & 0x3000) != 0;
+        is_move
+            && self.mc68000_timing()
+            && matches!(self.dst_mode, Some(AddrMode::AbsLong))
+            && !matches!(
+                self.src_mode,
+                Some(AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate)
+            )
+    }
+
     /// LEA and PEA with a brief indexed address take two more clocks on the
     /// 68000, after the extension word's refill (SingleStepTests:
     /// `n2 r n2 r`).
@@ -258,7 +273,7 @@ impl Cpu68000 {
             && self.size == Size::Long
             && matches!(self.dst_mode, Some(AddrMode::DataReg(_)))
         {
-            self.micro_ops.push(MicroOp::Internal(2));
+            self.push_trailing_clocks(2);
         }
     }
 
@@ -298,7 +313,7 @@ impl Cpu68000 {
             _ => 0,
         };
         if clocks > 0 {
-            self.micro_ops.push(MicroOp::Internal(clocks));
+            self.push_trailing_clocks(clocks);
         }
     }
 
@@ -320,6 +335,13 @@ impl Cpu68000 {
         // PEA: push the computed address onto the stack
         if (opcode & 0xFFC0) == 0x4840 {
             self.data = self.src_val;
+            // The 68000 prefetches before it pushes, except after an
+            // absolute address (SingleStepTests).
+            if self.mc68000_timing()
+                && !matches!(self.src_mode, Some(AddrMode::AbsShort | AddrMode::AbsLong))
+            {
+                self.micro_ops.push(MicroOp::PrefetchAhead);
+            }
             self.micro_ops.push(MicroOp::PushLongHi);
             self.micro_ops.push(MicroOp::PushLongLo);
             return;
@@ -380,8 +402,20 @@ impl Cpu68000 {
                     self.regs.set_a(r as usize, val);
                 }
                 _ => {
-                    // Memory destination: queue write bus cycles
-                    self.queue_write_ops(self.size);
+                    // Memory destination: queue write bus cycles. MOVE
+                    // writes before its final prefetch, except to -(An);
+                    // TAS's indivisible cycle does too.
+                    let is_move = (opcode & 0xC000) == 0 && (opcode & 0x3000) != 0;
+                    let is_tas = (opcode & 0xFFC0) == 0x4AC0;
+                    let predecrement = matches!(self.dst_mode, Some(AddrMode::AddrIndPreDec(_)));
+                    if (is_move && !predecrement) || is_tas {
+                        self.queue_write_ops(self.size);
+                        if self.move_refills_after_write() {
+                            self.micro_ops.push(MicroOp::FetchIRC);
+                        }
+                    } else {
+                        self.queue_final_write_ops(self.size);
+                    }
                 }
             }
         }
