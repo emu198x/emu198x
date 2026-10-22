@@ -45,7 +45,8 @@ use peripheral_commodore_amiga_floppy::MAX_DRIVES;
 // Version 63 retains drives DF1 to DF3 and the media in each.
 // Version 64 retains a pending 680x0 trace exception.
 // Version 65 retains a 68000 instruction's early final prefetch.
-const SNAPSHOT_VERSION: u32 = 65;
+// Version 66 retains an accelerator bridge's count of motherboard slots.
+const SNAPSHOT_VERSION: u32 = 66;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) with the surrounding runtime context
@@ -54,7 +55,7 @@ const SNAPSHOT_VERSION: u32 = 65;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV65<M: AmigaMachine> {
+struct SnapshotEnvelopeV66<M: AmigaMachine> {
     version: u32,
     config: AmigaConfig,
     time: MachineTime,
@@ -81,7 +82,7 @@ pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u
     for unit in 0..MAX_DRIVES {
         (floppy_bytes[unit], floppy_writable[unit]) = runtime.floppy_media(unit);
     }
-    let envelope = SnapshotEnvelopeV65::<M> {
+    let envelope = SnapshotEnvelopeV66::<M> {
         version: SNAPSHOT_VERSION,
         config: runtime.config(),
         time: runtime.time_value(),
@@ -125,7 +126,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV65<M> =
+    let envelope: SnapshotEnvelopeV66<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
@@ -381,7 +382,7 @@ mod tests {
     fn restore_rejects_out_of_range_audio_phase_without_mutating_runtime() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV65<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV66<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.audio_sample_accumulator = u64::MAX;
         let forged = postcard::to_allocvec(&envelope).expect("encode forged audio phase");
@@ -406,7 +407,7 @@ mod tests {
     fn restore_rejects_machine_state_that_disagrees_with_a530_configuration() {
         let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&stock).expect("encode stock snapshot");
-        let mut envelope: SnapshotEnvelopeV65<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV66<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.config = Model::A500OcsPalGvpA530.config();
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -470,7 +471,7 @@ mod tests {
     fn media_for_a_drive_that_is_not_fitted_is_rejected_without_mutating_runtime() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV65<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV66<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy_bytes[1] = Some(vec![0; DD.len()]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -493,7 +494,7 @@ mod tests {
     fn malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV65<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV66<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy_bytes[0] = Some(vec![0; 17]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -570,7 +571,7 @@ mod tests {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source");
         for damage in 0..14 {
-            let mut envelope: SnapshotEnvelopeV65<AmigaOcs> =
+            let mut envelope: SnapshotEnvelopeV66<AmigaOcs> =
                 postcard::from_bytes(&encoded).expect("decode source envelope");
             match damage {
                 0 => envelope.audio_resampler.level[0] = f64::NAN,

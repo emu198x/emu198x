@@ -1144,22 +1144,28 @@ pub trait AmigaDriver {
     /// sees the count it coincides with, so the response waits for
     /// [`CIA_ACCESS_END_PHASE`] after at least eight clocks of the cycle.
     ///
+    /// The cycle is timed in motherboard clocks. Behind an accelerator
+    /// bridge (the GVP A530) the motherboard access is still a VPA cycle on
+    /// the 68000 bus, so it waits the same way, counted in the bridge's
+    /// motherboard slots; otherwise the processor's own cycle count is
+    /// scaled to system ticks.
+    ///
     /// The interrupt acknowledge is not such a cycle: Gary decodes it as a
     /// ROM read, and the Kickstart's last bytes hold the vector numbers.
-    /// Machines behind an accelerator bridge, or whose processor clock is
-    /// not a whole multiple of the system clock, keep their existing timing.
     fn cia_access_waits_for_e_clock(&mut self, addr24: u32, cycle_count: u8) -> bool {
-        if crate::cia::decode_cia_select(addr24, self.cia_decoder()).is_none()
-            || self.motherboard_bridge_mut().is_some()
-        {
+        if crate::cia::decode_cia_select(addr24, self.cia_decoder()).is_none() {
             return false;
         }
-        let clock = *self.cpu_clock_mut();
-        if !clock.numerator().is_multiple_of(clock.denominator()) {
-            return false;
-        }
-        let edges_per_tick = (clock.numerator() / clock.denominator()).max(1);
-        let elapsed_ticks = u64::from(cycle_count) / edges_per_tick;
+        let elapsed_ticks = if let Some(bridge) = self.motherboard_bridge_mut() {
+            u64::from(bridge.admitted_slots())
+        } else {
+            let clock = *self.cpu_clock_mut();
+            if !clock.numerator().is_multiple_of(clock.denominator()) {
+                return false;
+            }
+            let edges_per_tick = (clock.numerator() / clock.denominator()).max(1);
+            u64::from(cycle_count) / edges_per_tick
+        };
         !(elapsed_ticks >= CIA_E_CLOCK_DIVISOR - 2 && self.e_clock_phase() == CIA_ACCESS_END_PHASE)
     }
 

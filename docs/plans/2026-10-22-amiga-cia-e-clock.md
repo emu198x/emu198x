@@ -62,10 +62,16 @@ Three steps, each its own PR.
    - The debugger and test backdoors keep the narrow `$BFDxxx`/`$BFExxx`
      decoders.
 
-3. **The GVP A530** keeps its timing until the bridge counts motherboard
-   time for the wait; that needs a field in the bridge's saved state.
-   This also covers the only processor clock that is not a whole multiple
-   of the system clock.
+3. **The GVP A530.** Behind the bridge the motherboard access is still a
+   VPA cycle on the 68000 bus, so it waits the same way. The bridge now
+   counts motherboard slots since it admitted the access
+   (`SynchronizedMotherboardBridge::admitted_slots`), and the wait uses
+   that count instead of the accelerator's own clocks. The count is live
+   state, so the Amiga snapshot envelope advances from 65 to 66, with an
+   amendment to `savestate-live-machine-serde.md`. This also covers the
+   only processor clock that is not a whole multiple of the system clock.
+   WinUAE has no cycle-exact model of the A530 to check against; the
+   rule follows from the motherboard cycle being the same.
 
 Out of scope: WinUAE's interrupt-sampling delay after a CIA access.
 
@@ -80,5 +86,10 @@ Out of scope: WinUAE's interrupt-sampling delay after a CIA access.
   - CIA space: writes through `$A0E301` and `$B4D300`, a word read at
     `$BFD300`, and a both-selected read and write at `$BFC2xx`/`$BFC3xx`.
 - `cia::tests` pins the decode, including Gayle's narrower pages.
+- `a530_cia_reads_end_six_clocks_after_the_cia_counts` (machine unit
+  test): through the A530 the motherboard access comes six clocks after
+  the count and the 68030 completes one slot later, every read (fails
+  with the bridge excluded). `board::tests` pins the slot count and its
+  snapshot.
 - The Amiga machine, runtime and front-end tests, the ROM-backed tests and
   goldens, and the six Dizzy games.

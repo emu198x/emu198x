@@ -3564,6 +3564,84 @@ mod tests {
         );
     }
 
+    /// Behind the A530's bridge a CIA access is still a VPA cycle on the
+    /// motherboard's 68000 bus, so it waits for the E clock in motherboard
+    /// time: the motherboard access comes six clocks after the CIAs count, as
+    /// on a bare A500 (`tests/cia_e_clock.rs`), whatever the 68030's own
+    /// clock, and the bridge returns it on the next slot.
+    #[test]
+    fn a530_cia_reads_end_six_clocks_after_the_cia_counts() {
+        fn put_w(rom: &mut [u8], at: usize, word: u16) {
+            rom[at] = (word >> 8) as u8;
+            rom[at + 1] = word as u8;
+        }
+        let mut rom = vec![0u8; 256 * 1024];
+        for (at, word) in [(0, 0x0000), (2, 0x8000), (4, 0x00FC), (6, 0x0100)] {
+            put_w(&mut rom, at, word);
+        }
+        let mut at = 0x100;
+        // MOVE.B #imm,(xxx).l: TALO = $FF, TAHI = $FF, CRA = START.
+        for (value, low) in [(0x00FF, 0xE401), (0x00FF, 0xE501), (0x0001, 0xEE01)] {
+            for word in [0x13FC, value, 0x00BF, low] {
+                put_w(&mut rom, at, word);
+                at += 2;
+            }
+        }
+        let loop_at = at;
+        for _ in 0..8 {
+            // MOVE.B $00BFE401,D0
+            for word in [0x1039, 0x00BF, 0xE401] {
+                put_w(&mut rom, at, word);
+                at += 2;
+            }
+        }
+        put_w(&mut rom, at, 0x6000);
+        put_w(&mut rom, at + 2, (loop_at as i32 - (at as i32 + 2)) as u16);
+
+        let mut amiga =
+            AmigaOcs::with_gvp_a530_config(rom, RamConfig::bare(), a530_compatibility_config());
+        let mut timer = amiga.cia_a.peek(4);
+        let mut last_count = 0u64;
+        let mut reading = false;
+        let mut pending: Option<u8> = None;
+        let (mut ended, mut checked) = (0, 0);
+        for tick in 0..20_000u64 {
+            amiga.tick();
+            let now = amiga.cia_a.peek(4);
+            if now != timer {
+                timer = now;
+                last_count = tick;
+            }
+            let in_read = matches!(
+                amiga.cpu().state,
+                State::BusCycle { addr, .. } if addr & 0x00FF_FFFF == 0x00BF_E401
+            );
+            if in_read
+                && !reading
+                && let Some(value) = pending.take()
+            {
+                assert_eq!(amiga.cpu().regs.d[0] & 0xFF, u32::from(value));
+                checked += 1;
+            }
+            if reading && !in_read && tick > 1_000 {
+                // The motherboard access happens six clocks after the count
+                // and the bridge returns its response on the next slot.
+                assert_eq!(
+                    tick - last_count,
+                    7,
+                    "a CIA read through the bridge should end one slot after the motherboard access"
+                );
+                pending = Some(timer);
+                ended += 1;
+            }
+            reading = in_read;
+        }
+        assert!(
+            ended > 100 && checked > 100,
+            "too few reads: {ended} ended, {checked} checked"
+        );
+    }
+
     #[test]
     fn a530_selects_ec030_exact_clock_and_separate_local_ram() {
         let amiga = AmigaOcs::with_gvp_a530_config(

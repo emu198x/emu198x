@@ -201,6 +201,19 @@ shift every later bus access by one cycle.
 The CPU's live state therefore includes the held word, and the Amiga
 runtime envelope advances from version 64 to version 65 and rejects
 version 64 before decoding.
+## Accelerator bridge motherboard-slot amendment
+
+A CIA access is a VPA cycle synchronised to the E clock, and behind an
+accelerator bridge (the GVP A530) that wait is counted in the bridge's
+motherboard slots, not in the accelerator's own clocks. The count belongs
+to the access in flight, so a snapshot taken while a CIA access waits must
+carry it, or a restore would restart the wait and shift the access by up
+to an E period.
+
+The bridge's live state therefore includes the count, and the Amiga
+runtime envelope advances from version 65 to version 66 and rejects
+version 65 before decoding.
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
