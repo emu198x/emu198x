@@ -25,13 +25,13 @@ use crate::cpu::{
     TAG_EA_FF_INDIRECT_DONE, TAG_EA_FF_STREAM, TAG_EA_SRC_DISP, TAG_EA_SRC_LONG, TAG_EA_SRC_PCDISP,
     TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_IACK_COMPLETE, TAG_EXC_STACK_FORMAT,
     TAG_EXC_STACK_INSTR_ADDR_HI, TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI,
-    TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA,
-    TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_LONG_BRANCH_LO,
-    TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE,
-    TAG_RTE_READ_FMT2_HI, TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT,
-    TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI,
-    TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI,
-    TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR, TAG_EXC_SYNC_PC_HI, TAG_EXC_SYNC_SR, TAG_EXECUTE,
+    TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA, TAG_JSR_EXECUTE,
+    TAG_LINK_DISP, TAG_LONG_BRANCH_LO, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE,
+    TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI, TAG_RTE_READ_FMT2_LO,
+    TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO,
+    TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI,
+    TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -1318,6 +1318,8 @@ impl Cpu68000 {
             if self.regs.sr & crate::flags::V != 0 {
                 let next_pc = self.instr_start_pc.wrapping_add(2);
                 self.begin_group1_exception(7, next_pc);
+                // TRAPV completes its prefetch before stacking.
+                self.micro_ops.push_front(MicroOp::FetchIRC);
             }
             return;
         }
@@ -1996,6 +1998,23 @@ impl Cpu68000 {
                 }
             }
 
+            TAG_EXC_SYNC_SR => {
+                self.addr = self.regs.active_sp();
+                self.data = u32::from(self.ae_saved_sr);
+                self.followup_tag = TAG_EXC_SYNC_PC_HI;
+                self.micro_ops.push(MicroOp::WriteWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
+            TAG_EXC_SYNC_PC_HI => {
+                self.addr = self.regs.active_sp().wrapping_add(2);
+                self.data = self.exc_pending_pc >> 16;
+                // The frame is complete; fetch the retained vector.
+                self.followup_tag = TAG_EXC_STACK_SR;
+                self.micro_ops.push(MicroOp::WriteWord);
+                self.micro_ops.push(MicroOp::Execute);
+            }
+
             TAG_EXC_FETCH_VECTOR => {
                 let vector = self.data as u8;
                 self.program_space_access = false;
@@ -2012,10 +2031,17 @@ impl Cpu68000 {
                 self.next_fetch_addr = self.regs.pc;
                 // All entry-side SR effects were applied before the exception
                 // frame and vector fetch began.
+                // A 68000 group-1/2 exception waits two clocks between the
+                // handler's two prefetches (Table 8-14; Moira's
+                // jumpToVector). 68000 interrupts carry no retained vector.
+                let sync_68000 = self.exc_vector.is_some() && !self.variant_six_word_frame;
                 self.exc_vector = None;
                 self.exc_master_interrupt_pending = false;
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
+                if sync_68000 {
+                    self.micro_ops.push(MicroOp::Internal(2));
+                }
                 self.micro_ops.push(MicroOp::PromoteIRC);
                 self.in_followup = false;
             }
@@ -2380,25 +2406,23 @@ impl Cpu68000 {
                 // At this point, irc_addr equals the address past the last consumed word.
                 let frame_pc = self.irc_addr;
 
-                // The real 68000 computes Dn.w - src.w internally. When Dn < 0
-                // triggers the trap, 2 extra internal cycles fire if the
-                // subtraction shows Dn <= src (signed, no overflow).
-                let sub_result = dn_val.wrapping_sub(bound);
-                let sub_n = sub_result & 0x8000 != 0;
-                let sub_z = sub_result == 0;
-                let sub_v = ((dn_val ^ bound) & (dn_val ^ sub_result)) & 0x8000 != 0;
-
                 if dn_signed < 0 {
-                    // Dn < 0: set N, clear ZVC, preserve X, trap vector 6
-                    let extra = if (sub_n || sub_z) && !sub_v { 2 } else { 0 };
+                    // Dn < 0: set N, clear ZVC, preserve X, trap vector 6.
+                    // The 68000 tests the upper bound first: Dn above it
+                    // traps after four clocks, otherwise the negative test
+                    // traps after six (Moira's execChk; SingleStepTests).
+                    let extra = if dn_signed <= bound_signed { 2 } else { 0 };
                     self.regs.sr = (self.regs.sr & 0xFFF0) | 0x0008;
                     self.begin_group1_exception(6, frame_pc);
                     self.micro_ops.push_front(MicroOp::Internal(4 + extra));
+                    // CHK completes its prefetch before the check's clocks.
+                    self.micro_ops.push_front(MicroOp::FetchIRC);
                 } else if dn_signed > bound_signed {
                     // Dn > upper bound: clear NZVC, preserve X, trap vector 6
                     self.regs.sr &= 0xFFF0;
                     self.begin_group1_exception(6, frame_pc);
                     self.micro_ops.push_front(MicroOp::Internal(4));
+                    self.micro_ops.push_front(MicroOp::FetchIRC);
                 } else {
                     // In bounds: preserve X/N, clear ZVC, no trap
                     self.regs.sr &= !0x0007;

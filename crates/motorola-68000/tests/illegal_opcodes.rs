@@ -83,6 +83,14 @@ fn service_bus(cpu: &mut Cpu68000, mem: &mut Mem) {
 /// Execute `opcode` once and return where the next instruction starts and
 /// the PC on top of the stack.
 fn execute(opcode: u16) -> (u32, u32) {
+    let (next, stacked_pc, _) = run(0x2700, opcode, 0);
+    (next, stacked_pc)
+}
+
+/// Execute `opcode` (with extension word `ext`) from status `sr` until the
+/// next instruction starts. Returns where it starts, the PC on top of the
+/// stack and the clocks taken.
+fn run(sr: u16, opcode: u16, ext: u16) -> (u32, u32, u32) {
     let mut mem = Mem(HashMap::new());
     for vector in 0..256 {
         let target = handler(vector);
@@ -90,24 +98,46 @@ fn execute(opcode: u16) -> (u32, u32) {
         mem.write_word(vector * 4 + 2, target as u16);
     }
     mem.write_word(CODE, opcode);
+    mem.write_word(CODE + 2, ext);
 
     let mut cpu = Cpu68000::new();
-    cpu.regs.sr = 0x2700;
+    cpu.regs.sr = sr;
     cpu.regs.ssp = STACK;
+    cpu.regs.usp = STACK - 0x1000;
     cpu.regs.pc = CODE + 4;
-    cpu.setup_prefetch(opcode, 0);
+    cpu.setup_prefetch(opcode, ext);
 
     let start = cpu.instruction_starts;
+    let mut clocks = 0;
     for _ in 0..400 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
+        clocks += 1;
         if cpu.instruction_starts > start {
             break;
         }
     }
     let sp = cpu.regs.a(7);
     let stacked_pc = (u32::from(mem.read_word(sp + 2)) << 16) | u32::from(mem.read_word(sp + 4));
-    (cpu.instr_start_pc, stacked_pc)
+    (cpu.instr_start_pc, stacked_pc, clocks)
+}
+
+/// MC68000 User's Manual Table 8-14 gives illegal-instruction and
+/// privilege-violation exceptions 34 clocks each: four idle, three stack
+/// writes, two vector reads and the handler's two prefetches with two idle
+/// between (as vAmiga's Moira sequences them). Both counts here stop before
+/// the next instruction's last prefetch, so each exception takes 34 - 4
+/// clocks more than a NOP (4 clocks, one prefetch).
+#[test]
+fn illegal_and_privilege_exceptions_take_34_clocks() {
+    let (_, _, nop) = run(0x2700, 0x4E71, 0);
+    let (next, _, illegal) = run(0x2700, 0x4AFC, 0);
+    assert_eq!(next, handler(4));
+    assert_eq!(illegal - nop, 30);
+    // MOVE #$2700,SR in user mode.
+    let (next, _, privilege) = run(0x0000, 0x46FC, 0x2700);
+    assert_eq!(next, handler(8));
+    assert_eq!(privilege - nop, 30);
 }
 
 /// The opcodes in `opcodes` the disassembler rejects that do not take the

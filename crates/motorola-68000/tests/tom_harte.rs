@@ -1207,3 +1207,171 @@ fn harte_focus_remaining() {
     );
     assert_eq!(fail_count, 0, "one or more focused fixtures did not pass");
 }
+
+// ─── Exception bus sequences ───────────────────────────────────────
+
+/// One bus access, or a stretch of idle clocks, in the corpus's terms.
+#[derive(Debug, PartialEq)]
+enum BusToken {
+    Idle(u64),
+    Access(char, u32),
+}
+
+/// The fixture's transactions, with consecutive idle entries merged.
+fn fixture_tokens(test: &Value) -> Vec<BusToken> {
+    let mut tokens = Vec::new();
+    for t in test["transactions"].as_array().into_iter().flatten() {
+        let fields = t.as_array().expect("transaction is array");
+        match fields[0].as_str().expect("transaction kind") {
+            "n" => {
+                let cycles = fields[1].as_u64().expect("idle cycles");
+                if let Some(BusToken::Idle(n)) = tokens.last_mut() {
+                    *n += cycles;
+                } else {
+                    tokens.push(BusToken::Idle(cycles));
+                }
+            }
+            kind => {
+                let addr = (fields[3].as_u64().expect("address") as u32) & MASK_24;
+                let kind = kind.chars().next().expect("kind letter");
+                tokens.push(BusToken::Access(kind, addr));
+            }
+        }
+    }
+    tokens
+}
+
+/// Run the fixture instruction through the next instruction's first
+/// prefetch, as the corpus records it, and return the core's bus activity.
+/// Each access takes four clocks, the first of which the core spends
+/// dispatching it; any other clock is idle.
+fn run_recording(cpu: &mut Cpu68000, mem: &mut SparseMem) -> Option<Vec<BusToken>> {
+    let start = cpu.instruction_starts;
+    let mut clocks: Vec<Option<(char, u32)>> = Vec::new();
+    let mut promoted = false;
+    for _ in 0..2000 {
+        let access = match &cpu.state {
+            State::BusCycle { addr, is_read, .. } => {
+                Some((if *is_read { 'r' } else { 'w' }, *addr & MASK_24))
+            }
+            _ => None,
+        };
+        service_bus(cpu, mem);
+        cpu.tick();
+        clocks.push(access);
+        if cpu.instruction_starts > start {
+            promoted = true;
+        }
+        if promoted
+            && cpu.irc_addr == cpu.instr_start_pc.wrapping_add(2)
+            && matches!(cpu.state, State::Idle)
+        {
+            break;
+        }
+        if matches!(cpu.state, State::Stopped | State::Halted) {
+            return None;
+        }
+    }
+    // An access shows as a run of bus-cycle clocks; the clock before the run
+    // is the one that dispatched it.
+    let mut tokens = Vec::new();
+    let mut i = 0usize;
+    let starts: Vec<usize> = (0..clocks.len())
+        .filter(|&i| clocks[i].is_some() && (i == 0 || clocks[i - 1].is_none()))
+        .collect();
+    for &s in &starts {
+        let begin = s.saturating_sub(1);
+        if begin > i {
+            tokens.push(BusToken::Idle((begin - i) as u64));
+        }
+        let (kind, addr) = clocks[s].expect("access clock");
+        tokens.push(BusToken::Access(kind, addr));
+        i = begin + 4;
+    }
+    Some(tokens)
+}
+
+/// The clocks a token sequence spans.
+fn token_clocks(tokens: &[BusToken]) -> u64 {
+    tokens
+        .iter()
+        .map(|t| match t {
+            BusToken::Idle(n) => *n,
+            BusToken::Access(..) => 4,
+        })
+        .sum()
+}
+
+/// Group-2 exceptions (TRAP, TRAPV, CHK, divide by zero) follow one bus
+/// sequence after their own lead-in: write PC low, SR and PC high, read the
+/// vector, prefetch, two idle clocks, prefetch again (MC68000 User's Manual
+/// Table 8-14; vAmiga's Moira writeStackFrame0000 and jumpToVector). Every
+/// corpus row that stacks a six-byte frame must match that sequence exactly,
+/// from the idle clocks before its first stack write, and take the same
+/// total clocks. Where the operand fetch places its own idle clocks within
+/// the instruction is addressing-mode timing, outside this check.
+#[test]
+#[ignore]
+fn harte_exception_bus_sequences() {
+    let root = fixture_root();
+    let mut failures = Vec::new();
+    let mut compared = 0usize;
+    for name in ["TRAP", "TRAPV", "CHK", "DIVU", "DIVS"] {
+        let path = root.join(format!("{name}.json.gz"));
+        let tests = load_fixture(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut file_compared = 0usize;
+        let mut file_failed = 0usize;
+        for test in &tests {
+            let expected = fixture_tokens(test);
+            let writes = expected
+                .iter()
+                .filter(|t| matches!(t, BusToken::Access('w', _)))
+                .count();
+            if writes != 3 {
+                continue;
+            }
+            let mut cpu = Cpu68000::new();
+            let mut mem = SparseMem::new();
+            mem.load_ram(test["initial"]["ram"].as_array().expect("ram"));
+            apply_initial(&mut cpu, &mut mem, &test["initial"]);
+            let actual = run_recording(&mut cpu, &mut mem);
+            file_compared += 1;
+            // The exception part: any idle clocks just before the first
+            // stack write, and everything after.
+            let tail = |tokens: &[BusToken]| -> usize {
+                let first_write = tokens
+                    .iter()
+                    .position(|t| matches!(t, BusToken::Access('w', _)))
+                    .unwrap_or(tokens.len());
+                match first_write.checked_sub(1).map(|i| &tokens[i]) {
+                    Some(BusToken::Idle(_)) => first_write - 1,
+                    _ => first_write,
+                }
+            };
+            let agrees = actual.as_ref().is_some_and(|actual| {
+                actual[tail(actual)..] == expected[tail(&expected)..]
+                    && token_clocks(actual) == token_clocks(&expected)
+            });
+            if !agrees {
+                file_failed += 1;
+                if file_failed <= 2 {
+                    failures.push(format!(
+                        "{}: expected {expected:?}\n    actual {actual:?}",
+                        test["name"]
+                    ));
+                }
+            }
+        }
+        println!(
+            "  {name:<6} {}/{file_compared} match",
+            file_compared - file_failed
+        );
+        compared += file_compared;
+    }
+    assert!(compared > 0, "no exception rows compared");
+    assert!(
+        failures.is_empty(),
+        "exception bus sequences differ:\n{}",
+        failures.join("\n")
+    );
+}
