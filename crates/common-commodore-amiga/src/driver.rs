@@ -43,7 +43,7 @@ use crate::board::{
     PAL_SYSTEM_TICK_HZ, SizedBusResponse, SizedBusTransaction, SynchronizedMotherboardBridge,
     TICKS_PER_CCK,
 };
-use crate::cia::Cia;
+use crate::cia::{Cia, CiaDecoder};
 use crate::clock::{CpuClock, CpuDomainPhase};
 use crate::copper::Copper;
 use crate::memory::Memory;
@@ -95,14 +95,11 @@ pub struct AmigaMemoryWriteRecord {
 /// Amiga machine.
 pub const AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY: usize = 4096;
 
-/// The CIA register window the bus dispatch serves (`$BFDxxx` CIA-B,
-/// `$BFExxx` CIA-A). Gary asserts VPA for these accesses.
-const CIA_VPA_BASE: u32 = 0x00BF_D000;
-const CIA_VPA_TOP: u32 = 0x00BF_F000;
-
-/// The E-clock position a CIA access synchronises to, in system ticks into
-/// the E period (WinUAE's `E_CLOCK_SYNC_N`).
-const E_CLOCK_SYNC_PHASE: u64 = 2;
+/// Where a CIA access completes, in system ticks after the CIAs count
+/// (E-clock phase 0, when the driver ticks them). vAmiga
+/// (`Agnus::syncWithEClock`) and WinUAE (`cia_wait_pre`/`cia_wait_post`)
+/// both end the access six clocks after the count it coincides with.
+const CIA_ACCESS_END_PHASE: u64 = 6;
 
 /// One instruction boundary crossed during a machine tick.
 ///
@@ -241,6 +238,8 @@ pub trait AmigaDriver {
     fn copper_mut(&mut self) -> &mut Copper;
     fn paula(&self) -> &Paula8364;
     fn paula_mut(&mut self) -> &mut Paula8364;
+    /// The glue chip that decodes CIA space on this board.
+    fn cia_decoder(&self) -> CiaDecoder;
     fn cia_a(&self) -> &Cia;
     fn cia_a_mut(&mut self) -> &mut Cia;
     fn cia_b(&self) -> &Cia;
@@ -1133,21 +1132,25 @@ pub trait AmigaDriver {
 
     /// Whether a CIA access must wait longer for the E clock.
     ///
+    /// Every access in the board's CIA space (`cia_decoder`) is a VPA
+    /// cycle, including one that selects neither CIA.
+    ///
     /// Gary asserts VPA for the CIAs, so the 68000 runs a 6800-style cycle
-    /// synchronised to the E clock (a tenth of the system clock). WinUAE's
-    /// cycle-exact model (`cia_wait_pre`/`cia_wait_post`) waits for E-clock
-    /// position 2, then four clocks, the access and six more: 10 to 19
-    /// clocks in all, depending on where in the E period the access began.
-    /// The cycle therefore ends at the second position-2 point at or after
-    /// its start, and the response comes two clocks before that, as for an
-    /// ordinary cycle answered at its second clock.
+    /// synchronised to the E clock (a tenth of the system clock): 10 to 19
+    /// clocks, depending on where in the E period the access began, always
+    /// ending at the same point in it (WinUAE's `cia_wait_pre` and
+    /// `cia_wait_post`; vAmiga's `Agnus::syncWithEClock`). Both references
+    /// place that point six clocks after the CIAs count, and the access
+    /// sees the count it coincides with, so the response waits for
+    /// [`CIA_ACCESS_END_PHASE`] after at least eight clocks of the cycle.
     ///
     /// The interrupt acknowledge is not such a cycle: Gary decodes it as a
     /// ROM read, and the Kickstart's last bytes hold the vector numbers.
     /// Machines behind an accelerator bridge, or whose processor clock is
     /// not a whole multiple of the system clock, keep their existing timing.
     fn cia_access_waits_for_e_clock(&mut self, addr24: u32, cycle_count: u8) -> bool {
-        if !(CIA_VPA_BASE..CIA_VPA_TOP).contains(&addr24) || self.motherboard_bridge_mut().is_some()
+        if crate::cia::decode_cia_select(addr24, self.cia_decoder()).is_none()
+            || self.motherboard_bridge_mut().is_some()
         {
             return false;
         }
@@ -1157,8 +1160,7 @@ pub trait AmigaDriver {
         }
         let edges_per_tick = (clock.numerator() / clock.denominator()).max(1);
         let elapsed_ticks = u64::from(cycle_count) / edges_per_tick;
-        let response_phase = (E_CLOCK_SYNC_PHASE + CIA_E_CLOCK_DIVISOR - 2) % CIA_E_CLOCK_DIVISOR;
-        !(elapsed_ticks >= CIA_E_CLOCK_DIVISOR - 2 && self.e_clock_phase() == response_phase)
+        !(elapsed_ticks >= CIA_E_CLOCK_DIVISOR - 2 && self.e_clock_phase() == CIA_ACCESS_END_PHASE)
     }
 
     /// Apply one accelerator-local compatibility response without changing

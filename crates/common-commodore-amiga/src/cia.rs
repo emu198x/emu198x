@@ -54,18 +54,54 @@ impl CiaExt for Cia {
     }
 }
 
-/// Decode a 24-bit Amiga address into a CIA-A register index, if
-/// the address falls into the CIA-A address space (`$BFExxx`).
-///
-/// CIA-A is physically wired to the low data byte (D0-D7). Reading
-/// `MOVE.B $BFExx01` (LDS-only, odd address) is the canonical access
-/// path. Word reads `MOVE.W $BFExx00` and even-address byte reads also
-/// reach the chip on real hardware: the 68000 asserts both UDS and
-/// LDS for word cycles, so the LDS-side CIA still drives its byte
-/// (and side-effects), and the UDS lane is floating bus from
-/// `Memory::last_bus_value`. The dispatcher in `lib.rs` uses
-/// `BusResponse::Byte` to deliver the chip's byte regardless of
-/// access width.
+/// The glue chip that decodes the CIA region.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CiaDecoder {
+    /// Gary (A500, A2000, A500+) and the A1000's logic: the whole
+    /// `$A00000-$BFFFFF` region is CIA space.
+    Gary,
+    /// Gayle (A600, A1200): only the `$xxDxxx` and `$xxExxx` pages of that
+    /// region reach the CIAs, as WinUAE's `isgaylenocia` models.
+    Gayle,
+}
+
+/// The CIAs one access selects, and the register.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CiaSelect {
+    /// CIA-A, on data bits 7-0, is selected by A12 low.
+    pub a: bool,
+    /// CIA-B, on data bits 15-8, is selected by A13 low.
+    pub b: bool,
+    /// The register, from A11-A8.
+    pub reg: u8,
+}
+
+/// Decode an access in CIA space (Amiga Hardware Reference Manual, 3rd
+/// edition, appendix F): the CIAs are selected "when the upper three
+/// address bits are 101", CIA-A when A12 is low and CIA-B when A13 is low,
+/// A11-A8 pick the register, and all other bits are don't-cares. With A12
+/// and A13 both low both are selected; with both high neither is, but the
+/// access is still a VPA cycle. Returns `None` outside CIA space.
+#[must_use]
+pub fn decode_cia_select(addr: u32, decoder: CiaDecoder) -> Option<CiaSelect> {
+    let addr = addr & 0x00FF_FFFF;
+    if addr >> 21 != 0b101 {
+        return None;
+    }
+    if decoder == CiaDecoder::Gayle && !matches!(addr & 0xF000, 0xD000 | 0xE000) {
+        return None;
+    }
+    Some(CiaSelect {
+        a: addr & 0x1000 == 0,
+        b: addr & 0x2000 == 0,
+        reg: ((addr >> 8) & 0x0F) as u8,
+    })
+}
+
+/// Decode a 24-bit Amiga address into a CIA-A register index, if the
+/// address falls in the documented CIA-A window (`$BFExxx`). For test and
+/// debugger backdoors that address a register directly; the CPU's bus
+/// path uses [`decode_cia_select`].
 #[must_use]
 pub fn decode_cia_a(addr: u32) -> Option<u8> {
     if (0x00BF_E000..0x00BF_F000).contains(&addr) {
@@ -75,8 +111,9 @@ pub fn decode_cia_a(addr: u32) -> Option<u8> {
     }
 }
 
-/// Decode into CIA-B register index. CIA-B lives on D8-D15 so it
-/// uses even bytes in `$BFDxxx`.
+/// Decode into CIA-B register index, for the documented CIA-B window
+/// (even bytes in `$BFDxxx`). Backdoor use only, as for
+/// [`decode_cia_a`].
 #[must_use]
 pub fn decode_cia_b(addr: u32) -> Option<u8> {
     if (0x00BF_D000..0x00BF_E000).contains(&addr) && addr & 1 == 0 {
@@ -97,9 +134,6 @@ mod tests {
         assert_eq!(decode_cia_a(0x00BFE101), Some(1));
         assert_eq!(decode_cia_a(0x00BFE201), Some(2));
         assert_eq!(decode_cia_a(0x00BFEF01), Some(0xF));
-        // Even-address (UDS) and word accesses also reach CIA-A: the
-        // chip's LDS lane still drives even on word cycles, and the
-        // dispatcher delivers the byte via BusResponse::Byte.
         assert_eq!(decode_cia_a(0x00BFE000), Some(0));
         assert_eq!(decode_cia_a(0x00BFED00), Some(0xD));
         assert_eq!(decode_cia_a(0x00BFD001), None); // CIA-B range
@@ -107,6 +141,29 @@ mod tests {
         assert_eq!(decode_cia_b(0x00BFD000), Some(0));
         assert_eq!(decode_cia_b(0x00BFDF00), Some(0xF));
         assert_eq!(decode_cia_b(0x00BFD001), None); // odd byte = CIA-A
+    }
+
+    #[test]
+    fn cia_select_follows_the_hardware_reference_manual() {
+        let gary = |addr| decode_cia_select(addr, CiaDecoder::Gary);
+        let select = |a, b, reg| Some(CiaSelect { a, b, reg });
+        // The documented addresses.
+        assert_eq!(gary(0x00BF_E001), select(true, false, 0));
+        assert_eq!(gary(0x00BF_D100), select(false, true, 1));
+        // A12 and A13 both low select both; both high select neither.
+        assert_eq!(gary(0x00BF_CF00), select(true, true, 0xF));
+        assert_eq!(gary(0x00BF_F201), select(false, false, 2));
+        // Every address with the top three bits 101 is CIA space.
+        assert_eq!(gary(0x00A0_E401), select(true, false, 4));
+        assert_eq!(gary(0x00B5_D300), select(false, true, 3));
+        assert_eq!(gary(0x009F_FFFF), None);
+        assert_eq!(gary(0x00C0_0000), None);
+        // Gayle passes only the $xxDxxx and $xxExxx pages.
+        let gayle = |addr| decode_cia_select(addr, CiaDecoder::Gayle);
+        assert_eq!(gayle(0x00BF_E001), select(true, false, 0));
+        assert_eq!(gayle(0x00A0_D000), select(false, true, 0));
+        assert_eq!(gayle(0x00BF_C001), None);
+        assert_eq!(gayle(0x00BF_F001), None);
     }
 
     #[test]
