@@ -1167,3 +1167,67 @@ fn incremental_drain_matches_synchronous_blit() {
         "line mode horizontal",
     );
 }
+
+// ────────────────────────────────────────────────────────────────
+// Modulo low bit
+// ────────────────────────────────────────────────────────────────
+
+/// Run a 4-row, 2-word blit programmed through the register-write path,
+/// with `modulo` written to the register at `mod_offset`, and return the
+/// destination area. D = A | B | C, so any channel's rows show up in D.
+fn blit_with_modulo(mod_offset: u16, modulo: u16) -> Vec<u16> {
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    for i in 0..64u32 {
+        ram.poke(0x1000 + i * 2, 0x1000 + i as u16);
+        ram.poke(0x3000 + i * 2, 0x3000 + i as u16);
+        ram.poke(0x5000 + i * 2, 0x5000 + i as u16);
+    }
+    for (offset, value) in [
+        (0x040, 0x0F00 | 0xFE), // USEA/B/C/D, D = A | B | C
+        (0x042, 0x0000),
+        (0x044, 0xFFFF),
+        (0x046, 0xFFFF),
+        (0x050, 0x0000),
+        (0x052, 0x1000),
+        (0x04C, 0x0000),
+        (0x04E, 0x3000),
+        (0x048, 0x0000),
+        (0x04A, 0x5000),
+        (0x054, 0x0000),
+        (0x056, 0x2000),
+        (0x064, 0x0000),
+        (0x062, 0x0000),
+        (0x060, 0x0000),
+        (0x066, 0x0000),
+        (mod_offset, modulo),
+    ] {
+        assert!(agnus.write_blitter_register(offset, value));
+    }
+    assert!(agnus.write_blitter_register(0x058, (4 << 6) | 2));
+    run_blit(&mut agnus, &ram);
+    (0..64u32).map(|i| ram.peek(0x2000 + i * 2)).collect()
+}
+
+/// HRM chapter 6: "Since the blitter can only operate on words, the least
+/// significant bit is ignored." An odd modulo must walk the rows exactly
+/// as the even value below it does, on every channel. Keeping the bit
+/// moves the pointer one byte further each row, so the rows shear.
+#[test]
+fn modulo_low_bit_is_ignored_on_every_channel() {
+    for (name, offset) in [
+        ("BLTAMOD", 0x064),
+        ("BLTBMOD", 0x062),
+        ("BLTCMOD", 0x060),
+        ("BLTDMOD", 0x066),
+    ] {
+        for even in [0xFFFE_u16, 0x0002, 0x0006] {
+            assert_eq!(
+                blit_with_modulo(offset, even | 1),
+                blit_with_modulo(offset, even),
+                "{name} ${:04X} should act as ${even:04X}",
+                even | 1
+            );
+        }
+    }
+}

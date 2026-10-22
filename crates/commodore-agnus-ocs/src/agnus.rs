@@ -4570,10 +4570,12 @@ impl Agnus {
                     self.start_blit();
                 }
             }
-            0x060 => self.blt_cmod = val as i16,
-            0x062 => self.blt_bmod = val as i16,
-            0x064 => self.blt_amod = val as i16,
-            0x066 => self.blt_dmod = val as i16,
+            // The blitter only moves words, so a modulo's low bit is not
+            // stored (HRM chapter 6), as with the pointers above.
+            0x060 => self.blt_cmod = (val & 0xFFFE) as i16,
+            0x062 => self.blt_bmod = (val & 0xFFFE) as i16,
+            0x064 => self.blt_amod = (val & 0xFFFE) as i16,
+            0x066 => self.blt_dmod = (val & 0xFFFE) as i16,
             0x070 => self.blt_cdat = val,
             0x072 => self.blt_bdat = val,
             0x074 => self.blt_adat = val,
