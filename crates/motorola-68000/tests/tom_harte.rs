@@ -1311,7 +1311,7 @@ fn token_clocks(tokens: &[BusToken]) -> u64 {
 /// total clocks. Where the operand fetch places its own idle clocks within
 /// the instruction is addressing-mode timing, outside this check.
 #[test]
-#[ignore]
+#[ignore = "FIXTURE: needs the SingleStepTests 680x0 corpus; see fixture_root"]
 fn harte_exception_bus_sequences() {
     let root = fixture_root();
     let mut failures = Vec::new();
