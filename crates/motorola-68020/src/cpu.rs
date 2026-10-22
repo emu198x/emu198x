@@ -455,7 +455,10 @@ fn begin_muldiv_mem_source(cpu: &mut Cpu68000, opcode: u16, ext: u16) -> bool {
         return true;
     }
     cpu.variant_ext_word = ext;
-    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+        return true;
+    };
+    cpu.src_mode = Some(mode);
     cpu.size = motorola_68000::alu::Size::Long;
     cpu.in_followup = true;
     cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
@@ -499,7 +502,10 @@ fn execute_chk2_cmp2(cpu: &mut Cpu68000, opcode: u16) -> bool {
     }
 
     cpu.variant_ext_word = ext;
-    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+        return true;
+    };
+    cpu.src_mode = Some(mode);
     cpu.size = size;
     cpu.in_followup = true;
     cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
@@ -635,7 +641,10 @@ fn execute_cas(cpu: &mut Cpu68000, opcode: u16) -> bool {
     }
 
     cpu.variant_ext_word = ext;
-    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+        return true;
+    };
+    cpu.src_mode = Some(mode);
     cpu.size = size;
     cpu.in_followup = true;
     cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
@@ -1361,7 +1370,10 @@ fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
         // first extension word before calc_ea_start reads it.
         cpu.fp_mem_pending = true;
         cpu.size = motorola_68000::alu::Size::Long; // unused by static modes
-        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+            return true;
+        };
+        cpu.src_mode = Some(mode);
         cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
         cpu.micro_ops.push(MicroOp::Execute);
         return true;
@@ -1587,7 +1599,10 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         cpu.fp_mem_pending = true;
         cpu.fp_mem_store = true;
         cpu.size = motorola_68000::alu::Size::Long;
-        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg_bits);
+        let Some(mode) = cpu.ea_mode(ea_mode, ea_reg_bits) else {
+            return true;
+        };
+        cpu.src_mode = Some(mode);
         cpu.in_followup = true;
         cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
         cpu.micro_ops.push(MicroOp::Execute);
@@ -1821,7 +1836,10 @@ fn begin_fsave(cpu: &mut Cpu68000, opcode: u16) -> bool {
         cpu.fp_frame_pending = true;
         cpu.fp_frame_store = true;
         cpu.size = motorola_68000::alu::Size::Long;
-        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+            return true;
+        };
+        cpu.src_mode = Some(mode);
         cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
         cpu.micro_ops.push(MicroOp::Execute);
         return true;
@@ -1899,7 +1917,10 @@ fn begin_frestore(cpu: &mut Cpu68000, opcode: u16) -> bool {
         cpu.fp_frame_pending = true;
         cpu.fp_frame_store = false;
         cpu.size = motorola_68000::alu::Size::Long;
-        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+            return true;
+        };
+        cpu.src_mode = Some(mode);
         cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
         cpu.micro_ops.push(MicroOp::Execute);
         return true;
@@ -2119,7 +2140,10 @@ fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
         cpu.fp_mem_pending = true;
         cpu.fp_mem_store = true;
         cpu.size = motorola_68000::alu::Size::Byte;
-        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        let Some(mode) = cpu.ea_mode(ea_mode, ea_reg) else {
+            return true;
+        };
+        cpu.src_mode = Some(mode);
         cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
         cpu.micro_ops.push(MicroOp::Execute);
         return true;

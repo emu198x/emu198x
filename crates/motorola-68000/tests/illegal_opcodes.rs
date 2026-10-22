@@ -187,3 +187,35 @@ fn illegal_and_invalid_tas_destinations_trap() {
         failures.join("\n")
     );
 }
+
+/// No opcode word may panic the core, whatever follows it. Mode 7 with
+/// register 5-7 names no addressing mode on any 680x0; decoding one used to
+/// panic in 2,160 opcodes. It now takes the illegal-instruction exception.
+#[test]
+fn no_opcode_word_panics() {
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let panicked: Vec<String> = (0..=u16::MAX)
+        .filter(|&opcode| std::panic::catch_unwind(|| execute(opcode)).is_err())
+        .map(|opcode| format!("${opcode:04X}"))
+        .collect();
+    std::panic::set_hook(report);
+    assert!(
+        panicked.is_empty(),
+        "{} opcode words panicked: {}",
+        panicked.len(),
+        panicked.join(" ")
+    );
+}
+
+/// An undefined effective address (mode 7, register 5-7) is illegal on any
+/// 680x0, in a source or a destination field.
+#[test]
+fn undefined_effective_addresses_are_illegal() {
+    // TST.W with mode 7 register 5; MOVE.W D0 to mode 7 register 6; MOVE.W
+    // from mode 7 register 7 to D0; ADD.W with mode 7 register 5.
+    for opcode in [0x4A7D_u16, 0x3DC0, 0x303F, 0xD07D] {
+        let (next, stacked_pc) = execute(opcode);
+        assert_eq!((next, stacked_pc), (handler(4), CODE), "${opcode:04X}");
+    }
+}

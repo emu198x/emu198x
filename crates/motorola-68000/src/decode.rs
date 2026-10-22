@@ -70,6 +70,20 @@ impl Cpu68000 {
     /// If `in_followup` is set, routes to `continue_instruction` instead.
     /// Otherwise, decodes the opcode and sets up the initial follow-up tag
     /// and micro-op sequence.
+    /// The addressing mode an effective-address field names. Mode 7 with
+    /// register 5-7 names none on any 680x0, so the instruction is illegal
+    /// and this returns `None` once its exception has begun: line F for an
+    /// $Fxxx (coprocessor) opcode, as WinUAE's op_illg does, otherwise the
+    /// illegal-instruction exception. Public for the variant decode hooks.
+    pub fn ea_mode(&mut self, mode: u8, reg: u8) -> Option<AddrMode> {
+        let decoded = AddrMode::decode(mode, reg);
+        if decoded.is_none() {
+            let vector = if self.ir & 0xF000 == 0xF000 { 11 } else { 4 };
+            self.begin_group1_exception(vector, self.instr_start_pc);
+        }
+        decoded
+    }
+
     pub fn decode_and_execute(&mut self) {
         if self.in_followup {
             self.continue_instruction();
@@ -106,8 +120,14 @@ impl Cpu68000 {
             let dst_mode_bits = ((opcode >> 6) & 7) as u8;
 
             self.size = size;
-            self.src_mode = AddrMode::decode(src_mode_bits, src_reg);
-            self.dst_mode = AddrMode::decode(dst_mode_bits, dst_reg);
+            let Some(mode) = self.ea_mode(src_mode_bits, src_reg) else {
+                return;
+            };
+            self.src_mode = Some(mode);
+            let Some(mode) = self.ea_mode(dst_mode_bits, dst_reg) else {
+                return;
+            };
+            self.dst_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_EA;
             self.continue_instruction();
@@ -298,7 +318,10 @@ impl Cpu68000 {
                 self.size = Size::Word;
                 let ea_mode_bits = ((opcode >> 3) & 7) as u8;
                 let ea_reg = (opcode & 7) as u8;
-                self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                    return;
+                };
+                self.src_mode = Some(mode);
                 self.in_followup = true;
                 self.followup_tag = TAG_FETCH_SRC_EA;
                 self.continue_instruction();
@@ -351,8 +374,9 @@ impl Cpu68000 {
                 let to_reg = opmode <= 2;
                 let ea_mode_bits = ((opcode >> 3) & 7) as u8;
                 let ea_reg = (opcode & 7) as u8;
-                let ea_mode = AddrMode::decode(ea_mode_bits, ea_reg)
-                    .expect("decoded TAS operand should resolve to a valid address mode");
+                let Some(ea_mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                    return;
+                };
 
                 // ADDA/SUBA/CMPA: source is EA, destination is An
                 let is_addr =
@@ -417,7 +441,10 @@ impl Cpu68000 {
                         return;
                     }
                     // Scc: set byte to 0xFF or 0x00 based on condition
-                    self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                    let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                        return;
+                    };
+                    self.dst_mode = Some(mode);
                     self.size = Size::Byte;
                     self.in_followup = true;
                     self.followup_tag = TAG_FETCH_DST_EA;
@@ -439,7 +466,10 @@ impl Cpu68000 {
             self.size = size;
             self.src_mode = Some(AddrMode::Immediate);
             self.src_val = quick_val;
-            self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.dst_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_DST_EA;
             self.continue_instruction();
@@ -538,7 +568,10 @@ impl Cpu68000 {
                 };
                 self.src_val = bit_num;
                 self.size = Size::Byte;
-                self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                    return;
+                };
+                self.dst_mode = Some(mode);
                 self.in_followup = true;
                 self.followup_tag = TAG_FETCH_DST_EA;
                 // Don't call continue_instruction() here — we already consumed
@@ -620,7 +653,10 @@ impl Cpu68000 {
                     };
                     self.src_val = bit_num;
                     self.size = Size::Byte;
-                    self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                    let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                        return;
+                    };
+                    self.dst_mode = Some(mode);
                     self.in_followup = true;
                     self.followup_tag = TAG_FETCH_DST_EA;
                     self.continue_instruction();
@@ -705,7 +741,10 @@ impl Cpu68000 {
             self.alu_op = op;
             self.size = size;
             self.src_mode = Some(AddrMode::Immediate);
-            self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.dst_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_DATA;
             self.continue_instruction();
@@ -744,7 +783,10 @@ impl Cpu68000 {
 
                 self.size = Size::Word;
                 self.src_val = (shift_type as u32) | ((direction as u32) << 4) | (1 << 8);
-                self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                    return;
+                };
+                self.dst_mode = Some(mode);
                 self.in_followup = true;
                 self.followup_tag = TAG_FETCH_DST_EA;
                 self.continue_instruction();
@@ -854,7 +896,11 @@ impl Cpu68000 {
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
 
-            self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+
+            self.src_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_EA;
 
@@ -894,7 +940,10 @@ impl Cpu68000 {
             // Store destination A-register in dst_mode (not ea_reg, which
             // gets overwritten by calc_ea_start for displacement modes).
             self.dst_mode = Some(AddrMode::AddrReg(reg));
-            self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.src_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_EA;
             self.continue_instruction();
@@ -927,7 +976,11 @@ impl Cpu68000 {
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
 
-            self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+
+            self.src_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_EA;
             if self.calc_ea_start(
@@ -986,8 +1039,9 @@ impl Cpu68000 {
             self.movem_idx = 0; // no deferred advance on first iteration
             self.size = size;
 
-            let mode = AddrMode::decode(ea_mode_bits, ea_reg)
-                .expect("decoded JMP operand should resolve to a valid address mode");
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
             if let AddrMode::AddrIndPreDec(r) = mode {
                 self.movem_an_reg = r;
                 self.addr = self.regs.a(r as usize);
@@ -1021,8 +1075,9 @@ impl Cpu68000 {
             self.movem_is_write = false;
             self.size = size;
 
-            let mode = AddrMode::decode(ea_mode_bits, ea_reg)
-                .expect("decoded JSR operand should resolve to a valid address mode");
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
             if let AddrMode::AddrIndPostInc(r) = mode {
                 self.movem_an_reg = r;
                 self.addr = self.regs.a(r as usize);
@@ -1066,7 +1121,10 @@ impl Cpu68000 {
 
             // Memory: read-modify-write
             self.size = Size::Byte;
-            self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.dst_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_DST_EA;
             self.continue_instruction();
@@ -1091,7 +1149,10 @@ impl Cpu68000 {
                         // MOVE from SR (0x40C0) — not privileged on 68000
                         self.data = u32::from(self.regs.sr);
                         self.size = Size::Word;
-                        self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                        let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                            return;
+                        };
+                        self.dst_mode = Some(mode);
                         if ea_mode_bits == 0 {
                             // Dn: 68000=6 cycles (Internal(2)), 68020=0
                             self.regs.d[ea_reg as usize] =
@@ -1111,7 +1172,10 @@ impl Cpu68000 {
                     2 => {
                         // MOVE to CCR (0x44C0) — read source, apply to CCR
                         self.size = Size::Word;
-                        self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                        let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                            return;
+                        };
+                        self.src_mode = Some(mode);
                         self.dst_mode = None;
                         self.in_followup = true;
                         self.followup_tag = TAG_FETCH_SRC_EA;
@@ -1124,7 +1188,10 @@ impl Cpu68000 {
                             return;
                         }
                         self.size = Size::Word;
-                        self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                        let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                            return;
+                        };
+                        self.src_mode = Some(mode);
                         self.dst_mode = None;
                         self.in_followup = true;
                         self.followup_tag = TAG_FETCH_SRC_EA;
@@ -1158,7 +1225,10 @@ impl Cpu68000 {
                 let ea_reg = (opcode & 7) as u8;
 
                 self.size = size;
-                self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+                let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                    return;
+                };
+                self.dst_mode = Some(mode);
                 self.in_followup = true;
                 self.followup_tag = TAG_FETCH_DST_EA;
                 self.continue_instruction();
@@ -1196,7 +1266,10 @@ impl Cpu68000 {
 
             // Memory: read-modify-write
             self.size = Size::Byte;
-            self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.dst_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_DST_EA;
             self.continue_instruction();
@@ -1218,7 +1291,10 @@ impl Cpu68000 {
             let ea_reg = (opcode & 7) as u8;
 
             self.size = size;
-            self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.dst_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_DST_EA;
             self.continue_instruction();
@@ -1232,7 +1308,10 @@ impl Cpu68000 {
             self.size = Size::Word;
             let ea_mode_bits = ((opcode >> 3) & 7) as u8;
             let ea_reg = (opcode & 7) as u8;
-            self.src_mode = AddrMode::decode(ea_mode_bits, ea_reg);
+            let Some(mode) = self.ea_mode(ea_mode_bits, ea_reg) else {
+                return;
+            };
+            self.src_mode = Some(mode);
             self.in_followup = true;
             self.followup_tag = TAG_FETCH_SRC_EA;
             self.continue_instruction();
