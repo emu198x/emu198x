@@ -76,6 +76,19 @@ impl Cpu68000 {
             return;
         }
 
+        // The previous instruction began with T1 set and has completed,
+        // including the prefetch that promoted this one, so trace takes this
+        // instruction's place. It executes when the trace handler returns.
+        if self.trace_pending.is_some() {
+            self.begin_group1_exception(9, self.instr_start_pc);
+            return;
+        }
+        // T1 as an instruction begins decides whether it is traced, so the
+        // instruction that sets T1 is not traced and the one that clears it is.
+        if self.regs.sr & 0x8000 != 0 {
+            self.trace_pending = Some(self.instr_start_pc);
+        }
+
         let opcode = self.ir;
 
         // --- MOVE.b/w/l (0x1xxx, 0x2xxx, 0x3xxx) ---
@@ -1387,9 +1400,10 @@ impl Cpu68000 {
             // after STOP, not the stale address of the immediate word.
             self.irc_addr = self.next_fetch_addr;
             // Per M68000 reference: STOP halts "until trace, interrupt, or
-            // reset occurs." If the loaded SR has T=1, take a trace
-            // exception immediately instead of halting.
-            if self.regs.sr & 0x8000 != 0 {
+            // reset occurs." If T1 was set as STOP began, or the loaded SR
+            // sets it, take a trace exception immediately instead of
+            // halting.
+            if self.trace_pending.is_some() || self.regs.sr & 0x8000 != 0 {
                 self.begin_group1_exception(9, self.next_fetch_addr);
             } else {
                 self.state = State::Stopped;

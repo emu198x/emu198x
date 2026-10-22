@@ -174,6 +174,19 @@ The Amiga runtime envelope therefore advances from version 62 to version 63
 and rejects version 62 before decoding, because the positional payload
 replaces the single drive and the single DF0 image.
 
+## MC68000 trace amendment
+
+A trace exception follows an instruction that began with T1 set (MC68000
+User's Manual §6.3.8). Whether one is due is fixed when the instruction
+begins, so a snapshot taken mid-instruction must carry it, or a restore
+would run the instruction untraced. Trace-mode decoders in disk loaders
+and copy protection depend on every step.
+
+The CPU's live state therefore includes the pending trace, and the Amiga
+runtime envelope advances from version 63 to version 64 and rejects
+version 63 before decoding. The Amiga is the only runtime built on the
+680x0 cores.
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
