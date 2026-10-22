@@ -124,8 +124,12 @@ fn format_ea(ctx: &mut DisCtx, mode: u16, reg: u16, size: Size) -> String {
                 format!("(${:08X}).l", l)
             }
             2 => {
+                // The PC is the displacement word's own address, which
+                // follows any earlier extension words (MOVEM's register
+                // mask, a static bit number).
+                let disp_addr = ctx.addr;
                 let disp = ctx.read_word() as i16;
-                let target = (ctx.base.wrapping_add(2) as i32).wrapping_add(disp as i32) as u32;
+                let target = (disp_addr as i32).wrapping_add(disp as i32) as u32;
                 format!("(${:08X},PC)", target)
             }
             3 => {
@@ -1009,6 +1013,34 @@ mod tests {
     fn dis(bytes: &[u8]) -> (String, u8) {
         let data = bytes.to_vec();
         disassemble(0, move |addr| data.get(addr as usize).copied().unwrap_or(0))
+    }
+
+    /// Disassemble `bytes` placed at `origin`.
+    fn dis_at(origin: u32, bytes: &[u8]) -> (String, u8) {
+        let data = bytes.to_vec();
+        disassemble(origin, move |addr| {
+            data.get(addr.wrapping_sub(origin) as usize)
+                .copied()
+                .unwrap_or(0)
+        })
+    }
+
+    /// A `(d16,PC)` operand is relative to the address of its own
+    /// displacement word, which is not always the word after the opcode.
+    #[test]
+    fn pc_relative_targets_count_from_their_displacement_word() {
+        // LEA ($0010,PC),A0: the displacement directly follows the opcode.
+        let (s, _) = dis_at(0x1000, &[0x41, 0xFA, 0x00, 0x10]);
+        assert!(s.contains("($00001012,PC)"), "{s}");
+        // MOVEM.L ($0002,PC),D0-A6: the register mask comes first. The CPU
+        // loads from $18A6 here (Prince of the Yolkfolk's CPU check).
+        let (s, len) = dis_at(0x18A0, &[0x4C, 0xFA, 0x7F, 0xFF, 0x00, 0x02]);
+        assert!(s.contains("($000018A6,PC)"), "{s}");
+        assert_eq!(len, 6);
+        // BTST #3,($0010,PC): the bit number comes first.
+        let (s, len) = dis_at(0x1000, &[0x08, 0x3A, 0x00, 0x03, 0x00, 0x10]);
+        assert!(s.contains("($00001014,PC)"), "{s}");
+        assert_eq!(len, 6);
     }
 
     #[test]
