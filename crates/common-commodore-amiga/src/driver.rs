@@ -95,6 +95,15 @@ pub struct AmigaMemoryWriteRecord {
 /// Amiga machine.
 pub const AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY: usize = 4096;
 
+/// The CIA register window the bus dispatch serves (`$BFDxxx` CIA-B,
+/// `$BFExxx` CIA-A). Gary asserts VPA for these accesses.
+const CIA_VPA_BASE: u32 = 0x00BF_D000;
+const CIA_VPA_TOP: u32 = 0x00BF_F000;
+
+/// The E-clock position a CIA access synchronises to, in system ticks into
+/// the E period (WinUAE's `E_CLOCK_SYNC_N`).
+const E_CLOCK_SYNC_PHASE: u64 = 2;
+
 /// One instruction boundary crossed during a machine tick.
 ///
 /// Faster processors can cross more than one boundary between two runtime
@@ -1105,6 +1114,11 @@ pub trait AmigaDriver {
             }
         }
 
+        if self.cia_access_waits_for_e_clock(addr24, cycle_count) {
+            self.cpu_base_mut().bus_status = BusStatus::Wait;
+            return;
+        }
+
         let tx = BusTransaction {
             addr: addr24,
             is_read,
@@ -1115,6 +1129,36 @@ pub trait AmigaDriver {
         let response = self.dispatch_bus(&tx);
         let status = self.motherboard_bus_response_status(&tx, response);
         self.complete_motherboard_response(status);
+    }
+
+    /// Whether a CIA access must wait longer for the E clock.
+    ///
+    /// Gary asserts VPA for the CIAs, so the 68000 runs a 6800-style cycle
+    /// synchronised to the E clock (a tenth of the system clock). WinUAE's
+    /// cycle-exact model (`cia_wait_pre`/`cia_wait_post`) waits for E-clock
+    /// position 2, then four clocks, the access and six more: 10 to 19
+    /// clocks in all, depending on where in the E period the access began.
+    /// The cycle therefore ends at the second position-2 point at or after
+    /// its start, and the response comes two clocks before that, as for an
+    /// ordinary cycle answered at its second clock.
+    ///
+    /// The interrupt acknowledge is not such a cycle: Gary decodes it as a
+    /// ROM read, and the Kickstart's last bytes hold the vector numbers.
+    /// Machines behind an accelerator bridge, or whose processor clock is
+    /// not a whole multiple of the system clock, keep their existing timing.
+    fn cia_access_waits_for_e_clock(&mut self, addr24: u32, cycle_count: u8) -> bool {
+        if !(CIA_VPA_BASE..CIA_VPA_TOP).contains(&addr24) || self.motherboard_bridge_mut().is_some()
+        {
+            return false;
+        }
+        let clock = *self.cpu_clock_mut();
+        if !clock.numerator().is_multiple_of(clock.denominator()) {
+            return false;
+        }
+        let edges_per_tick = (clock.numerator() / clock.denominator()).max(1);
+        let elapsed_ticks = u64::from(cycle_count) / edges_per_tick;
+        let response_phase = (E_CLOCK_SYNC_PHASE + CIA_E_CLOCK_DIVISOR - 2) % CIA_E_CLOCK_DIVISOR;
+        !(elapsed_ticks >= CIA_E_CLOCK_DIVISOR - 2 && self.e_clock_phase() == response_phase)
     }
 
     /// Apply one accelerator-local compatibility response without changing
