@@ -1,13 +1,58 @@
 # Decision: Workspace shape — stay unified until concrete pain forces a split
 
 **Date:** 2026-05-23
-**Status:** Locked. Governs whether and when the 113-crate workspace
+**Status:** Locked, **amended 2026-10-22**: the workspace splits by layer,
+then by system family. Read
+[§ Amendment](#amendment-2026-10-22--extract-by-layer-then-by-system-family)
+first. The body below is history for everything the amendment moves, and still
+governs what stays until it moves. Governs whether and when the 113-crate workspace
 splits into multiple workspaces or repos as the project grows
 through Waves 2 / 3 (per the
 [post-October roadmap](../../../docs/plans/2026-05-23-post-october-roadmap.md)).
 Companion to [`versioning-strategy.md`](versioning-strategy.md) —
 that record covers crate version management; this one covers
 workspace organisation.
+
+## Amendment 2026-10-22 — extract by layer, then by system family
+
+Trigger 3 has fired (Play198x consumes cores and chips,
+[#1214](https://github.com/emu198x/emu198x/issues/1214)), and the family went
+multi-repo on 2026-10-21. The goal is now **one repository per system
+family**, split line (b), after the layers every family shares are extracted
+below them. Every extracted repository publishes, and dependents use
+published versions, never `git` + `rev` pins.
+
+1. **One repository per CPU:** 6502, Z80, 6809, LR35902, and the 68k family
+   in one, because its models build on each other.
+2. **One repository per shared chip**, meaning a chip two or more families or
+   another sibling use: AY-3-8910 (with its 8912 facade), TMS9918, SN76489,
+   8255, 6522, 6845, 6520, 6847, uPD765 (with the DSK adapter), WD1770,
+   Z80 CTC, SID, Paula and the 2A03 APU. `common-z80-machine` and
+   `common-tape` (with the TZX adapter) get one each too. A chip only one
+   family uses moves with that family.
+3. **Format layouts go to Format198x**, under the umbrella
+   [`emu198x-format-layouts-move-to-format198x.md`](../../../../decisions/emu198x-format-layouts-move-to-format198x.md).
+4. **One repository per system family**, single-machine families included,
+   holding its machines, runtimes, family-only chips and binaries.
+5. **This repository keeps the platform and the hosts:** `emu198x-shell`,
+   `emu198x-ui`, `emu198x-native-video` and `emu198x-web`, published for the
+   families, and the cross-family hosts (`emu198x-apple`,
+   `emu198x-fleet-web`, `emu198x-catalogue`, `emu198x-commodore-web`).
+
+**Gates.**
+- **CPUs and chips move now**, least churn first and the 68000 last. In the
+  30 days to 2026-10-22, the 68000 had 28 commits.
+- **Families wait for the shell:** four weeks in a row with no breaking change
+  to `emu198x-shell`'s public interface. It had 27 commits in the same 30 days.
+  Then one pilot family moves, then the rest.
+- **The Spectrum family waits for the DSK adapter** to move in with the
+  uPD765. That adapter is the one crate the CPC and the +3 share; nothing else
+  crosses between those families.
+- **Every move:** no machine's test suite or accuracy corpus result changes.
+
+The cores separate cleanly because of [RULES.md](../../RULES.md) rules 5 and
+6: pin fields, no Bus trait. Those rules stay authoritative here, and each
+extracted repository links them as binding.
 
 ## What this is
 
@@ -225,6 +270,7 @@ If I'm about to suggest any of these, stop and re-read this record.
   per-crate versioning + carve-out per publish already solves
   this (see [`versioning-strategy.md`](versioning-strategy.md)).
   Workspace shape isn't the right lever.
+  *(Superseded 2026-10-22 by § Amendment.)*
 
 ## Log
 
@@ -248,3 +294,11 @@ accuracy tier) — (d) is the current lean.
 No code changes today. The record exists so future "let's split"
 suggestions get checked against the triggers rather than acted on
 prematurely.
+
+### 2026-10-22 — Amended: extract by layer, then by system family
+
+Trigger 3 fired with Play198x, and the family went multi-repo. Steve chose
+system-family repositories as the goal, with one repository per CPU and per
+shared chip below them ("the amount of setup work is less important"),
+families waiting until the shell settles, and a repository for each
+single-machine family. See § Amendment.
