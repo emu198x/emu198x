@@ -247,7 +247,11 @@ def verify_receipt(
     )
     require(
         receipt["build"]["run_attempt"] == env.get("GITHUB_RUN_ATTEMPT", "local"),
-        "receipt producer attempt differs",
+        "receipt producer attempt differs "
+        f"(producer={receipt['build']['run_attempt']}, "
+        f"verifier={env.get('GITHUB_RUN_ATTEMPT', 'local')}); "
+        "for a release retry, rerun all jobs in the workflow, not only failed "
+        "or selected jobs. Do not rewrite receipts or override GITHUB_RUN_ATTEMPT.",
     )
 
 
