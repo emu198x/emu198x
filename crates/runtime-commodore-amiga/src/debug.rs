@@ -28,7 +28,10 @@ const STEP_TICK_LIMIT: u64 = 1_000_000;
 
 impl DebugPrimitives for AmigaRuntimeKind {
     fn dbg_pc(&self) -> u32 {
-        self.cpu_pc()
+        // The 68k core's PC runs two bytes ahead of the instruction it is
+        // about to execute (the prefetch pipeline). The debugger means the
+        // instruction itself, which run-to-address and breakpoints match.
+        self.cpu_snapshot().instr_start_pc
     }
 
     fn dbg_peek(&self, addr: u32) -> u8 {
