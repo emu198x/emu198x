@@ -390,6 +390,85 @@ fn interrupt_from_tight_branch_loop() {
     );
 }
 
+/// An autovectored 68000 interrupt follows MC68000 User's Manual Table 8-14
+/// and Moira's execInterrupt: six idle clocks, the PC's low word, the
+/// four-clock acknowledge, four idle clocks, SR and the PC's high word, the
+/// vector, then the handler's two prefetches with two clocks between. That
+/// is 44 clocks from the boundary to the handler's first instruction.
+#[test]
+fn autovectored_interrupt_takes_44_clocks_in_the_manuals_order() {
+    use motorola_68000::bus::FunctionCode;
+    use motorola_68000::cpu::State;
+
+    let mut mem = TestMem::new(0x2000);
+    mem.write_long(27 * 4, 0x0000_0120);
+    mem.write_word(0x0100, 0x4E71);
+    mem.write_word(0x0120, 0x4E71);
+    let mut cpu = setup_cpu(&mut mem, 0x0800, 0x0100);
+    cpu.regs.sr = 0x2000;
+
+    // One entry per clock: the access in progress as the clock began.
+    let mut clocks: Vec<Option<(char, u32)>> = Vec::new();
+    let start = cpu.instruction_starts;
+    for _ in 0..200 {
+        cpu.ipl = 3;
+        let access = match &cpu.state {
+            State::BusCycle {
+                addr, fc, is_read, ..
+            } => Some((
+                if *fc == FunctionCode::InterruptAck {
+                    'i'
+                } else if *is_read {
+                    'r'
+                } else {
+                    'w'
+                },
+                *addr & 0x00FF_FFFF,
+            )),
+            _ => None,
+        };
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        clocks.push(access);
+        if cpu.instruction_starts > start
+            && cpu.instr_start_pc == 0x0120
+            && cpu.irc_addr == 0x0122
+            && matches!(cpu.state, State::Idle)
+        {
+            break;
+        }
+    }
+
+    // An access is the clock that dispatched it and the run after it.
+    let mut sequence = Vec::new();
+    let mut i = 0;
+    for s in
+        (0..clocks.len()).filter(|&s| clocks[s].is_some() && (s == 0 || clocks[s - 1].is_none()))
+    {
+        let begin = s.saturating_sub(1);
+        if begin > i {
+            sequence.push(format!("n{}", begin - i));
+        }
+        let (kind, addr) = clocks[s].expect("access clock");
+        sequence.push(if kind == 'i' {
+            "iack".to_string()
+        } else {
+            format!("{kind}{addr:04X}")
+        });
+        i = begin + 4;
+    }
+    assert_eq!(
+        sequence.join(" "),
+        "n6 w07FE iack n4 w07FA w07FC r006C r006E r0120 n2 r0122"
+    );
+    assert_eq!(clocks.len(), 44);
+    // The frame: SR as it was, then the interrupted instruction's address.
+    assert_eq!(mem.read_word(0x07FA), 0x2000);
+    assert_eq!(mem.read_word(0x07FC), 0x0000);
+    assert_eq!(mem.read_word(0x07FE), 0x0100);
+    assert_eq!(cpu.regs.interrupt_mask(), 3);
+}
+
 #[test]
 fn interrupt_acknowledge_preserves_the_level_accepted_at_the_boundary() {
     let mut mem = TestMem::new(0x2000);
