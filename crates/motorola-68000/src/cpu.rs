@@ -643,6 +643,17 @@ pub struct Cpu68000 {
     /// A boolean models the processor's pending condition rather than a queue:
     /// repeated transitions before service coalesce into one pending request.
     pub(crate) level7_transition_pending: bool,
+    /// The address of an instruction that began with T1 set, so a trace
+    /// exception follows it (MC68000 User's Manual §6.3.8).
+    ///
+    /// The instruction completes, including the prefetch that promotes the
+    /// next one; trace then takes the next instruction's place. The
+    /// exceptions that stop the instruction completing (illegal, privilege,
+    /// line-A/F, format error, address and bus error, reset) cancel it. An
+    /// exception the instruction itself raises (TRAP, CHK, TRAPV, divide by
+    /// zero) keeps it, so trace follows that exception's processing. A
+    /// snapshot can fall mid-instruction, so it is saved.
+    pub(crate) trace_pending: Option<u32>,
 
     /// **Output:** True when the CPU wants to assert the RESET
     /// line on the bus (from a RESET instruction). The machine
@@ -1246,6 +1257,7 @@ impl Cpu68000 {
             ipl: 0,
             sampled_ipl: 0,
             level7_transition_pending: false,
+            trace_pending: None,
             reset_out: false,
             instruction_starts: 0,
             opcode_at_start: 0,
@@ -1378,6 +1390,7 @@ impl Cpu68000 {
         self.regs.ssp = ssp;
         self.regs.pc = pc;
         self.regs.sr = 0x2700;
+        self.trace_pending = None;
         self.regs.cacr = 0;
         if let Some(cache) = self.variant_icache.as_mut() {
             cache.clear();
@@ -1426,6 +1439,7 @@ impl Cpu68000 {
         self.address_error_observation = None;
         self.state = State::Idle;
         self.instruction_starts = 1;
+        self.trace_pending = None;
     }
 
     /// Take the most recent internally rejected odd-address transfer.
@@ -1499,9 +1513,11 @@ impl Cpu68000 {
         if matches!(self.state, State::Idle) {
             self.process_instant_ops();
 
-            // Check for pending interrupts when no work remains
+            // Check for pending interrupts when no work remains. A pending
+            // trace comes first: PromoteIRC takes it, then the interrupt.
             if matches!(self.state, State::Idle)
                 && self.micro_ops.is_empty()
+                && self.trace_pending.is_none()
                 && let Some(level) = self.take_interrupt_at_boundary()
             {
                 self.initiate_interrupt_exception(level);
@@ -1651,8 +1667,12 @@ impl Cpu68000 {
                     if let Some(vector) = self.fp_exc_pending.take() {
                         self.begin_group1_exception(vector, self.irc_addr);
                     } else {
-                        // The 68000 samples interrupts at instruction boundaries.
-                        if let Some(level) = self.take_interrupt_at_boundary() {
+                        // The 68000 samples interrupts at instruction
+                        // boundaries. A pending trace comes first; the
+                        // interrupt is taken at the trace handler's boundary.
+                        if self.trace_pending.is_none()
+                            && let Some(level) = self.take_interrupt_at_boundary()
+                        {
                             self.initiate_interrupt_exception(level);
                         } else {
                             self.promote_pipeline();
@@ -1752,6 +1772,7 @@ impl Cpu68000 {
     /// and writes a Format-$1 throwaway frame to ISP.
     fn initiate_interrupt_exception(&mut self, level: u8) {
         self.clear_address_error_execution_state();
+        self.trace_pending = None;
         self.group0_or_group1_processing = true;
         self.target_ipl = level;
         self.interrupts_taken = self.interrupts_taken.wrapping_add(1);
@@ -1807,6 +1828,13 @@ impl Cpu68000 {
     pub fn begin_group1_exception(&mut self, vector: u8, pc_to_push: u32) {
         self.clear_address_error_execution_state();
         self.group0_or_group1_processing = matches!(vector, 4 | 8 | 9 | 10 | 11);
+        // An instruction that never executes is not traced. Trace's own
+        // processing consumes the pending trace.
+        let traced_instruction = if matches!(vector, 4 | 8 | 9 | 10 | 11 | 14) {
+            self.trace_pending.take()
+        } else {
+            None
+        };
         self.ae_saved_sr = self.regs.sr;
         self.exc_master_interrupt_pending = false;
         self.enter_exception_supervisor_mode();
@@ -1825,9 +1853,9 @@ impl Cpu68000 {
                 // M68000PRM § 8.6.3 lists the Format-$2 vectors as
                 // CHK / CHK2 (6), divide-by-zero (5), TRAPV / TRAPcc
                 // (7), and Trace (9). The Instruction Address is
-                // the PC of the faulting instruction —
-                // `instr_start_pc` is exactly that.
-                self.data = self.instr_start_pc;
+                // the PC of the faulting instruction — `instr_start_pc`,
+                // or for trace the traced instruction.
+                self.data = traced_instruction.unwrap_or(self.instr_start_pc);
                 self.followup_tag = TAG_EXC_STACK_INSTR_ADDR_HI;
                 self.micro_ops.push(MicroOp::PushLongHi);
                 self.micro_ops.push(MicroOp::Execute);
@@ -2420,6 +2448,7 @@ impl Cpu68000 {
     /// Then reads vector 3 (address 0x0C) and jumps to handler.
     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
         self.clear_active_bus_transfer();
+        self.trace_pending = None;
         let not_processing_instruction = self.group0_or_group1_processing;
         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
         self.ae_in_progress = true;
@@ -2576,6 +2605,7 @@ impl Cpu68000 {
         }
 
         let not_processing_instruction = self.group0_or_group1_processing;
+        self.trace_pending = None;
         self.ae_in_progress = true;
         self.group0_or_group1_processing = true;
         self.ae_saved_sr = self.regs.sr;
