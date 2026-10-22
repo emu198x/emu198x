@@ -25,11 +25,13 @@ terminal BERR response without a retry request.
 
 ## Exception sequence
 
-The MC68000 interrupt sequence has already saved the pre-interrupt SR and
-PC in the ordinary six-byte frame before it starts the acknowledge cycle.
-When BERR terminates that cycle, the core retains this frame, the accepted
-interrupt level and the active interrupt mask. It substitutes vector 24
-for the acknowledge result and continues with the existing vector fetch.
+The MC68000 interrupt sequence writes the pre-interrupt PC's low word,
+runs the acknowledge cycle, then writes the saved SR and the PC's high
+word (MC68000 User's Manual Table 8-14; see the amendment below). When
+BERR terminates the acknowledge, the core keeps the accepted interrupt
+level, the active interrupt mask and the saved SR and PC. It substitutes
+vector 24 for the acknowledge result, completes the same six-byte frame,
+and continues with the vector fetch.
 
 Calling the ordinary bus-error entry path here would incorrectly select
 vector 2 and push a second, 14-byte group-0 frame.
@@ -66,6 +68,26 @@ decision does not claim that it models each later processor's acknowledge
 address, termination signals or retry protocol. The architectural frame
 rule and remaining bus boundary are defined in
 [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md).
+
+## Interrupt bus order amendment (2026-10-22)
+
+This record first described the whole six-byte frame as written before
+the acknowledge cycle, which is how the core then sequenced it. The
+MC68000 does not: Table 8-14 of the user's manual and vAmiga's Moira
+(`execInterrupt`) give six idle clocks, the PC's low word, the
+acknowledge, four idle clocks, SR and the PC's high word, the vector
+read, and the handler's two prefetches with two clocks between: 44
+clocks with a four-clock acknowledge. The core was 12 clocks short. It
+now follows that order, and `autovectored_interrupt_takes_44_clocks_in_the_manuals_order`
+in `tests/pin_level.rs` pins it.
+
+The spurious-interrupt rule above is unchanged: BERR still selects vector
+24 and the frame is still the ordinary six bytes. Only when the SR and
+the PC's high word are written moves, to after the acknowledge.
+
+The change adds no serialized field. A snapshot taken mid-interrupt by an
+earlier build resumes through that build's sequence, whose follow-up
+steps remain in the core.
 
 ## Snapshot compatibility
 

@@ -183,6 +183,8 @@ pub const TAG_RETURN_PC_HI: u8 = 137;
 pub const TAG_RETURN_SR: u8 = 138;
 /// 68000 RTE/RTR: the PC's low word has been read (at SP+4).
 pub const TAG_RETURN_PC_LO: u8 = 139;
+/// 68000 interrupt: the acknowledge cycle has supplied the vector.
+pub const TAG_EXC_IACK_68000: u8 = 140;
 /// Exception: 68010+ Format/Vector word just pushed; restore the
 /// pending PC into `self.data` and continue with the regular PC
 /// push. Only used when `variant_six_word_frame` is enabled.
@@ -1923,10 +1925,20 @@ impl Cpu68000 {
             self.micro_ops.push(MicroOp::InterruptAck);
             self.micro_ops.push(MicroOp::Execute);
         } else {
-            // 68000: push PC directly (6-byte frame: PC + SR).
-            self.data = pc_to_push;
-            self.followup_tag = TAG_EXC_STACK_PC_HI;
-            self.micro_ops.push(MicroOp::PushLongHi);
+            // 68000: six idle clocks, the PC's low word, the acknowledge,
+            // four clocks, then SR and the PC's high word (MC68000 User's
+            // Manual Table 8-14: 44 clocks with a four-clock acknowledge;
+            // Moira's execInterrupt). The frame is the same six bytes as
+            // for any group-1/2 exception.
+            self.micro_ops.push(MicroOp::Internal(6));
+            let sp = self.regs.active_sp().wrapping_sub(6);
+            self.regs.set_active_sp(sp);
+            self.exc_pending_pc = pc_to_push;
+            self.addr = sp.wrapping_add(4);
+            self.data = pc_to_push & 0xFFFF;
+            self.followup_tag = TAG_EXC_IACK_68000;
+            self.micro_ops.push(MicroOp::WriteWord);
+            self.micro_ops.push(MicroOp::InterruptAck);
             self.micro_ops.push(MicroOp::Execute);
         }
     }
