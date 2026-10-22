@@ -172,6 +172,11 @@ pub const TAG_EXC_FINISH: u8 = 42;
 pub const TAG_EXC_SYNC_SR: u8 = 133;
 /// 68000 group-1/2 exception: SR written; write PC high word at SP+2.
 pub const TAG_EXC_SYNC_PC_HI: u8 = 134;
+/// SR or CCR changed: refetch the next instruction's first word before the
+/// pipeline refills, as the 68000 flushes its prefetch queue.
+pub const TAG_SR_REFETCH: u8 = 135;
+/// 68000 JMP/JSR (xxx).l: the address's low word is in IRC.
+pub const TAG_JUMP_ABS_LO: u8 = 136;
 /// Exception: 68010+ Format/Vector word just pushed; restore the
 /// pending PC into `self.data` and continue with the regular PC
 /// push. Only used when `variant_six_word_frame` is enabled.
@@ -1894,6 +1899,13 @@ impl Cpu68000 {
             self.micro_ops.push(MicroOp::WriteWord);
             self.micro_ops.push(MicroOp::Execute);
         }
+    }
+
+    /// Whether instruction timing follows the MC68000 (and MC68010). The
+    /// 68020+ wrappers install their own timing model, marked by
+    /// `variant_um_ea_calc_timing`, and keep it.
+    pub(crate) fn mc68000_timing(&self) -> bool {
+        !self.variant_um_ea_calc_timing
     }
 
     /// Check supervisor mode. If in user mode, trigger a privilege violation

@@ -37,6 +37,19 @@ impl Cpu68000 {
         }
     }
 
+    /// Push the internal clocks for a brief-format indexed address,
+    /// `(d8,An,Xn)` or `(d8,PC,Xn)`, just after its extension word was
+    /// consumed. The 68000 spends its two clocks before refilling the
+    /// prefetch the extension word vacated (SingleStepTests: `n2 r r`, not
+    /// `r n2 r`); the 68020 model uses its own figure, in sequence.
+    fn push_index_calc_delay(&mut self) {
+        if self.variant_um_ea_calc_timing {
+            self.push_ea_calc_delay(4);
+        } else {
+            self.micro_ops.push_front(MicroOp::Internal(2));
+        }
+    }
+
     /// Begin effective address calculation for an addressing mode.
     ///
     /// Returns `true` if the EA is fully resolved (address in `self.addr`),
@@ -94,8 +107,13 @@ impl Cpu68000 {
                 self.ae_undo_reg = Some((r, decrement, false, !is_src));
                 // -(An): M68020UM § 8.2.3 Calculate EA CC = 2 (no overlap
                 // benefit — same in every UM column, and the 68000 model
-                // also uses 2).
-                self.push_ea_calc_delay(2);
+                // also uses 2). A 68000 MOVE writing to -(An) spends none
+                // (SingleStepTests, MAME).
+                let move_destination =
+                    !is_src && (self.ir & 0xC000) == 0 && (self.ir & 0x3000) != 0;
+                if !(move_destination && self.mc68000_timing()) {
+                    self.push_ea_calc_delay(2);
+                }
                 true
             }
 
@@ -190,7 +208,7 @@ impl Cpu68000 {
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
                 // Brief (d8,An,Xn): M68020UM § 8.2.3 Calculate EA CC = 4.
-                self.push_ea_calc_delay(4);
+                self.push_index_calc_delay();
                 true
             }
 
@@ -229,7 +247,7 @@ impl Cpu68000 {
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
                 // Brief (d8,PC,Xn): M68020UM § 8.2.3 Calculate EA CC = 4.
-                self.push_ea_calc_delay(4);
+                self.push_index_calc_delay();
                 true
             } // All modes handled — DataReg/AddrReg/Immediate are instant,
               // all memory modes compute an address above.

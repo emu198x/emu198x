@@ -1231,6 +1231,14 @@ fn fixture_tokens(test: &Value) -> Vec<BusToken> {
                     tokens.push(BusToken::Idle(cycles));
                 }
             }
+            // TAS's indivisible read-modify-write: a read, two clocks with
+            // the bus held, then the write (10 clocks).
+            "t" => {
+                let addr = (fields[3].as_u64().expect("address") as u32) & MASK_24;
+                tokens.push(BusToken::Access('r', addr));
+                tokens.push(BusToken::Idle(2));
+                tokens.push(BusToken::Access('w', addr));
+            }
             kind => {
                 let addr = (fields[3].as_u64().expect("address") as u32) & MASK_24;
                 let kind = kind.chars().next().expect("kind letter");
@@ -1373,5 +1381,172 @@ fn harte_exception_bus_sequences() {
         failures.is_empty(),
         "exception bus sequences differ:\n{}",
         failures.join("\n")
+    );
+}
+
+/// The shape of a token sequence: `r`, `w` and idle counts, without addresses.
+fn token_shape(tokens: &[BusToken]) -> String {
+    tokens
+        .iter()
+        .map(|t| match t {
+            BusToken::Idle(n) => format!("n{n}"),
+            BusToken::Access(kind, _) => kind.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Report, per fixture file, how many rows match the corpus's bus activity:
+/// on total clocks, and exactly. Rows where the core takes an address error
+/// are left out. Lists the commonest mismatch shapes with an example row.
+#[test]
+#[ignore = "DIAGNOSTIC: reports bus-sequence agreement per fixture file; needs the SingleStepTests 680x0 corpus"]
+fn harte_bus_sequence_report() {
+    let root = fixture_root();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&root)
+        .expect("fixture directory")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(".json.gz"))
+        .collect();
+    files.sort();
+    let (mut all, mut all_total, mut all_exact) = (0usize, 0usize, 0usize);
+    for path in files {
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(".json.gz", "");
+        let tests = load_fixture(&path).expect("fixture");
+        let (mut compared, mut total_ok, mut exact_ok) = (0usize, 0usize, 0usize);
+        let mut shapes: HashMap<(String, String), (usize, String)> = HashMap::new();
+        for test in &tests {
+            let mut cpu = Cpu68000::new();
+            let mut mem = SparseMem::new();
+            mem.load_ram(test["initial"]["ram"].as_array().expect("ram"));
+            apply_initial(&mut cpu, &mut mem, &test["initial"]);
+            let Some(actual) = run_recording(&mut cpu, &mut mem) else {
+                continue;
+            };
+            if cpu.take_address_error_observation().is_some() {
+                continue;
+            }
+            let expected = fixture_tokens(test);
+            compared += 1;
+            if token_clocks(&actual) == token_clocks(&expected) {
+                total_ok += 1;
+            } else if std::env::var_os("EMU198X_BUS_REPORT_DELTAS").is_some() {
+                println!(
+                    "DELTA\t{name}\t{}\t{}",
+                    test["name"].as_str().unwrap_or(""),
+                    token_clocks(&actual) as i64 - token_clocks(&expected) as i64
+                );
+            }
+            if actual == expected {
+                exact_ok += 1;
+            } else {
+                let entry = shapes
+                    .entry((token_shape(&expected), token_shape(&actual)))
+                    .or_insert((0, test["name"].as_str().unwrap_or("").to_owned()));
+                entry.0 += 1;
+            }
+        }
+        all += compared;
+        all_total += total_ok;
+        all_exact += exact_ok;
+        if exact_ok == compared {
+            continue;
+        }
+        println!("{name:<12} rows {compared:>5}  total-clock {total_ok:>5}  exact {exact_ok:>5}");
+        let mut ranked: Vec<_> = shapes.into_iter().collect();
+        ranked.sort_by_key(|entry| std::cmp::Reverse(entry.1.0));
+        for ((exp, act), (count, example)) in ranked.into_iter().take(3) {
+            println!(
+                "    {count:>5}x  {example}\n           corpus: {exp}\n           ours:   {act}"
+            );
+        }
+    }
+    println!("ALL rows {all}  total-clock {all_total}  exact {all_exact}");
+}
+
+/// Every row's total clocks, up to the next instruction's first prefetch,
+/// must match the corpus, as recorded in its transaction list. Rows where
+/// the core takes an address error are left out; they have their own
+/// comparison above.
+///
+/// Two families are known corpus errors, counted and pinned rather than
+/// matched. In both, MAME's microcoded 68000 (SingleStepTests/m68000) and
+/// vAmiga's Moira agree with the core and with the MC68000 User's Manual:
+///
+/// - ADDQ/SUBQ.L to An: the corpus has 6 clocks; MAME, Moira and the
+///   manual have 8.
+/// - DIVS whose quotient overflows 16 signed bits without the early
+///   overflow check catching it: the corpus has 16 or 18 clocks plus the
+///   operand; MAME and Moira run the full division (about 130).
+#[test]
+#[ignore = "FIXTURE: needs the SingleStepTests 680x0 corpus; see fixture_root"]
+fn harte_bus_totals() {
+    const EXPECTED_ADDQ_AN_LONG: usize = 731;
+    const EXPECTED_DIVS_LATE_OVERFLOW: usize = 1_265;
+    let root = fixture_root();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&root)
+        .expect("fixture directory")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(".json.gz"))
+        .collect();
+    files.sort();
+    let (mut compared, mut addq_an_long, mut divs_late_overflow) = (0usize, 0usize, 0usize);
+    let mut failures = Vec::new();
+    for path in files {
+        let tests = load_fixture(&path).expect("fixture");
+        for test in &tests {
+            let mut cpu = Cpu68000::new();
+            let mut mem = SparseMem::new();
+            mem.load_ram(test["initial"]["ram"].as_array().expect("ram"));
+            apply_initial(&mut cpu, &mut mem, &test["initial"]);
+            let Some(actual) = run_recording(&mut cpu, &mut mem) else {
+                continue;
+            };
+            if cpu.take_address_error_observation().is_some() {
+                continue;
+            }
+            compared += 1;
+            let ours = token_clocks(&actual) as i64;
+            let corpus = token_clocks(&fixture_tokens(test)) as i64;
+            if ours == corpus {
+                continue;
+            }
+            let opcode = test["name"]
+                .as_str()
+                .and_then(|n| n.split_whitespace().next())
+                .and_then(|h| u16::from_str_radix(h, 16).ok())
+                .unwrap_or(0);
+            let final_v = test["final"]["sr"].as_u64().unwrap_or(0) & 0x2 != 0;
+            if opcode & 0xF0F8 == 0x5088 && ours - corpus == 2 {
+                addq_an_long += 1;
+            } else if opcode & 0xF1C0 == 0x81C0 && final_v && corpus < 40 && ours > 100 {
+                divs_late_overflow += 1;
+            } else if failures.len() < 20 {
+                failures.push(format!("{}: ours {ours}, corpus {corpus}", test["name"]));
+            }
+        }
+    }
+    println!(
+        "compared {compared}; ADDQ/SUBQ.L An {addq_an_long}; DIVS late overflow {divs_late_overflow}"
+    );
+    assert!(compared > 800_000, "too few rows compared: {compared}");
+    assert!(
+        failures.is_empty(),
+        "total clocks differ:\n{}",
+        failures.join("\n")
+    );
+    assert_eq!(
+        addq_an_long, EXPECTED_ADDQ_AN_LONG,
+        "ADDQ/SUBQ.L An divergence changed"
+    );
+    assert_eq!(
+        divs_late_overflow, EXPECTED_DIVS_LATE_OVERFLOW,
+        "DIVS late-overflow divergence changed"
     );
 }

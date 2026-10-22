@@ -34,12 +34,14 @@ impl Cpu68000 {
         // LEA: result is the computed address
         if (opcode & 0xF1C0) == 0x41C0 {
             self.src_val = self.addr;
+            self.push_indexed_address_clocks();
             return;
         }
 
         // PEA: result is the computed address (for push)
         if (opcode & 0xFFC0) == 0x4840 {
             self.src_val = self.addr;
+            self.push_indexed_address_clocks();
             return;
         }
 
@@ -67,14 +69,20 @@ impl Cpu68000 {
         if (opcode & 0xFF00) == 0x4200 {
             self.data = 0;
             self.set_flags_move(0, self.size);
+            self.push_long_data_register_clocks();
             return;
         }
 
-        // TAS: test byte, set flags, then set bit 7 (must be before TST)
+        // TAS: test byte, set flags, then set bit 7 (must be before TST).
+        // In memory the 68000 holds the bus for two clocks between the read
+        // and the write of its read-modify-write cycle (10 clocks).
         if (opcode & 0xFFC0) == 0x4AC0 {
             let val = self.dst_val & 0xFF;
             self.set_flags_logic(val, Size::Byte);
             self.data = val | 0x80;
+            if self.mc68000_timing() && !matches!(self.dst_mode, Some(AddrMode::DataReg(_))) {
+                self.micro_ops.push(MicroOp::Internal(2));
+            }
             return;
         }
 
@@ -92,6 +100,14 @@ impl Cpu68000 {
             } else {
                 0x00
             };
+            // Scc Dn takes two more clocks when the condition is true
+            // (6 rather than 4).
+            if self.mc68000_timing()
+                && self.data != 0
+                && matches!(self.dst_mode, Some(AddrMode::DataReg(_)))
+            {
+                self.micro_ops.push(MicroOp::Internal(2));
+            }
             return;
         }
 
@@ -100,6 +116,7 @@ impl Cpu68000 {
             let mask = self.size.mask();
             self.data = !self.dst_val & mask;
             self.set_flags_logic(self.data, self.size);
+            self.push_long_data_register_clocks();
             return;
         }
 
@@ -108,6 +125,7 @@ impl Cpu68000 {
             let (result, new_sr) = crate::alu::neg(self.dst_val, self.size, self.regs.sr);
             self.regs.sr = new_sr;
             self.data = result;
+            self.push_long_data_register_clocks();
             return;
         }
 
@@ -116,6 +134,7 @@ impl Cpu68000 {
             let (result, new_sr) = crate::alu::negx(self.dst_val, self.size, self.regs.sr);
             self.regs.sr = new_sr;
             self.data = result;
+            self.push_long_data_register_clocks();
             return;
         }
 
@@ -127,7 +146,8 @@ impl Cpu68000 {
         }
 
         // MOVE to CCR / MOVE to SR
-        // The 68000 spends 8 internal clocks processing the SR/CCR write.
+        // The 68000 spends 4 internal clocks on the SR/CCR write, then
+        // refetches the next instruction (see perform_writeback).
         // Don't set in_followup=false here — let the normal TAG_WRITEBACK
         // path complete the instruction so the instruction-end FetchIRC runs.
         if (opcode & 0xFFC0) == 0x44C0 || (opcode & 0xFFC0) == 0x46C0 {
@@ -139,10 +159,8 @@ impl Cpu68000 {
                 // MOVE to SR
                 self.regs.sr = val as u16 & self.sr_write_mask();
             }
-            let d: u8 = 8;
-            if d > 0 {
-                self.micro_ops.push(MicroOp::Internal(d));
-            }
+            let clocks = if self.mc68000_timing() { 4 } else { 8 };
+            self.micro_ops.push(MicroOp::Internal(clocks));
             return;
         }
 
@@ -158,6 +176,10 @@ impl Cpu68000 {
                 } else {
                     self.regs.sr & !crate::flags::Z
                 };
+                // BTST Dn,#imm takes two more clocks (10).
+                if self.mc68000_timing() && matches!(self.dst_mode, Some(AddrMode::Immediate)) {
+                    self.micro_ops.push(MicroOp::Internal(2));
+                }
                 if matches!(self.bit_op, BitOp::Btst) {
                     // BTST: no writeback needed (Z flag already set above).
                     // Don't set in_followup=false here — let TAG_WRITEBACK
@@ -187,6 +209,7 @@ impl Cpu68000 {
         // The source is sign-extended from word to long before the operation,
         // and the full 32-bit result is written to the address register.
         if matches!(self.dst_mode, Some(AddrMode::AddrReg(_))) {
+            self.push_alu_register_clocks();
             let src = if self.size == Size::Word {
                 self.src_val as i16 as i32 as u32
             } else {
@@ -210,7 +233,73 @@ impl Cpu68000 {
 
         // ALU operations: ADD, SUB, CMP, AND, OR, EOR, ADDI, SUBI, etc.
         // ADDQ/SUBQ also land here (src_val already set to quick value)
+        self.push_alu_register_clocks();
         self.data = self.exec_alu(self.alu_op, self.src_val, self.dst_val, self.size);
+    }
+
+    /// LEA and PEA with a brief indexed address take two more clocks on the
+    /// 68000, after the extension word's refill (SingleStepTests:
+    /// `n2 r n2 r`).
+    fn push_indexed_address_clocks(&mut self) {
+        if self.mc68000_timing()
+            && matches!(
+                self.src_mode,
+                Some(AddrMode::AddrIndIndex(_) | AddrMode::PcIndex)
+            )
+        {
+            self.micro_ops.push(MicroOp::Internal(2));
+        }
+    }
+
+    /// CLR, NEG, NEGX and NOT on a data register take two more clocks for a
+    /// long (6 rather than 4).
+    fn push_long_data_register_clocks(&mut self) {
+        if self.mc68000_timing()
+            && self.size == Size::Long
+            && matches!(self.dst_mode, Some(AddrMode::DataReg(_)))
+        {
+            self.micro_ops.push(MicroOp::Internal(2));
+        }
+    }
+
+    /// Queue the internal clocks an arithmetic or logic instruction with a
+    /// register destination spends after fetching its operands (MC68000
+    /// User's Manual Tables 8-4, 8-5 and 8-6; SingleStepTests agrees):
+    ///
+    /// - into Dn, long: 4 from a register, immediate or quick source, 2 from
+    ///   memory, and 2 for CMP/CMPI whatever the source;
+    /// - into An: 4 for a word, or a long from a register or immediate, 2
+    ///   for a long from memory, and 2 for CMPA whatever the source.
+    ///
+    /// Byte and word operations into Dn spend none.
+    fn push_alu_register_clocks(&mut self) {
+        if !self.mc68000_timing() {
+            return;
+        }
+        let opcode = self.ir;
+        let alu_group = matches!(opcode & 0xF000, 0x8000 | 0x9000 | 0xB000 | 0xC000 | 0xD000);
+        let immediate_group = opcode & 0xF100 == 0x0000;
+        let quick_group = opcode & 0xF000 == 0x5000;
+        if !(alu_group || immediate_group || quick_group) {
+            return;
+        }
+        let register_source = matches!(
+            self.src_mode,
+            Some(AddrMode::DataReg(_) | AddrMode::AddrReg(_) | AddrMode::Immediate)
+        );
+        let is_cmp = matches!(self.alu_op, AluOp::Cmp);
+        let clocks = match self.dst_mode {
+            Some(AddrMode::AddrReg(_)) if is_cmp => 2,
+            Some(AddrMode::AddrReg(_)) if self.size == Size::Word || register_source => 4,
+            Some(AddrMode::AddrReg(_)) => 2,
+            Some(AddrMode::DataReg(_)) if self.size != Size::Long => 0,
+            Some(AddrMode::DataReg(_)) if is_cmp || !register_source => 2,
+            Some(AddrMode::DataReg(_)) => 4,
+            _ => 0,
+        };
+        if clocks > 0 {
+            self.micro_ops.push(MicroOp::Internal(clocks));
+        }
     }
 
     /// Write the execution result back to the destination.
@@ -249,8 +338,14 @@ impl Cpu68000 {
             return;
         }
 
-        // MOVE to CCR/SR: no writeback (already applied in execute)
+        // MOVE to CCR/SR: no writeback (already applied in execute). The
+        // 68000 rereads the next instruction's first word after changing
+        // SR or CCR, as for ANDI/ORI/EORI to SR (SingleStepTests).
         if (opcode & 0xFFC0) == 0x44C0 || (opcode & 0xFFC0) == 0x46C0 {
+            if self.mc68000_timing() {
+                self.next_fetch_addr = self.next_fetch_addr.wrapping_sub(2);
+                self.micro_ops.push(MicroOp::FetchIRC);
+            }
             return;
         }
 

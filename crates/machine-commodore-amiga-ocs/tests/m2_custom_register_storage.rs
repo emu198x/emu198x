@@ -39,10 +39,11 @@ fn boot_clears_intena_intreq_dmacon_then_sets_bplcon0_color00() {
     let mut amiga = AmigaOcs::new(rom);
 
     // Tick well past the early init sequence. The boot has a
-    // ~131K-iteration busy-wait delay loop at $FC00DE before the
-    // diag-ROM probe — ~1.5M CCKs at ~12 CCK/iter. 2M CCKs (~280ms
-    // emulated) covers the delay plus the early register writes.
-    for _ in 0..2_000_000 {
+    // 131,072-iteration busy-wait delay loop at $FC00DE (SUBQ.L #1,D0;
+    // BGT.S) before the diag-ROM probe: 18 CPU clocks per iteration on
+    // a 68000, so BPLCON0 is written about 2.36M system ticks in.
+    // 3M ticks covers the delay plus the early register writes.
+    for _ in 0..3_000_000 {
         amiga.tick();
     }
 
