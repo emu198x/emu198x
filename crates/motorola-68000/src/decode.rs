@@ -65,11 +65,6 @@ impl Cpu68000 {
         self.in_followup = false;
     }
 
-    /// Decode the opcode in IR and begin execution.
-    ///
-    /// If `in_followup` is set, routes to `continue_instruction` instead.
-    /// Otherwise, decodes the opcode and sets up the initial follow-up tag
-    /// and micro-op sequence.
     /// The addressing mode an effective-address field names. Mode 7 with
     /// register 5-7 names none on any 680x0, so the instruction is illegal
     /// and this returns `None` once its exception has begun: line F for an
@@ -84,6 +79,11 @@ impl Cpu68000 {
         decoded
     }
 
+    /// Decode the opcode in IR and begin execution.
+    ///
+    /// If `in_followup` is set, routes to `continue_instruction` instead.
+    /// Otherwise, decodes the opcode and sets up the initial follow-up tag
+    /// and micro-op sequence.
     pub fn decode_and_execute(&mut self) {
         if self.in_followup {
             self.continue_instruction();
