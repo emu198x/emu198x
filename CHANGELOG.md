@@ -4,6 +4,18 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.44.1] - 2026-10-22
+
+
+### Fixed
+
+- Stop Amiga run-to-address and breakpoints missing their target
+- Make the 68000 trap ILLEGAL instead of running it as TAS
+- Make the 68000 take trace exceptions
+- Stop odd blitter modulos shearing Amiga graphics
+- Show the right address for 68000 PC-relative operands
+- Pace FDC head movement at the programmed step rate
+
 ## [0.44.0] - 2026-10-21
 
 
