@@ -40,6 +40,9 @@ pub const CIA_E_CLOCK_DIVISOR: u64 = 10;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct SynchronizedMotherboardBridge {
     phase: BridgePhase,
+    /// Motherboard slots the current access has spent admitted, so a CIA
+    /// access can wait for the E clock in motherboard time.
+    admitted_slots: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +125,7 @@ impl SynchronizedMotherboardBridge {
         match (self.phase, motherboard_slot) {
             (BridgePhase::Idle, true) => {
                 self.phase = BridgePhase::AddressAccepted;
+                self.admitted_slots = 0;
                 MotherboardBridgeAction::Wait
             }
             (BridgePhase::Idle, false) => {
@@ -130,9 +134,13 @@ impl SynchronizedMotherboardBridge {
             }
             (BridgePhase::AwaitingSlot, true) => {
                 self.phase = BridgePhase::AddressAccepted;
+                self.admitted_slots = 0;
                 MotherboardBridgeAction::Wait
             }
-            (BridgePhase::AddressAccepted, true) => MotherboardBridgeAction::Access,
+            (BridgePhase::AddressAccepted, true) => {
+                self.admitted_slots = self.admitted_slots.saturating_add(1);
+                MotherboardBridgeAction::Access
+            }
             (BridgePhase::ResponsePending(status), true) => {
                 self.phase = BridgePhase::Idle;
                 MotherboardBridgeAction::Complete(status)
@@ -166,6 +174,14 @@ impl SynchronizedMotherboardBridge {
     /// Return the bridge to its power-on state.
     pub fn reset(&mut self) {
         self.phase = BridgePhase::Idle;
+        self.admitted_slots = 0;
+    }
+
+    /// Motherboard slots since the current access was admitted, counting
+    /// this one: the motherboard clocks its cycle has run.
+    #[must_use]
+    pub const fn admitted_slots(self) -> u8 {
+        self.admitted_slots
     }
 
     /// Whether no motherboard transaction is being synchronized.
@@ -239,6 +255,7 @@ impl<'de> Deserialize<'de> for SynchronizedMotherboardBridge {
         #[derive(Deserialize)]
         struct StoredBridge {
             phase: BridgePhase,
+            admitted_slots: u8,
         }
 
         let stored = StoredBridge::deserialize(deserializer)?;
@@ -249,6 +266,7 @@ impl<'de> Deserialize<'de> for SynchronizedMotherboardBridge {
         }
         Ok(Self {
             phase: stored.phase,
+            admitted_slots: stored.admitted_slots,
         })
     }
 }
@@ -443,9 +461,43 @@ mod tests {
     }
 
     #[test]
+    fn synchronized_bridge_counts_motherboard_slots_since_admission() {
+        let mut bridge = SynchronizedMotherboardBridge::default();
+        assert_eq!(bridge.poll(true), MotherboardBridgeAction::Wait);
+        assert_eq!(bridge.admitted_slots(), 0);
+        for slot in 1..=3 {
+            assert_eq!(bridge.poll(false), MotherboardBridgeAction::Wait);
+            assert_eq!(bridge.poll(true), MotherboardBridgeAction::Access);
+            assert_eq!(
+                bridge.admitted_slots(),
+                slot,
+                "only motherboard slots count"
+            );
+        }
+
+        let encoded = postcard::to_allocvec(&bridge).expect("serialize bridge");
+        let restored: SynchronizedMotherboardBridge =
+            postcard::from_bytes(&encoded).expect("deserialize bridge");
+        assert_eq!(restored.admitted_slots(), 3, "a snapshot keeps the count");
+
+        bridge.latch_response(BusStatus::Ready(0));
+        assert!(matches!(
+            bridge.poll(true),
+            MotherboardBridgeAction::Complete(_)
+        ));
+        assert_eq!(bridge.poll(true), MotherboardBridgeAction::Wait);
+        assert_eq!(
+            bridge.admitted_slots(),
+            0,
+            "a new access starts its own count"
+        );
+    }
+
+    #[test]
     fn synchronized_bridge_rejects_a_serialized_wait_response() {
         let invalid = SynchronizedMotherboardBridge {
             phase: BridgePhase::ResponsePending(BusStatus::Wait),
+            admitted_slots: 0,
         };
         let bytes = postcard::to_allocvec(&invalid).expect("serialize forged bridge");
 
