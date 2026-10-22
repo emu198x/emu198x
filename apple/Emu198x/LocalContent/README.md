@@ -30,7 +30,8 @@ copied into local builds of the tvOS target.
   button is NES B or Sega button 1, the right one NES A or button 2,
   Options (View) is Start (Pause on the Master System) and the left
   shoulder is the NES's Select.
-- Amiga disks: `.adf`, on an A500 unless a version says `amiga_1200`.
+- Amiga disks: `.adf`, on an A500 with the A501 512K expansion unless a
+  version says `amiga_1200`.
   Every disk a version lists is in a drive before the Amiga starts, the
   first in DF0 and the rest in DF1 onwards, so a two-disk game finds its
   second disk without a swap.

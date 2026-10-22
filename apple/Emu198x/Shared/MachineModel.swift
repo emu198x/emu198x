@@ -14,7 +14,9 @@ enum MachineModel: String, Codable, CaseIterable {
     case gameGear = "game_gear"
     /// PAL: Codemasters' C64 tapes are European.
     case c64
-    /// An A500 with Kickstart 1.3, which most Amiga games of the time ran on.
+    /// An A500 with Kickstart 1.3 and the A501 trapdoor expansion, the
+    /// 1 MB machine most Amiga games of the time ran on. Some need the
+    /// extra 512K: Dizzy Panic and Kwik Snax crash on a bare 512K A500.
     case amiga500 = "amiga_500"
     /// An A1200 with Kickstart 3.1, for AGA games.
     case amiga1200 = "amiga_1200"
@@ -39,7 +41,7 @@ enum MachineModel: String, Codable, CaseIterable {
         case .masterSystem: "sms-pal"
         case .gameGear: "game-gear"
         case .c64: "pal"
-        case .amiga500: "a500"
+        case .amiga500: "a500-a501"
         case .amiga1200: "a1200"
         }
     }
