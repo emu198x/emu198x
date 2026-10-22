@@ -177,19 +177,11 @@ pub struct Upd765a {
     /// which is how the BIOS knows the queue is drained.
     seek_pending: [Option<u8>; 4],
 
-    /// Per-drive seek-completion countdown in `tick()` calls. While
-    /// non-zero the corresponding drive-busy bit (`1 << drive`) is OR'd
-    /// into the main status register's read value; the BIOS polls this
-    /// to wait for a Seek/Recalibrate to finish before issuing
-    /// `SenseInterruptStatus`. The staged ST0 lives in
-    /// `seek_staged_st0` until the countdown reaches zero, at which
-    /// point it moves into `seek_pending` and the busy bit clears.
-    seek_remaining: [u32; 4],
-
-    /// ST0 staged for each drive's in-flight Seek/Recalibrate. Moves
-    /// into `seek_pending[drive]` when `seek_remaining[drive]` reaches
-    /// zero.
-    seek_staged_st0: [Option<u8>; 4],
+    /// Active per-logical-unit motion; physical drives may be aliased.
+    motion: [Option<Motion>; 4],
+    /// Programmed SRT nibble. Reset 0 is an explicit model fallback, not a
+    /// hardware power-on guarantee; qualification must issue Specify first.
+    step_rate: u8,
 
     /// Is this FDC electrically wired to the host's I/O bus?
     /// True on +3, false on +2A / +2B — both share the SpectrumPlus
@@ -262,7 +254,7 @@ pub struct Upd765a {
     ready_inputs: [Option<bool>; 4],
     ready_sampled: [bool; 4],
     /// Rational phase at the existing +3 CPU T-state boundary. Each drive is
-    /// sampled every8192 FDC clocks:2.048ms at4MHz (NEC A/B polling section).
+    /// sampled every8192 FDC clocks:2.048ms at 4MHz (NEC A/B polling section).
     ready_poll_phase: u64,
     /// Seek IRQ must be acknowledged by SIS before another command (NEC p16).
     seek_attention_unacknowledged: bool,
@@ -300,14 +292,17 @@ const MSR_EXM: u8 = 0x20; // Execution mode
 const MSR_DIO: u8 = 0x40; // Data direction (1 = FDC → CPU)
 const MSR_RQM: u8 = 0x80; // Request for master (ready for data)
 
-/// Per-tick countdown for staged Seek/Recalibrate completion. Real
-/// µPD765A step rates land in the millisecond range per cylinder; at
-/// the +3's ~887 KHz T-state rate that's hundreds of T-states per
-/// step. We use a single short countdown rather than modelling the
-/// step-by-step process — long enough for a BIOS that polls MSR's
-/// drive-busy bits to observe the busy → idle transition, short
-/// enough that catalogue tests don't wait perceptibly.
-const SEEK_TICKS: u32 = 256;
+/// One host tick subtracts 1e6 phase units. Carry the fractional overshoot
+/// between steps instead of rounding every programmed interval separately.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+struct Motion {
+    drive: u8,
+    echo: u8,
+    /// None selects the Track Zero / 77-pulse Recalibrate search.
+    target: Option<u8>,
+    pulses: u8,
+    remaining: u64,
+}
 
 /// Diagnostic: when `EMU198X_FDC_TRACE` is set in the environment, log
 /// every dispatched command and every result-phase byte block to
@@ -386,8 +381,8 @@ impl Upd765a {
             main_status: MSR_RQM,
             interrupt: false,
             seek_pending: [None, None, None, None],
-            seek_remaining: [0; 4],
-            seek_staged_st0: [None, None, None, None],
+            motion: [None; 4],
+            step_rate: 0,
             enabled: false,
             drive_select_mask: default_drive_select_mask(),
             disks: [None, None, None, None],
@@ -438,8 +433,9 @@ impl Upd765a {
     }
 
     /// Supply the asserted Track Zero sample for Sense Drive Status.
-    /// This is independent of PCN and media presence. Seek/recalibration retain
-    /// the current instantaneous sector-model motion, not pin-paced mechanics.
+    /// This is independent of PCN and media presence. Recalibrate also samples
+    /// this digital level at its paced step boundaries; physical pin timing is
+    /// not represented by the sector model.
     /// Invalid drives are ignored, matching READY/TS attachment.
     pub fn set_track_zero(&mut self, drive: usize, track_zero: bool) {
         if let Some(input) = self.track_zero_inputs.get_mut(drive) {
@@ -653,7 +649,7 @@ impl Upd765a {
     pub fn read_status(&self) -> u8 {
         let mut msr = self.main_status;
         for unit in 0..4 {
-            if self.seek_remaining[unit] > 0
+            if self.motion[unit].is_some()
                 || self.seek_pending[unit].is_some_and(|st0| st0 & 0x20 != 0)
             {
                 msr |= 1 << unit;
@@ -789,6 +785,98 @@ impl Upd765a {
         }
     }
 
+    fn motion_interval(&self) -> u64 {
+        // NEC December 1978 pp.15–16: (16−SRT)ms at 8MHz, doubled at 4MHz.
+        // The +3 adapter calls tick once per host T-state, not per FDC clock.
+        u64::from(16 - self.step_rate) * 2_000 * common_sinclair_zx_spectrum::timing::CPU_HZ_128K
+    }
+
+    fn finish_motion(&mut self, unit: usize, motion: Motion, flags: u8) {
+        self.motion[unit] = None;
+        let st0 = motion.echo | 0x20 | flags;
+        self.seek_pending[unit] = Some(st0);
+        self.seek_attention_unacknowledged = true;
+        self.interrupt = true;
+    }
+
+    fn start_motion(&mut self, target: Option<u8>) {
+        let unit = usize::from(self.cmd_buf[1] & 3);
+        self.phase = Phase::Idle;
+        self.main_status = MSR_RQM;
+        // Fuse ignores a new journey for a logical unit already stepping.
+        if self.motion[unit].is_some() {
+            return;
+        }
+        let motion = Motion {
+            drive: self.cmd_buf[1] & self.drive_select_mask,
+            echo: self.cmd_buf[1] & if target.is_some() { 7 } else { 3 },
+            target,
+            pulses: 0,
+            remaining: 0,
+        };
+        if target.is_none() {
+            self.pcn[unit] = 0;
+        }
+        if !self.drive_ready(unit) {
+            self.finish_motion(unit, motion, 0x48);
+            return;
+        }
+        // Executed Fuse precedent: immediate first pulse, then programmed
+        // spacing and one final interval before completion. MAME differs in
+        // pulse/final offsets; this digital policy is not silicon-qualified.
+        self.advance_motion(unit, motion, 0);
+    }
+
+    fn advance_motion(&mut self, unit: usize, mut motion: Motion, overshoot: u64) {
+        let drive = usize::from(motion.drive);
+        let done = if let Some(target) = motion.target {
+            self.pcn[unit] == target
+        } else {
+            self.track_zero_inputs[unit].unwrap_or(self.head_at_track_zero(drive))
+        };
+        if done {
+            self.finish_motion(unit, motion, 0);
+            return;
+        }
+        if motion.target.is_none() && motion.pulses == 77 {
+            self.finish_motion(unit, motion, 0x50); // IC01 | equipment check
+            return;
+        }
+        if let Some(target) = motion.target {
+            if self.pcn[unit] < target {
+                self.pcn[unit] += 1;
+                self.track[drive] = self.track[drive].saturating_add(1);
+            } else {
+                self.pcn[unit] -= 1;
+                self.track[drive] = self.track[drive].saturating_sub(1);
+            }
+        } else {
+            self.track[drive] = self.track[drive].saturating_sub(1);
+        }
+        motion.pulses += 1;
+        motion.remaining = self.motion_interval() - overshoot;
+        self.motion[unit] = Some(motion);
+    }
+
+    fn tick_motion(&mut self) {
+        for unit in 0..4 {
+            let Some(mut motion) = self.motion[unit] else {
+                continue;
+            };
+            // Digital input samples at the existing host boundary; no claim
+            // about physical multiplexing or exact asynchronous pin timing.
+            if !self.drive_ready(unit) {
+                self.finish_motion(unit, motion, 0x48);
+            } else if motion.remaining > 1_000_000 {
+                motion.remaining -= 1_000_000;
+                self.motion[unit] = Some(motion);
+            } else {
+                let overshoot = 1_000_000 - motion.remaining;
+                self.advance_motion(unit, motion, overshoot);
+            }
+        }
+    }
+
     fn decode_command(byte: u8) -> (Command, usize) {
         match byte & 0x1F {
             0x11 | 0x19 | 0x1d => (Command::Scan, 9),
@@ -859,30 +947,7 @@ impl Upd765a {
                 self.start_write_sector();
             }
             Command::ReadData | Command::ReadDeletedData => self.start_read(),
-            Command::Recalibrate => {
-                let unit = usize::from(self.cmd_buf[1] & 0x03);
-                let drive_echo = self.cmd_buf[1] & 0x03;
-                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
-                self.track[drive] = 0;
-                self.pcn[unit] = 0;
-                // Initially-not-ready Recalibrate terminates abnormally with
-                // NR and SE, as for Seek (NEC December 1978, pp. 15–16;
-                // MAME recalibrate_start). It is not a READY-change event or
-                // the distinct 77-step failure to find TRACK 0.
-                let st0 = if self.drive_ready(drive) {
-                    0x20 | drive_echo // Seek End | drive
-                } else {
-                    0x68 | drive_echo // Abnormal | Seek End | Not Ready | drive
-                };
-                self.st0 = st0;
-                // Stage the seek; the busy bit is read out of MSR via
-                // `seek_remaining`, and the interrupt is queued only
-                // after the countdown completes via `tick()`.
-                self.seek_staged_st0[unit] = Some(st0);
-                self.seek_remaining[unit] = SEEK_TICKS;
-                self.phase = Phase::Idle;
-                self.main_status = MSR_RQM;
-            }
+            Command::Recalibrate => self.start_motion(None),
             Command::SenseInterruptStatus => {
                 self.result_buf.clear();
                 if let Some(drive) = (0..4).find(|d| self.seek_pending[*d].is_some()) {
@@ -918,39 +983,13 @@ impl Upd765a {
             }
             Command::Specify => {
                 // NEC Specify: ND is persistent global transfer configuration.
-                // SRT/HUT/HLT timing remains separate, explicitly unqualified.
+                // SRT paces motion; HUT/HLT remain explicitly unqualified.
+                self.step_rate = self.cmd_buf[1] >> 4;
                 self.non_dma_mode = self.cmd_buf[2] & 1 != 0;
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
-            Command::SeekTrack => {
-                let unit = usize::from(self.cmd_buf[1] & 0x03);
-                let drive_echo = self.cmd_buf[1] & 0x07;
-                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
-                // Use the same image-presence readiness model as ST3.RY.
-                // NEC December 1978 datasheet p15 specifies IC=01|NR
-                // for initially-not-ready Seek. MAME's seek_start also
-                // sets SE and preserves PCN; Fuse instead uses IC=11.
-                // READY changes during Seek and physical step timing
-                // remain outside this staged completion model.
-                let st0 = if self.drive_ready(drive) {
-                    // Step from this logical unit's PCN. External US1 may
-                    // alias another unit onto the same physical mechanism.
-                    let target = self.cmd_buf[2];
-                    let delta = i16::from(target) - i16::from(self.pcn[unit]);
-                    let position = (i16::from(self.track[drive]) + delta).clamp(0, 255);
-                    self.track[drive] = position as u8;
-                    self.pcn[unit] = target;
-                    0x20 | drive_echo // Seek End | drive
-                } else {
-                    0x68 | drive_echo // Abnormal | Seek End | Not Ready | drive
-                };
-                self.st0 = st0;
-                self.seek_staged_st0[unit] = Some(st0);
-                self.seek_remaining[unit] = SEEK_TICKS;
-                self.phase = Phase::Idle;
-                self.main_status = MSR_RQM;
-            }
+            Command::SeekTrack => self.start_motion(Some(self.cmd_buf[2])),
             Command::SenseDriveStatus => {
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
                 let head = (self.cmd_buf[1] >> 2) & 0x01;
@@ -2045,34 +2084,13 @@ impl Peripheral for Upd765a {
         }
     }
 
-    /// Per-T-state housekeeping. Decrements each drive's seek
-    /// countdown; on transition to zero, moves the staged ST0 into
-    /// `seek_pending` (where `SenseInterruptStatus` will drain it) and
-    /// raises the interrupt flag. The drive-busy bit reads out of MSR
-    /// via `seek_remaining` directly, so no MSR fix-up is needed here.
+    /// One master-derived host T-state: pace independent motion and transfers.
     fn tick(&mut self, _hc: u32) {
         if !self.enabled {
             return;
         }
         self.poll_ready();
-        for drive in 0..4 {
-            if self.seek_remaining[drive] == 0 {
-                continue;
-            }
-            self.seek_remaining[drive] -= 1;
-            if self.seek_remaining[drive] == 0
-                && let Some(st0) = self.seek_staged_st0[drive].take()
-            {
-                let st0 = if self.drive_ready(drive) {
-                    st0
-                } else {
-                    st0 | 0x48
-                };
-                self.seek_pending[drive] = Some(st0);
-                self.seek_attention_unacknowledged = true;
-                self.interrupt = true;
-            }
-        }
+        self.tick_motion();
 
         if self.phase == Phase::Execution && self.command == Command::FormatTrack {
             self.tick_format();
@@ -2977,29 +2995,18 @@ mod tests {
     }
 
     #[test]
-    fn recalibrate_zeros_track_then_completes_after_seek_ticks() {
+    fn initially_not_ready_recalibrate_preserves_physical_position() {
         let mut fdc = Upd765a::new();
         fdc.enabled = true;
         fdc.track[0] = 10;
-
-        fdc.write_data(0x07); // Recalibrate
-        fdc.write_data(0x00); // Drive 0
-
-        // Recalibrate is staged: track snaps to 0 immediately, but
-        // the interrupt is held until the seek countdown expires.
-        // The logical busy bit remains until SIS reads ST0.
-        assert_eq!(fdc.track[0], 0);
-        assert!(!fdc.interrupt);
-        assert_eq!(fdc.read_status() & 0x01, 0x01); // drive 0 busy
-
-        for _ in 0..SEEK_TICKS {
-            <Upd765a as Peripheral>::tick(&mut fdc, 0);
-        }
+        fdc.write_data(7);
+        fdc.write_data(0);
+        assert_eq!(fdc.track[0], 10, "no pulse is emitted without READY");
         assert!(fdc.interrupt);
-        assert_eq!(fdc.read_status() & 0x01, 1); // completion awaits SIS ST0
-        fdc.write_data(0x08);
+        assert_eq!(fdc.read_status(), 0x81);
+        fdc.write_data(8);
         assert_eq!(fdc.read_data(), 0x68);
-        assert_eq!(fdc.read_status() & 0x01, 0); // ST0 acknowledges drive 0
+        assert_eq!(fdc.read_status(), 0xd0);
         assert_eq!(fdc.read_data(), 0);
     }
 
@@ -3522,25 +3529,26 @@ mod tests {
         assert_eq!(fdc.read_status(), MSR_RQM);
     }
 
-    /// SeekTrack (0x0F) snaps the per-drive track counter to the
-    /// requested cylinder and stages a Seek End interrupt that
-    /// `SenseInterruptStatus` later drains. Unlike Recalibrate, the
-    /// target track is caller-supplied.
+    /// Seek progresses toward the requested PCN and retains its completion
+    /// until Sense Interrupt Status acknowledges it.
     #[test]
     fn seek_track_sets_target_and_stages_interrupt() {
         let mut fdc = Upd765a::new();
         fdc.enabled = true;
         fdc.insert_disk(1, marginal_image());
         fdc.track[1] = 0;
+        for byte in [3, 0xf0, 3] {
+            fdc.write_data(byte);
+        }
 
         fdc.write_data(0x0F); // Seek
         fdc.write_data(0x01); // Drive 1
         fdc.write_data(20); // Target track
 
-        assert_eq!(fdc.track[1], 20, "Seek snaps the per-drive track counter");
+        assert_eq!(fdc.track[1], 1, "only the first step is immediate");
         assert_eq!(fdc.read_status() & 0x02, 0x02, "drive 1 busy bit set");
 
-        for _ in 0..SEEK_TICKS {
+        for _ in 0..200_000 {
             <Upd765a as Peripheral>::tick(&mut fdc, 0);
         }
         assert!(fdc.interrupt);
@@ -3785,3 +3793,6 @@ mod tests {
         assert_eq!(fdc.read_status(), MSR_RQM);
     }
 }
+
+#[cfg(test)]
+mod motion_tests;

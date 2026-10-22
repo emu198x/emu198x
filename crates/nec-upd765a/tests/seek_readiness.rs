@@ -39,7 +39,7 @@ fn seek(fdc: &mut Upd765a, select: u8, target: u8) {
 }
 
 fn complete(fdc: &mut Upd765a) {
-    for hc in 0..1024 {
+    for hc in 0..200_000 {
         fdc.tick(hc);
     }
     assert_eq!(
@@ -61,10 +61,14 @@ fn initially_not_ready_seek_reports_error_for_each_drive_and_same_cylinder() {
         for target in [0, 20] {
             let mut fdc = Upd765a::new();
             fdc.enabled = true;
+            // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+            for byte in [3, 0xf0, 3] {
+                fdc.write_data(byte);
+            }
             assert!(!ready(&mut fdc, drive));
             seek(&mut fdc, drive, target);
             assert_eq!(fdc.read_status(), 0x80 | (1 << drive));
-            assert!(!fdc.interrupt, "completion is still staged");
+            assert!(fdc.interrupt, "initially unready completion is immediate");
             complete(&mut fdc);
             assert_eq!(sense_interrupt(&mut fdc), [0x68 | drive, 0]);
             assert!(!fdc.interrupt, "the only completion was drained");
@@ -77,6 +81,10 @@ fn initially_not_ready_seek_reports_error_for_each_drive_and_same_cylinder() {
 fn initially_not_ready_seek_preserves_last_ready_position() {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        fdc.write_data(byte);
+    }
     fdc.insert_disk(1, image());
     assert!(ready(&mut fdc, 1));
     seek(&mut fdc, 1, 7);
@@ -94,9 +102,18 @@ fn initially_not_ready_seek_preserves_last_ready_position() {
 fn seek_uses_masked_drive_readiness_and_echoes_requested_unit() {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        fdc.write_data(byte);
+    }
     fdc.set_drive_select_mask(1);
     fdc.insert_disk(0, image());
     assert!(ready(&mut fdc, 2), "unit 2 aliases ready drive 0");
+    for hc in 0..8000 {
+        fdc.tick(hc);
+    }
+    assert_eq!(sense_interrupt(&mut fdc), [0xc0, 0]);
+    assert_eq!(sense_interrupt(&mut fdc), [0xc2, 0]);
     seek(&mut fdc, 2, 7);
     assert_eq!(fdc.read_status(), 0x84, "logical unit 2 is busy");
     complete(&mut fdc);
@@ -113,6 +130,10 @@ fn seek_uses_masked_drive_readiness_and_echoes_requested_unit() {
 fn ready_and_not_ready_seek_completions_remain_queued_separately() {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        fdc.write_data(byte);
+    }
     fdc.insert_disk(0, image());
     seek(&mut fdc, 0, 12);
     seek(&mut fdc, 3, 20);

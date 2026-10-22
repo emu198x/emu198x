@@ -5,6 +5,9 @@ use nec_upd765a::Upd765a;
 fn controller() -> Upd765a {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    for byte in [3, 0xf0, 3] {
+        fdc.write_data(byte);
+    }
     for drive in 0..4 {
         fdc.set_ready(drive, false);
     }
@@ -109,13 +112,13 @@ fn command_and_result_phases_defer_ready_sampling() {
 fn ready_attention_preserves_nonzero_present_cylinder() {
     let mut fdc = controller();
     fdc.set_ready(1, true);
+    ticks(&mut fdc, 8000);
+    assert_eq!(result(&mut fdc), [0xc1, 0]);
     for b in [0x0f, 1, 23] {
         fdc.write_data(b);
     }
-    ticks(&mut fdc, 1024);
+    ticks(&mut fdc, 200_000);
     assert_eq!(result(&mut fdc), [0x21, 23]);
-    ticks(&mut fdc, 8000);
-    assert_eq!(result(&mut fdc), [0xc1, 23]);
     fdc.set_ready(1, false);
     ticks(&mut fdc, 8000);
     assert_eq!(result(&mut fdc), [0xc9, 23]);
@@ -169,7 +172,7 @@ fn controller_reset_preserves_logical_pcn_and_physical_position() {
     for byte in [15, 2, 23] {
         fdc.write_data(byte);
     }
-    ticks(&mut fdc, 1024);
+    ticks(&mut fdc, 200_000);
     assert_eq!(result(&mut fdc), [0x22, 23]);
     fdc.reset();
     ticks(&mut fdc, 8000);

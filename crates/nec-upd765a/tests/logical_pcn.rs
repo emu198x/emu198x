@@ -5,6 +5,10 @@ use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 fn controller(mask: u8) -> Upd765a {
     let mut f = Upd765a::new();
     f.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        f.write_data(byte);
+    }
     f.set_drive_select_mask(mask);
     f.insert_disk(
         0,
@@ -50,7 +54,7 @@ fn seek(f: &mut Upd765a, select: u8, target: u8) {
 }
 fn complete(fdc: &mut Upd765a) {
     // Busy now includes unacknowledged completions, so it is not a motion timer.
-    for hc in 0..4096 {
+    for hc in 0..200_000 {
         fdc.tick(hc);
     }
     assert!(fdc.interrupt, "bounded seek completion raises IRQ");

@@ -9,8 +9,7 @@ fn seek(fdc: &mut Upd765a, drive: u8, cylinder: u8) {
 
 fn complete_seeks(fdc: &mut Upd765a) {
     // Busy now includes unacknowledged completions, so it is not a motion timer.
-    // Keep this seek-only test before the independent READY polling boundary.
-    for hc in 0..1024 {
+    for hc in 0..200_000 {
         fdc.tick(hc);
     }
     assert!(fdc.interrupt, "bounded seek completion raises IRQ");
@@ -20,6 +19,10 @@ fn complete_seeks(fdc: &mut Upd765a) {
 fn sis_acknowledges_irq_without_discarding_other_drive_status() {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        fdc.write_data(byte);
+    }
     fdc.insert_disk(0, DiskImage::default());
     fdc.insert_disk(1, DiskImage::default());
     seek(&mut fdc, 1, 7);

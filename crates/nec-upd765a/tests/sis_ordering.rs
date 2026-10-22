@@ -8,11 +8,15 @@ use nec_upd765a::{DiskImage, Upd765a};
 fn unacknowledged_seek_rejects_other_command_without_losing_status() {
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        fdc.write_data(byte);
+    }
     fdc.insert_disk(0, DiskImage::default());
     for b in [0x0f, 0, 7] {
         fdc.write_data(b);
     }
-    for hc in 0..1024 {
+    for hc in 0..200_000 {
         fdc.tick(hc);
     }
     fdc.write_data(4);
