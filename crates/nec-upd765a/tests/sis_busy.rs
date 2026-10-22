@@ -4,12 +4,23 @@ use nec_upd765a::{DiskImage, Upd765a};
 fn controller() -> Upd765a {
     let mut f = Upd765a::new();
     f.enabled = true;
+    // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
+    for byte in [3, 0xf0, 3] {
+        f.write_data(byte);
+    }
     f.insert_disk(0, DiskImage::default());
     f.insert_disk(1, DiskImage::default());
+    for hc in 0..8000 {
+        f.tick(hc);
+    }
+    for unit in 0..2 {
+        command(&mut f, &[8]);
+        assert_eq!([f.read_data(), f.read_data()], [0xc0 | unit, 0]);
+    }
     f
 }
 fn complete(f: &mut Upd765a) {
-    for hc in 0..4096 {
+    for hc in 0..200_000 {
         f.tick(hc);
     }
     assert!(f.interrupt);

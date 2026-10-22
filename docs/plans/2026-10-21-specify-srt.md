@@ -30,3 +30,13 @@ HUT/HLT, physical step-pulse widths, mechanical spin-up/settle, flux, arbitrary 
 ## Uncertainty stays separate
 
 HUT/HLT zero encodings and head-load/unload transitions are not exercised or fixed here. Their manufacturer/reference discrepancies remain requirements of full SPECIFY qualification. Initial READY failure status has existing direct tests; exact READY loss sampling relative to a step edge, READY-attention interaction during concurrent motion, first-pulse timing and final completion offsets need an explicit independently checked case list before qualification. Excluding mechanical fidelity does not exclude those digital questions. No removal of them from the operation tickets is proposed.
+
+
+## Implementation approved2026-10-22
+
+The user explicitly approved Spectrum native snapshotsv10→v11 and this bounded fix. Implement the executed Fuse digital policy: immediate first step, adjacent programmed spacing, completion after the final interval, zero-distance completion immediate. These offsets are a documented model choice; MAME differs and silicon edge fidelity remains unqualified. READY is sampled initially and on each host tick during active motion. Reprogramming SRT changes newly scheduled intervals, not an interval already in progress. Recalibrate tests supplied/fallback T0 before a pulse and at paced boundaries, with77 pulses maximum. Reset aborts motion; default SRT0 is a model fallback, not an established hardware reset value. No new public interface/dependency is approved or needed.
+
+Implement the source fix and focused direct/native regressions in one PR. Preserve source/live media and native continuation. Complete relevant chip/native tests, formatting, Clippy and supported Spectrum build. Avoid another campaign/reporting framework.
+
+
+Reset retains the existing physical-head/logical-PCN preservation contract already exercised by `ready_inputs::controller_reset_preserves_logical_pcn_and_physical_position`; this fix does not introduce PCN reset semantics. The motion test captures both positions before reset and verifies no later pulse. Manufacturer reset PCN fidelity remains outside this bounded qualification claim. Supplied READY/T0 remain logical selector-slot samples as wired by the existing +3 adapter; physical head movement uses the latched masked destination.

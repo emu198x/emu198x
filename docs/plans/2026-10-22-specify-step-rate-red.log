@@ -1,0 +1,20 @@
+
+running 1 test
+test specify_changes_seek_rate_and_distance_using_real_elapsed_ticks ... FAILED
+
+failures:
+
+failures:
+    specify_changes_seek_rate_and_distance_using_real_elapsed_ticks
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running tests/specify_step_rate.rs (/Users/stevehill/Projects/198x/output/qualification/build/programmed-fdc-motion/debug/deps/specify_step_rate-146ebf8f52562387)
+
+thread 'specify_changes_seek_rate_and_distance_using_real_elapsed_ticks' (150572687) panicked at crates/nec-upd765a/tests/specify_step_rate.rs:29:9:
+assertion `left == right` failed
+  left: 256
+ right: 113501
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: test failed, to rerun pass `-p nec-upd765a --test specify_step_rate`

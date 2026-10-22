@@ -56,7 +56,10 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 10** (approved2026-10-21): preserves the FDC's programmed
 /// non-DMA mode. Version9 is rejected before positional decode; reconstructing
 /// it from the current command would lose persistent Specify configuration.
-const SNAPSHOT_VERSION: u32 = 10;
+/// **Version 11** (approved2026-10-22): preserves programmed FDC SRT and
+/// independent paced Seek/Recalibrate motion, including fractional phase.
+/// Version10 lacks that positional state and is rejected before decoding.
+const SNAPSHOT_VERSION: u32 = 11;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -235,7 +238,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 10")
+                .contains("unsupported snapshot version 4; expected 11")
         );
     }
 
@@ -252,7 +255,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 10")
+                .contains("unsupported snapshot version 5; expected 11")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -765,7 +768,35 @@ mod tests {
             // Preserve the old captured read-progress prefix as a regression
             // input, then explicitly construct a synthetic current controller.
             // This does not add v6 runtime restore compatibility.
-            let mut current = bytes.to_vec();
+            // The v6 read fixtures contain no active seek. Decode the fixed
+            // historical prefix, verify its two empty seek arrays, and replace
+            // only those arrays with empty v11 motion/SRT state. This is an
+            // explicit test-fixture reconstruction, not runtime migration.
+            type LegacyReadPrefix = (
+                u32,
+                u32,
+                (Vec<u8>, usize),
+                (Vec<u8>, usize),
+                (Vec<u8>, usize),
+                [u8; 4],
+                (u8, u8),
+                [u8; 5],
+                bool,
+                [Option<u8>; 4],
+            );
+            let (_, remaining) =
+                postcard::take_from_bytes::<LegacyReadPrefix>(bytes).expect("legacy read prefix");
+            let ((timers, staged), tail) =
+                postcard::take_from_bytes::<([u32; 4], [Option<u8>; 4])>(remaining)
+                    .expect("legacy seek arrays");
+            assert_eq!(timers, [0; 4]);
+            assert_eq!(staged, [None; 4]);
+            let mut current = bytes[..bytes.len() - remaining.len()].to_vec();
+            current.extend(
+                postcard::to_allocvec(&([None::<u8>; 4], 0_u8))
+                    .expect("empty motion options and reset SRT"),
+            );
+            current.extend_from_slice(tail);
             current.extend(
                 postcard::to_allocvec(&(
                     [None::<bool>; 4],
@@ -783,7 +814,7 @@ mod tests {
             );
             let mut original = SpectrumPlus3Runtime::blank();
             original.machine_mut().fdc =
-                postcard::from_bytes(&current).expect("synthetic v10 controller");
+                postcard::from_bytes(&current).expect("synthetic v11 controller");
             assert_eq!(
                 postcard::to_allocvec(&original.machine().fdc).expect("same layout"),
                 current
@@ -1397,8 +1428,9 @@ mod tests {
         for phase in 0..3 {
             let mut original = SpectrumPlus3Runtime::blank();
             original.machine_mut().fdc.set_ready(0, true);
+            send_fdc_command(&mut original, &[3, 0xf0, 3]);
             send_fdc_command(&mut original, &[15, 0, 7]);
-            for _ in 0..1024 {
+            for _ in 0..50_000 {
                 original.machine_mut().fdc.tick(0);
             }
             assert_eq!(original.machine().fdc.read_status(), 0x81);
@@ -1870,7 +1902,7 @@ mod tests {
             .restore(&old)
             .expect_err("v9 lacks programmed ND state");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 9; expected 10"));
+            if reason == "unsupported snapshot version 9; expected 11"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1883,7 +1915,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 10"));
+            if reason == "unsupported snapshot version 8; expected 11"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1894,7 +1926,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 10"));
+            if reason == "unsupported snapshot version 7; expected 11"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1907,7 +1939,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 10")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 11")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2056,7 +2088,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 10");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 11");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
@@ -2142,4 +2174,5 @@ mod tests {
     include!("snapshot/transfer_signal_tests.rs");
     include!("snapshot/read_data_tests.rs");
     include!("snapshot/format_tests.rs");
+    include!("snapshot/motion_tests.rs");
 }
