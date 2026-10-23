@@ -4,6 +4,22 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.44.2] - 2026-10-23
+
+
+### Fixed
+
+- Give 68000 exceptions their real bus sequence and timing
+- Stop undefined addressing modes panicking the 680x0 cores
+- Give 68000 instructions their real clock counts
+- Put each 68000 bus access where the real chip makes it
+- Give the Apple app's Amiga the A501 512K expansion
+- Give 68000 interrupts their real 44-clock sequence
+- Make Amiga CIA accesses wait for the E clock
+- *(amiga)* Preserve live floppy disk-change notifications
+- Decode Amiga CIA space as the hardware does, and end CIA accesses on time
+- Make CIA accesses through the GVP A530 wait for the E clock
+
 ## [0.44.1] - 2026-10-22
 
 
