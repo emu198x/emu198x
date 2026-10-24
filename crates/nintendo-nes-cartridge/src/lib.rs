@@ -19,6 +19,11 @@
 //! the trait, the header parser, and the first mappers needed to boot
 //! flat-layout test ROMs plus common PRG/CHR-bank-switched cartridges.
 //!
+//! The boards with expansion audio follow, each feeding the cartridge
+//! audio pin through [`Mapper::expansion_audio_sample`]: **Mapper 19
+//! (Namco 163)**, **Mappers 24 and 26 (VRC6)**, **Mapper 69 (Sunsoft
+//! FME-7 / 5B)** and **Mapper 85 (VRC7)**.
+//!
 //! The remaining mappers are archive-provenance (see
 //! [archives-as-source.md](../../../knowledge/decisions/archives-as-source.md))
 //! and will be lifted one at a time *once the PPU crate is back
@@ -53,12 +58,16 @@ pub use mappers::bxrom::BxRom;
 pub use mappers::camerica::Camerica;
 pub use mappers::cnrom::CnRom;
 pub use mappers::colordreams::ColorDreams;
+pub use mappers::fme7::Fme7;
 pub use mappers::mmc1::Mmc1;
 pub use mappers::mmc3::Mmc3;
 pub use mappers::mmc5::Mmc5;
+pub use mappers::namco163::Namco163;
 pub use mappers::nina001::Nina001;
 pub use mappers::nrom::Nrom;
 pub use mappers::sunsoft4::Sunsoft4;
 pub use mappers::uxrom::UxRom;
 pub use mappers::vrc2a::Vrc2a;
+pub use mappers::vrc6::Vrc6;
+pub use mappers::vrc7::Vrc7;
 pub use snapshot::{MapperSnapshot, mapper_from_snapshot};

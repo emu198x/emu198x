@@ -3478,6 +3478,8 @@ dependencies = [
 name = "nintendo-nes-cartridge"
 version = "0.44.2"
 dependencies = [
+ "emu198x-gi-ay-3-8910",
+ "emu198x-yamaha-ym2413",
  "format-nintendo-nes-ines",
  "serde",
  "serde-big-array",

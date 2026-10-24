@@ -16,6 +16,7 @@ use crate::mappers::{
     colordreams::ColorDreams, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001, nrom::Nrom,
     sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a,
 };
+use crate::mappers::{fme7::Fme7, namco163::Namco163, vrc6::Vrc6, vrc7::Vrc7};
 
 /// Parsed iNES header fields. Both iNES 1.0 and NES 2.0 files map
 /// onto this struct; the NES 2.0 upper nibbles are folded into the
@@ -111,14 +112,21 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         34 => Box::new(Nina001::new(prg_rom, chr_data, mirroring)),
         68 => Box::new(Sunsoft4::new(prg_rom, chr_data, mirroring)),
         71 => Box::new(Camerica::new(prg_rom, mirroring)),
+        19 => Box::new(Namco163::new(prg_rom, chr_data)),
+        24 => Box::new(Vrc6::new(prg_rom, chr_data, false)),
+        26 => Box::new(Vrc6::new(prg_rom, chr_data, true)),
+        69 => Box::new(Fme7::new(prg_rom, chr_data)),
+        85 => Box::new(Vrc7::new(prg_rom, chr_data)),
         n => {
             return Err(format!(
                 "Unsupported mapper: {n} — this port currently carries Mapper 0 \
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
                  (CNROM), Mapper 4 (MMC3), Mapper 5 (MMC5), Mapper 7 \
                  (AxROM), Mapper 11 (Color Dreams), Mapper 22 (VRC2a), \
+                 Mapper 19 (Namco 163), Mapper 24 and 26 (VRC6), \
                  Mapper 28 (Action 53), Mapper 34 (BxROM/BNROM and NINA-001), Mapper 68 \
-                 (Sunsoft-4), and Mapper 71 (Camerica). Additional mappers \
+                 (Sunsoft-4), Mapper 69 (FME-7 / 5B), Mapper 71 (Camerica) and \
+                 Mapper 85 (VRC7). Additional mappers \
                  will land as compatibility expands."
             ));
         }
@@ -162,6 +170,7 @@ fn validate_nes2_mapper_extents(mapper: u16, prg: usize, chr: usize) -> Result<(
         34 => (32768, 4096),
         68 => (16384, 2048),
         71 => (16384, 1),
+        19 | 24 | 26 | 69 | 85 => (8192, 1024),
         _ => return Ok(()), // The mapper dispatch reports unsupported IDs.
     };
     if prg == 0 || !prg.is_multiple_of(prg_unit) || !chr.is_multiple_of(chr_unit) {
