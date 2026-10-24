@@ -77,6 +77,7 @@ members = [
     "crates/emu198x-intel-8255",
     "crates/machine-commodore-amiga-ocs",
     "crates/machine-commodore-amiga-ecs",
+    "crates/machine-commodore-c128",
     "crates/machine-commodore-c64",
     "crates/machine-commodore-1541",
     "crates/machine-commodore-1571",
