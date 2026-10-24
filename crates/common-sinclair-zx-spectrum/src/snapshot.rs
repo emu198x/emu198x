@@ -195,7 +195,7 @@ pub fn apply_128k_bank_pages<M: Paged128kMemory>(snap: &Snapshot, memory: &mut M
 /// and leaves the AY with `snap.ay_register` selected so subsequent
 /// `IN`/`OUT` on the data port target the same register the snapshot
 /// captured.
-pub fn apply_ay_registers(snap: &Snapshot, ay: &mut gi_ay_3_8912::Ay3_8912) {
+pub fn apply_ay_registers(snap: &Snapshot, ay: &mut emu198x_gi_ay_3_8912::Ay3_8912) {
     for (reg, &val) in snap.ay_regs.iter().enumerate() {
         ay.select_register(reg as u8);
         ay.write_data(val);
@@ -527,7 +527,7 @@ mod tests {
         // R7 is the mixer/IO-direction byte — set bits 6 and 7 high so
         // both IO ports are in output mode, otherwise `read_data` on
         // R14 / R15 returns the input-pin mask (0xFF by default) instead
-        // of the stored register value. See `gi-ay-3-8912::Ay3_8912::
+        // of the stored register value. See `emu198x_gi_ay_3_8912::Ay3_8912::
         // read_data` — the port read path returns the pin state, not
         // the stored byte, mirroring real silicon behaviour.
         let mut snap = populated_snapshot();
@@ -537,7 +537,7 @@ mod tests {
         snap.ay_regs[7] |= 0xC0; // bits 6 + 7 = port A/B output
         snap.ay_register = 0x0B;
 
-        let mut ay = gi_ay_3_8912::Ay3_8912::new(1_773_400, 44_100, 882);
+        let mut ay = emu198x_gi_ay_3_8912::Ay3_8912::new(1_773_400, 44_100, 882);
         apply_ay_registers(&snap, &mut ay);
 
         for i in 0..16u8 {

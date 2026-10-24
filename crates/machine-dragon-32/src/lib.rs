@@ -12,14 +12,14 @@ use std::error::Error;
 use std::fmt;
 
 use emu198x_motorola_6809::{Mc6809, Mc6809ClockPhase};
+use emu198x_motorola_vdg_6847::{
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
+    VdgControl, VdgPalette,
+};
 use format_dragon_disk::DragonDiskImage;
 use mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ as ACIA_XTAL_HZ};
 use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
 use motorola_sam_6883::Sam6883;
-use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
-    VdgControl, VdgPalette,
-};
 use serde::{Deserialize, Serialize};
 
 /// Dragon 32 RAM size.
@@ -50,9 +50,9 @@ const VDG_HSYNC_TICKS: u64 = 64;
 const VDG_BACK_PORCH_TICKS: u64 = 70;
 const VDG_LEFT_BORDER_TICKS: u64 = 120;
 const VDG_ACTIVE_AREA_START_LINE: u64 =
-    VDG_VISIBLE_FIRST_LINE + motorola_vdg_6847::TEXT_TOP_BORDER_LINES as u64;
+    VDG_VISIBLE_FIRST_LINE + emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES as u64;
 const VDG_ACTIVE_AREA_END_LINE: u64 =
-    VDG_ACTIVE_AREA_START_LINE + motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT as u64;
+    VDG_ACTIVE_AREA_START_LINE + emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT as u64;
 const VDG_FRAME_SYNC_FALL_TICK: u64 = VDG_ACTIVE_AREA_END_LINE * VDG_LINE_MASTER_TICKS;
 const DRAGON_FRAME_MASTER_TICKS: u64 = VDG_LINE_MASTER_TICKS * VDG_PAL_FRAME_LINES;
 const VDG_NTSC_LOGICAL_FRAME_LINES: u64 = 262;
@@ -2445,7 +2445,7 @@ struct BeamVideo {
     prefetch_line: usize,
     next_prefetch_x: usize,
     next_prefetch_byte: usize,
-    prefetched_bytes: [Option<PrefetchedByte>; motorola_vdg_6847::TEXT_COLUMNS],
+    prefetched_bytes: [Option<PrefetchedByte>; emu198x_motorola_vdg_6847::TEXT_COLUMNS],
     control_initialized: bool,
     render_pin_control: VdgControl,
     pending_css_changes: VecDeque<(u64, bool)>,
@@ -2468,7 +2468,7 @@ impl BeamVideo {
             prefetch_line: 0,
             next_prefetch_x: 0,
             next_prefetch_byte: 0,
-            prefetched_bytes: [None; motorola_vdg_6847::TEXT_COLUMNS],
+            prefetched_bytes: [None; emu198x_motorola_vdg_6847::TEXT_COLUMNS],
             control_initialized: false,
             render_pin_control: VdgControl::default(),
             pending_css_changes: VecDeque::new(),
@@ -2548,10 +2548,10 @@ impl BeamVideo {
         let absolute_line = video_line_for_cycle(self.cycle_in_frame);
         let visible_line = absolute_line
             .checked_sub(usize::try_from(VDG_VISIBLE_FIRST_LINE).unwrap_or(usize::MAX))
-            .filter(|&line| line < motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_HEIGHT);
+            .filter(|&line| line < emu198x_motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_HEIGHT);
         let active_y = visible_line
             .filter(|&line| active_line(line))
-            .map(|line| line - motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+            .map(|line| line - emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
         let active_x = visible_line.and_then(|line| {
             if !active_line(line) {
                 return None;
@@ -2559,7 +2559,7 @@ impl BeamVideo {
             let start = active_display_start_cycle(line);
             let elapsed = self.cycle_in_frame.checked_sub(start)?;
             let active_x = usize::try_from(elapsed / 2).ok()?;
-            (active_x < motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH).then_some(active_x)
+            (active_x < emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH).then_some(active_x)
         });
         (visible_line, active_y, active_x)
     }
@@ -2585,7 +2585,7 @@ impl BeamVideo {
             }
 
             if active_line(self.next_line)
-                && self.next_active_x < motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH
+                && self.next_active_x < emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH
             {
                 let active_tick = active_pixel_cycle(self.next_line, self.next_active_x);
                 if active_tick >= target_cycle {
@@ -2602,7 +2602,7 @@ impl BeamVideo {
                 let target_active_x = active_x_for_target(self.next_line, target_cycle);
                 let segment_end = target_active_x
                     .min(current.end_x())
-                    .min(motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH);
+                    .min(emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH);
                 if segment_end <= self.next_active_x {
                     break;
                 }
@@ -2623,8 +2623,8 @@ impl BeamVideo {
         self.ensure_control_initialized(memory);
         self.apply_pending_css_changes(line_start_cycle(line));
         let palette = VdgPalette::default();
-        let start = line * motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
-        let end = start + motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+        let start = line * emu198x_motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
+        let end = start + emu198x_motorola_vdg_6847::TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
         self.frame[start..end].fill(palette.border);
         if active_line(line) {
             self.css_a = self.render_pin_control.css;
@@ -2641,13 +2641,13 @@ impl BeamVideo {
         render_control.css = self.css_b;
         let active_y = self
             .next_line
-            .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+            .saturating_sub(emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
         self.ensure_prefetch_line();
         let prefetched = self
             .prefetched_bytes
             .get(self.next_byte)
             .and_then(|prefetched| *prefetched);
-        let byte = motorola_vdg_6847::decode_beam_byte(
+        let byte = emu198x_motorola_vdg_6847::decode_beam_byte(
             |offset| {
                 prefetched
                     .filter(|prefetched| prefetched.offset == offset)
@@ -2659,7 +2659,7 @@ impl BeamVideo {
             self.next_byte,
         );
         if byte.width() == 0 {
-            self.next_active_x = motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH;
+            self.next_active_x = emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH;
             return;
         }
         if let Some(cycle) = bus_cycle {
@@ -2705,8 +2705,8 @@ impl BeamVideo {
         self.ensure_prefetch_line();
         let active_y = self
             .next_line
-            .saturating_sub(motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
-        while self.next_prefetch_byte < motorola_vdg_6847::TEXT_COLUMNS {
+            .saturating_sub(emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES);
+        while self.next_prefetch_byte < emu198x_motorola_vdg_6847::TEXT_COLUMNS {
             let Some((offset, width)) =
                 vdg_byte_fetch_offset(self.render_pin_control, active_y, self.next_prefetch_byte)
             else {
@@ -2794,7 +2794,7 @@ struct ActiveByteRender {
     byte_x: usize,
     start_x: usize,
     control: VdgControl,
-    byte: motorola_vdg_6847::VdgBeamByte,
+    byte: emu198x_motorola_vdg_6847::VdgBeamByte,
 }
 
 impl ActiveByteRender {
@@ -2902,8 +2902,9 @@ fn crosses_frame_sync_rise(previous: u64, current: u64) -> bool {
 }
 
 fn active_line(line: usize) -> bool {
-    (motorola_vdg_6847::TEXT_TOP_BORDER_LINES
-        ..motorola_vdg_6847::TEXT_TOP_BORDER_LINES + motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT)
+    (emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES
+        ..emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES
+            + emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT)
         .contains(&line)
 }
 
@@ -2922,7 +2923,7 @@ fn active_x_for_target(line: usize, target_cycle: u64) -> usize {
     let elapsed = target_cycle.saturating_sub(active_display_start_cycle(line));
     let active_x = elapsed.saturating_add(1) / 2;
     usize::try_from(active_x).map_or(usize::MAX, |x| {
-        x.min(motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH)
+        x.min(emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH)
     })
 }
 
@@ -2941,9 +2942,9 @@ fn vdg_byte_fetch_offset(
     byte_x: usize,
 ) -> Option<(usize, usize)> {
     if !control.graphics {
-        let row = active_y / motorola_vdg_6847::TEXT_CELL_HEIGHT;
-        return (byte_x < motorola_vdg_6847::TEXT_COLUMNS)
-            .then_some((row * motorola_vdg_6847::TEXT_COLUMNS + byte_x, 8));
+        let row = active_y / emu198x_motorola_vdg_6847::TEXT_CELL_HEIGHT;
+        return (byte_x < emu198x_motorola_vdg_6847::TEXT_COLUMNS)
+            .then_some((row * emu198x_motorola_vdg_6847::TEXT_COLUMNS + byte_x, 8));
     }
 
     let (row_bytes, byte_width, y_scale) = match control.gm {
@@ -3645,7 +3646,7 @@ impl Dragon32 {
     #[must_use]
     pub fn render_visible_argb(&self, palette: VdgPalette) -> Vec<u32> {
         let control = VdgControl::from_dragon_pia1_port_b(self.pia1_pins_b());
-        motorola_vdg_6847::render_visible_argb(
+        emu198x_motorola_vdg_6847::render_visible_argb(
             |offset| self.memory.display_byte(offset),
             control,
             palette,
@@ -3676,7 +3677,7 @@ impl Dragon32 {
     /// Return the progressively rendered MC6847 frame expanded to PAL overscan.
     #[must_use]
     pub fn beam_pal_overscan_argb(&self) -> Vec<u32> {
-        motorola_vdg_6847::expand_visible_argb_to_pal_overscan(
+        emu198x_motorola_vdg_6847::expand_visible_argb_to_pal_overscan(
             self.video.frame(),
             VdgPalette::default().border,
         )
@@ -4479,7 +4480,7 @@ fn decode_device_write(addr: u16) -> Option<DeviceRegion> {
 
 #[cfg(test)]
 mod tests {
-    use motorola_vdg_6847::{
+    use emu198x_motorola_vdg_6847::{
         DEFAULT_VDG_BLUE, TEXT_LEFT_BORDER_PIXELS, TEXT_TOP_BORDER_LINES,
         TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, VdgPalette,
     };
@@ -4874,7 +4875,7 @@ mod tests {
     fn vdg_horizontal_timing_uses_mc6847_clock_periods() {
         assert_eq!(VDG_LINE_MASTER_TICKS, 228 * VDG_CLOCK_MASTER_TICKS);
         assert_eq!(
-            motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH as u64 * 2,
+            emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH as u64 * 2,
             128 * VDG_CLOCK_MASTER_TICKS
         );
         assert_eq!(

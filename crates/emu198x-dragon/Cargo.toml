@@ -25,7 +25,7 @@ format-dragon-cas = { path = "../format-dragon-cas", version = "0.44.0" }
 format-dragon-disk = { path = "../format-dragon-disk", version = "0.44.0" }
 format-dragon-pak = { path = "../format-dragon-pak", version = "0.44.0" }
 machine-dragon-32 = { path = "../machine-dragon-32", version = "0.44.0" }
-motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.44.0" }
+emu198x-motorola-vdg-6847 = { path = "../emu198x-motorola-vdg-6847", version = "0.1.0" }
 png = { workspace = true }
 runtime-dragon = { path = "../runtime-dragon", version = "0.44.0" }
 serde = { workspace = true }

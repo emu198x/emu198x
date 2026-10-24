@@ -64,8 +64,8 @@ impl UiSystem for Svi328System {
 
     fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {
         let region = match runtime.model() {
-            Model::Svi328Ntsc => ti_tms9918::VdpRegion::Ntsc,
-            Model::Svi328Pal => ti_tms9918::VdpRegion::Pal,
+            Model::Svi328Ntsc => emu198x_ti_tms9918::VdpRegion::Ntsc,
+            Model::Svi328Pal => emu198x_ti_tms9918::VdpRegion::Pal,
         };
         (region.framebuffer_width(), region.framebuffer_height())
     }

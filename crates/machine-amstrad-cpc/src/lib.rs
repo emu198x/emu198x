@@ -86,10 +86,10 @@ pub mod screen_text;
 use amstrad_gate_array::GateArray;
 use common_tape::{TapePlayer, TapeSpan};
 use common_z80_machine::Z80Machine;
+use emu198x_gi_ay_3_8912::Ay3_8912;
+use emu198x_intel_8255::Ppi8255;
+use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
 use emu198x_zilog_z80::{BusOp, Z80};
-use gi_ay_3_8912::Ay3_8912;
-use intel_8255::Ppi8255;
-use motorola_6845::{Crtc6845, Crtc6845Variant};
 use serde::{Deserialize, Serialize};
 
 /// T-states per CRTC character clock: 4 MHz CPU against a 1 MHz CRTC.

@@ -49,11 +49,11 @@
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
 use common_z80_machine::Z80Machine;
+use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
+use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ti_sn76489::{NoiseLfsr, Sn76489};
-use ti_tms9918::{Tms9918, VdpRegion};
 
 /// VDP dot ticks per CPU T-state, numerator. The real ColecoVision
 /// crystal is 10.738635 MHz with the CPU at ÷3 (3.579545 MHz) and the

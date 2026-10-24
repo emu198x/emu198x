@@ -8,7 +8,7 @@
 //! scan via VIA row selection / PB3 sense and AY column drive, TEXT + HIRES
 //! ULA video modes with serial attributes — but the wiring is written
 //! against [`emu198x_mos_6502::M6502`]'s public pin fields and the
-//! `mos-via-6522` chip crate's pin-truth surface.
+//! `emu198x-mos-via-6522` chip crate's pin-truth surface.
 //!
 //! # The Oric
 //!
@@ -23,7 +23,7 @@
 //!
 //! - **CPU:** 6502A @ 1 MHz
 //! - **VIA:** MOS 6522 at `$0300-$030F` (mirrored across `$0300-$03FF`)
-//! - **PSG:** AY-3-8912 @ 1 MHz — via our `gi-ay-3-8912` crate
+//! - **PSG:** AY-3-8912 @ 1 MHz — via our `emu198x-gi-ay-3-8912` crate
 //! - **ULA:** custom — TEXT (40×28) + HIRES (200 lines + 3 text rows)
 //! - **RAM:** 64 KB of DRAM on the 48K Oric-1 and the Atmos alike, 48 KB of
 //!   it below the ROM
@@ -111,9 +111,9 @@
 //! "Memory Multiplex"). Same 8-colour 3-bit RGB palette as the Acorn / BBC
 //! family.
 
+use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use emu198x_mos_6502::M6502;
-use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
-use mos_via_6522::Via6522;
+use emu198x_mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

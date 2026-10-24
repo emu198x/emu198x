@@ -28,8 +28,8 @@ pub use audio::{AudioControls, BeeperAudio, SpeakerChannel, SpeakerMixer};
 // register writes through one tracer; re-exported here for the Spectrum
 // code that already names `common_sinclair_zx_spectrum::AyWriteWatch`.
 pub use driver::SpectrumDriver;
+pub use emu198x_gi_ay_3_8912::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
 pub use error::RomImageError;
-pub use gi_ay_3_8912::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
 pub use keyboard::{KeyboardMatrix, SpectrumKey};
 pub use memory::{Bank16K, MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
 pub use memory_watch::{DEFAULT_WATCH_CAP, MemoryWriteRecord, MemoryWriteWatch};

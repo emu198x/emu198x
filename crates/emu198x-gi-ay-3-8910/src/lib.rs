@@ -7,7 +7,7 @@
 //! 3 square-wave tone channels, 1 noise generator, an envelope generator,
 //! and **two** 8-bit bidirectional I/O ports (A = register 14, B =
 //! register 15). The single-port AY-3-8912 (no port B) is a thin facade
-//! over this core; see the `gi-ay-3-8912` crate.
+//! over this core; see the `emu198x-gi-ay-3-8912` crate.
 //!
 //! The I/O ports carry no sound; machines use them for keyboard scanning,
 //! joysticks, printers, and bank/LED control. Port direction is set by

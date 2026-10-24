@@ -126,11 +126,11 @@
 
 use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+use emu198x_western_digital_wd1770::{Disk, Wd1770};
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ti_tms9918::{Tms9918, VdpRegion};
-use western_digital_wd1770::{Disk, Wd1770};
 
 // Einstein's Z80A runs at 4 MHz; the TMS9918A dot clock is 5.369318 MHz.
 // That ratio (≈1.342, *not* 3:2) is what makes the Einstein different from
@@ -1094,7 +1094,7 @@ mod tests {
 
     #[test]
     fn fdc_reads_a_sector_from_an_inserted_disk() {
-        // The WD1770 command engine is unit-tested in `western-digital-wd1770`;
+        // The WD1770 command engine is unit-tested in `emu198x-western-digital-wd1770`;
         // here we only check the machine-level wiring: a disk inserted through
         // the public API reads back through ports $18-$1B after a $23 select.
         let bios = vec![0u8; 0x2000];

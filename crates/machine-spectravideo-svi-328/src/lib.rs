@@ -22,7 +22,7 @@
 //! - **CPU:** Z80A @ 3.579545 MHz
 //! - **VDP:** TMS9918A (16 KB VRAM)
 //! - **PSG:** AY-3-8910 @ 1.789773 MHz (CPU ÷ 2) — consumed via our
-//!   `gi-ay-3-8912` crate (same silicon, port B not bonded out)
+//!   `emu198x-gi-ay-3-8912` crate (same silicon, port B not bonded out)
 //! - **PPI:** Intel 8255 (keyboard row select + column read)
 //! - **RAM:** 32 KB at `$8000-$FFFF`, expandable to 64 KB in
 //!   ROM-overlay mode
@@ -67,11 +67,11 @@ mod cassette;
 
 use cassette::Cassette;
 use common_z80_machine::Z80Machine;
+use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
+use emu198x_intel_8255::Ppi8255;
+use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_zilog_z80::{BusOp, Z80};
-use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
-use intel_8255::Ppi8255;
 use serde::{Deserialize, Serialize};
-use ti_tms9918::{Tms9918, VdpRegion};
 
 /// VDP dot ticks per CPU half-cycle. Three dots per four half-cycles is the
 /// TMS9918A's 3:2 against T-states, interleaved twice as finely.

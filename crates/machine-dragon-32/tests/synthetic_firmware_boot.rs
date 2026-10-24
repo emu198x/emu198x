@@ -30,8 +30,8 @@
 
 use std::path::PathBuf;
 
+use emu198x_motorola_vdg_6847::VdgPalette;
 use machine_dragon_32::{DRAGON_FRAME_CYCLES, Dragon32, ROM_SIZE};
-use motorola_vdg_6847::VdgPalette;
 
 /// Every pixel set, in the graphics mode the VDG powers on in.
 const LIT: u32 = 0xFFFF_FFFF;
