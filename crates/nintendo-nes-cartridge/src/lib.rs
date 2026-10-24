@@ -13,7 +13,8 @@
 //! **Mapper 1 (MMC1)**, **Mapper 2 (UxROM)**,
 //! **Mapper 3 (CNROM)**, **Mapper 4 (MMC3)**, and
 //! **Mapper 7 (AxROM)**, **Mapper 11 (Color Dreams)**,
-//! **Mapper 22 (VRC2a)**, **Mapper 28 (Action 53)**,
+//! **Mapper 22 (VRC2a)**, **Mappers 21, 23 and 25 (VRC2b/c and VRC4)**,
+//! **Mapper 28 (Action 53)**,
 //! **Mapper 5 (MMC5)**, **Mapper 34 (BxROM/BNROM and NINA-001)**,
 //! **Mapper 68 (Sunsoft-4)**, and **Mapper 71 (Camerica/Codemasters)** —
 //! the trait, the header parser, and the first mappers needed to boot
@@ -68,6 +69,7 @@ pub use mappers::nrom::Nrom;
 pub use mappers::sunsoft4::Sunsoft4;
 pub use mappers::uxrom::UxRom;
 pub use mappers::vrc2a::Vrc2a;
+pub use mappers::vrc4::Vrc4;
 pub use mappers::vrc6::Vrc6;
 pub use mappers::vrc7::Vrc7;
 pub use snapshot::{MapperSnapshot, mapper_from_snapshot};

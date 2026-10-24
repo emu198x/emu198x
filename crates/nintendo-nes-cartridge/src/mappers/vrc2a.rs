@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::vrc4::{chr_register, register};
+
 use crate::mapper::{Mapper, Mirroring};
 use crate::snapshot::MapperSnapshot;
 
@@ -54,20 +56,8 @@ impl Vrc2a {
         self.prg_rom[bank * 8192 + usize::from(offset)]
     }
 
-    fn register_index(addr: u16) -> u16 {
-        ((addr >> 1) & 0x01) | ((addr & 0x01) << 1)
-    }
-
-    fn chr_slot(addr: u16) -> Option<usize> {
-        let region = match addr & 0xF000 {
-            0xB000 => 0,
-            0xC000 => 2,
-            0xD000 => 4,
-            0xE000 => 6,
-            _ => return None,
-        };
-        Some(region + usize::from(Self::register_index(addr) / 2))
-    }
+    /// VRC2a takes A0 from CPU A1 and A1 from CPU A0.
+    const LINES: [(u8, u8); 1] = [(1, 0)];
 
     fn chr_bank(&self, slot: usize) -> usize {
         usize::from(self.chr_regs[slot] >> 1)
@@ -101,11 +91,11 @@ impl Mapper for Vrc2a {
             }
             0xA000..=0xAFFF => self.prg_banks[1] = value & 0x1F,
             0xB000..=0xEFFF => {
-                if let Some(slot) = Self::chr_slot(addr) {
-                    if Self::register_index(addr) & 1 == 0 {
-                        self.chr_regs[slot] = (self.chr_regs[slot] & 0xF0) | (value & 0x0F);
-                    } else {
+                if let Some((slot, high)) = chr_register(register(addr, &Self::LINES)) {
+                    if high {
                         self.chr_regs[slot] = (self.chr_regs[slot] & 0x0F) | ((value & 0x0F) << 4);
+                    } else {
+                        self.chr_regs[slot] = (self.chr_regs[slot] & 0xF0) | (value & 0x0F);
                     }
                 }
             }
