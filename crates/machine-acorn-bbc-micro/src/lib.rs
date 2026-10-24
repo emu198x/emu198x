@@ -71,6 +71,7 @@
 //! port B write. When bit 0 of the latch transitions low, the
 //! current ORA value is latched into the PSG.
 
+mod rtc;
 mod saa5050;
 
 use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
@@ -78,6 +79,7 @@ use emu198x_mos_6502::M6502;
 use emu198x_mos_via_6522::Via6522;
 use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
+use rtc::Rtc;
 use saa5050::Saa5050;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -653,6 +655,11 @@ pub enum BbcModel {
     /// paged RAM at `&8000-&AFFF` and a 20 KB shadow screen behind
     /// `&3000-&7FFF`.
     ModelBPlus,
+    /// The Master 128 (1986): a 65C12, 128 KB and the MOS 3.20 ROM set. To
+    /// the 32 KB main RAM it adds ANDY (4 KB at `&8000-&8FFF`), HAZEL (8 KB
+    /// at `&C000-&DFFF`) and LYNNE (the 20 KB shadow screen), four banks of
+    /// sideways RAM (4-7), a CMOS clock, and a WD1770 at `&FE28`.
+    Master128,
 }
 
 /// Bytes in one track of a DFS disc: ten 256-byte sectors.
@@ -671,18 +678,28 @@ pub struct BbcMicro {
     /// Which model this is. Defaults so a Model B snapshot taken before the
     /// B+ existed still reads as one.
     model: BbcModel,
-    /// The B+'s extra 32 KB, empty on a Model B: the 12 KB of paged RAM in
-    /// `[0, &3000)`, then the 20 KB shadow screen in `[&3000, &8000)`. So a
-    /// shadow address `&3000-&7FFF` indexes it directly, and so does a video
-    /// address when the display shows the shadow screen, as MAME's
-    /// `setvideoshadow` offsets its fetches by `&8000`.
-    bplus_ram: Vec<u8>,
-    /// ROMSEL bit 7 on a B+: paged RAM at `&8000-&AFFF` in place of the
-    /// selected ROM.
+    /// The extra 32 KB of a B+ or Master, empty on a Model B. The 20 KB
+    /// shadow screen sits at `[&3000, &8000)`, so a shadow address
+    /// `&3000-&7FFF` indexes it directly, and so does a video address when the
+    /// display shows the shadow screen, as MAME's `setvideoshadow` offsets its
+    /// fetches by `&8000`. Below it, the B+ keeps its 12 KB of paged RAM in
+    /// `[0, &3000)`; the Master keeps ANDY in `[0, &1000)` and HAZEL in
+    /// `[&1000, &3000)`, b-em's layout.
+    extra_ram: Vec<u8>,
+    /// ROMSEL bit 7: on a B+, paged RAM at `&8000-&AFFF`; on a Master, ANDY
+    /// at `&8000-&8FFF`; either in place of the selected ROM.
     paged_ram: bool,
-    /// ACCCON (`&FE34`) bit 7 on a B+: the display shows the shadow screen,
-    /// and the VDU drivers reach it.
+    /// The display shows the shadow screen: ACCCON bit 7 on a B+, bit 0 (D)
+    /// on a Master.
     shadow_screen: bool,
+    /// The Master's ACCCON at `&FE34`, all eight bits: IRR, TST, IFJ, ITU, Y
+    /// (HAZEL), X (the CPU sees the shadow screen), E (the VDU drivers do)
+    /// and D (the display does).
+    acccon: u8,
+    /// Which sideways banks hold RAM, one bit per bank: 4-7 on a Master.
+    sideways_ram: u16,
+    /// The Master's CMOS clock on the slow data bus.
+    rtc: Rtc,
     /// Whether the instruction now executing reaches the shadow screen at
     /// `&3000-&7FFF`: decided at each opcode fetch, from where the opcode
     /// came from.
@@ -785,9 +802,12 @@ impl BbcMicro {
             psg: Sn76489::new(SN76489_CLOCK_HZ, NoiseLfsr::Tms15),
             ram: [0; 32768],
             model: BbcModel::ModelB,
-            bplus_ram: Vec::new(),
+            extra_ram: Vec::new(),
             paged_ram: false,
             shadow_screen: false,
+            acccon: 0,
+            sideways_ram: 0,
+            rtc: Rtc::new(),
             shadow_access: false,
             fdc: Wd1770::new(),
             drive_control: 0,
@@ -822,8 +842,38 @@ impl BbcMicro {
     pub fn new_b_plus(mos_rom: Vec<u8>) -> Self {
         let mut machine = Self::new(mos_rom);
         machine.model = BbcModel::ModelBPlus;
-        machine.bplus_ram = vec![0; 0x8000];
+        machine.extra_ram = vec![0; 0x8000];
         machine
+    }
+
+    /// Create a Master 128 with its 16 KB MOS 3.20. The rest of the MOS ROM
+    /// set (DFS, BASIC, ADFS and the others in banks 9-15) goes in with
+    /// [`Self::insert_rom`]; banks 4-7 are sideways RAM.
+    #[must_use]
+    pub fn new_master_128(mos_rom: Vec<u8>) -> Self {
+        let mut machine = Self::new(mos_rom);
+        machine.cpu = M6502::new_65c12();
+        machine.cpu.reset();
+        machine.model = BbcModel::Master128;
+        machine.extra_ram = vec![0; 0x8000];
+        machine.sideways_ram = 0x00F0;
+        for bank in 4..8 {
+            machine.insert_rom(bank, vec![0; 0x4000]);
+        }
+        machine
+    }
+
+    /// Finish a restore from a snapshot: put back what a snapshot does not
+    /// carry. The 6502's variant is the part fitted, so it is not serialised
+    /// (see `emu198x_mos_6502::M6502::set_variant`); a Master's 65C12 is set
+    /// again here.
+    pub fn finish_restore(&mut self) {
+        let variant = if self.model == BbcModel::Master128 {
+            emu198x_mos_6502::Variant::Cmos
+        } else {
+            emu198x_mos_6502::Variant::Nmos
+        };
+        self.cpu.set_variant(variant);
     }
 
     /// Which model this is.
@@ -832,10 +882,15 @@ impl BbcMicro {
         self.model
     }
 
-    /// Put a disc in drive 0 or 1 of a B+. Does nothing on a Model B, whose
-    /// 8271 controller is not modelled, or for any other drive.
+    /// Whether this model has the WD1770 disc controller.
+    const fn has_wd1770(&self) -> bool {
+        matches!(self.model, BbcModel::ModelBPlus | BbcModel::Master128)
+    }
+
+    /// Put a disc in drive 0 or 1 of a B+ or Master. Does nothing on a Model
+    /// B, whose 8271 controller is not modelled, or for any other drive.
     pub fn insert_disk(&mut self, drive: usize, disk: Disk) {
-        if self.model == BbcModel::ModelBPlus && drive < 2 {
+        if self.has_wd1770() && drive < 2 {
             self.fdc.insert_disk(drive, disk);
         }
     }
@@ -903,31 +958,65 @@ impl BbcMicro {
         }
     }
 
-    /// Write the drive-control latch: select the drive and side, and pulse
-    /// the controller's reset when bit 5 releases it.
+    /// Write the drive-control latch: select the drive and side, set the
+    /// density, and pulse the controller's reset when the reset line is
+    /// released. The bits differ between the two interfaces (b-em
+    /// `wd1770_wctl_acorn` and `wd1770_wctl_master`):
+    ///
+    /// | | B+ (`&FE80`) | Master (`&FE24`) |
+    /// |---|---|---|
+    /// | drive 0 / 1 | bits 0 / 1 | bits 0 / 1 |
+    /// | side | bit 2 | bit 4 |
+    /// | single density | bit 3 | bit 5 |
+    /// | reset released | bit 5 | bit 2 |
     fn write_drive_control(&mut self, value: u8) {
+        let (side, single, reset) = if self.model == BbcModel::Master128 {
+            (0x10, 0x20, 0x04)
+        } else {
+            (0x04, 0x08, 0x20)
+        };
         if value & 0x01 != 0 {
             self.fdc.set_drive(0);
         } else if value & 0x02 != 0 {
             self.fdc.set_drive(1);
         }
-        self.fdc.set_side((value >> 2) & 0x01);
-        // Bit 3 selects single density, a byte every 64 µs: 128 ticks at the
-        // 2 MHz the chip is ticked at here. Double density is twice as fast.
-        // The DFS takes each byte on an NMI, which is edge-triggered, so DRQ
-        // has to fall between bytes.
+        self.fdc.set_side(u8::from(value & side != 0));
+        // Single density moves a byte every 64 µs: 128 ticks at the 2 MHz
+        // the chip is ticked at here. Double density is twice as fast. The
+        // DFS takes each byte on an NMI, which is edge-triggered, so DRQ has
+        // to fall between bytes.
         self.fdc
-            .set_byte_cycles(if value & 0x08 != 0 { 128 } else { 64 });
-        let releasing_reset = self.drive_control & 0x20 == 0 && value & 0x20 != 0;
+            .set_byte_cycles(if value & single != 0 { 128 } else { 64 });
+        let releasing_reset = self.drive_control & reset == 0 && value & reset != 0;
         self.drive_control = value;
         if releasing_reset {
             self.fdc.reset();
         }
     }
 
-    /// Whether `addr` reaches the B+'s paged RAM rather than a sideways ROM.
+    /// Whether `addr` reaches the B+'s paged RAM, or the Master's ANDY,
+    /// rather than a sideways bank.
     fn in_paged_ram(&self, addr: u16) -> bool {
-        self.paged_ram && (0x8000..=0xAFFF).contains(&addr)
+        let end = if self.model == BbcModel::Master128 {
+            0x8FFF
+        } else {
+            0xAFFF
+        };
+        self.paged_ram && (0x8000..=end).contains(&addr)
+    }
+
+    /// Whether `addr` reaches the Master's HAZEL rather than the MOS: ACCCON
+    /// bit 3 (Y) pages it in at `&C000-&DFFF`.
+    fn in_hazel(&self, addr: u16) -> bool {
+        self.model == BbcModel::Master128
+            && self.acccon & 0x08 != 0
+            && (0xC000..=0xDFFF).contains(&addr)
+    }
+
+    /// The Master's ACCCON test bit (TST): reads of `&FC00-&FEFF` come from
+    /// the MOS ROM instead of the I/O.
+    fn io_reads_rom(&self, addr: u16) -> bool {
+        self.model == BbcModel::Master128 && self.acccon & 0x40 != 0 && addr >= 0xFC00
     }
 
     /// Whether `addr` reaches the B+'s shadow screen rather than main RAM.
@@ -940,14 +1029,31 @@ impl BbcMicro {
     /// drivers (`&C000-&DFFF`) does, and so does code in paged RAM between
     /// `&A000` and `&AFFF`; everything else sees main RAM. MAME
     /// `bbcbp_state::fetch_r`.
+    ///
+    /// On a Master, ACCCON's X bit (2) gives every instruction the shadow
+    /// screen, except that code in the VDU drivers at `&C000-&DFFF` follows
+    /// the E bit (1) instead, unless HAZEL (Y, bit 3) is paged in there. That
+    /// is b-em's `write_acccon_master`, whose page tables come to the same.
     fn latch_shadow_access(&mut self, opcode_addr: u16) {
-        self.shadow_access = self.model == BbcModel::ModelBPlus
-            && self.shadow_screen
-            && match opcode_addr {
-                0xC000..=0xDFFF => true,
-                0xA000..=0xAFFF => self.paged_ram,
-                _ => false,
-            };
+        self.shadow_access = match self.model {
+            BbcModel::ModelB => false,
+            BbcModel::ModelBPlus => {
+                self.shadow_screen
+                    && match opcode_addr {
+                        0xC000..=0xDFFF => true,
+                        0xA000..=0xAFFF => self.paged_ram,
+                        _ => false,
+                    }
+            }
+            BbcModel::Master128 => {
+                let vdu = (0xC000..=0xDFFF).contains(&opcode_addr) && self.acccon & 0x08 == 0;
+                if vdu {
+                    self.acccon & 0x02 != 0
+                } else {
+                    self.acccon & 0x04 != 0
+                }
+            }
+        };
     }
 
     /// Loads a cassette tape from a decoded UEF pulse stream, rewound to the
@@ -1128,7 +1234,10 @@ impl BbcMicro {
         }
         self.tick_cassette(cost);
         self.cpu.irq = self.system_via.irq || self.user_via.irq || self.acia.irq();
-        if self.model == BbcModel::ModelBPlus {
+        if self.model == BbcModel::Master128 {
+            self.rtc.tick(cost);
+        }
+        if self.has_wd1770() {
             for _ in 0..cost {
                 self.fdc.tick();
             }
@@ -1231,6 +1340,21 @@ impl BbcMicro {
             .copied()
             .unwrap_or(false);
         let bit = if pressed { 0x80 } else { 0x00 };
+        if self.model == BbcModel::Master128 {
+            // The CMOS clock shares the slow data bus, driving it during a
+            // read and otherwise letting it float high. The keyboard pulls
+            // PA7 low only while it is enabled (IC32 bit 3 low) and the
+            // selected key is up, so with the keyboard disabled bit 7 is the
+            // clock's (b-em `sysvia_update_sdb`).
+            let bus = self.rtc.bus(self.latch.bits[1]);
+            let keyboard_enabled = !self.latch.bits[3];
+            self.system_via.pa_in = if keyboard_enabled && !pressed {
+                bus & 0x7F
+            } else {
+                bus
+            };
+            return;
+        }
         self.system_via.pa_in = (self.system_via.pa_in & 0x7F) | bit;
     }
 
@@ -1266,9 +1390,79 @@ impl BbcMicro {
         self.system_via.pb_in = (self.system_via.pb_in & !0x30) | bits;
     }
 
+    /// After a System VIA write, let the Master's clock see the slow data bus
+    /// and its control lines. A port B write also drives PB6 and PB7.
+    fn update_rtc(&mut self, port_b_written: bool) {
+        let bus = self.system_via.port_a_drive_state();
+        if port_b_written {
+            self.rtc
+                .write_port_b(self.system_via.port_b_drive_state(), bus);
+        }
+        self.rtc.update(self.latch.bits[1], self.latch.bits[2], bus);
+    }
+
+    /// The Master's own I/O map, where it differs from the Model B's: the
+    /// serial ULA at `&FE10` and the ADC at `&FE18`, the Video ULA in
+    /// `&FE20-&FE23` alone, the drive latch at `&FE24` and the 1770 at
+    /// `&FE28`, and ROMSEL and ACCCON readable (b-em `do_readmem`).
+    fn master_io_read(&mut self, addr: u16) -> Option<u8> {
+        Some(match addr {
+            0xFE18..=0xFE1F => self.adc.read((addr & 0x03) as u8),
+            0xFE24..=0xFE27 => 0xFF,
+            0xFE28..=0xFE2F => self.fdc.read((addr & 0x03) as u8),
+            0xFE30..=0xFE33 => self.rom_bank | if self.paged_ram { 0x80 } else { 0 },
+            0xFE34..=0xFE37 => self.acccon,
+            0xFEC0..=0xFEDF => 0xFF,
+            _ => return None,
+        })
+    }
+
+    /// Write the Master's own I/O, returning whether `addr` was one of them.
+    fn master_io_write(&mut self, addr: u16, value: u8) -> bool {
+        match addr {
+            0xFE10..=0xFE17 => self.serial_ula = value,
+            0xFE18..=0xFE1F => {
+                if addr & 0x03 == 0 {
+                    self.adc.write_control(value);
+                    self.system_via.set_cb1_level(true);
+                }
+            }
+            0xFE20..=0xFE23 if addr & 1 == 0 => self.video_ula.write_control(value),
+            0xFE20..=0xFE23 => self.video_ula.write_palette(value),
+            0xFE24..=0xFE27 => self.write_drive_control(value),
+            0xFE28..=0xFE2F => self.fdc.write((addr & 0x03) as u8, value),
+            0xFE30..=0xFE33 => {
+                self.rom_bank = value & 0x0F;
+                self.paged_ram = value & 0x80 != 0;
+            }
+            0xFE34..=0xFE37 => {
+                self.acccon = value;
+                self.shadow_screen = value & 0x01 != 0;
+            }
+            0xFE38..=0xFE3F | 0xFEC0..=0xFEDF => {}
+            _ => return false,
+        }
+        true
+    }
+
     fn mem_read(&mut self, addr: u16) -> u8 {
         if self.in_shadow_screen(addr) || self.in_paged_ram(addr) {
-            return self.bplus_ram[usize::from(addr & 0x7FFF)];
+            return self.extra_ram[usize::from(addr & 0x7FFF)];
+        }
+        if self.in_hazel(addr) {
+            return self.extra_ram[usize::from(addr - 0xB000)];
+        }
+        if self.io_reads_rom(addr) {
+            return self
+                .mos_rom
+                .get(usize::from(addr - 0xC000))
+                .copied()
+                .unwrap_or(0xFF);
+        }
+        if self.model == BbcModel::Master128
+            && let Some(value) = self.master_io_read(addr)
+        {
+            return value;
         }
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
@@ -1300,7 +1494,24 @@ impl BbcMicro {
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         if self.in_shadow_screen(addr) || self.in_paged_ram(addr) {
-            self.bplus_ram[usize::from(addr & 0x7FFF)] = value;
+            self.extra_ram[usize::from(addr & 0x7FFF)] = value;
+            return;
+        }
+        if self.in_hazel(addr) {
+            self.extra_ram[usize::from(addr - 0xB000)] = value;
+            return;
+        }
+        if (0x8000..=0xBFFF).contains(&addr) && self.sideways_ram & (1 << self.rom_bank) != 0 {
+            if let Some(byte) = self
+                .sideways_roms
+                .get_mut(usize::from(self.rom_bank))
+                .and_then(|bank| bank.get_mut(usize::from(addr - 0x8000)))
+            {
+                *byte = value;
+            }
+            return;
+        }
+        if self.model == BbcModel::Master128 && self.master_io_write(addr, value) {
             return;
         }
         match addr {
@@ -1340,6 +1551,9 @@ impl BbcMicro {
                         // ORA into the PSG.
                         self.psg.write(self.system_via.ora());
                     }
+                }
+                if self.model == BbcModel::Master128 {
+                    self.update_rtc(reg == 0x00);
                 }
             }
             0xFE60..=0xFE7F => self.user_via.write((addr & 0x0F) as u8, value),
@@ -1469,7 +1683,7 @@ impl BbcMicro {
     /// shadow screen while ACCCON selects it, otherwise from main RAM.
     fn video_byte(&self, address: u16) -> u8 {
         if self.shadow_screen {
-            self.bplus_ram[usize::from(address & 0x7FFF)]
+            self.extra_ram[usize::from(address & 0x7FFF)]
         } else {
             self.ram[usize::from(address & 0x7FFF)]
         }
@@ -1701,7 +1915,7 @@ impl BbcMicro {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         if self.in_shadow_screen(addr) || self.in_paged_ram(addr) {
-            return self.bplus_ram[usize::from(addr & 0x7FFF)];
+            return self.extra_ram[usize::from(addr & 0x7FFF)];
         }
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
@@ -3054,6 +3268,111 @@ mod tests {
     }
 
     #[test]
+    fn the_master_runs_a_65c12_and_says_so_after_a_restore() {
+        let mut sys = BbcMicro::new_master_128(trap_rom());
+        assert_eq!(sys.cpu.variant(), emu198x_mos_6502::Variant::Cmos);
+        sys.cpu.set_variant(emu198x_mos_6502::Variant::Nmos);
+        sys.finish_restore();
+        assert_eq!(sys.cpu.variant(), emu198x_mos_6502::Variant::Cmos);
+        let mut b = BbcMicro::new(trap_rom());
+        b.finish_restore();
+        assert_eq!(b.cpu.variant(), emu198x_mos_6502::Variant::Nmos);
+    }
+
+    #[test]
+    fn the_master_pages_andy_hazel_and_sideways_ram() {
+        let mut sys = BbcMicro::new_master_128(trap_rom());
+        // ANDY: 4 KB at &8000-&8FFF with ROMSEL bit 7.
+        sys.mem_write(0xFE30, 0x80);
+        sys.mem_write(0x8000, 0xA1);
+        assert_eq!(sys.mem_read(0x8000), 0xA1);
+        assert_eq!(sys.mem_read(0xFE30), 0x80, "ROMSEL reads back");
+        sys.mem_write(0xFE30, 0x09);
+        assert_eq!(sys.mem_read(0x8000), 0xFF, "the empty bank 9 again");
+        // Sideways RAM in banks 4-7, and only there.
+        sys.mem_write(0xFE30, 0x05);
+        sys.mem_write(0x9000, 0x5B);
+        assert_eq!(sys.mem_read(0x9000), 0x5B);
+        sys.mem_write(0xFE30, 0x09);
+        sys.mem_write(0x9000, 0x77);
+        assert_eq!(sys.mem_read(0x9000), 0xFF, "bank 9 is ROM");
+        // HAZEL: 8 KB over the MOS at &C000-&DFFF with ACCCON bit 3.
+        let mos = sys.mem_read(0xC000);
+        sys.mem_write(0xFE34, 0x08);
+        sys.mem_write(0xC000, 0x3C);
+        sys.mem_write(0xDFFF, 0xC3);
+        assert_eq!([sys.mem_read(0xC000), sys.mem_read(0xDFFF)], [0x3C, 0xC3]);
+        assert_eq!(sys.mem_read(0xFE34), 0x08, "ACCCON reads back");
+        sys.mem_write(0xFE34, 0x00);
+        assert_eq!(sys.mem_read(0xC000), mos, "the MOS again");
+        // TST: I/O reads come from the MOS.
+        sys.mem_write(0xFE34, 0x40);
+        assert_eq!(sys.mem_read(0xFE40), sys.mos_rom[0x3E40]);
+    }
+
+    #[test]
+    fn the_master_shadow_follows_x_for_all_code_and_e_for_the_vdu() {
+        let mut sys = BbcMicro::new_master_128(trap_rom());
+        sys.ram[0x3000] = 0x11;
+        sys.extra_ram[0x3000] = 0x99;
+        let read_from = |sys: &mut BbcMicro, pc: u16| {
+            sys.latch_shadow_access(pc);
+            sys.mem_read(0x3000)
+        };
+        // E (bit 1): only the VDU drivers see the shadow screen.
+        sys.mem_write(0xFE34, 0x02);
+        assert_eq!(read_from(&mut sys, 0xC000), 0x99);
+        assert_eq!(read_from(&mut sys, 0x0200), 0x11);
+        // X (bit 2): everything else does too, and so does VDU code with E.
+        sys.mem_write(0xFE34, 0x06);
+        assert_eq!(read_from(&mut sys, 0x0200), 0x99);
+        assert_eq!(read_from(&mut sys, 0xD000), 0x99);
+        // X without E: VDU code goes back to main RAM.
+        sys.mem_write(0xFE34, 0x04);
+        assert_eq!(read_from(&mut sys, 0xD000), 0x11);
+        // With HAZEL paged in, &C000-&DFFF is not VDU code, so X decides.
+        sys.mem_write(0xFE34, 0x0C);
+        assert_eq!(read_from(&mut sys, 0xD000), 0x99);
+        // D (bit 0) is the display alone.
+        sys.mem_write(0xFE34, 0x01);
+        assert_eq!(sys.video_byte(0x3000), 0x99);
+        assert_eq!(read_from(&mut sys, 0x0200), 0x11);
+    }
+
+    #[test]
+    fn the_master_moves_the_adc_and_puts_the_1770_at_fe28() {
+        let mut sys = BbcMicro::new_master_128(trap_rom());
+        sys.insert_disk(0, BbcMicro::dfs_disk(&ssd_image(), 1, false));
+        sys.mem_write(0xFE24, 0x25); // drive 0, single density, out of reset
+        settle_fdc(&mut sys);
+        sys.mem_read(0xFE28); // clear the Restore's INTRQ
+        sys.mem_write(0xFE2A, 0x01);
+        assert_eq!(sys.mem_read(0xFE2A), 0x01, "the sector register");
+        assert_eq!(sys.mem_read(0xFE86), 0xFF, "not the B+ address");
+        sys.mem_write(0xFE18, 0x00); // ADC conversion on channel 0
+        assert!(sys.adc.busy, "the ADC answers at &FE18");
+    }
+
+    #[test]
+    fn the_master_reads_its_cmos_clock_over_the_system_via() {
+        let mut sys = BbcMicro::new_master_128(trap_rom());
+        // The MOS's sequence: put the register on port A and pulse PB7 with
+        // PB6 selecting the chip, then release port A, raise R/W (IC32 bit 1)
+        // and the strobe (bit 2), and read port A.
+        sys.mem_write(0xFE43, 0xFF); // DDRA: output
+        sys.mem_write(0xFE42, 0xCF); // DDRB: PB0-3, PB6-7 out
+        sys.mem_write(0xFE4F, 19); // the language/filing-system byte
+        sys.mem_write(0xFE40, 0xC0); // PB7 latches the address, PB6 selects
+        sys.mem_write(0xFE40, 0x40);
+        sys.mem_write(0xFE43, 0x00); // DDRA: input
+        sys.mem_write(0xFE40, 0x4B); // IC32 bit 3 high: keyboard off
+        sys.mem_write(0xFE40, 0x49); // IC32 bit 1 high: read
+        sys.mem_write(0xFE40, 0x4A); // IC32 bit 2 high: strobe
+        sys.tick_cpu_cycle();
+        assert_eq!(sys.mem_read(0xFE4F), 0xC9, "BASIC (12) and the DFS (9)");
+    }
+
+    #[test]
     fn b_plus_romsel_bit_7_pages_ram_in_over_the_sideways_rom() {
         let mut sys = BbcMicro::new_b_plus(trap_rom());
         assert_eq!(sys.model(), BbcModel::ModelBPlus);
@@ -3092,7 +3411,7 @@ mod tests {
         ];
         let mut sys = b_plus_running(&program, 4);
         assert_eq!(sys.ram[0x3000], 0x00, "main RAM untouched");
-        assert_eq!(sys.bplus_ram[0x3000], 0x55, "the shadow screen took it");
+        assert_eq!(sys.extra_ram[0x3000], 0x55, "the shadow screen took it");
         // Code outside &C000-&DFFF sees main RAM.
         sys.latch_shadow_access(0x0200);
         assert_eq!(sys.mem_read(0x3000), 0x00);
@@ -3111,7 +3430,7 @@ mod tests {
     fn the_display_shows_the_shadow_screen_when_selected() {
         let mut sys = BbcMicro::new_b_plus(trap_rom());
         sys.ram[0x3000] = 0x11;
-        sys.bplus_ram[0x3000] = 0x99;
+        sys.extra_ram[0x3000] = 0x99;
         assert_eq!(sys.video_byte(0x3000), 0x11);
         sys.mem_write(0xFE34, 0x80);
         assert_eq!(sys.video_byte(0x3000), 0x99, "the shadow screen is shown");
