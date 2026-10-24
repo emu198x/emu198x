@@ -3070,12 +3070,14 @@ version = "0.44.2"
 dependencies = [
  "common-nintendo-game-boy",
  "emu198x-sharp-lr35902",
+ "emu198x-test-skip",
  "format-nintendo-game-boy-cartridge",
  "nintendo-game-boy-apu",
  "nintendo-game-boy-mbc",
  "nintendo-game-boy-ppu",
  "nintendo-game-boy-timer",
  "png",
+ "postcard",
  "serde",
  "serde-big-array",
 ]
