@@ -118,6 +118,10 @@ impl FmSound {
             self.buffer.push(filtered);
             self.accumulator = 0;
             self.count = 0;
+            // This reads the output pins directly, so the chip's own sample
+            // list is never wanted; left alone it grows by about 50,000
+            // entries a second and rides along in every snapshot.
+            drop(self.ym.take_samples());
         }
     }
 
@@ -188,7 +192,20 @@ impl FmSound {
 
 #[cfg(test)]
 mod tests {
-    use super::FmUnit;
+    use super::{FmSound, FmUnit};
+
+    #[test]
+    fn the_chips_own_sample_list_does_not_grow() {
+        // A second of the chip's clock. The model reads the output pins, so
+        // the chip's sample list must be drained as it goes, or it grows by
+        // a sample every 72 clocks for as long as the machine runs.
+        let mut fm = FmSound::new(FmUnit::BuiltIn, 3_579_545);
+        for _ in 0..3_579_545 {
+            fm.tick();
+        }
+        assert!(fm.ym.take_samples().len() < 64);
+        assert!(!fm.buffer.is_empty(), "the resampler still produced output");
+    }
     use crate::{Sms, SmsVariant};
 
     /// Where the program stores what `$F2` read back.
