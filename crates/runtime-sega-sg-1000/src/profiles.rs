@@ -12,12 +12,18 @@ pub enum Model {
     Sg1000Ntsc,
     /// SG-1000 PAL (50 Hz / 313 lines).
     Sg1000Pal,
+    /// SG-1000 II (1984): the same machine re-cased, with detachable
+    /// controllers and the My Card adapter port. Japan, NTSC.
+    Sg1000IiNtsc,
 }
 
 impl Model {
-    pub const ALL: [Self; 2] = [Self::Sg1000Ntsc, Self::Sg1000Pal];
-    pub const VARIANT_IDS: [&'static str; 2] =
-        [Self::Sg1000Ntsc.variant_id(), Self::Sg1000Pal.variant_id()];
+    pub const ALL: [Self; 3] = [Self::Sg1000Ntsc, Self::Sg1000Pal, Self::Sg1000IiNtsc];
+    pub const VARIANT_IDS: [&'static str; 3] = [
+        Self::Sg1000Ntsc.variant_id(),
+        Self::Sg1000Pal.variant_id(),
+        Self::Sg1000IiNtsc.variant_id(),
+    ];
 
     #[must_use]
     pub const fn variant_id(self) -> &'static str {
@@ -38,7 +44,7 @@ impl Model {
     #[must_use]
     pub const fn frame_ticks(self) -> u64 {
         match self {
-            Self::Sg1000Ntsc => 228 * 262,
+            Self::Sg1000Ntsc | Self::Sg1000IiNtsc => 228 * 262,
             Self::Sg1000Pal => 228 * 313,
         }
     }
@@ -48,6 +54,7 @@ impl Model {
         match self {
             Self::Sg1000Ntsc => "sega-sg-1000-ntsc",
             Self::Sg1000Pal => "sega-sg-1000-pal",
+            Self::Sg1000IiNtsc => "sega-sg-1000-ii-ntsc",
         }
     }
 
@@ -61,13 +68,14 @@ impl Model {
         match self {
             Self::Sg1000Ntsc => "Sega SG-1000 (NTSC)",
             Self::Sg1000Pal => "Sega SG-1000 (PAL)",
+            Self::Sg1000IiNtsc => "Sega SG-1000 II (NTSC)",
         }
     }
 
     #[must_use]
     pub const fn region(self) -> Region {
         match self {
-            Self::Sg1000Ntsc => Region::Ntsc,
+            Self::Sg1000Ntsc | Self::Sg1000IiNtsc => Region::Ntsc,
             Self::Sg1000Pal => Region::Pal,
         }
     }
@@ -86,8 +94,15 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        release_year: 1983,
-        summary: "Sega SG-1000 — Z80A + TMS9918A + SN76489, 1 KB RAM, BIOS-less cartridge boot. Predecessor to the Master System.".into(),
+        release_year: match model {
+            Model::Sg1000Ntsc | Model::Sg1000Pal => 1983,
+            Model::Sg1000IiNtsc => 1984,
+        },
+        summary: match model {
+            Model::Sg1000Ntsc | Model::Sg1000Pal => "Sega SG-1000 — Z80A + TMS9918A + SN76489, 1 KB RAM, BIOS-less cartridge boot. Predecessor to the Master System.",
+            Model::Sg1000IiNtsc => "Sega SG-1000 II (1984) — the SG-1000's chips in a new case with detachable controllers and a My Card adapter port. Electrically the same machine.",
+        }
+        .into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
         firmware: vec![],
         media_slots: vec![MediaSlot::new(
@@ -117,6 +132,22 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), profiles.len());
+    }
+
+    #[test]
+    fn the_sg_1000_ii_is_the_same_machine_in_a_new_case() {
+        let ii = profile_for(Model::Sg1000IiNtsc);
+        assert_eq!(ii.machine_id.as_str(), "sega-sg-1000");
+        assert_eq!(ii.region, Region::Ntsc);
+        assert_eq!(ii.release_year, 1984);
+        assert_eq!(
+            Model::Sg1000IiNtsc.frame_ticks(),
+            Model::Sg1000Ntsc.frame_ticks()
+        );
+        assert_eq!(
+            Model::from_variant_id("sega-sg-1000-ii-ntsc"),
+            Some(Model::Sg1000IiNtsc)
+        );
     }
 
     #[test]
