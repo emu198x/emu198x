@@ -9,7 +9,7 @@ use emu198x_shell::{
 use machine_acorn_bbc_micro::BbcMicro;
 
 use crate::input::apply_input_event;
-use crate::profiles::{MOS_FIRMWARE_ID, Model, profile_for};
+use crate::profiles::{DISK_SLOTS, Model, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
@@ -17,6 +17,8 @@ use emu198x_shell::display::Display;
 const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 const MOS_SIZE: usize = 16 * 1024;
+/// The sideways slot the B+'s 1770 DFS sits in.
+const DFS_BANK: usize = 14;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 pub struct BbcMicroRuntime {
@@ -72,15 +74,20 @@ impl BbcMicroRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes =
-            firmware
-                .bytes(MOS_FIRMWARE_ID)
-                .ok_or_else(|| MachineError::MissingFirmware {
-                    id: MOS_FIRMWARE_ID.to_owned(),
-                })?;
+        let mos_id = model.mos_firmware_id();
+        let bytes = firmware
+            .bytes(mos_id)
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: mos_id.to_owned(),
+            })?;
         let mut runtime = Self::new(model, bytes.to_vec())?;
         if let Some(font) = firmware.bytes(crate::FONT_FIRMWARE_ID) {
             runtime.set_teletext_font(font.to_vec());
+        }
+        if model.has_disc()
+            && let Some(dfs) = firmware.bytes(crate::DFS_FIRMWARE_ID)
+        {
+            runtime.insert_sideways_rom(DFS_BANK, dfs.to_vec());
         }
         Ok(runtime)
     }
@@ -110,7 +117,7 @@ impl BbcMicroRuntime {
     pub fn set_mos(&mut self, mos: Vec<u8>) -> Result<(), MachineError> {
         if mos.len() != MOS_SIZE {
             return Err(MachineError::InvalidFirmware {
-                id: MOS_FIRMWARE_ID.to_owned(),
+                id: self.model.mos_firmware_id().to_owned(),
                 reason: format!("MOS is {} bytes; expected {MOS_SIZE}", mos.len()),
             });
         }
@@ -172,7 +179,10 @@ impl BbcMicroRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = BbcMicro::new(mos);
+        let mut machine = match self.model {
+            Model::BbcModelB => BbcMicro::new(mos),
+            Model::BbcBPlus => BbcMicro::new_b_plus(mos),
+        };
         if !self.teletext_font.is_empty() {
             machine.set_teletext_font(self.teletext_font.clone());
         }
@@ -183,6 +193,14 @@ impl BbcMicroRuntime {
         if let Some(pulses) = &self.tape_pulses {
             machine.insert_tape(pulses.clone());
         }
+        // Nor the discs, which keep whatever the machine wrote to them.
+        if let Some(old) = self.machine.as_ref() {
+            for drive in 0..DISK_SLOTS.len() {
+                if let Some(disk) = old.disk(drive) {
+                    machine.insert_disk(drive, disk.clone());
+                }
+            }
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -190,6 +208,17 @@ impl BbcMicroRuntime {
         self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
+    }
+
+    /// The drive a disc slot names, on a model that has drives.
+    fn disk_drive(&self, slot: &str) -> Result<usize, MachineError> {
+        DISK_SLOTS
+            .iter()
+            .position(|&name| name == slot)
+            .filter(|_| self.model.has_disc())
+            .ok_or_else(|| MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            })
     }
 
     fn update_rgba_framebuffer(&mut self) {
@@ -273,6 +302,14 @@ impl MachineCore for BbcMicroRuntime {
                     }
                     self.tape_pulses = Some(tape.pulses);
                 }
+                MediaKind::Disk => {
+                    let drive = self.disk_drive(slot)?;
+                    let sides = BbcMicro::dfs_sides(image.bytes);
+                    let disk = BbcMicro::dfs_disk(image.bytes, sides, image.writable);
+                    if let Some(machine) = self.machine.as_mut() {
+                        machine.insert_disk(drive, disk);
+                    }
+                }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
@@ -281,6 +318,34 @@ impl MachineCore for BbcMicroRuntime {
             }
         }
         Ok(())
+    }
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        let drive = self.disk_drive(slot)?;
+        if let Some(machine) = self.machine.as_mut() {
+            machine.eject_disk(drive);
+        }
+        Ok(())
+    }
+    /// A disc exports as the DFS image it is: `ssd` for one side, `dsd` for
+    /// two, holding whatever the machine wrote.
+    fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        let drive = self.disk_drive(slot)?;
+        let invalid = |reason: String| MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason,
+        };
+        let disk = self
+            .machine
+            .as_ref()
+            .and_then(|machine| machine.disk(drive))
+            .ok_or_else(|| invalid("no disc in the drive".to_owned()))?;
+        let native = if disk.sides() == 2 { "dsd" } else { "ssd" };
+        if format != native {
+            return Err(invalid(format!(
+                "this disc exports as {native}, not {format}"
+            )));
+        }
+        Ok(disk.data().to_vec())
     }
     fn run_until(
         &mut self,
