@@ -20,6 +20,6 @@ mod queries;
 mod runtime;
 mod snapshot;
 
-pub use machine_sega_master_system::{Sms, SmsVariant};
+pub use machine_sega_master_system::{FmUnit, Sms, SmsVariant};
 pub use queries::SmsSessionQueryProvider;
 pub use runtime::{SmsModel, SmsRuntime};

@@ -12,14 +12,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::{SmsModel, SmsRuntime};
 
-/// Version 9 adds the cartridge's mapper (#214): a Codemasters cartridge
+/// Version 10 adds the YM2413 FM hardware (#213): the Japanese Master
+/// System's built-in chip, or a fitted FM Sound Unit, with its audio control
+/// register and resampler. Version 9 added the cartridge's mapper (#214): a Codemasters cartridge
 /// pages through different addresses from a Sega one. Version 8 added the
 /// VDP's pending CPU access (#1614): a data-port access waits up to 38 dots
 /// for a free memory cycle, and a snapshot taken in that gap would otherwise
 /// lose the write. Version 7 added the cartridge SRAM writeback state.
 /// Earlier snapshots cannot reconstruct these, so the version check rejects
 /// them instead of silently restoring an incomplete machine.
-const SNAPSHOT_VERSION: u16 = 9;
+const SNAPSHOT_VERSION: u16 = 10;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 sega-vdp = { path = "../sega-vdp", version = "0.44.0" }
 emu198x-ti-sn76489 = { path = "../emu198x-ti-sn76489", version = "0.1.0" }
+emu198x-yamaha-ym2413 = { path = "../emu198x-yamaha-ym2413", version = "0.1.0" }
 common-z80-machine = { path = "../common-z80-machine", version = "0.44.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 serde = { workspace = true }

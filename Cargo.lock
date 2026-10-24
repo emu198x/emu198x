@@ -3178,6 +3178,7 @@ version = "0.44.2"
 dependencies = [
  "common-z80-machine",
  "emu198x-ti-sn76489",
+ "emu198x-yamaha-ym2413",
  "emu198x-zilog-z80",
  "postcard",
  "sega-vdp",
