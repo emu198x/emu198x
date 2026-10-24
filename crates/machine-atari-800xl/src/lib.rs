@@ -51,6 +51,7 @@ pub use cartridge::{Cartridge, CartridgeKind};
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
+pub use atari_sio::Disk;
 use atari_sio::SioBus;
 use emu198x_mos_6502::M6502;
 use mos_pia_6520::Pia6520;

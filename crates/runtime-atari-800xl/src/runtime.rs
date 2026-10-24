@@ -6,6 +6,7 @@ use emu198x_shell::{
     RunResult, StopReason,
 };
 use format_atari_8bit_atr::AtrImage;
+use machine_atari_800xl::Disk;
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge, CartridgeKind};
 
 use crate::profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for};
@@ -30,7 +31,7 @@ pub struct Atari800xlRuntime {
     xex_pending: bool,
     /// A disk loaded before there was a machine to put it in. Once a machine
     /// exists the drive on its SIO bus owns the disk, writes and all.
-    disk_1: Option<AtrImage>,
+    disk_1: Option<Disk>,
     basic_enabled: bool,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
@@ -230,7 +231,7 @@ impl Atari800xlRuntime {
     }
 
     /// Put `disk` in D1:, or hold it until there is a machine to put it in.
-    fn insert_disk(&mut self, disk: AtrImage) {
+    fn insert_disk(&mut self, disk: Disk) {
         match self.machine.as_mut() {
             Some(machine) => machine.sio_mut().insert_disk(1, disk),
             None => self.disk_1 = Some(disk),
@@ -449,10 +450,10 @@ impl MachineCore for Atari800xlRuntime {
                     });
                 }
                 ("disk-1", MediaKind::Disk) => {
-                    let disk = AtrImage::parse(image.bytes).map_err(|reason| {
+                    let disk = disk_from_atr(image.bytes).map_err(|reason| {
                         MachineError::InvalidMedia {
                             slot: "disk-1".to_owned(),
-                            reason: reason.to_string(),
+                            reason,
                         }
                     })?;
                     self.insert_disk(disk);
@@ -607,4 +608,17 @@ impl emu198x_shell::KeyboardTarget for Atari800xlRuntime {
             default_type_settle_frames: 0,
         }
     }
+}
+
+/// Read an ATR image into the disk the drive holds. The drive needs only the
+/// sectors and the write-protect flag; the rest of the header stays here.
+fn disk_from_atr(bytes: &[u8]) -> Result<Disk, String> {
+    let atr = AtrImage::parse(bytes).map_err(|reason| reason.to_string())?;
+    let data = (1..=atr.sector_count())
+        .filter_map(|sector| atr.sector(sector))
+        .flatten()
+        .copied()
+        .collect();
+    Disk::new(atr.sector_size(), data, atr.write_protected())
+        .ok_or_else(|| "the ATR's sectors do not make a whole disk".to_owned())
 }
