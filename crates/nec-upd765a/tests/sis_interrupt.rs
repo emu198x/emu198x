@@ -1,5 +1,8 @@
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn seek(fdc: &mut Upd765a, drive: u8, cylinder: u8) {
     for byte in [0x0f, drive, cylinder] {
@@ -9,16 +12,15 @@ fn seek(fdc: &mut Upd765a, drive: u8, cylinder: u8) {
 
 fn complete_seeks(fdc: &mut Upd765a) {
     // Busy now includes unacknowledged completions, so it is not a motion timer.
-    for hc in 0..200_000 {
-        fdc.tick(hc);
+    for _ in 0..200_000 {
+        fdc.tick();
     }
     assert!(fdc.interrupt, "bounded seek completion raises IRQ");
 }
 
 #[test]
 fn sis_acknowledges_irq_without_discarding_other_drive_status() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         fdc.write_data(byte);

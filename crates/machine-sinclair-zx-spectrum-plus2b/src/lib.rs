@@ -36,9 +36,14 @@ mod tests {
 
     #[test]
     fn fdc_is_dormant_on_plus2b() {
-        let m = SpectrumPlus2B::new();
+        // A ticked FDC polls READY and raises attention when a drive
+        // becomes ready. The +2B has no drive connector, so the
+        // machine never ticks it and nothing is raised.
+        let mut m = SpectrumPlus2B::new();
+        m.fdc.set_ready(0, true);
+        m.run_frame();
         assert!(
-            !m.fdc.enabled,
+            !m.fdc.interrupt,
             "+2B has no floppy drive — FDC must stay dormant"
         );
     }

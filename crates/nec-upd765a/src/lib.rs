@@ -1,21 +1,19 @@
-/// NEC µPD765A floppy disk controller.
-///
-/// Used in the ZX Spectrum +3 (and +2A with the disk drive option).
-/// The controller uses a multi-phase protocol:
-/// 1. Command phase: CPU writes command bytes
-/// 2. Execution phase: data transfer (read/write sectors)
-/// 3. Result phase: CPU reads result bytes
-///
-/// Supports DSK/EDSK disk images. The +3 uses a single-sided 40-track
-/// 3" drive (CF-2 format) or a 80-track 3.5" drive.
-///
-/// Implements `common_sinclair_zx_spectrum::peripheral::Peripheral`
-/// so the host machine can dispatch I/O via the shared trait. The
-/// `enabled` field gates port claims — machines that instantiate the
-/// FDC without wiring it to the bus (Spectrum +2A / +2B, which share
-/// the SpectrumPlus struct with the +3) set `enabled = false` at
-/// construction so the trait's `claims_port` always returns false.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
+//! NEC µPD765A floppy disk controller.
+//!
+//! Used in the ZX Spectrum +3, the Amstrad CPC 664 and 6128, and the
+//! Amstrad PCW, among others. The controller uses a multi-phase protocol:
+//! 1. Command phase: the host writes command bytes
+//! 2. Execution phase: data transfer (read/write sectors)
+//! 3. Result phase: the host reads result bytes
+//!
+//! The chip knows nothing about the machine around it. The host reaches
+//! its two registers through [`Upd765a::read_status`],
+//! [`Upd765a::read_data`] and [`Upd765a::write_data`], decoding whatever
+//! ports its board wires them to. It calls [`Upd765a::tick`] at a steady
+//! rate of its choosing and states that rate once, to
+//! [`Upd765a::new`], so the datasheet's timings come out right on any
+//! machine. Drive lines (READY, two-side, track zero, write protect,
+//! fault) are inputs the host sets; `interrupt` is an output it reads.
 
 /// A floppy sector parsed from a disk image.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -183,11 +181,6 @@ pub struct Upd765a {
     /// hardware power-on guarantee; qualification must issue Specify first.
     step_rate: u8,
 
-    /// Is this FDC electrically wired to the host's I/O bus?
-    /// True on +3, false on +2A / +2B — both share the SpectrumPlus
-    /// struct but only the +3 has an actual drive connector.
-    pub enabled: bool,
-
     /// AND-mask applied to the unit-select bits of every command byte
     /// before indexing `disks[]`.
     ///
@@ -241,7 +234,7 @@ pub struct Upd765a {
     #[serde(default)]
     read_id_index: [usize; 4],
 
-    /// Transfer countdown in host CPU T-state ticks. During a read, RQM
+    /// Transfer countdown in host ticks. During a read, RQM
     /// distinguishes a pending byte deadline from the next byte's arrival.
     /// Reads do not restart this clock: late service cannot shift the stream.
     #[serde(default)]
@@ -253,7 +246,7 @@ pub struct Upd765a {
     /// input for callers without a drive adapter. +3 always supplies its input.
     ready_inputs: [Option<bool>; 4],
     ready_sampled: [bool; 4],
-    /// Rational phase at the existing +3 CPU T-state boundary. Each drive is
+    /// Rational phase at the host-tick boundary. Each drive is
     /// sampled every8192 FDC clocks:2.048ms at 4MHz (NEC A/B polling section).
     ready_poll_phase: u64,
     /// Seek IRQ must be acknowledged by SIS before another command (NEC p16).
@@ -273,6 +266,10 @@ pub struct Upd765a {
     /// hardware power-on/reset ND is not established by this model. Consumers
     /// must issue Specify before claiming a programmed transfer mode.
     non_dma_mode: bool,
+    /// How many times a second the host calls [`Upd765a::tick`]. Every
+    /// datasheet interval is converted to host ticks against this, so
+    /// the same chip keeps real time on a 3.5469 MHz +3 and a 4 MHz CPC.
+    host_tick_hz: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -361,7 +358,15 @@ fn apply_marginal_variation(buf: &mut [u8], count: u32) {
 }
 
 impl Upd765a {
-    pub fn new() -> Self {
+    /// A reset controller, ticked by its host `host_tick_hz` times a
+    /// second.
+    ///
+    /// The +3 ticks it once per CPU T-state, so it passes its CPU clock;
+    /// another machine passes whatever rate it calls [`Upd765a::tick`]
+    /// at. A rate of zero is treated as one, so timing degrades rather
+    /// than panicking.
+    #[must_use]
+    pub fn new(host_tick_hz: u64) -> Self {
         Self {
             phase: Phase::Idle,
             command: Command::None,
@@ -383,7 +388,6 @@ impl Upd765a {
             seek_pending: [None, None, None, None],
             motion: [None; 4],
             step_rate: 0,
-            enabled: false,
             drive_select_mask: default_drive_select_mask(),
             disks: [None, None, None, None],
             writable: [false; 4],
@@ -403,7 +407,14 @@ impl Upd765a {
             ready_sampled: [false; 4],
             ready_poll_phase: 0,
             seek_attention_unacknowledged: false,
+            host_tick_hz: host_tick_hz.max(1),
         }
+    }
+
+    /// The rate the host ticks this controller at, as given to [`Upd765a::new`].
+    #[must_use]
+    pub fn host_tick_hz(&self) -> u64 {
+        self.host_tick_hz
     }
 
     /// Mask the unit-select bits of every command byte against `mask`
@@ -489,8 +500,8 @@ impl Upd765a {
 
     fn poll_ready(&mut self) {
         // A/B datasheet:2.048ms per drive with4MHz FDC. Accumulate the
-        // master-derived host T-state fraction rather than round every period.
-        let period = 2048 * common_sinclair_zx_spectrum::timing::CPU_HZ_128K;
+        // host-tick fraction rather than round every period.
+        let period = 2048 * self.host_tick_hz;
         self.ready_poll_phase += 1_000_000;
         if self.ready_poll_phase < period {
             return;
@@ -597,7 +608,6 @@ impl Upd765a {
     pub fn reset(&mut self) {
         let disks = std::mem::take(&mut self.disks);
         let writable = self.writable;
-        let enabled = self.enabled;
         let drive_select_mask = self.drive_select_mask;
         let ready_inputs = self.ready_inputs;
         let two_side_inputs = self.two_side_inputs;
@@ -606,10 +616,9 @@ impl Upd765a {
         let fault_inputs = self.fault_inputs;
         let track = self.track;
         let pcn = self.pcn;
-        *self = Self::new();
+        *self = Self::new(self.host_tick_hz);
         self.disks = disks;
         self.writable = writable;
-        self.enabled = enabled;
         self.drive_select_mask = drive_select_mask;
         self.ready_inputs = ready_inputs;
         self.two_side_inputs = two_side_inputs;
@@ -787,8 +796,8 @@ impl Upd765a {
 
     fn motion_interval(&self) -> u64 {
         // NEC December 1978 pp.15–16: (16−SRT)ms at 8MHz, doubled at 4MHz.
-        // The +3 adapter calls tick once per host T-state, not per FDC clock.
-        u64::from(16 - self.step_rate) * 2_000 * common_sinclair_zx_spectrum::timing::CPU_HZ_128K
+        // Measured in host ticks, not FDC clocks.
+        u64::from(16 - self.step_rate) * 2_000 * self.host_tick_hz
     }
 
     fn finish_motion(&mut self, unit: usize, motion: Motion, flags: u8) {
@@ -1560,14 +1569,13 @@ impl Upd765a {
         if self.cmd_buf[0] & 0x40 != 0 { 39 } else { 19 }
     }
 
-    // Nominal +3 sector-image cadence, not a physical jitter/service-limit
+    // Nominal sector-image cadence, not a physical jitter/service-limit
     // model. Round absolute boundaries, not each byte: 32 us is fractional
-    // at the emulated CPU clock. Existing byte position preserves the phase
+    // at most host tick rates. Existing byte position preserves the phase
     // through snapshots without another serialized counter.
     fn read_slot_boundary(&self, slot: u64) -> u32 {
         let micros = if self.cmd_buf[0] & 0x40 != 0 { 32 } else { 64 };
-        (slot * micros * common_sinclair_zx_spectrum::timing::CPU_HZ_128K).div_ceil(1_000_000)
-            as u32
+        (slot * micros * self.host_tick_hz).div_ceil(1_000_000) as u32
     }
 
     // NEC December 1978 p12: DTL limits host delivery for N=0, while
@@ -1619,12 +1627,12 @@ impl Upd765a {
     }
 
     // NEC December 1978 datasheet p.13; Fuse 1.7.0 start_write_data /
-    // upd_fdc_write_data. The +3 uses a 4 MHz FDC at 250 kbit/s MFM:
-    // one byte every 32 us. tick() is called once per +3 CPU T-state,
-    // not once per master half-cycle. Round up to avoid early deadlines.
+    // upd_fdc_write_data. A 4 MHz FDC at 250 kbit/s MFM moves one byte
+    // every 32 us, converted to host ticks. Round up to avoid early
+    // deadlines.
     fn write_byte_ticks(&self) -> u32 {
         let micros = if self.cmd_buf[0] & 0x40 != 0 { 32 } else { 64 };
-        (common_sinclair_zx_spectrum::timing::CPU_HZ_128K * micros).div_ceil(1_000_000) as u32
+        (self.host_tick_hz * micros).div_ceil(1_000_000) as u32
     }
 
     fn write_result(&mut self, st1: u8, st2: u8) {
@@ -2039,56 +2047,10 @@ impl Upd765a {
     }
 }
 
-impl Default for Upd765a {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Peripheral for Upd765a {
-    /// Claims the +3's FDC ports: `$2FFD` (main status register) and
-    /// `$3FFD` (data register). Decoded by the Amstrad gate array as
-    /// `A15=0 A14=0 A13=1` plus `A12` selecting status vs data, with
-    /// `A1=0`. The low 8 bits alias so we check on a `port & 0xF002`
-    /// mask.
-    ///
-    /// Returns false unconditionally when `enabled` is false —
-    /// Spectrum +2A / +2B share the SpectrumPlus struct with the +3
-    /// but don't wire a drive connector, so their FDC instance sits
-    /// inert on the bus.
-    fn claims_port(&self, port: u16) -> bool {
-        if !self.enabled {
-            return false;
-        }
-        let masked = port & 0xF002;
-        masked == 0x2000 || masked == 0x3000
-    }
-
-    fn read(&mut self, port: u16) -> u8 {
-        let masked = port & 0xF002;
-        if masked == 0x2000 {
-            self.read_status()
-        } else if masked == 0x3000 {
-            self.read_data()
-        } else {
-            0xFF
-        }
-    }
-
-    fn write(&mut self, port: u16, val: u8) {
-        // Only the data register (`$3FFD`) accepts writes. The main
-        // status register at `$2FFD` is read-only; writes to it are
-        // silently ignored by the real controller.
-        if port & 0xF002 == 0x3000 {
-            self.write_data(val);
-        }
-    }
-
-    /// One master-derived host T-state: pace independent motion and transfers.
-    fn tick(&mut self, _hc: u32) {
-        if !self.enabled {
-            return;
-        }
+impl Upd765a {
+    /// Advance one host tick: pace head motion, READY polling and data
+    /// transfers. Call it [`Upd765a::host_tick_hz`] times a second.
+    pub fn tick(&mut self) {
         self.poll_ready();
         self.tick_motion();
 
@@ -2163,13 +2125,17 @@ impl Peripheral for Upd765a {
 
 #[cfg(test)]
 mod tests {
+    /// The +3's CPU clock, which these cases were written against: the +3
+    /// ticks the controller once per T-state.
+    const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
     #[test]
     fn legacy_bad_id_normalization_discards_a_previously_visited_data_mark() {
         for command in [Command::ReadData, Command::ReadDeletedData] {
             // A synthetic old active state isolates CM accumulated by the
             // faulty payload path. Actual low/high-RQM v6 fixtures live in
             // the runtime tests; no old result buffer is changed here.
-            let mut fdc = Upd765a::new();
+            let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
             fdc.phase = Phase::Execution;
             fdc.command = command;
             fdc.cmd_buf = vec![0x46, 0, 0, 0, 1, 2, 1, 0x2a, 0xff];
@@ -2199,7 +2165,7 @@ mod tests {
                     return self.read_data();
                 }
                 assert_eq!(self.phase, Phase::Execution);
-                <Self as Peripheral>::tick(self, 0);
+                self.tick();
             }
             panic!("read request deadline");
         }
@@ -2208,8 +2174,7 @@ mod tests {
     /// Legacy separate attachment must preserve controller read caches.
     #[test]
     fn reattach_disk_preserves_cached_read_state() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, DiskImage::default());
         fdc.reread_key = Some((0, 12, 0, 24));
         fdc.reread_count = 17;
@@ -2237,8 +2202,7 @@ mod tests {
     /// because the medium really did change.
     #[test]
     fn insert_disk_still_clears_cached_read_state() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, DiskImage::default());
         fdc.reread_key = Some((0, 12, 0, 24));
         fdc.reread_count = 17;
@@ -2260,8 +2224,7 @@ mod tests {
 
     #[test]
     fn write_data_enters_host_to_controller_execution() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk_with_writable(
             0,
             DiskImage {
@@ -2316,7 +2279,7 @@ mod tests {
                 return;
             }
             assert_ne!(fdc.read_status() & 0xf0, 0xd0, "unexpected format result");
-            fdc.tick(0);
+            fdc.tick();
         }
         panic!("format did not reach expected status {expected:02x}");
     }
@@ -2418,10 +2381,10 @@ mod tests {
         fdc.write_data(99); // ignored during preamble
         assert_eq!(fdc.exec_pos, 0);
         for _ in 0..18_467 {
-            fdc.tick(0);
+            fdc.tick();
         } // 162 MFM bytes * ceil(32us * CPU_HZ)
         assert_eq!(fdc.read_status() & 0xf0, 0x30);
-        fdc.tick(0);
+        fdc.tick();
         assert_eq!(fdc.read_status() & 0xf0, 0xb0);
         assert_eq!(
             fdc.read_data(),
@@ -2432,11 +2395,11 @@ mod tests {
         fdc.write_data(99); // ignored with RQM low
         assert_eq!(fdc.exec_pos, 1);
         for _ in 0..114 {
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(fdc.read_status() & 0xf0, 0xb0);
         for _ in 0..114 {
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(&result(&mut fdc)[..3], &[0x40, 0x10, 0]);
         assert_eq!(
@@ -2452,7 +2415,7 @@ mod tests {
         transfer_ids(&mut fdc, &[0, 0, 7, 2]);
         await_format_status(&mut fdc, 0xb0);
         for _ in 0..114 {
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(&result(&mut fdc)[..3], &[0x40, 0x10, 0]);
         assert_eq!(
@@ -2480,11 +2443,11 @@ mod tests {
                 for byte in [0, 0, id, 2] {
                     while fdc.read_status() & 0xf0 != 0xb0 {
                         assert!(ticks < 712_500);
-                        fdc.tick(0);
+                        fdc.tick();
                         ticks += 1;
                     }
                     for _ in 0..latency {
-                        fdc.tick(0);
+                        fdc.tick();
                         ticks += 1;
                     }
                     fdc.write_data(byte);
@@ -2492,7 +2455,7 @@ mod tests {
             }
             while fdc.read_status() & 0xf0 != 0xd0 {
                 assert!(ticks < 712_500);
-                fdc.tick(0);
+                fdc.tick();
                 ticks += 1;
             }
             assert_eq!(
@@ -2545,8 +2508,7 @@ mod tests {
     }
 
     fn write_test_fdc(writable: bool) -> Upd765a {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         let tracks = (0..2)
             .map(|head| {
                 (0..2)
@@ -2633,7 +2595,7 @@ mod tests {
             if fdc.read_status() & 0x80 != 0 {
                 return;
             }
-            fdc.tick(0);
+            fdc.tick();
         }
         panic!("write request must appear within the pre-data interval");
     }
@@ -2644,7 +2606,7 @@ mod tests {
             assert_eq!(fdc.read_status() & 0xf0, 0xb0);
             fdc.write_data(byte);
             for _ in 0..114 {
-                fdc.tick(0);
+                fdc.tick();
             }
         }
     }
@@ -2723,7 +2685,7 @@ mod tests {
             if fdc.phase != Phase::Execution {
                 break;
             }
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(fdc.phase, Phase::Result, "bounded final-field deadline");
         assert_eq!(result(&mut fdc)[1], 2);
@@ -2798,13 +2760,13 @@ mod tests {
         fdc.write_data(0xa7);
         fdc.write_data(0xff); // RQM low: must not consume another byte.
         for _ in 0..113 {
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(fdc.read_status() & 0x80, 0);
-        fdc.tick(0);
+        fdc.tick();
         assert_eq!(fdc.read_status() & 0x80, 0x80);
         for _ in 0..114 {
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(result(&mut fdc), [0x40, 0x10, 0, 0, 0, 1, 2]);
         let sector = fdc.disks[0]
@@ -2874,7 +2836,7 @@ mod tests {
         transfer_write(&mut fdc, &[0xb1, 0xb2]);
         fdc.reset();
         assert_eq!(fdc.read_status(), 0x80);
-        assert!(fdc.enabled && fdc.writable[0]);
+        assert!(fdc.writable[0]);
         let sector = fdc.disks[0]
             .as_ref()
             .expect("disk")
@@ -2971,10 +2933,10 @@ mod tests {
         assert_eq!(fdc.read_status() & 0xf0, 0x30);
         fdc.write_data(0x99); // No request yet: must not reach the medium.
         for _ in 0..4331 {
-            fdc.tick(0);
+            fdc.tick();
         }
         assert_eq!(fdc.read_status() & 0xf0, 0x30);
-        fdc.tick(0);
+        fdc.tick();
         assert_eq!(fdc.read_status() & 0xf0, 0xb0);
         assert_eq!(
             fdc.disks[0]
@@ -2989,15 +2951,14 @@ mod tests {
 
     #[test]
     fn initial_state() {
-        let fdc = Upd765a::new();
+        let fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         assert_eq!(fdc.read_status(), MSR_RQM); // Ready for commands
         assert_eq!(fdc.phase, Phase::Idle);
     }
 
     #[test]
     fn initially_not_ready_recalibrate_preserves_physical_position() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.track[0] = 10;
         fdc.write_data(7);
         fdc.write_data(0);
@@ -3012,8 +2973,7 @@ mod tests {
 
     #[test]
     fn sense_interrupt_drains_pending_then_returns_invalid_command() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         // Stage a pending seek interrupt for drive 0 (Seek End).
         fdc.seek_pending[0] = Some(0x20);
 
@@ -3030,8 +2990,7 @@ mod tests {
 
     #[test]
     fn sense_interrupt_walks_drives_in_order() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.seek_pending[3] = Some(0x23); // Seek End | drive 3
         fdc.seek_pending[0] = Some(0x20); // Seek End | drive 0
 
@@ -3050,8 +3009,7 @@ mod tests {
 
     #[test]
     fn read_sector() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
 
         // Build a one-track image with sector ID 1, 512 bytes, marker bytes
         // at the start and end so we can verify the byte stream.
@@ -3107,8 +3065,7 @@ mod tests {
         // Verify that sectors are looked up by ID, not by index. Build a
         // track where sector ID 0xC1 appears second in physical order;
         // a Read Data for sector 0xC1 must return its data regardless.
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         let track = DiskTrack {
             sectors: vec![
                 DiskSector {
@@ -3165,8 +3122,7 @@ mod tests {
     /// normally.
     #[test]
     fn read_deleted_data_matches_dam_then_ddam() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         let track = DiskTrack {
             sectors: vec![
                 DiskSector {
@@ -3337,8 +3293,7 @@ mod tests {
 
     #[test]
     fn marginal_sector_first_read_is_recorded_bytes_verbatim() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, marginal_image());
         let bytes = issue_read_sector_2(&mut fdc);
         assert_eq!(
@@ -3351,8 +3306,7 @@ mod tests {
 
     #[test]
     fn marginal_sector_second_read_varies_bytes() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, marginal_image());
         let first = issue_read_sector_2(&mut fdc);
         let second = issue_read_sector_2(&mut fdc);
@@ -3375,8 +3329,7 @@ mod tests {
 
     #[test]
     fn marginal_sector_third_read_mangles_full_sector() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, marginal_image());
         let first = issue_read_sector_2(&mut fdc);
         let _second = issue_read_sector_2(&mut fdc);
@@ -3394,8 +3347,7 @@ mod tests {
 
     #[test]
     fn intervening_different_sector_resets_marginal_counter() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, marginal_image());
         let _first = issue_read_sector_2(&mut fdc);
 
@@ -3429,8 +3381,7 @@ mod tests {
 
     #[test]
     fn clean_sector_reads_deterministic_across_repeats() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, marginal_image());
 
         let read_clean = |fdc: &mut Upd765a| -> Vec<u8> {
@@ -3463,8 +3414,7 @@ mod tests {
     /// sequence matches its expected layout.
     #[test]
     fn read_id_rotates_through_sectors() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         let track = DiskTrack {
             sectors: (1..=3)
                 .map(|i| DiskSector {
@@ -3516,8 +3466,7 @@ mod tests {
     /// the no-result-phase contract.
     #[test]
     fn specify_command_returns_to_idle_without_result_phase() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
 
         fdc.write_data(0x03); // Specify
         fdc.write_data(0xDF); // SRT (4 bits) + HUT (4 bits)
@@ -3533,8 +3482,7 @@ mod tests {
     /// until Sense Interrupt Status acknowledges it.
     #[test]
     fn seek_track_sets_target_and_stages_interrupt() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(1, marginal_image());
         fdc.track[1] = 0;
         for byte in [3, 0xf0, 3] {
@@ -3549,7 +3497,7 @@ mod tests {
         assert_eq!(fdc.read_status() & 0x02, 0x02, "drive 1 busy bit set");
 
         for _ in 0..200_000 {
-            <Upd765a as Peripheral>::tick(&mut fdc, 0);
+            fdc.tick();
         }
         assert!(fdc.interrupt);
 
@@ -3567,8 +3515,7 @@ mod tests {
     /// track-zero (T0) flag derived from the per-drive track counter.
     #[test]
     fn sense_drive_status_reflects_disk_presence_and_track_zero() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         // Drive 0 has no disk yet; track = 0.
         fdc.write_data(0x04);
         fdc.write_data(0x00); // Drive 0
@@ -3582,8 +3529,7 @@ mod tests {
     fn sds_inputs_are_independent_of_media_head_position_and_each_other() {
         for mask in [1, 3] {
             for mounted in [false, true] {
-                let mut fdc = Upd765a::new();
-                fdc.enabled = true;
+                let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
                 fdc.set_drive_select_mask(mask);
                 if mounted {
                     for drive in 0..4 {
@@ -3608,7 +3554,6 @@ mod tests {
                         assert_eq!(fdc.read_status(), MSR_RQM, "exactly one result byte");
                     }
                     fdc.reset();
-                    fdc.enabled = true;
                     fdc.write_data(4);
                     fdc.write_data(0);
                     assert_eq!(fdc.read_data(), signals << 3, "reset retains input samples");
@@ -3619,8 +3564,7 @@ mod tests {
 
     #[test]
     fn sds_samples_selected_physical_inputs_and_latches_them() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         for (drive, bits) in [(0, 0x10_u8), (1, 0x40), (2, 0x80), (3, 0)] {
             fdc.set_track_zero(drive, bits & 0x10 != 0);
             fdc.set_write_protect(drive, bits & 0x40 != 0);
@@ -3660,8 +3604,7 @@ mod tests {
     /// T0 reflects whichever cylinder the head is currently over.
     #[test]
     fn sense_drive_status_with_disk_mounted() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(0, DiskImage::default());
         fdc.track[0] = 5; // Head not at track 0
 
@@ -3673,71 +3616,12 @@ mod tests {
         assert_eq!(st3 & 0x10, 0, "T0 clear when head off cylinder 0");
     }
 
-    /// `claims_port` accepts `$2FFD` (main status, read-only) and
-    /// `$3FFD` (data, read/write). The decode mask is `0xF002`, so
-    /// the port number's `A15-A12` and `A1` bits are the only ones
-    /// that matter — shadow addresses with the same pattern also
-    /// claim.
-    #[test]
-    fn claims_port_recognises_msr_and_data_ports() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
-        assert!(fdc.claims_port(0x2FFD), "MSR port");
-        assert!(fdc.claims_port(0x3FFD), "data port");
-        // Shadow with same masked pattern (A1 must stay clear).
-        assert!(fdc.claims_port(0x2000));
-        assert!(fdc.claims_port(0x3FFC));
-        // Wrong A1: not claimed (mask isolates A1).
-        assert!(!fdc.claims_port(0x3FFF), "A1 set falls outside the mask");
-        // Outside the high-nibble mask: no claim.
-        assert!(!fdc.claims_port(0x1FFD));
-        assert!(!fdc.claims_port(0x4FFD));
-    }
-
-    /// When the FDC is disabled (e.g. on +2A / +2B which carry the
-    /// crate but don't wire a drive), `claims_port` returns false
-    /// regardless of port — the bus dispatcher then falls through.
-    #[test]
-    fn claims_port_returns_false_when_disabled() {
-        let fdc = Upd765a::new(); // enabled = false by default
-        assert!(!fdc.claims_port(0x2FFD));
-        assert!(!fdc.claims_port(0x3FFD));
-    }
-
-    /// Reads from a port outside the FDC's mask range return `$FF`
-    /// (open bus / no driver). The bus dispatcher should never reach
-    /// here because `claims_port` returns false, but the read path
-    /// has the defensive fall-through anyway.
-    #[test]
-    fn read_unknown_port_returns_ff() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
-        assert_eq!(fdc.read(0x1234), 0xFF);
-        assert_eq!(fdc.read(0x4000), 0xFF);
-    }
-
-    /// Writes to the MSR port `$2FFD` are silently ignored — the
-    /// register is read-only on real hardware. Only `$3FFD` (data)
-    /// accepts writes through the bus dispatcher.
-    #[test]
-    fn write_to_msr_port_is_silently_ignored() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
-        let before = fdc.read_status();
-        fdc.write(0x2FFD, 0xAA);
-        assert_eq!(
-            fdc.read_status(),
-            before,
-            "MSR write must not change status"
-        );
-    }
-
     /// `insert_disk` + `has_disk` + `eject_disk` round trip on a
     /// specific drive index. The Plus3 binary's File > Open Disk path
     /// drives this same surface.
     #[test]
     fn insert_then_eject_disk_round_trip() {
-        let mut fdc = Upd765a::new();
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         assert!(!fdc.has_disk(0));
         fdc.insert_disk(0, DiskImage::default());
         assert!(fdc.has_disk(0));
@@ -3753,8 +3637,7 @@ mod tests {
     /// addressable (mask 0x03).
     #[test]
     fn set_drive_select_mask_affects_command_drive_decode() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.set_drive_select_mask(0x01); // +3 wiring: US0 only
         fdc.insert_disk(0, DiskImage::default());
 
@@ -3770,8 +3653,7 @@ mod tests {
     /// one-byte ST0 result, with interrupt-code bits 10 (0x80).
     #[test]
     fn invalid_command_returns_one_status_byte_and_accepts_next_command() {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         for opcode in [0x00, 0x1B, 0xFF] {
             fdc.write_data(opcode);
             assert_eq!(fdc.read_status(), MSR_RQM | MSR_DIO | MSR_CB);

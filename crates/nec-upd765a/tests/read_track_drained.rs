@@ -1,13 +1,16 @@
 //! Fully drained observations, not an oracle for disputed ST0/ST1/CHRN values.
 //! Matrix and independent CRC audit: docs/plans/2026-10-19-read-track-drained-crc.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn wait(fdc: &mut Upd765a, ticks: &mut usize) {
     while fdc.read_status() & 0x80 == 0 {
         *ticks += 1;
         assert!(*ticks < 2_000_000, "emulated controller deadline");
-        fdc.tick(0);
+        fdc.tick();
     }
 }
 
@@ -38,8 +41,7 @@ fn fully_drained_crc_observations_preserve_order_and_recover() {
                             .collect(),
                     }]],
                 };
-                let mut fdc = Upd765a::new();
-                fdc.enabled = true;
+                let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
                 fdc.insert_disk(0, image.clone());
                 let mut ticks = 0;
                 let command = [0x42, 0, 0, 0, 1, 2, ids.len() as u8, 0x2a, 0xff];

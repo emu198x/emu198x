@@ -216,7 +216,6 @@ fn read_data_native_result(
     expected: &[u8],
     control: Option<&str>,
 ) -> Vec<u8> {
-    use common_sinclair_zx_spectrum::peripheral::Peripheral;
     for _ in 0..50_000 {
         if runtime.machine().fdc.read_status() == 0xd0 {
             break;
@@ -227,7 +226,7 @@ fn read_data_native_result(
             "Read Data expected execution end without extra host bytes"
         );
         assert!(!runtime.machine().fdc.interrupt);
-        runtime.machine_mut().fdc.tick(0);
+        runtime.machine_mut().fdc.tick();
     }
     let mut observed = Vec::new();
     for (index, &byte) in expected.iter().enumerate() {
@@ -356,7 +355,6 @@ fn read_data_native_case(
     point: &ReadDataNativePoint,
     control: Option<&str>,
 ) -> serde_json::Value {
-    use common_sinclair_zx_spectrum::peripheral::Peripheral;
     eprintln!(
         "Read Data native case kind={kind} selected={selected} checkpoint={}",
         point.name
@@ -389,7 +387,7 @@ fn read_data_native_case(
                 if overrun { 0xf0 } else { 0x70 }
             );
             assert_eq!(original.machine().fdc.interrupt, overrun);
-            original.machine_mut().fdc.tick(0);
+            original.machine_mut().fdc.tick();
         }
         if let Some(prefix) = point.result_prefix {
             for _ in 0..50_000 {
@@ -397,7 +395,7 @@ fn read_data_native_case(
                     break;
                 }
                 assert_eq!(original.machine().fdc.read_status(), 0x70);
-                original.machine_mut().fdc.tick(0);
+                original.machine_mut().fdc.tick();
             }
             assert!(original.machine().fdc.interrupt, "Read Data completion IRQ");
             for &byte in &case.result[..prefix] {
@@ -471,7 +469,7 @@ fn read_data_native_case(
         }
         let data = if overrun {
             assert_eq!(runtime.machine().fdc.read_status(), 0xf0);
-            runtime.machine_mut().fdc.tick(0);
+            runtime.machine_mut().fdc.tick();
             assert_eq!(
                 runtime.machine().fdc.read_status(),
                 0xd0,

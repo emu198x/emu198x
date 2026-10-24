@@ -1,6 +1,5 @@
 //! Authored EDSK missing-DAM metadata must stop Data/Deleted before payload.
 //! Direct controller composition: not ROM loading or physical timing evidence.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 
 fn edsk(stored_missing_bytes: usize, deleted: bool) -> Vec<u8> {
@@ -51,7 +50,7 @@ fn read(machine: &mut SpectrumPlus3, opcode: u8, selected: u8, r: u8) -> (Vec<u8
                 break;
             }
             assert_eq!(fdc.read_status() & 0x70, 0x70);
-            fdc.tick(0);
+            fdc.tick();
         }
         assert!(requested, "bounded read request");
         assert_eq!(fdc.read_status(), 0xf0);

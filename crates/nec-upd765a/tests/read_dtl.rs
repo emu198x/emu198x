@@ -1,8 +1,11 @@
 //! NEC December1978 p12: N=0 DTL limits host bytes, not the physical field
 //! or its CRC. Fuse upd_fdc_read_data independently consumes the unseen tail.
 mod common;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn image(n: u8, deleted: bool, crc: bool) -> DiskImage {
     DiskImage {
@@ -26,8 +29,7 @@ fn image(n: u8, deleted: bool, crc: bool) -> DiskImage {
     }
 }
 fn controller(image: DiskImage) -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     f.insert_disk(0, image);
     f
 }
@@ -64,7 +66,7 @@ fn tail(f: &mut Upd765a) -> u32 {
             "unseen tail must not request host bytes"
         );
         assert_eq!(f.read_data(), 0xff, "polling cannot consume internal bytes");
-        f.tick(0);
+        f.tick();
     }
     panic!("internal field deadline");
 }
@@ -122,7 +124,7 @@ fn missed_prefix_request_still_overruns() {
         assert_eq!(f.read_data(), 1);
         common::await_read(&mut f);
         for _ in 0..228 {
-            f.tick(0);
+            f.tick();
         }
         assert_eq!(result(&mut f), [0x40, 0x10, 0, 0, 0, 1, 0]);
     }
@@ -165,13 +167,11 @@ fn internal_tail_keeps_absolute_byte_clock_despite_host_latency() {
                         }
                     }
                     assert!(elapsed < 40_000, "field deadline");
-                    f.tick(0);
+                    f.tick();
                     elapsed += 1;
                 }
                 assert_eq!(consumed, dtl);
-                let expected =
-                    ((slots + 127) * micros * common_sinclair_zx_spectrum::timing::CPU_HZ_128K)
-                        .div_ceil(1_000_000);
+                let expected = ((slots + 127) * micros * SPECTRUM_128_CPU_HZ).div_ceil(1_000_000);
                 assert_eq!(
                     elapsed, expected,
                     "DTL and host latency cannot shorten/shift physical field"
@@ -195,7 +195,7 @@ fn each_sector_sends_its_own_prefix_before_eot() {
                 0x70,
                 "no intermediate result or tail request"
             );
-            f.tick(0);
+            f.tick();
             if f.read_status() == 0xf0 {
                 break;
             }

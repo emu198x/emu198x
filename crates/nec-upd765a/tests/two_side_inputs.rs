@@ -1,5 +1,9 @@
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn status(fdc: &mut Upd765a, unit_head: u8) -> u8 {
     assert_eq!(fdc.read_status(), 0x80, "idle before SDS");
     fdc.write_data(4);
@@ -35,8 +39,7 @@ fn two_side_ready_and_write_protect_are_independent_inputs() {
             for writable in [false, true] {
                 for ready in [false, true] {
                     for two_side in [false, true] {
-                        let mut fdc = Upd765a::new();
-                        fdc.enabled = true;
+                        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
                         if mounted {
                             fdc.insert_disk_with_writable(unit, image(), writable);
                         }
@@ -72,8 +75,7 @@ fn two_side_ready_and_write_protect_are_independent_inputs() {
 
 #[test]
 fn two_side_level_survives_reset_and_media_changes() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.set_two_side(0, true);
     fdc.insert_disk_with_writable(0, image(), true);
     fdc.reset();
@@ -95,8 +97,7 @@ fn two_side_level_survives_reset_and_media_changes() {
 
 #[test]
 fn external_unit_alias_selects_physical_ts_but_echoes_logical_unit() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.set_drive_select_mask(1);
     fdc.set_two_side(0, true);
     fdc.set_two_side(1, false);

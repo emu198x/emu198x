@@ -2,7 +2,7 @@
 // no ROM-loader, firmware or mechanical timing qualification is claimed.
 #[test]
 fn programmed_motion_and_fractional_boundaries_survive_native_restore() {
-    use common_sinclair_zx_spectrum::{peripheral::Peripheral, timing::CPU_HZ_128K};
+    use common_sinclair_zx_spectrum::timing::CPU_HZ_128K;
     for srt in [1u8, 15] {
         let interval = 2_000 * u64::from(16 - srt) * CPU_HZ_128K;
         let one = interval.div_ceil(1_000_000);
@@ -24,7 +24,7 @@ fn programmed_motion_and_fractional_boundaries_survive_native_restore() {
                 }
                 original.machine_mut().fdc.set_ready(0, true);
                 for _ in 0..100_000 {
-                    original.machine_mut().fdc.tick(0);
+                    original.machine_mut().fdc.tick();
                 }
                 send_fdc_command(&mut original, &[8]);
                 assert_eq!(
@@ -40,7 +40,7 @@ fn programmed_motion_and_fractional_boundaries_survive_native_restore() {
                 if kind == "recalibrate" {
                     send_fdc_command(&mut original, &[15, 0, 3]);
                     for _ in 0..end {
-                        original.machine_mut().fdc.tick(0);
+                        original.machine_mut().fdc.tick();
                     }
                     send_fdc_command(&mut original, &[8]);
                     assert_eq!(
@@ -60,7 +60,7 @@ fn programmed_motion_and_fractional_boundaries_survive_native_restore() {
                         let t0 = original.machine().fdc.head_at_track_zero(0);
                         original.machine_mut().fdc.set_track_zero(0, t0);
                     }
-                    original.machine_mut().fdc.tick(0);
+                    original.machine_mut().fdc.tick();
                 }
                 let saved = original.snapshot().expect("motion checkpoint");
                 let mut restored = SpectrumPlus3Runtime::blank();
@@ -72,7 +72,7 @@ fn programmed_motion_and_fractional_boundaries_survive_native_restore() {
                             let t0 = runtime.machine().fdc.head_at_track_zero(0);
                             runtime.machine_mut().fdc.set_track_zero(0, t0);
                         }
-                        runtime.machine_mut().fdc.tick(0);
+                        runtime.machine_mut().fdc.tick();
                     }
                     assert!(runtime.machine().fdc.interrupt, "completion still occurs");
                     assert_eq!(runtime.machine().fdc.read_status(), 0x81);
@@ -111,19 +111,18 @@ fn version_ten_without_motion_state_is_rejected_before_payload_decode() {
     let mut runtime = SpectrumPlus3Runtime::blank();
     let bytes = postcard::to_allocvec(&10_u32).expect("old version prefix");
     assert!(
-        matches!(runtime.restore(&bytes),Err(MachineError::InvalidSnapshot {reason}) if reason=="unsupported snapshot version 10; expected 11")
+        matches!(runtime.restore(&bytes),Err(MachineError::InvalidSnapshot {reason}) if reason=="unsupported snapshot version 10; expected 12")
     );
 }
 
 #[test]
 fn partial_motion_and_specify_commands_preserve_parameters_across_restore() {
-    use common_sinclair_zx_spectrum::peripheral::Peripheral;
     for command in [&[3, 0xf0, 3][..], &[15, 0, 3][..], &[7, 0][..]] {
         for prefix in 0..command.len() {
             let mut original = SpectrumPlus3Runtime::blank();
             original.machine_mut().fdc.set_ready(0, true);
             for _ in 0..100_000 {
-                original.machine_mut().fdc.tick(0);
+                original.machine_mut().fdc.tick();
             }
             send_fdc_command(&mut original, &[8]);
             assert_eq!(
@@ -143,7 +142,7 @@ fn partial_motion_and_specify_commands_preserve_parameters_across_restore() {
             for runtime in [&mut original, &mut restored] {
                 send_fdc_command(runtime, &command[prefix..]);
                 for _ in 0..25_000 {
-                    runtime.machine_mut().fdc.tick(0);
+                    runtime.machine_mut().fdc.tick();
                 }
             }
             assert_eq!(

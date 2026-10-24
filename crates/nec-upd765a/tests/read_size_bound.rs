@@ -2,9 +2,12 @@
 mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn oversized_n(opcode: u8) {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Size/search guards are independent of drive readiness, including
     // the intentionally empty-media cases below.
     fdc.set_ready(0, true);
@@ -41,8 +44,7 @@ fn result(fdc: &mut Upd765a) -> [u8; 7] {
     bytes
 }
 fn controller(data: Option<Vec<u8>>, deleted: bool) -> Upd765a {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Size/search guards are independent of drive readiness, including
     // the intentionally empty-media cases below.
     fdc.set_ready(0, true);

@@ -1,7 +1,6 @@
 //! EDSK Rev5 integral multiple-sized fields contain preserved versions.
 //! Deterministic copy rotation follows accepted marginal-encoding-model policy,
 //! not a claim about physical flux. No ROM execution is claimed by this test.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum_amstrad_class::{Plus3Marker, SpectrumAmstradClassCore};
 type Core = SpectrumAmstradClassCore<Plus3Marker>;
 
@@ -69,7 +68,7 @@ fn await_read(c: &mut Core) {
             return;
         }
         assert_eq!(c.fdc.read_status(), 0x70);
-        c.fdc.tick(0);
+        c.fdc.tick();
     }
     panic!("read deadline");
 }
@@ -176,7 +175,7 @@ fn visited_interrupted_field_consumes_one_copy_without_generating_bytes() {
         data(&mut c, &sample(0, 0)[..consumed]);
         await_read(&mut c);
         for _ in 0..114 {
-            c.fdc.tick(0);
+            c.fdc.tick();
         }
         assert_eq!(result(&mut c), [0x40, 0x10, 0, 0, 0, 1, 1]);
         read(&mut c, 0x46, 0, 1, true);

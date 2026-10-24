@@ -3502,7 +3502,6 @@ dependencies = [
 name = "nec-upd765a"
 version = "0.44.2"
 dependencies = [
- "common-sinclair-zx-spectrum",
  "serde",
 ]
 
