@@ -119,6 +119,12 @@ label = "system:dragon"
 milestone = "Dragon 32 100%"
 
 [[system]]
+machine_id = "tandy-coco"
+crate = "emu198x-dragon"
+label = "system:coco"
+milestone = "CoCo 100%"
+
+[[system]]
 machine_id = "jupiter-ace"
 crate = "emu198x-jupiter-ace"
 label = "system:jupiter-ace"

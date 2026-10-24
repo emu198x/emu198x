@@ -867,7 +867,8 @@ fn run_cli(cli: &Dragon) -> Result<(), String> {
 }
 
 pub(crate) fn parse_model(value: &str) -> Result<Model, String> {
-    Model::from_variant_id(value).ok_or_else(|| "--model expects dragon32 or dragon64".to_owned())
+    Model::from_variant_id(value)
+        .ok_or_else(|| "--model expects dragon32, dragon64, coco1 or coco2".to_owned())
 }
 
 pub(crate) fn parse_u64(value: &str, flag: &str) -> Result<u64, String> {
@@ -5306,6 +5307,26 @@ pub(crate) fn runtime_from_firmware(
             firmware_set.push(FirmwareImage::new("dragon64-compatible-rom", &firmware.rom));
             firmware_set.push(FirmwareImage::new("dragon64-basic-rom", mode_rom));
         }
+        // A CoCo's --rom is Color BASIC alone (8 KiB) or Extended Color
+        // BASIC followed by Color BASIC (16 KiB), the image at $8000.
+        Model::CoCo1Ntsc | Model::CoCo2Ntsc => {
+            let half = firmware.rom.len() / 2;
+            if firmware.rom.len() == 0x4000 {
+                firmware_set.push(FirmwareImage::new(
+                    runtime_dragon::COCO_EXTENDED_BASIC_ROM_ID,
+                    &firmware.rom[..half],
+                ));
+                firmware_set.push(FirmwareImage::new(
+                    runtime_dragon::COCO_COLOR_BASIC_ROM_ID,
+                    &firmware.rom[half..],
+                ));
+            } else {
+                firmware_set.push(FirmwareImage::new(
+                    runtime_dragon::COCO_COLOR_BASIC_ROM_ID,
+                    &firmware.rom,
+                ));
+            }
+        }
     }
     DragonRuntime::from_firmware(firmware.model, &firmware_set)
         .map_err(|err| format!("failed to build Dragon runtime: {err}"))
@@ -5316,7 +5337,7 @@ fn runtime_session(
 ) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
     Ok(HeadlessSession::new_with_query_provider(
         runtime_from_firmware(firmware)?,
-        DRAGON_FRAME_CYCLES,
+        firmware.model.frame_ticks(),
         DragonSessionQueryProvider,
     ))
 }

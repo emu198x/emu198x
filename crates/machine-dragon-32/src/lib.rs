@@ -61,6 +61,63 @@ const VDG_FRAME_SYNC_RISE_TICK: u64 =
     (VDG_NTSC_LOGICAL_FRAME_LINES + VDG_DRAGON_PAL_FIRST_PADDING_LINES) * VDG_LINE_MASTER_TICKS;
 /// Number of MC6809 bus cycles in one PAL VDG video frame.
 pub const DRAGON_FRAME_CYCLES: u64 = DRAGON_FRAME_MASTER_TICKS / SLOW_CPU_MASTER_TICKS;
+/// An NTSC frame: the MC6847's own 262 lines, with no PAL padding.
+const NTSC_FRAME_MASTER_TICKS: u64 = VDG_LINE_MASTER_TICKS * VDG_NTSC_LOGICAL_FRAME_LINES;
+/// Number of MC6809 bus cycles in one NTSC VDG video frame (a CoCo).
+pub const NTSC_FRAME_CYCLES: u64 = NTSC_FRAME_MASTER_TICKS / SLOW_CPU_MASTER_TICKS;
+/// FS rises on an NTSC machine one line before the frame ends.
+///
+/// MAME's `mc6847.cpp` holds FS low from the falling-edge scanline until
+/// `m_lines_until_vblank - 1`, which with its 25 + 192 + 26 + 6 + 13 line
+/// NTSC frame is physical line 248. MAME counts from the top border and
+/// this crate from the 13 vertical-blank lines before it, so that is line
+/// 261 here. The fall at line 230 is the same in both.
+const NTSC_FRAME_SYNC_RISE_TICK: u64 = (VDG_NTSC_LOGICAL_FRAME_LINES - 1) * VDG_LINE_MASTER_TICKS;
+
+/// The television standard the board's video runs to.
+///
+/// The MC6847 is an NTSC part. PAL boards — the Dragon's — insert padding
+/// lines around its 262-line frame to make 312; NTSC boards — the CoCo's —
+/// run its frame as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoStandard {
+    /// 312 lines at 50 Hz, the VDG frame padded out.
+    #[default]
+    Pal,
+    /// 262 lines at 60 Hz, the VDG's own frame.
+    Ntsc,
+}
+
+impl VideoStandard {
+    const fn frame_master_ticks(self) -> u64 {
+        match self {
+            Self::Pal => DRAGON_FRAME_MASTER_TICKS,
+            Self::Ntsc => NTSC_FRAME_MASTER_TICKS,
+        }
+    }
+
+    const fn frame_sync_rise_tick(self) -> u64 {
+        match self {
+            Self::Pal => VDG_FRAME_SYNC_RISE_TICK,
+            Self::Ntsc => NTSC_FRAME_SYNC_RISE_TICK,
+        }
+    }
+
+    /// MC6809 bus cycles in one frame at the slow rate.
+    #[must_use]
+    pub const fn frame_cycles(self) -> u64 {
+        self.frame_master_ticks() / SLOW_CPU_MASTER_TICKS
+    }
+
+    /// Frames per second.
+    #[must_use]
+    pub const fn frame_hz(self) -> u64 {
+        match self {
+            Self::Pal => 50,
+            Self::Ntsc => 60,
+        }
+    }
+}
 const CART_ROM_START: u16 = 0xC000;
 const CART_ROM_END: u16 = 0xFEFF;
 const CART_IO_START: u16 = 0xFF40;
@@ -79,6 +136,13 @@ pub enum DragonHardwareModel {
     Dragon64Compat,
     /// Dragon 64 64K mode: 48 KiB base RAM, system ROM at `$C000-$FEFF`, vectors in the system ROM page.
     Dragon64Mode,
+    /// Tandy Color Computer with 16 or 32 KiB: the Dragon 32's decode, and
+    /// the RAM-size sense on PIA1 PB2 tied high.
+    CoCo,
+    /// Tandy Color Computer 2 with 64 KiB: the RAM-size sense on PIA1 PB2
+    /// follows PIA0 PB6, which is how Extended Color BASIC finds the
+    /// 64 KiB chips (MAME `coco.cpp`, `pia1_pb_r`).
+    CoCo64k,
 }
 
 const XROAR_AUDIO_MAX_V: f32 = 4.70;
@@ -1030,6 +1094,27 @@ impl MatrixKey {
             DragonKey::Shift => (6, 7),
         };
         Self { row, column }
+    }
+
+    /// Return the Tandy Color Computer matrix switch for a semantic key.
+    ///
+    /// The CoCo uses the same seven rows and eight columns as the Dragon,
+    /// with the rows of letters and digits wired in a different order: the
+    /// digit rows are the CoCo's rows 4 and 5, and the letter rows its rows
+    /// 0 to 3. Row 6 (ENTER, CLEAR, BREAK, SHIFT) is the same. MAME's
+    /// `coco12.cpp` and `dragon.cpp` keyboard ports give both layouts.
+    #[must_use]
+    pub const fn from_coco_key(key: DragonKey) -> Self {
+        let dragon = Self::from_dragon_key(key);
+        let row = if dragon.row < 6 {
+            (dragon.row + 4) % 6
+        } else {
+            dragon.row
+        };
+        Self {
+            row,
+            column: dragon.column,
+        }
     }
 }
 
@@ -2311,7 +2396,19 @@ impl DragonMemory {
             0xFE
         };
         self.pia1.set_input(PiaPort::A, pia1_pa);
-        self.pia1.set_input(PiaPort::B, 0xFF);
+        self.pia1.set_input(PiaPort::B, self.pia1_port_b_input());
+    }
+
+    /// PIA1 port B's inputs. Everything floats high except, on a 64 KiB
+    /// CoCo, PB2: the RAM-size sense, wired to PIA0 PB6.
+    fn pia1_port_b_input(&self) -> u8 {
+        match self.model {
+            DragonHardwareModel::CoCo64k => {
+                let pia0_pb = self.pia0.output_latch(PiaPort::B) | !self.pia0.ddr(PiaPort::B);
+                if pia0_pb & 0x40 == 0 { 0xFB } else { 0xFF }
+            }
+            _ => 0xFF,
+        }
     }
 
     fn joystick_comparator_high(&self) -> bool {
@@ -2382,6 +2479,8 @@ impl DragonMemory {
             DragonHardwareModel::Dragon32
             | DragonHardwareModel::Dragon64Compat
             | DragonHardwareModel::Dragon64Mode
+            | DragonHardwareModel::CoCo
+            | DragonHardwareModel::CoCo64k
                 if Self::internal_rom_window(addr) =>
             {
                 (usize::from(addr).wrapping_sub(RAM_SIZE)) & (ROM_SIZE - 1)
@@ -2453,6 +2552,7 @@ struct BeamVideo {
     css_a: bool,
     css_b: bool,
     pending_samples: Vec<VdgSampleTrace>,
+    standard: VideoStandard,
 }
 
 impl BeamVideo {
@@ -2475,6 +2575,7 @@ impl BeamVideo {
             css_a: false,
             css_b: false,
             pending_samples: Vec::new(),
+            standard: VideoStandard::Pal,
         }
     }
 
@@ -2493,8 +2594,9 @@ impl BeamVideo {
         let target = self.cycle_in_frame.saturating_add(master_ticks);
         self.render_until(memory, target, bus_cycle);
         self.cycle_in_frame = target;
-        if self.cycle_in_frame >= DRAGON_FRAME_MASTER_TICKS {
-            self.render_until(memory, DRAGON_FRAME_MASTER_TICKS, bus_cycle);
+        let frame_ticks = self.standard.frame_master_ticks();
+        if self.cycle_in_frame >= frame_ticks {
+            self.render_until(memory, frame_ticks, bus_cycle);
             self.wrap_pending_css_changes();
             self.cycle_in_frame = 0;
             self.next_line = 0;
@@ -2508,7 +2610,11 @@ impl BeamVideo {
 
         if crosses_frame_sync_fall(previous, self.cycle_in_frame) {
             tick.frame_sync = Some(false);
-        } else if crosses_frame_sync_rise(previous, self.cycle_in_frame) {
+        } else if crosses_frame_sync_rise(
+            previous,
+            self.cycle_in_frame,
+            self.standard.frame_sync_rise_tick(),
+        ) {
             tick.frame_sync = Some(true);
         }
         let previous_line = video_line_for_cycle(previous);
@@ -2781,9 +2887,10 @@ impl BeamVideo {
     }
 
     fn wrap_pending_css_changes(&mut self) {
-        self.apply_pending_css_changes(DRAGON_FRAME_MASTER_TICKS);
+        let frame_ticks = self.standard.frame_master_ticks();
+        self.apply_pending_css_changes(frame_ticks);
         for (effective_cycle, _) in &mut self.pending_css_changes {
-            *effective_cycle = effective_cycle.saturating_sub(DRAGON_FRAME_MASTER_TICKS);
+            *effective_cycle = effective_cycle.saturating_sub(frame_ticks);
         }
     }
 }
@@ -2897,8 +3004,8 @@ fn crosses_frame_sync_fall(previous: u64, current: u64) -> bool {
     previous < VDG_FRAME_SYNC_FALL_TICK && current >= VDG_FRAME_SYNC_FALL_TICK
 }
 
-fn crosses_frame_sync_rise(previous: u64, current: u64) -> bool {
-    previous < VDG_FRAME_SYNC_RISE_TICK && current >= VDG_FRAME_SYNC_RISE_TICK
+fn crosses_frame_sync_rise(previous: u64, current: u64, rise: u64) -> bool {
+    previous < rise && current >= rise
 }
 
 fn active_line(line: usize) -> bool {
@@ -3156,6 +3263,21 @@ impl Dragon32 {
     #[must_use]
     pub const fn hardware_model(&self) -> DragonHardwareModel {
         self.memory.model
+    }
+
+    /// Run the video to `standard`: PAL for a Dragon, NTSC for a CoCo. Call
+    /// before running; the beam restarts at the top of a frame.
+    #[must_use]
+    pub fn with_video_standard(mut self, standard: VideoStandard) -> Self {
+        self.video.standard = standard;
+        self.video.cycle_in_frame = 0;
+        self
+    }
+
+    /// The television standard the video runs to.
+    #[must_use]
+    pub const fn video_standard(&self) -> VideoStandard {
+        self.video.standard
     }
 
     /// Current CPU bus address.
@@ -5478,6 +5600,106 @@ mod tests {
         machine.step_cycle();
 
         assert_eq!(machine.video_display_base(), 0x0400);
+    }
+
+    #[test]
+    fn an_ntsc_board_raises_frame_sync_a_line_before_its_262_line_frame_ends() {
+        let rom = rom_with_reset_vector(0x8000);
+        let mut machine = Dragon32::new(&rom).with_video_standard(VideoStandard::Ntsc);
+        assert_eq!(machine.video_standard(), VideoStandard::Ntsc);
+
+        machine.memory.pia0.set_signal_level(PiaSignal::Cb1, false);
+        machine.memory.pia0.write(0x03, 0x07); // PIA0 CB1 rising-edge IRQ enabled.
+        machine.video.cycle_in_frame = NTSC_FRAME_SYNC_RISE_TICK - 1;
+        machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+        machine.step_cycle();
+        assert!(machine.memory.pia0.irq_b(), "FS rose at line 261");
+
+        // The PAL rise, 25 lines later, is past the end of an NTSC frame.
+        const { assert!(VDG_FRAME_SYNC_RISE_TICK > NTSC_FRAME_MASTER_TICKS) };
+    }
+
+    #[test]
+    fn an_ntsc_frame_is_262_lines_and_a_pal_frame_312() {
+        let rom = rom_with_reset_vector(0x8000);
+        for (standard, lines, cycles) in [
+            (VideoStandard::Ntsc, 262, NTSC_FRAME_CYCLES),
+            (VideoStandard::Pal, 312, DRAGON_FRAME_CYCLES),
+        ] {
+            let mut machine = Dragon32::new(&rom).with_video_standard(standard);
+            let frame = lines * VDG_LINE_MASTER_TICKS;
+            assert_eq!(standard.frame_cycles(), cycles);
+            machine.video.cycle_in_frame = frame - 1;
+            machine.video.next_line = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
+            machine.step_cycle();
+            assert!(
+                machine.video.cycle_in_frame < SLOW_CPU_MASTER_TICKS * 2,
+                "{standard:?} wraps after {lines} lines"
+            );
+        }
+        assert_eq!(VideoStandard::Ntsc.frame_hz(), 60);
+        assert_eq!(VideoStandard::Pal.frame_hz(), 50);
+    }
+
+    #[test]
+    fn the_coco_keyboard_rotates_the_dragon_rows() {
+        // MAME coco12.cpp: row 0 is @ A-G, row 3 X Y Z arrows SPACE,
+        // row 4 the digits 0-7, row 5 8 9 : ; , - . /, row 6 ENTER..SHIFT.
+        for (key, row, column) in [
+            (DragonKey::At, 0, 0),
+            (DragonKey::G, 0, 7),
+            (DragonKey::H, 1, 0),
+            (DragonKey::P, 2, 0),
+            (DragonKey::X, 3, 0),
+            (DragonKey::Space, 3, 7),
+            (DragonKey::Digit0, 4, 0),
+            (DragonKey::Digit7, 4, 7),
+            (DragonKey::Digit8, 5, 0),
+            (DragonKey::Slash, 5, 7),
+            (DragonKey::Enter, 6, 0),
+            (DragonKey::Shift, 6, 7),
+        ] {
+            assert_eq!(
+                MatrixKey::from_coco_key(key),
+                MatrixKey::new(row, column),
+                "{key:?}"
+            );
+        }
+        // The Dragon keeps its own layout.
+        assert_eq!(
+            MatrixKey::from_dragon_key(DragonKey::Digit0),
+            MatrixKey::new(0, 0)
+        );
+        assert_eq!(
+            MatrixKey::from_dragon_key(DragonKey::At),
+            MatrixKey::new(2, 0)
+        );
+    }
+
+    #[test]
+    fn a_64k_coco_senses_its_ram_size_through_pia0_pb6() {
+        let rom = rom_with_reset_vector(0x8000);
+        let read_pb2 = |model: DragonHardwareModel, pb6_high: bool| {
+            let mut machine =
+                Dragon32::new_with_keyboard_and_model(&rom, DragonKeyboard::new(), model);
+            // PIA0 port B all outputs, then the data register.
+            machine.memory.write(0xFF03, 0x00);
+            machine.memory.write(0xFF02, 0xFF);
+            machine.memory.write(0xFF03, 0x04);
+            machine
+                .memory
+                .write(0xFF02, if pb6_high { 0xFF } else { 0xBF });
+            // PIA1 port B data register, all inputs.
+            machine.memory.write(0xFF23, 0x00);
+            machine.memory.write(0xFF22, 0x00);
+            machine.memory.write(0xFF23, 0x04);
+            machine.memory.pia1.read(0x02) & 0x04
+        };
+        assert_eq!(read_pb2(DragonHardwareModel::CoCo64k, true), 0x04);
+        assert_eq!(read_pb2(DragonHardwareModel::CoCo64k, false), 0x00);
+        // A 16/32 KiB CoCo and a Dragon 32 hold it high whatever PB6 does.
+        assert_eq!(read_pb2(DragonHardwareModel::CoCo, false), 0x04);
+        assert_eq!(read_pb2(DragonHardwareModel::Dragon32, false), 0x04);
     }
 
     #[test]
