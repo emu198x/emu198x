@@ -255,6 +255,13 @@ pub struct Wd1770 {
 
     // Idle index-pulse synthesis.
     index_counter: u32,
+
+    /// Host cycles between data bytes, as set by
+    /// [`set_byte_cycles`](Wd1770::set_byte_cycles). Zero hands the next byte
+    /// over the moment the last is taken, which polling hosts are happy with.
+    byte_cycles: u32,
+    /// Host cycles until the next byte's DRQ, during a paced data phase.
+    drq_countdown: u32,
 }
 
 impl Default for Wd1770 {
@@ -278,6 +285,8 @@ impl Default for Wd1770 {
             pos: 0,
             xfer_sector: 1,
             index_counter: 0,
+            byte_cycles: 0,
+            drq_countdown: 0,
         }
     }
 }
@@ -287,6 +296,60 @@ impl Wd1770 {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Pace the data phase: after the host reads or writes the data register,
+    /// `DRQ` drops and rises again `cycles` host cycles later, when the next
+    /// byte has passed under the head. A WD1770 moves a byte every 64 µs in
+    /// single density and every 32 µs in double, so a host ticking the chip
+    /// at 2 MHz passes 128 or 64.
+    ///
+    /// A host that services the chip from an edge-triggered interrupt needs
+    /// this, as the BBC Micro's NMI does: with `DRQ` held high there is no
+    /// second edge. Zero, the default, keeps `DRQ` high while bytes remain.
+    pub fn set_byte_cycles(&mut self, cycles: u32) {
+        self.byte_cycles = cycles;
+    }
+
+    /// Drop `DRQ` until the next byte arrives, when the data phase is paced.
+    fn await_next_byte(&mut self) {
+        if self.byte_cycles > 0 {
+            self.drq = false;
+            self.status &= !ST_DRQ;
+            self.drq_countdown = self.byte_cycles;
+        }
+    }
+
+    /// After the last data byte of a paced phase, pass the two CRC bytes
+    /// before finishing. `INTRQ` then rises after `DRQ` has fallen, so a host
+    /// on an edge-triggered interrupt sees it. Returns whether it is waiting.
+    fn await_crc(&mut self) -> bool {
+        if self.byte_cycles == 0 {
+            return false;
+        }
+        self.drq = false;
+        self.status &= !ST_DRQ;
+        self.drq_countdown = 2 * self.byte_cycles;
+        true
+    }
+
+    /// Pulse the master-reset pin (`MR`). Low resets the controller and loads
+    /// `$03` into the command register; when it rises again the controller
+    /// runs that Restore (WD177x datasheet, `MR` pin description). The disks,
+    /// the selected drive and side, and the head's position are untouched:
+    /// they belong to the drives, not the chip.
+    pub fn reset(&mut self) {
+        let disks = std::mem::take(&mut self.disks);
+        let (drive, side, head_track) = (self.drive, self.side, self.head_track);
+        *self = Self {
+            disks,
+            drive,
+            side,
+            head_track,
+            byte_cycles: self.byte_cycles,
+            ..Self::default()
+        };
+        self.command(0x03);
     }
 
     // -- Media --
@@ -398,7 +461,9 @@ impl Wd1770 {
         if self.pending == Pending::Read && self.pos < self.buf.len() {
             self.data = self.buf[self.pos];
             self.pos += 1;
-            if self.pos >= self.buf.len() {
+            if self.pos < self.buf.len() {
+                self.await_next_byte();
+            } else if !self.await_crc() {
                 self.drq = false;
                 self.finish_read_phase();
             }
@@ -411,7 +476,9 @@ impl Wd1770 {
         if self.pending == Pending::Write && self.drq && self.pos < self.buf.len() {
             self.buf[self.pos] = value;
             self.pos += 1;
-            if self.pos >= self.buf.len() {
+            if self.pos < self.buf.len() {
+                self.await_next_byte();
+            } else if !self.await_crc() {
                 self.drq = false;
                 self.commit_write_phase();
             }
@@ -684,6 +751,22 @@ impl Wd1770 {
     /// Advance one host cycle. Counts down the active command and synthesises
     /// the idle index pulse.
     pub fn tick(&mut self) {
+        if self.drq_countdown > 0 {
+            self.drq_countdown -= 1;
+            if self.drq_countdown == 0 {
+                let crc_passed = self.pos >= self.buf.len();
+                match self.pending {
+                    Pending::Read if crc_passed => self.finish_read_phase(),
+                    Pending::Write if crc_passed => self.commit_write_phase(),
+                    Pending::Read | Pending::Write => {
+                        self.drq = true;
+                        self.status |= ST_DRQ;
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
         if self.busy_cycles > 0 {
             self.busy_cycles -= 1;
             if self.busy_cycles == 0 {
@@ -1013,5 +1096,86 @@ mod tests {
             }
         }
         assert!(saw_set && saw_clear, "index bit toggles when idle");
+    }
+
+    #[test]
+    fn a_master_reset_clears_the_controller_and_restores() {
+        let mut fdc = Wd1770::new();
+        fdc.insert_disk(0, test_disk());
+        fdc.write(1, 9); // track register
+        fdc.write(2, 4); // sector register
+        fdc.reset();
+        assert!(fdc.disk(0).is_some(), "the disc stays in the drive");
+        assert_eq!(fdc.read(2), 1, "the sector register is back at power-on");
+        assert_ne!(fdc.peek_status() & ST_BUSY, 0, "the Restore is running");
+        for _ in 0..10_000 {
+            fdc.tick();
+        }
+        assert!(fdc.intrq(), "the Restore completes");
+        assert_eq!(fdc.read(1), 0, "and leaves the track register at zero");
+    }
+
+    #[test]
+    fn a_paced_read_drops_drq_between_bytes() {
+        let mut fdc = Wd1770::new();
+        fdc.insert_disk(0, test_disk());
+        fdc.set_byte_cycles(10);
+        fdc.write(2, 1);
+        fdc.write(0, 0x80); // Read Sector
+        while !fdc.drq() {
+            fdc.tick();
+        }
+        let first = fdc.read(3);
+        assert!(!fdc.drq(), "taking a byte drops DRQ");
+        assert_eq!(fdc.peek_status() & ST_DRQ, 0, "and the status bit with it");
+        for _ in 0..9 {
+            fdc.tick();
+            assert!(!fdc.drq(), "the next byte has not arrived");
+        }
+        fdc.tick();
+        assert!(fdc.drq(), "the next byte arrives a byte time later");
+        assert_ne!(fdc.peek_status() & ST_DRQ, 0);
+        let mut bytes = vec![first];
+        while fdc.drq() || fdc.peek_status() & ST_BUSY != 0 {
+            if fdc.drq() {
+                bytes.push(fdc.read(3));
+            } else {
+                fdc.tick();
+            }
+        }
+        assert_eq!(
+            bytes.len(),
+            test_disk().sector_size(),
+            "the whole sector, once"
+        );
+        assert!(fdc.intrq(), "the command ends with INTRQ");
+    }
+
+    #[test]
+    fn a_paced_read_raises_intrq_after_drq_has_fallen() {
+        let mut fdc = Wd1770::new();
+        fdc.insert_disk(0, test_disk());
+        fdc.set_byte_cycles(10);
+        fdc.write(2, 1);
+        fdc.write(0, 0x80);
+        let mut taken = 0;
+        while taken < test_disk().sector_size() {
+            if fdc.drq() {
+                fdc.read(3);
+                taken += 1;
+            } else {
+                fdc.tick();
+            }
+        }
+        assert!(
+            !fdc.drq() && !fdc.intrq(),
+            "the line falls after the last byte"
+        );
+        assert_ne!(fdc.peek_status() & ST_BUSY, 0, "the CRC is still passing");
+        for _ in 0..20 {
+            fdc.tick();
+        }
+        assert!(fdc.intrq(), "then INTRQ rises, a fresh edge");
+        assert_eq!(fdc.peek_status() & ST_BUSY, 0);
     }
 }
