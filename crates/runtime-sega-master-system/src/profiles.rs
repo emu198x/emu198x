@@ -19,22 +19,34 @@ pub enum Model {
     Sms1Ntsc,
     /// Early Master System (PAL) with the 315-5124 VDP.
     Sms1Pal,
+    /// Master System II (NTSC): the cost-reduced 1990 board, 315-5246 VDP.
+    Sms2Ntsc,
+    /// Master System II (PAL).
+    Sms2Pal,
+    /// Sega Mark III (Japan): 315-5124 VDP and the Japanese I/O chip.
+    MarkIii,
 }
 
 impl Model {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
         Self::SmsNtsc,
         Self::SmsJapanNtsc,
         Self::SmsPal,
         Self::Sms1Ntsc,
         Self::Sms1Pal,
+        Self::Sms2Ntsc,
+        Self::Sms2Pal,
+        Self::MarkIii,
     ];
-    pub const VARIANT_IDS: [&'static str; 5] = [
+    pub const VARIANT_IDS: [&'static str; 8] = [
         "sms-ntsc",
         "sms-japan-ntsc",
         "sms-pal",
         "sms1-ntsc",
         "sms1-pal",
+        "sms2-ntsc",
+        "sms2-pal",
+        "mark-iii",
     ];
 
     #[must_use]
@@ -45,6 +57,9 @@ impl Model {
             Self::SmsPal => "sms-pal",
             Self::Sms1Ntsc => "sms1-ntsc",
             Self::Sms1Pal => "sms1-pal",
+            Self::Sms2Ntsc => "sms2-ntsc",
+            Self::Sms2Pal => "sms2-pal",
+            Self::MarkIii => "mark-iii",
         }
     }
 
@@ -53,6 +68,7 @@ impl Model {
         match id {
             "sms" => Some(Self::SmsNtsc),
             "sms1" => Some(Self::Sms1Ntsc),
+            "sms2" => Some(Self::Sms2Ntsc),
             _ => Self::ALL
                 .into_iter()
                 .find(|model| model.variant_id() == id || model.profile_id() == id),
@@ -63,7 +79,7 @@ impl Model {
     #[must_use]
     pub const fn frame_ticks(self) -> u64 {
         match self {
-            Self::SmsPal | Self::Sms1Pal => 228 * 313,
+            Self::SmsPal | Self::Sms1Pal | Self::Sms2Pal => 228 * 313,
             _ => 228 * 262,
         }
     }
@@ -76,6 +92,9 @@ impl Model {
             Self::SmsPal => "sega-master-system-pal",
             Self::Sms1Ntsc => "sega-master-system-1-ntsc",
             Self::Sms1Pal => "sega-master-system-1-pal",
+            Self::Sms2Ntsc => "sega-master-system-2-ntsc",
+            Self::Sms2Pal => "sega-master-system-2-pal",
+            Self::MarkIii => "sega-mark-iii",
         }
     }
 
@@ -92,14 +111,21 @@ impl Model {
             Self::SmsPal => "Sega Master System (PAL)",
             Self::Sms1Ntsc => "Sega Master System 1 (NTSC)",
             Self::Sms1Pal => "Sega Master System 1 (PAL)",
+            Self::Sms2Ntsc => "Sega Master System II (NTSC)",
+            Self::Sms2Pal => "Sega Master System II (PAL)",
+            Self::MarkIii => "Sega Mark III (Japan)",
         }
     }
 
     #[must_use]
     pub const fn region(self) -> Region {
         match self {
-            Self::SmsPal | Self::Sms1Pal => Region::Pal,
-            Self::SmsNtsc | Self::SmsJapanNtsc | Self::Sms1Ntsc => Region::Ntsc,
+            Self::SmsPal | Self::Sms1Pal | Self::Sms2Pal => Region::Pal,
+            Self::SmsNtsc
+            | Self::SmsJapanNtsc
+            | Self::Sms1Ntsc
+            | Self::Sms2Ntsc
+            | Self::MarkIii => Region::Ntsc,
         }
     }
 
@@ -107,8 +133,12 @@ impl Model {
     #[must_use]
     pub const fn z80_hz(self) -> u64 {
         match self {
-            Self::SmsNtsc | Self::SmsJapanNtsc | Self::Sms1Ntsc => NTSC_Z80_HZ,
-            Self::SmsPal | Self::Sms1Pal => PAL_Z80_HZ,
+            Self::SmsNtsc
+            | Self::SmsJapanNtsc
+            | Self::Sms1Ntsc
+            | Self::Sms2Ntsc
+            | Self::MarkIii => NTSC_Z80_HZ,
+            Self::SmsPal | Self::Sms1Pal | Self::Sms2Pal => PAL_Z80_HZ,
         }
     }
 
@@ -131,6 +161,23 @@ impl Model {
             Self::Sms1Ntsc | Self::Sms1Pal => {
                 "Early Sega Master System — Z80A + Sega VDP (315-5124) + SN76489, 8 KB RAM, Sega mapper cartridge boot."
             }
+            Self::Sms2Ntsc | Self::Sms2Pal => {
+                "Sega Master System II (1990) — the cost-reduced board: Z80A + Sega VDP (315-5246) + SN76489, 8 KB RAM, with no card slot, expansion port or reset button."
+            }
+            Self::MarkIii => {
+                "Sega Mark III (1985) — the Japanese original: Z80A + Sega VDP (315-5124) + SN76489, 8 KB RAM, Japanese I/O-chip behaviour and no base-unit BIOS."
+            }
+        }
+    }
+
+    /// The year the model went on sale.
+    #[must_use]
+    pub const fn release_year(self) -> u16 {
+        match self {
+            Self::SmsNtsc | Self::SmsPal | Self::Sms1Ntsc | Self::Sms1Pal => 1986,
+            Self::SmsJapanNtsc => 1987,
+            Self::Sms2Ntsc | Self::Sms2Pal => 1990,
+            Self::MarkIii => 1985,
         }
     }
 
@@ -142,6 +189,13 @@ impl Model {
             Self::SmsPal => SmsVariant::SmsPal,
             Self::Sms1Ntsc => SmsVariant::Sms1Ntsc,
             Self::Sms1Pal => SmsVariant::Sms1Pal,
+            // The Master System II's 315-5246 is the chip the later export
+            // Master System already carries. What the board removed — the
+            // card slot, the expansion port and the reset button — are not
+            // modelled on any Master System here, so the two share a machine.
+            Self::Sms2Ntsc => SmsVariant::SmsNtsc,
+            Self::Sms2Pal => SmsVariant::SmsPal,
+            Self::MarkIii => SmsVariant::MarkIII,
         }
     }
 }
@@ -179,7 +233,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        release_year: 1985,
+        release_year: model.release_year(),
         summary: model.summary().into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(model.z80_hz())),
         firmware: vec![],
@@ -252,6 +306,9 @@ mod tests {
             (Model::SmsPal, VdpVariant::Sms2),
             (Model::Sms1Ntsc, VdpVariant::Sms1),
             (Model::Sms1Pal, VdpVariant::Sms1),
+            (Model::Sms2Ntsc, VdpVariant::Sms2),
+            (Model::Sms2Pal, VdpVariant::Sms2),
+            (Model::MarkIii, VdpVariant::Sms1),
         ] {
             let runtime = with_cartridge(model, vec![0; 0x8000]);
             let machine = runtime.machine().expect("cartridge inserted");
@@ -262,6 +319,23 @@ mod tests {
                 model.model_id()
             );
         }
+    }
+
+    /// The Mark III answers the region probe as Japanese hardware, the
+    /// Master System II as export hardware.
+    #[test]
+    fn the_mark_iii_has_japanese_io_and_the_master_system_ii_export() {
+        assert_eq!(Model::MarkIii.variant(), SmsVariant::MarkIII);
+        assert_eq!(Model::Sms2Ntsc.variant(), SmsVariant::SmsNtsc);
+        assert_eq!(Model::Sms2Pal.variant(), SmsVariant::SmsPal);
+        assert_eq!(profile_for(Model::Sms2Pal).region, Region::Pal);
+        assert_eq!(profile_for(Model::MarkIii).release_year, 1985);
+        assert_eq!(profile_for(Model::Sms2Ntsc).release_year, 1990);
+        for model in [Model::Sms2Ntsc, Model::Sms2Pal, Model::MarkIii] {
+            assert_eq!(Model::from_variant_id(model.variant_id()), Some(model));
+            assert_eq!(Model::from_variant_id(model.model_id()), Some(model));
+        }
+        assert_eq!(Model::from_variant_id("sms2"), Some(Model::Sms2Ntsc));
     }
 
     #[test]
