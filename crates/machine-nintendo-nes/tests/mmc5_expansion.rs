@@ -8,8 +8,8 @@
 //! machine and asserts the value the CPU reads back — the bus output,
 //! not mapper state.
 
-use format_nintendo_nes_ines::Mmc5;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::Mmc5;
 
 /// Build an MMC5 machine whose reset program reads the 8×8 multiplier
 /// result through `$5205`/`$5206` and stores it to zero page.

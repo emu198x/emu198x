@@ -9,8 +9,8 @@
 //!
 //! Shared 6502 interrupt gate: use `cpu_interrupts_v2` in place of `sweep`.
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 use std::path::{Path, PathBuf};
 
 /// Per-ROM master-clock ceiling. 150M ≈ 51 s emulated — generous

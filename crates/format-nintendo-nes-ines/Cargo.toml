@@ -1,6 +1,6 @@
 [package]
 name = "format-nintendo-nes-ines"
-description = "iNES / NES 2.0 cartridge header parser + NES mapper trait and current wave-1 mapper implementations."
+description = "iNES / NES 2.0 file layout: the header fields, the trainer and the PRG and CHR ROM they locate. No mapper hardware."
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -8,8 +8,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde = { workspace = true }
-serde-big-array = { workspace = true }
 
 [lints]
 workspace = true

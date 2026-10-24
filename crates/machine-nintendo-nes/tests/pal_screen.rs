@@ -66,8 +66,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::{Nes, Region};
+use nintendo_nes_cartridge::parse_ines;
 
 /// Frame at which both sides sample, matching `SAMPLE_FRAME` in
 /// `screen_goldens.rs` and `screen-state.lua`.

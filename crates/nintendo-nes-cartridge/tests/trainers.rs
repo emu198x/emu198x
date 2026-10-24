@@ -1,5 +1,5 @@
 //! The optional trainer is initial RAM content, not padding before PRG ROM.
-use format_nintendo_nes_ines::{mapper_from_snapshot, parse_ines};
+use nintendo_nes_cartridge::{mapper_from_snapshot, parse_ines};
 
 fn image(mapper: u8, nes2: bool, battery: bool, trainer: bool) -> Vec<u8> {
     let mut rom = vec![0; 16];

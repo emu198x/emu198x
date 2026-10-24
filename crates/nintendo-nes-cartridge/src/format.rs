@@ -1,9 +1,14 @@
-//! iNES / NES 2.0 cartridge header parser.
+//! Loading a board from an iNES / NES 2.0 file.
+//!
+//! `format-nintendo-nes-ines` reads the file's layout; this module picks the
+//! board its mapper number names and fills it with the file's ROM.
 //!
 //! Both iNES 1.0 and NES 2.0 files map onto [`CartridgeHeader`]; the
 //! NES 2.0 upper nibbles are folded into the 12-bit `mapper_number`
 //! and the extended PRG/CHR sizes are reported via the byte counts the
 //! parser passes to each mapper constructor.
+
+use format_nintendo_nes_ines::HeaderMirroring;
 
 use crate::mapper::{Mapper, Mirroring};
 use crate::mappers::{
@@ -65,90 +70,31 @@ pub struct ParsedCartridge {
 /// - The mapper number is not supported by this port — see the
 ///   crate-level doc comment for the current scope.
 pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
-    if data.len() < 16 {
-        return Err("iNES file too short (< 16 bytes)".to_string());
-    }
-    if &data[0..4] != b"NES\x1a" {
-        return Err("Invalid iNES magic (expected NES\\x1A)".to_string());
-    }
-
-    let prg_banks = data[4];
-    let chr_banks = data[5];
-    let flags6 = data[6];
-    let flags7 = data[7];
-
-    let mapper_lo = (flags6 >> 4) & 0x0F;
-    let mapper_hi = flags7 & 0xF0;
-
-    // NES 2.0 detection: bits 3-2 of flags7 == 0b10.
-    let is_nes_2_0 = (flags7 & 0x0C) == 0x08;
-
-    let (mapper_number, prg_size, chr_size) = if is_nes_2_0 {
-        // NES 2.0: 12-bit mapper number. Each byte-9 nibble selects
-        // either extended bank counts or exponent/multiplier byte sizes.
-        let mapper8 = data[8];
-        let mapper_number =
-            u16::from(mapper_lo) | u16::from(mapper_hi) | (u16::from(mapper8 & 0x0F) << 8);
-
-        let prg_size = nes2_rom_size(prg_banks, data[9] & 0x0F, 16384)
-            .ok_or_else(|| "NES 2.0 PRG ROM size exceeds the address space".to_string())?;
-        let chr_size = nes2_rom_size(chr_banks, data[9] >> 4, 8192)
-            .ok_or_else(|| "NES 2.0 CHR ROM size exceeds the address space".to_string())?;
-
-        (mapper_number, prg_size, chr_size)
-    } else {
-        // iNES 1.0: 8-bit mapper number.
-        let mapper_number = u16::from(mapper_hi | mapper_lo);
-        let prg_size = usize::from(prg_banks) * 16384;
-        let chr_size = usize::from(chr_banks) * 8192;
-        (mapper_number, prg_size, chr_size)
+    let image = format_nintendo_nes_ines::parse(data).map_err(|error| error.to_string())?;
+    let mirroring = match image.header.mirroring {
+        HeaderMirroring::Horizontal => Mirroring::Horizontal,
+        HeaderMirroring::Vertical => Mirroring::Vertical,
+        HeaderMirroring::FourScreen => Mirroring::FourScreen,
     };
-
-    let mirroring = if flags6 & 0x08 != 0 {
-        Mirroring::FourScreen
-    } else if flags6 & 0x01 != 0 {
-        Mirroring::Vertical
-    } else {
-        Mirroring::Horizontal
-    };
-
-    let has_battery = flags6 & 0x02 != 0;
-    let has_trainer = flags6 & 0x04 != 0;
-
+    let has_battery = image.header.has_battery;
     let header = CartridgeHeader {
-        prg_rom_banks: prg_banks,
-        chr_rom_banks: chr_banks,
-        mapper_number,
+        prg_rom_banks: image.header.prg_rom_banks,
+        chr_rom_banks: image.header.chr_rom_banks,
+        mapper_number: image.header.mapper_number,
         mirroring,
         has_battery,
     };
 
-    // iNES layout: [16-byte header][optional 512-byte trainer][PRG ROM][CHR ROM].
-    let prg_start: usize = if has_trainer { 16 + 512 } else { 16 };
-    let chr_start = prg_start
-        .checked_add(prg_size)
-        .ok_or_else(|| "iNES PRG ROM extent exceeds the address space".to_string())?;
-    let rom_end = chr_start
-        .checked_add(chr_size)
-        .ok_or_else(|| "iNES CHR ROM extent exceeds the address space".to_string())?;
-
-    if data.len() < rom_end {
-        return Err(format!(
-            "iNES file too short: expected {rom_end} bytes, got {}",
-            data.len()
-        ));
+    if image.header.is_nes_2_0 {
+        validate_nes2_mapper_extents(
+            header.mapper_number,
+            image.prg_rom.len(),
+            image.chr_rom.len(),
+        )?;
     }
 
-    if is_nes_2_0 {
-        validate_nes2_mapper_extents(mapper_number, prg_size, chr_size)?;
-    }
-
-    let prg_rom = data[prg_start..chr_start].to_vec();
-    let chr_data = if chr_size > 0 {
-        data[chr_start..rom_end].to_vec()
-    } else {
-        Vec::new() // CHR RAM cartridge
-    };
+    let prg_rom = image.prg_rom.to_vec();
+    let chr_data = image.chr_rom.to_vec(); // empty for a CHR RAM cartridge
 
     let mut mapper: Box<dyn Mapper> = match header.mapper_number {
         0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
@@ -183,9 +129,11 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
     // must not discard loader data (Sunsoft-4 starts with PRG RAM disabled).
     // This supplies existing RAM, not an overlay for RAM-less boards.
     // Format-author specification: https://fms.komkon.org/EMUL8/NES.html
-    if has_trainer && mapper.save_ram().len() >= 0x2000 {
+    if let Some(trainer) = image.trainer
+        && mapper.save_ram().len() >= 0x2000
+    {
         let mut ram = mapper.save_ram().to_vec();
-        ram[0x1000..0x1200].copy_from_slice(&data[16..prg_start]);
+        ram[0x1000..0x1200].copy_from_slice(trainer);
         mapper.restore_save_ram(&ram);
     }
 
@@ -194,19 +142,6 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         has_battery,
         header,
     })
-}
-
-/// NESdev NES 2.0, PRG-ROM/CHR-ROM size: an MSB nibble of $F makes
-/// the low byte EEEEEE MM, denoting 2^E * (2*M + 1) bytes. The bank
-/// unit applies only to linear encoding. See the primary reference
-/// `reference/by-system/nintendo-nes/2026-nes2-rom-size-observations.md`.
-fn nes2_rom_size(low: u8, high: u8, bank_size: usize) -> Option<usize> {
-    if high == 0x0f {
-        let power = 1usize.checked_shl(u32::from(low >> 2))?;
-        power.checked_mul(usize::from((low & 3) * 2 + 1))
-    } else {
-        ((usize::from(high) << 8) | usize::from(low)).checked_mul(bank_size)
-    }
 }
 
 /// Exponent encoding permits sub-bank payloads that the linear encoding

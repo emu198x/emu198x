@@ -56,8 +56,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 fn nes_test_roms_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;

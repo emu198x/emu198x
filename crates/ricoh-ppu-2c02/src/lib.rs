@@ -39,8 +39,8 @@
 
 pub mod palette;
 
-use format_nintendo_nes_ines::Mapper;
-pub use format_nintendo_nes_ines::Mirroring;
+use nintendo_nes_cartridge::Mapper;
+pub use nintendo_nes_cartridge::Mirroring;
 use palette::PALETTE;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -1738,7 +1738,7 @@ fn flip_byte(mut b: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_nintendo_nes_ines::Nrom;
+    use nintendo_nes_cartridge::Nrom;
 
     /// Build a minimal NROM mapper with 8 KiB of zero CHR RAM and
     /// horizontal mirroring. Good enough for any test that doesn't
@@ -3118,7 +3118,7 @@ mod tests {
         fn mirroring(&self) -> Mirroring {
             self.inner.mirroring()
         }
-        fn snapshot(&self) -> format_nintendo_nes_ines::MapperSnapshot {
+        fn snapshot(&self) -> nintendo_nes_cartridge::MapperSnapshot {
             self.inner.snapshot()
         }
     }
@@ -3512,7 +3512,7 @@ mod tests {
             fn notify_a12_rendering(&mut self, _high: bool, _ppu_cycle: u64) {
                 self.notifications += 1;
             }
-            fn snapshot(&self) -> format_nintendo_nes_ines::MapperSnapshot {
+            fn snapshot(&self) -> nintendo_nes_cartridge::MapperSnapshot {
                 self.inner.snapshot()
             }
         }
@@ -3659,7 +3659,7 @@ mod tests {
                     false
                 }
             }
-            fn snapshot(&self) -> format_nintendo_nes_ines::MapperSnapshot {
+            fn snapshot(&self) -> nintendo_nes_cartridge::MapperSnapshot {
                 self.inner.snapshot()
             }
         }

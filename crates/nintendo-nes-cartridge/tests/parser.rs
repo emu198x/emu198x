@@ -8,7 +8,7 @@
 mod common;
 
 use common::{expect_err, make_ines, make_nes2};
-use format_nintendo_nes_ines::{
+use nintendo_nes_cartridge::{
     Action53, AxRom, BxRom, Camerica, CnRom, ColorDreams, Mapper, Mirroring, Mmc1, Mmc3, Mmc5,
     Nina001, Sunsoft4, UxRom, Vrc2a, parse_ines,
 };
