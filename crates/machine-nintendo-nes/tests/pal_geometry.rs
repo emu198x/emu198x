@@ -22,8 +22,8 @@
 //! | CPU cycles per frame | 29 780.67 | 33 247.5 |
 //! | odd-frame dot skip | yes | no |
 
-use format_nintendo_nes_ines::{Mapper, parse_ines};
 use machine_nintendo_nes::{Nes, Region};
+use nintendo_nes_cartridge::{Mapper, parse_ines};
 use std::path::PathBuf;
 
 const DOTS_PER_SCANLINE: u64 = 341;

@@ -40,8 +40,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 /// Frame at which both emulators sample. Must match `TARGET_FRAME` in
 /// `screen-state.lua`, which cannot read it from the environment because

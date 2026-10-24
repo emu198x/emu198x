@@ -2,7 +2,7 @@
 //!
 //! Ties the 2A03 CPU ([`emu198x_mos_6502`]), 2C02 PPU
 //! ([`ricoh_ppu_2c02`]), and cartridge mapper
-//! ([`format_nintendo_nes_ines::Mapper`]) together with 2 KiB of
+//! ([`nintendo_nes_cartridge::Mapper`]) together with 2 KiB of
 //! internal RAM, OAMDMA, and controller I/O.
 //!
 //! # Tick loop
@@ -51,7 +51,7 @@ mod serde_skip_audit;
 
 use emu198x_mos_6502::M6502;
 use emu198x_ricoh_apu_2a03::Apu;
-use format_nintendo_nes_ines::{Mapper, MapperSnapshot, mapper_from_snapshot};
+use nintendo_nes_cartridge::{Mapper, MapperSnapshot, mapper_from_snapshot};
 use ricoh_ppu_2c02::Ppu;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -1102,7 +1102,7 @@ impl Nes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_nintendo_nes_ines::{Mirroring, Nrom, parse_ines};
+    use nintendo_nes_cartridge::{Mirroring, Nrom, parse_ines};
 
     /// Run a blargg-style NES test ROM (result block at `$6000`,
     /// signature `DE B0 61` at `$6001-3`, `$6000`=`0x80` running else

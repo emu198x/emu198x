@@ -101,7 +101,7 @@ fn button_bit(name: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_nintendo_nes_ines::{Mirroring, parse_ines};
+    use nintendo_nes_cartridge::{Mirroring, parse_ines};
     use std::borrow::Cow;
 
     fn make_nes() -> Nes {

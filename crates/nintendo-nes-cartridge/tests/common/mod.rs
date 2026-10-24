@@ -1,6 +1,6 @@
 //! Shared helpers for the integration tests.
 
-use format_nintendo_nes_ines::ParsedCartridge;
+use nintendo_nes_cartridge::ParsedCartridge;
 
 /// Build a minimal iNES 1.0 file with the given bank counts and
 /// flags6. PRG bytes are filled with their offset mod 256 so

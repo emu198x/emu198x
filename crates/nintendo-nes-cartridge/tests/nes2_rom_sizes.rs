@@ -1,7 +1,7 @@
 //! ROM extents come from the encoding, independently of mapper bank windows.
 //! NESdev NES 2.0 specification, PRG-ROM/CHR-ROM size sections.
 
-use format_nintendo_nes_ines::parse_ines;
+use nintendo_nes_cartridge::parse_ines;
 
 fn image(prg_size: usize, chr_size: usize, prg: u8, chr: u8, high: u8, trainer: bool) -> Vec<u8> {
     let start = 16 + if trainer { 512 } else { 0 };
