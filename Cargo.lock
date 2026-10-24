@@ -1295,6 +1295,7 @@ dependencies = [
  "runtime-oric-atmos",
  "runtime-sega-game-gear",
  "runtime-sega-master-system",
+ "runtime-sega-mega-drive",
  "runtime-sega-sg-1000",
  "runtime-sinclair-zx-spectrum",
  "runtime-sinclair-zx80",

@@ -10,7 +10,7 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 [features]
 default = ["nintendo-game-boy"]
-all-families = ["acorn-atom", "acorn-bbc-micro", "acorn-electron", "amstrad-cpc", "atari-2600", "atari-5200", "atari-7800", "atari-800xl", "coleco-colecovision", "commodore-amiga", "commodore-c64", "commodore-pet", "commodore-vic-20", "dragon", "jupiter-ace", "mattel-aquarius", "memotech-mtx", "msx", "nintendo-game-boy", "nintendo-nes", "oric-atmos", "sega-game-gear", "sega-master-system", "sega-sg-1000", "sinclair-zx-spectrum", "sinclair-zx80", "sinclair-zx81", "sord-m5", "spectravideo-svi-328", "tatung-einstein"]
+all-families = ["acorn-atom", "acorn-bbc-micro", "acorn-electron", "amstrad-cpc", "atari-2600", "atari-5200", "atari-7800", "atari-800xl", "coleco-colecovision", "commodore-amiga", "commodore-c64", "commodore-pet", "commodore-vic-20", "dragon", "jupiter-ace", "mattel-aquarius", "memotech-mtx", "msx", "nintendo-game-boy", "nintendo-nes", "oric-atmos", "sega-game-gear", "sega-master-system", "sega-mega-drive", "sega-sg-1000", "sinclair-zx-spectrum", "sinclair-zx80", "sinclair-zx81", "sord-m5", "spectravideo-svi-328", "tatung-einstein"]
 acorn-atom = ["dep:runtime-acorn-atom"]
 acorn-bbc-micro = ["dep:runtime-acorn-bbc-micro"]
 acorn-electron = ["dep:runtime-acorn-electron"]
@@ -33,6 +33,7 @@ nintendo-game-boy = ["dep:runtime-nintendo-game-boy"]
 nintendo-nes = ["dep:runtime-nintendo-nes"]
 oric-atmos = ["dep:runtime-oric-atmos"]
 sega-game-gear = ["dep:runtime-sega-game-gear"]
+sega-mega-drive = ["dep:runtime-sega-mega-drive"]
 sega-master-system = ["dep:runtime-sega-master-system"]
 sega-sg-1000 = ["dep:runtime-sega-sg-1000"]
 sinclair-zx-spectrum = ["dep:runtime-sinclair-zx-spectrum", "dep:emu198x-spectrum-web"]
@@ -68,6 +69,7 @@ runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy", version = "
 runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.44.0", optional = true }
 runtime-oric-atmos = { path = "../runtime-oric-atmos", version = "0.44.0", optional = true }
 runtime-sega-game-gear = { path = "../runtime-sega-game-gear", version = "0.44.0", optional = true }
+runtime-sega-mega-drive = { path = "../runtime-sega-mega-drive", version = "0.44.0", optional = true }
 runtime-sega-master-system = { path = "../runtime-sega-master-system", version = "0.44.0", optional = true }
 runtime-sega-sg-1000 = { path = "../runtime-sega-sg-1000", version = "0.44.0", optional = true }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.44.0", optional = true }

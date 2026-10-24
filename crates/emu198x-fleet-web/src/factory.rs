@@ -67,6 +67,8 @@ pub(super) fn create(
         "oric-atmos" => build::<runtime_oric_atmos::OricRuntime>(variant, firmware),
         #[cfg(feature = "sega-game-gear")]
         "sega-game-gear" => build::<runtime_sega_game_gear::SmsRuntime>(variant, firmware),
+        #[cfg(feature = "sega-mega-drive")]
+        "sega-mega-drive" => build::<runtime_sega_mega_drive::MegaDriveRuntime>(variant, firmware),
         #[cfg(feature = "sega-master-system")]
         "sega-master-system" => build::<runtime_sega_master_system::SmsRuntime>(variant, firmware),
         #[cfg(feature = "sega-sg-1000")]
@@ -171,6 +173,10 @@ pub(super) fn catalogue() -> Vec<Value> {
     #[cfg(feature = "sega-game-gear")]
     result.extend(profiles::<runtime_sega_game_gear::SmsRuntime>(
         "sega-game-gear",
+    ));
+    #[cfg(feature = "sega-mega-drive")]
+    result.extend(profiles::<runtime_sega_mega_drive::MegaDriveRuntime>(
+        "sega-mega-drive",
     ));
     #[cfg(feature = "sega-master-system")]
     result.extend(profiles::<runtime_sega_master_system::SmsRuntime>(
