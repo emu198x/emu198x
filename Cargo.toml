@@ -72,6 +72,7 @@ members = [
     "crates/format-tzx",
     "crates/format-sinclair-zx-spectrum-z80",
     "crates/emu198x-gi-ay-3-8910",
+    "crates/emu198x-yamaha-ym2413",
     "crates/gi-ay-3-8912",
     "crates/gvp-a530",
     "crates/intel-8255",
