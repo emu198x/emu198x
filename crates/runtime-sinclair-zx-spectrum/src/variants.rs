@@ -35,6 +35,7 @@ use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};
 use peripheral_kempston_mouse::{KempstonMouse, MouseButton};
+use peripheral_sinclair_interface1::Interface1;
 use serde_json::{Value, json};
 
 /// Moves the Kempston mouse, plugging it in on the first event, as the
@@ -429,6 +430,15 @@ impl SpectrumMachine for Spectrum48k {
     fn press_nmi_button(&mut self) -> bool {
         Spectrum48k::press_nmi_button(self)
     }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum48k::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum48k::load_tape_blocks(self, blocks);
     }
@@ -615,6 +625,15 @@ impl SpectrumMachine for Spectrum16K {
     fn press_nmi_button(&mut self) -> bool {
         Spectrum16K::press_nmi_button(self)
     }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum16K::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum16K::load_tape_blocks(self, blocks);
     }
@@ -799,6 +818,15 @@ impl SpectrumMachine for SpectrumPlus {
     fn press_nmi_button(&mut self) -> bool {
         SpectrumPlus::press_nmi_button(self)
     }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumPlus::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus::load_tape_blocks(self, blocks);
     }
@@ -977,6 +1005,15 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn press_nmi_button(&mut self) -> bool {
         Spectrum128K::press_nmi_button(self)
+    }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum128K::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum128K::load_tape_blocks(self, blocks);
@@ -1177,6 +1214,15 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn press_nmi_button(&mut self) -> bool {
         SpectrumPlus2::press_nmi_button(self)
+    }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumPlus2::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus2::load_tape_blocks(self, blocks);

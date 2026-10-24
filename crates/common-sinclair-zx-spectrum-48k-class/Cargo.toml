@@ -12,6 +12,7 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.44.0" }
 peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.44.0" }
 peripheral-kempston-mouse = { path = "../peripheral-kempston-mouse", version = "0.44.0" }
+peripheral-sinclair-interface1 = { path = "../peripheral-sinclair-interface1", version = "0.44.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 peripheral-multiface = { path = "../peripheral-multiface", version = "0.44.0" }
