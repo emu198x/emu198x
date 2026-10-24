@@ -240,6 +240,14 @@ consumers = "Built for the MSX2 (#2062)."
 coverage_floor = 95
 
 [[repo]]
+name = "konami-scc"
+crates = ["emu198x-konami-scc"]
+summary = "Konami's SCC and SCC-I (SCC+) wavetable sound chips, from the MSX MegaROM and Sound Cartridges."
+consumers = "Built for the MSX's SCC cartridges (#2066)."
+# 100.00% line coverage on 2026-10-24.
+coverage_floor = 95
+
+[[repo]]
 name = "snk-lspc2"
 crates = ["emu198x-snk-lspc2"]
 summary = "The SNK LSPC2 video chip and palette: 381 shrinking sprite strips and the fix layer."
