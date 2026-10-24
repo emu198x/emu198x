@@ -34,7 +34,27 @@ use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};
+use peripheral_kempston_mouse::{KempstonMouse, MouseButton};
 use serde_json::{Value, json};
+
+/// Moves the Kempston mouse, plugging it in on the first event, as the
+/// joystick helper does.
+fn apply_mouse_motion(mouse: &mut KempstonMouse, dx: i32, dy: i32) -> bool {
+    mouse.attached = true;
+    mouse.move_by(dx, dy);
+    true
+}
+
+/// Presses or releases a Kempston mouse button by host name, plugging the
+/// mouse in on the first recognised event. Unknown names are dropped.
+fn apply_mouse_button(mouse: &mut KempstonMouse, button: &str, pressed: bool) -> bool {
+    let Some(button) = MouseButton::from_name(button) else {
+        return false;
+    };
+    mouse.attached = true;
+    mouse.set_button(button, pressed);
+    true
+}
 
 /// Shared helper for [`SpectrumMachine::set_kempston_button`] overrides.
 ///
@@ -397,6 +417,12 @@ impl SpectrumMachine for Spectrum48k {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
+        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
+    }
+    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
+        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum48k::load_tape_blocks(self, blocks);
     }
@@ -571,6 +597,12 @@ impl SpectrumMachine for Spectrum16K {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
+        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
+    }
+    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
+        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum16K::load_tape_blocks(self, blocks);
     }
@@ -743,6 +775,12 @@ impl SpectrumMachine for SpectrumPlus {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
+        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
+    }
+    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
+        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus::load_tape_blocks(self, blocks);
     }
@@ -909,6 +947,12 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
+    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
+        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
+    }
+    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
+        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum128K::load_tape_blocks(self, blocks);
@@ -1097,6 +1141,12 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
+    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
+        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
+    }
+    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
+        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus2::load_tape_blocks(self, blocks);

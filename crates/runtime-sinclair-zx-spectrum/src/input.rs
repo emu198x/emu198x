@@ -128,6 +128,18 @@ pub(crate) fn apply_input_event<M: SpectrumMachine>(
                 runtime.keyboard_mut().set_key(neg, neg_pressed);
             }
         }
+        InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == "mouse-1" => {
+            runtime.machine_mut().move_kempston_mouse(*dx, *dy);
+        }
+        InputEvent::PointerButton {
+            device,
+            button,
+            pressed,
+        } if device.as_ref() == "mouse-1" => {
+            runtime
+                .machine_mut()
+                .set_kempston_mouse_button(button.as_ref(), *pressed);
+        }
         _ => {}
     }
 }

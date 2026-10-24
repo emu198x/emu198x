@@ -31,6 +31,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_zilog_z80::{BusOp, Z80};
 use peripheral_kempston_joystick::KempstonJoystick;
+use peripheral_kempston_mouse::KempstonMouse;
 use sinclair_ula_7k010e::SinclairUla;
 
 use crate::memory::Memory128K;
@@ -64,6 +65,8 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     /// Kempston Interface joystick. Defaults to unattached; user code
     /// flips `attached = true` when the host plugs the interface in.
     pub kempston: KempstonJoystick,
+    /// Kempston mouse interface. Unattached until mouse input arrives.
+    pub kempston_mouse: KempstonMouse,
     pub tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -120,6 +123,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
+            kempston_mouse: KempstonMouse::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -260,6 +264,11 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         &mut self.kempston
     }
 
+    /// Returns mutable access to the Kempston mouse peripheral.
+    pub fn kempston_mouse_mut(&mut self) -> &mut KempstonMouse {
+        &mut self.kempston_mouse
+    }
+
     /// Returns the current half-cycle counter within the frame.
     #[must_use]
     pub const fn hc_value(&self) -> u32 {
@@ -377,12 +386,18 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     /// Whether no peripheral drives this port, leaving the ULA display bus visible.
     fn is_floating_bus_port(&self, port: u16) -> bool {
         port & 1 != 0
+            && !self.kempston_mouse.claims_port(port)
             && !self.kempston.claims_port(port)
             && port & 0xc002 != 0xc000
             && port != 0x001f
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        // The mouse's ports fall inside the joystick's partial decode, so
+        // the mouse answers first.
+        if self.kempston_mouse.claims_port(port) {
+            return self.kempston_mouse.read(port);
+        }
         if self.kempston.claims_port(port) {
             return self.kempston.read(port);
         }
@@ -834,6 +849,15 @@ mod tests {
     /// `io_write` to `$FE` toggles the beeper speaker state (bit 4).
     /// The runtime's audio mixer samples this at end-of-frame and
     /// emits PCM accordingly.
+    #[test]
+    fn the_kempston_mouse_answers_on_the_128k() {
+        let mut m = Spectrum128K::new();
+        m.kempston_mouse.attached = true;
+        m.kempston_mouse.x = 7;
+        assert_eq!(m.io_read(0xFBDF), 7);
+        assert_eq!(m.io_read(0xFADF), 0xFF);
+    }
+
     #[test]
     fn io_write_fe_toggles_beeper_state() {
         let mut m = Spectrum128K::new();

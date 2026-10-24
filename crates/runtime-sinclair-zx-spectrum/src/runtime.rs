@@ -103,6 +103,25 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         false
     }
 
+    /// Moves the Kempston mouse by a host delta (`dx` right, `dy` down).
+    ///
+    /// Returns `false` when the machine has no Kempston mouse. The first
+    /// applied event plugs the interface in, as with the joystick. Default
+    /// implementation returns `false`; the 48K- and 128K-class machines
+    /// override it.
+    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
+        let _ = (dx, dy);
+        false
+    }
+
+    /// Presses or releases a Kempston mouse button named `left`, `right`
+    /// or `middle`. Returns `false` when the machine has no Kempston mouse
+    /// or the name is unknown.
+    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
+        let _ = (button, pressed);
+        false
+    }
+
     /// Loads tape blocks parsed from a `.tap` container.
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>);
 
