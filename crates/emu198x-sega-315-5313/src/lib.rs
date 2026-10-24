@@ -21,7 +21,10 @@
 //! The line is stepped slot by slot from the master clock, so the FIFO, DMA
 //! and the CPU's reads are served exactly when the line's external slots
 //! come round (see [`timing`]), and every display fetch happens in its own
-//! slot. Mode 4, the Master System mode, is still to come.
+//! slot.
+//!
+//! - Mode 4, the Master System mode a Power Base Converter uses, with its
+//!   own line schedule and 8-bit ports (see [`mode4`]).
 //!
 //! # Wiring it up
 //!
@@ -34,6 +37,7 @@
 //! machine reads it and hands it over with [`Vdp::dma_word`]. The chip owns
 //! no bus and makes no callbacks.
 
+mod mode4;
 pub mod render;
 mod sprites;
 pub mod timing;
@@ -41,6 +45,7 @@ pub mod timing;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+pub use mode4::{MODE4_FRAME_WIDTH, argb_mode4};
 use timing::{Slot, VINT_SLOT, VTiming, Width};
 
 /// VRAM size: the Mega Drive fits 64 KB.
@@ -212,6 +217,9 @@ pub struct Vdp {
     frames: u64,
     frame_width: usize,
     frame_height: usize,
+
+    /// Mode 4's own state.
+    m4: mode4::Mode4,
 }
 
 /// The tallest frame: PAL, borders included.
@@ -281,13 +289,15 @@ impl Vdp {
             frames: 0,
             frame_width: 256 + render::BORDER_LEFT + render::BORDER_RIGHT,
             frame_height: if pal_machine { 294 } else { 243 },
+            m4: mode4::Mode4::default(),
         }
     }
 
     // ---- Configuration read from the registers. ----
 
     fn width(&self) -> Width {
-        if self.regs[REG_MODE_4] & BIT_H40 != 0 {
+        // Mode 4 always runs the H32 line.
+        if self.mode_5() && self.regs[REG_MODE_4] & BIT_H40 != 0 {
             Width::H40
         } else {
             Width::H32
@@ -299,7 +309,11 @@ impl Vdp {
     }
 
     fn v_timing(&self) -> VTiming {
-        VTiming::new(self.pal_machine, self.regs[REG_MODE_2] & BIT_V30 != 0)
+        if self.mode_5() {
+            VTiming::new(self.pal_machine, self.regs[REG_MODE_2] & BIT_V30 != 0)
+        } else {
+            VTiming::mode4(self.pal_machine, self.mode4_height())
+        }
     }
 
     /// Master clocks per slot in the current width, for latencies.
@@ -312,7 +326,10 @@ impl Vdp {
 
     /// Whether the display is fetching: the picture is on and enabled.
     fn is_active(&self) -> bool {
-        self.state != State::Inactive && self.regs[REG_MODE_2] & BIT_DISPLAY != 0 && self.mode_5()
+        if !self.mode_5() {
+            return self.mode4_active();
+        }
+        self.state != State::Inactive && self.regs[REG_MODE_2] & BIT_DISPLAY != 0
     }
 
     fn dma_type(&self) -> u8 {
@@ -336,6 +353,10 @@ impl Vdp {
 
     /// Everything that happens at the start of a slot.
     fn begin_slot(&mut self) {
+        if !self.mode_5() {
+            self.begin_slot_mode4();
+            return;
+        }
         let width = self.width();
         let v = self.v_timing();
         if self.hslot == width.line_change() {
@@ -969,6 +990,8 @@ impl Vdp {
     }
 }
 
+#[cfg(test)]
+mod mode4_tests;
 #[cfg(test)]
 mod render_tests;
 #[cfg(test)]
