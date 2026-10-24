@@ -8,14 +8,17 @@
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use serde_json::json;
 
-use crate::runtime::{C64Runtime, SCREEN_RAM_BASE, SCREEN_TEXT_HEIGHT, SCREEN_TEXT_WIDTH};
+use crate::runtime::{
+    C64FamilyRuntime, C64Runtime, SCREEN_RAM_BASE, SCREEN_TEXT_HEIGHT, SCREEN_TEXT_WIDTH,
+};
+use crate::variants::C64FamilyMachine;
 use emu198x_esp_at_modem::EspAtTcpBridge;
-use machine_commodore_c64::C64;
 
-/// Every path the C64 runtime answers via `query()`. Wildcard paths
-/// like `c64.memory.ram.<hex16>` are listed with the placeholder name
-/// so `query_paths` returns a clean catalogue.
-pub(crate) const C64_QUERY_PATHS: &[&str] = &[
+/// Paths every machine in the family answers: its CPU, CIAs, VIC-II, the
+/// 40-column screen and bank 0 RAM. Wildcard paths like
+/// `memory.ram.<hex16>` are listed with the placeholder name so
+/// `query_paths` returns a clean catalogue.
+pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.row",
     "boot.reason",
@@ -61,6 +64,44 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "cia2.timer_a_latch",
     "cia2.timer_b",
     "cia2.timer_b_latch",
+    "machine.cycle_in_line",
+    "machine.frame_count",
+    "memory.ram.<hex16>",
+    "machine.raster_line",
+    "vic.background_colour",
+    "vic.aec_low",
+    "vic.badline",
+    "vic.badline_ba_low",
+    "vic.ba_low",
+    "vic.ba_low_cycles",
+    "vic.border_colour",
+    "vic.c_access_active",
+    "vic.cpu_stalled",
+    "vic.forced_badline_cdata_carry_age",
+    "vic.forced_badline_cdata_carry_cycles_remaining",
+    "vic.forced_badline_cdata_carry_pending",
+    "vic.forced_badline_cdata_carry_slot",
+    "vic.forced_badline_cdata_carry_value",
+    "vic.forced_badline_cdata_destination_vmli",
+    "vic.forced_badline_cdata_eligibility_cycles_remaining",
+    "vic.forced_badline_output_delay",
+    "vic.idle_state",
+    "vic.irq",
+    "vic.last_bus_data",
+    "vic.late_badline_window",
+    "vic.late_badline_fetches_remaining",
+    "vic.pending_d011_write_cycle",
+    "vic.rc",
+    "vic.sprite_ba_low",
+    "vic.vc",
+    "vic.vcbase",
+    "vic.vmli",
+    "screen.text.lines",
+];
+
+/// Paths only the C64 answers: its drives and serial bus, user port,
+/// datasette and processor-port banking.
+pub(crate) const C64_ONLY_QUERY_PATHS: &[&str] = &[
     "userport.esp_at.attached",
     "drive8.attached",
     "drive8.cpu.addr",
@@ -118,45 +159,12 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "memory.io_visible",
     "memory.port_data",
     "memory.port_ddr",
-    "machine.cycle_in_line",
-    "machine.frame_count",
-    "memory.ram.<hex16>",
-    "machine.raster_line",
     "tape.loaded",
     "tape.motor_on",
     "tape.pulse_count",
     "tape.pulse_index",
     "tape.playing",
     "tape.sense",
-    "vic.background_colour",
-    "vic.aec_low",
-    "vic.badline",
-    "vic.badline_ba_low",
-    "vic.ba_low",
-    "vic.ba_low_cycles",
-    "vic.border_colour",
-    "vic.c_access_active",
-    "vic.cpu_stalled",
-    "vic.forced_badline_cdata_carry_age",
-    "vic.forced_badline_cdata_carry_cycles_remaining",
-    "vic.forced_badline_cdata_carry_pending",
-    "vic.forced_badline_cdata_carry_slot",
-    "vic.forced_badline_cdata_carry_value",
-    "vic.forced_badline_cdata_destination_vmli",
-    "vic.forced_badline_cdata_eligibility_cycles_remaining",
-    "vic.forced_badline_output_delay",
-    "vic.idle_state",
-    "vic.irq",
-    "vic.last_bus_data",
-    "vic.late_badline_window",
-    "vic.late_badline_fetches_remaining",
-    "vic.pending_d011_write_cycle",
-    "vic.rc",
-    "vic.sprite_ba_low",
-    "vic.vc",
-    "vic.vcbase",
-    "vic.vmli",
-    "screen.text.lines",
 ];
 
 /// Where the C64 mounts the ESP-AT modem's own query leaves. The peripheral
@@ -193,20 +201,24 @@ pub(crate) struct C64BootStatus {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct C64SessionQueryProvider;
 
-impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
-    fn query_paths(&self, machine: &C64Runtime, prefix: Option<&str>) -> Vec<String> {
-        let mut paths: Vec<String> = C64_QUERY_PATHS
+impl<M: C64FamilyMachine> SessionQueryProvider<C64FamilyRuntime<M>> for C64SessionQueryProvider {
+    fn query_paths(&self, machine: &C64FamilyRuntime<M>, prefix: Option<&str>) -> Vec<String> {
+        let mut paths: Vec<String> = SHARED_QUERY_PATHS
             .iter()
             .copied()
             .map(str::to_owned)
-            .chain(attached_peripheral_query_paths(machine))
+            .chain(M::extra_query_paths(machine))
             .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
             .collect();
         paths.sort_unstable();
         paths
     }
 
-    fn query(&self, machine: &C64Runtime, path: &str) -> Result<Option<QueryResult>, QueryError> {
+    fn query(
+        &self,
+        machine: &C64FamilyRuntime<M>,
+        path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
         let boot = c64_boot_status(machine.machine());
 
         let value = match path {
@@ -259,125 +271,9 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "cia2.timer_a_latch" => json!(machine.machine().cia2().timer_a_latch()),
             "cia2.timer_b" => json!(machine.machine().cia2().timer_b()),
             "cia2.timer_b_latch" => json!(machine.machine().cia2().timer_b_latch()),
-            "userport.esp_at.attached" => json!(machine.esp_at_tcp_bridge().is_some()),
-            "drive8.attached" => json!(machine.drive8().is_some()),
-            "drive8.cpu.addr" => json!(machine.drive8().map(|drive| drive.cpu().addr)),
-            "drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
-            "drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
-            "drive8.cpu.instruction_complete" => {
-                json!(
-                    machine
-                        .drive8()
-                        .map(|drive| drive.cpu().instruction_complete())
-                )
-            }
-            "drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
-            "drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
-            "drive8.cpu.rw" => json!(machine.drive8().map(|drive| drive.cpu().rw)),
-            "drive8.cpu.sp" => json!(machine.drive8().map(|drive| drive.cpu().regs.sp)),
-            "drive8.cpu.sync" => json!(machine.drive8().map(|drive| drive.cpu().sync)),
-            "drive8.cpu.x" => json!(machine.drive8().map(|drive| drive.cpu().regs.x)),
-            "drive8.cpu.y" => json!(machine.drive8().map(|drive| drive.cpu().regs.y)),
-            "drive8.via1.irq" => json!(machine.drive8().map(|drive| drive.via1().irq)),
-            "drive8.via1.ca1" => json!(machine.drive8().map(|drive| drive.via1().ca1)),
-            "drive8.via1.pa" => json!(machine.drive8().map(|drive| drive.via1().pa)),
-            "drive8.via1.pb" => json!(machine.drive8().map(|drive| drive.via1().pb)),
-            "drive8.via1.ora" => json!(machine.drive8().map(|drive| drive.via1().ora())),
-            "drive8.via1.orb" => json!(machine.drive8().map(|drive| drive.via1().orb())),
-            "drive8.via1.ddra" => {
-                json!(machine.drive8().map(|drive| drive.via1().ddra()))
-            }
-            "drive8.via1.ddrb" => {
-                json!(machine.drive8().map(|drive| drive.via1().ddrb()))
-            }
-            "drive8.via1.acr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0B))),
-            "drive8.via1.pcr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0C))),
-            "drive8.via1.t1_counter" => json!(machine.drive8().map(|drive| {
-                u16::from(drive.via1().peek(0x04)) | (u16::from(drive.via1().peek(0x05)) << 8)
-            })),
-            "drive8.via1.t1_latch" => json!(machine.drive8().map(|drive| {
-                u16::from(drive.via1().peek(0x06)) | (u16::from(drive.via1().peek(0x07)) << 8)
-            })),
-            "drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
-            "drive8.via2.ca1" => json!(machine.drive8().map(|drive| drive.via2().ca1)),
-            "drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
-            "drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
-            "drive8.via2.ora" => json!(machine.drive8().map(|drive| drive.via2().ora())),
-            "drive8.via2.orb" => json!(machine.drive8().map(|drive| drive.via2().orb())),
-            "drive8.via2.ddra" => {
-                json!(machine.drive8().map(|drive| drive.via2().ddra()))
-            }
-            "drive8.via2.ddrb" => {
-                json!(machine.drive8().map(|drive| drive.via2().ddrb()))
-            }
-            "drive8.via2.acr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0B))),
-            "drive8.via2.pcr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0C))),
-            "drive8.gcr_read" => json!(machine.drive8().map(|drive| drive.gcr_read())),
-            "drive8.byte_ready" => json!(machine.drive8().map(|drive| drive.byte_ready())),
-            "drive8.byte_ready_events" => {
-                json!(machine.drive8().map(|drive| drive.byte_ready_event_count()))
-            }
-            "drive8.sync_detected" => {
-                json!(machine.drive8().map(|drive| drive.sync_detected()))
-            }
-            "drive8.sync_events" => {
-                json!(machine.drive8().map(|drive| drive.sync_event_count()))
-            }
-            "drive8.motor_on" => json!(machine.drive8().map(|drive| drive.motor_on())),
-            "drive8.activity_led" => {
-                json!(machine.drive8().map(|drive| drive.activity_led()))
-            }
-            "drive8.head_position" => {
-                json!(machine.drive8().map(|drive| drive.head_position()))
-            }
-            "drive8.density_code" => {
-                json!(machine.drive8().map(|drive| drive.density_code()))
-            }
-            "drive8.disk.inserted" => {
-                json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
-            }
-            "drive8.disk.name" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.disk_name())
-            ),
-            "drive8.disk.id" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.disk_id())
-            ),
-            "drive8.disk.write_protected" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.write_protected())
-            ),
-            "drive8.disk.directory" => json!(
-                machine
-                    .drive8()
-                    .and_then(|drive| drive.disk())
-                    .map(|disk| disk.directory_entries())
-            ),
-            "drive8.trace.recent_writes" => {
-                json!(machine.drive8().map(|drive| drive.recent_io_writes()))
-            }
-            "iec.cpu_port" => json!(machine.iec_bus().cpu_port()),
-            "iec.drive_port" => json!(machine.iec_bus().drive_port()),
-            "memory.effective_port" => json!(machine.machine().memory().effective_port()),
-            "memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
-            "memory.port_data" => json!(machine.machine().memory().port_data()),
-            "memory.port_ddr" => json!(machine.machine().memory().port_ddr()),
             "machine.raster_line" => json!(machine.machine().raster_line()),
             "machine.cycle_in_line" => json!(machine.machine().cycle_in_line()),
             "machine.frame_count" => json!(machine.machine().frame_count()),
-            "tape.loaded" => json!(machine.machine().tape_is_loaded()),
-            "tape.motor_on" => json!(machine.machine().tape_motor_on()),
-            "tape.pulse_count" => json!(machine.machine().tape_pulse_count()),
-            "tape.pulse_index" => json!(machine.machine().tape_pulse_index()),
-            "tape.playing" => json!(machine.machine().tape_is_playing()),
-            "tape.sense" => json!(machine.machine().tape_sense_active()),
             "vic.background_colour" => json!(machine.machine().vic_register(0x21) & 0x0F),
             "vic.aec_low" => json!(machine.machine().vic().aec_is_low()),
             "vic.badline" => json!(machine.machine().vic().is_badline()),
@@ -451,36 +347,12 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
                 let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
                     path: path.to_owned(),
                 })?;
-                json!(machine.machine().memory().ram_read(addr))
+                json!(machine.machine().ram_read(addr))
             }
-            _ if path.starts_with("drive8.mem.") => {
-                let suffix = &path["drive8.mem.".len()..];
-                let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
-                    path: path.to_owned(),
-                })?;
-                json!(
-                    machine
-                        .drive8()
-                        .map(|drive| drive.peek_with_iec_bus(addr, machine.iec_bus()))
-                )
-            }
-            // Peripheral-owned leaves. The modem answers its own names, so
-            // adding one there needs no change here; an unplugged modem
-            // reports the leaf as unavailable rather than unknown, which is
-            // the honest distinction for hardware that is simply absent.
-            _ if let Some(leaf) = path.strip_prefix(ESP_AT_QUERY_PREFIX) => {
-                let Some(bridge) = machine.esp_at_tcp_bridge() else {
-                    return Err(QueryError::UnavailablePath {
-                        path: path.to_owned(),
-                        reason: "no ESP-AT modem is attached to the user port",
-                    });
-                };
-                match bridge.query_leaf(leaf) {
-                    Some(value) => value,
-                    None => return Ok(None),
-                }
-            }
-            _ => return Ok(None),
+            _ => match M::extra_query(machine, path)? {
+                Some(value) => value,
+                None => return Ok(None),
+            },
         };
 
         Ok(Some(QueryResult {
@@ -488,6 +360,171 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             value,
         }))
     }
+}
+
+/// The C64's own query paths: [`C64_ONLY_QUERY_PATHS`] and the leaves of
+/// whichever optional peripherals are attached.
+pub(crate) fn c64_extra_query_paths(machine: &C64Runtime) -> Vec<String> {
+    C64_ONLY_QUERY_PATHS
+        .iter()
+        .copied()
+        .map(str::to_owned)
+        .chain(attached_peripheral_query_paths(machine))
+        .collect()
+}
+
+/// Answer one of the C64's own query paths, or `Ok(None)` for any other.
+pub(crate) fn c64_extra_query(
+    machine: &C64Runtime,
+    path: &str,
+) -> Result<Option<serde_json::Value>, QueryError> {
+    let value = match path {
+        "userport.esp_at.attached" => json!(machine.esp_at_tcp_bridge().is_some()),
+        "drive8.attached" => json!(machine.drive8().is_some()),
+        "drive8.cpu.addr" => json!(machine.drive8().map(|drive| drive.cpu().addr)),
+        "drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
+        "drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
+        "drive8.cpu.instruction_complete" => {
+            json!(
+                machine
+                    .drive8()
+                    .map(|drive| drive.cpu().instruction_complete())
+            )
+        }
+        "drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
+        "drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
+        "drive8.cpu.rw" => json!(machine.drive8().map(|drive| drive.cpu().rw)),
+        "drive8.cpu.sp" => json!(machine.drive8().map(|drive| drive.cpu().regs.sp)),
+        "drive8.cpu.sync" => json!(machine.drive8().map(|drive| drive.cpu().sync)),
+        "drive8.cpu.x" => json!(machine.drive8().map(|drive| drive.cpu().regs.x)),
+        "drive8.cpu.y" => json!(machine.drive8().map(|drive| drive.cpu().regs.y)),
+        "drive8.via1.irq" => json!(machine.drive8().map(|drive| drive.via1().irq)),
+        "drive8.via1.ca1" => json!(machine.drive8().map(|drive| drive.via1().ca1)),
+        "drive8.via1.pa" => json!(machine.drive8().map(|drive| drive.via1().pa)),
+        "drive8.via1.pb" => json!(machine.drive8().map(|drive| drive.via1().pb)),
+        "drive8.via1.ora" => json!(machine.drive8().map(|drive| drive.via1().ora())),
+        "drive8.via1.orb" => json!(machine.drive8().map(|drive| drive.via1().orb())),
+        "drive8.via1.ddra" => {
+            json!(machine.drive8().map(|drive| drive.via1().ddra()))
+        }
+        "drive8.via1.ddrb" => {
+            json!(machine.drive8().map(|drive| drive.via1().ddrb()))
+        }
+        "drive8.via1.acr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0B))),
+        "drive8.via1.pcr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0C))),
+        "drive8.via1.t1_counter" => json!(machine.drive8().map(|drive| {
+            u16::from(drive.via1().peek(0x04)) | (u16::from(drive.via1().peek(0x05)) << 8)
+        })),
+        "drive8.via1.t1_latch" => json!(machine.drive8().map(|drive| {
+            u16::from(drive.via1().peek(0x06)) | (u16::from(drive.via1().peek(0x07)) << 8)
+        })),
+        "drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
+        "drive8.via2.ca1" => json!(machine.drive8().map(|drive| drive.via2().ca1)),
+        "drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
+        "drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
+        "drive8.via2.ora" => json!(machine.drive8().map(|drive| drive.via2().ora())),
+        "drive8.via2.orb" => json!(machine.drive8().map(|drive| drive.via2().orb())),
+        "drive8.via2.ddra" => {
+            json!(machine.drive8().map(|drive| drive.via2().ddra()))
+        }
+        "drive8.via2.ddrb" => {
+            json!(machine.drive8().map(|drive| drive.via2().ddrb()))
+        }
+        "drive8.via2.acr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0B))),
+        "drive8.via2.pcr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0C))),
+        "drive8.gcr_read" => json!(machine.drive8().map(|drive| drive.gcr_read())),
+        "drive8.byte_ready" => json!(machine.drive8().map(|drive| drive.byte_ready())),
+        "drive8.byte_ready_events" => {
+            json!(machine.drive8().map(|drive| drive.byte_ready_event_count()))
+        }
+        "drive8.sync_detected" => {
+            json!(machine.drive8().map(|drive| drive.sync_detected()))
+        }
+        "drive8.sync_events" => {
+            json!(machine.drive8().map(|drive| drive.sync_event_count()))
+        }
+        "drive8.motor_on" => json!(machine.drive8().map(|drive| drive.motor_on())),
+        "drive8.activity_led" => {
+            json!(machine.drive8().map(|drive| drive.activity_led()))
+        }
+        "drive8.head_position" => {
+            json!(machine.drive8().map(|drive| drive.head_position()))
+        }
+        "drive8.density_code" => {
+            json!(machine.drive8().map(|drive| drive.density_code()))
+        }
+        "drive8.disk.inserted" => {
+            json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
+        }
+        "drive8.disk.name" => json!(
+            machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.disk_name())
+        ),
+        "drive8.disk.id" => json!(
+            machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.disk_id())
+        ),
+        "drive8.disk.write_protected" => json!(
+            machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.write_protected())
+        ),
+        "drive8.disk.directory" => json!(
+            machine
+                .drive8()
+                .and_then(|drive| drive.disk())
+                .map(|disk| disk.directory_entries())
+        ),
+        "drive8.trace.recent_writes" => {
+            json!(machine.drive8().map(|drive| drive.recent_io_writes()))
+        }
+        "iec.cpu_port" => json!(machine.iec_bus().cpu_port()),
+        "iec.drive_port" => json!(machine.iec_bus().drive_port()),
+        "memory.effective_port" => json!(machine.machine().memory().effective_port()),
+        "memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
+        "memory.port_data" => json!(machine.machine().memory().port_data()),
+        "memory.port_ddr" => json!(machine.machine().memory().port_ddr()),
+        "tape.loaded" => json!(machine.machine().tape_is_loaded()),
+        "tape.motor_on" => json!(machine.machine().tape_motor_on()),
+        "tape.pulse_count" => json!(machine.machine().tape_pulse_count()),
+        "tape.pulse_index" => json!(machine.machine().tape_pulse_index()),
+        "tape.playing" => json!(machine.machine().tape_is_playing()),
+        "tape.sense" => json!(machine.machine().tape_sense_active()),
+        _ if path.starts_with("drive8.mem.") => {
+            let suffix = &path["drive8.mem.".len()..];
+            let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
+                path: path.to_owned(),
+            })?;
+            json!(
+                machine
+                    .drive8()
+                    .map(|drive| drive.peek_with_iec_bus(addr, machine.iec_bus()))
+            )
+        }
+        // Peripheral-owned leaves. The modem answers its own names, so
+        // adding one there needs no change here; an unplugged modem
+        // reports the leaf as unavailable rather than unknown, which is
+        // the honest distinction for hardware that is simply absent.
+        _ if let Some(leaf) = path.strip_prefix(ESP_AT_QUERY_PREFIX) => {
+            let Some(bridge) = machine.esp_at_tcp_bridge() else {
+                return Err(QueryError::UnavailablePath {
+                    path: path.to_owned(),
+                    reason: "no ESP-AT modem is attached to the user port",
+                });
+            };
+            match bridge.query_leaf(leaf) {
+                Some(value) => value,
+                None => return Ok(None),
+            }
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(value))
 }
 
 /// Parse a hex `u16` from a query suffix; accepts optional `0x`/`0X`.
@@ -505,12 +542,12 @@ const READY_SCREEN_CODES: [u8; 6] = [18, 5, 1, 4, 25, 46];
 
 /// Boot-status heuristic: scan the screen RAM for "READY." codes and
 /// report the offset / row where they appear.
-pub(crate) fn c64_boot_status(machine: &C64) -> C64BootStatus {
+pub(crate) fn c64_boot_status<M: C64FamilyMachine>(machine: &M) -> C64BootStatus {
     let end = 0x07E8u16 - 0x0400u16 - READY_SCREEN_CODES.len() as u16;
     for offset in 0..=end {
         let mut matched = true;
         for (index, expected) in READY_SCREEN_CODES.iter().copied().enumerate() {
-            if machine.memory().ram_read(0x0400 + offset + index as u16) != expected {
+            if machine.ram_read(0x0400 + offset + index as u16) != expected {
                 matched = false;
                 break;
             }
@@ -536,13 +573,13 @@ pub(crate) fn c64_boot_status(machine: &C64) -> C64BootStatus {
 }
 
 /// Read the 25×40 character matrix at $0400 and decode it to text.
-pub(crate) fn decode_screen_text_lines(machine: &C64) -> Vec<String> {
+pub(crate) fn decode_screen_text_lines<M: C64FamilyMachine>(machine: &M) -> Vec<String> {
     let mut lines = Vec::with_capacity(SCREEN_TEXT_HEIGHT);
     for row in 0..SCREEN_TEXT_HEIGHT {
         let mut line = String::with_capacity(SCREEN_TEXT_WIDTH);
         for col in 0..SCREEN_TEXT_WIDTH {
             let address = SCREEN_RAM_BASE + (row * SCREEN_TEXT_WIDTH + col) as u16;
-            let code = machine.memory().ram_read(address);
+            let code = machine.ram_read(address);
             line.push(decode_screen_code(code));
         }
         lines.push(line);
@@ -572,8 +609,8 @@ pub(crate) fn decode_screen_code(code: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::{
-        C64_QUERY_PATHS, c64_boot_status, decode_screen_code, decode_screen_text_lines,
-        parse_hex_u16,
+        C64_ONLY_QUERY_PATHS, SHARED_QUERY_PATHS, c64_boot_status, decode_screen_code,
+        decode_screen_text_lines, parse_hex_u16,
     };
     use crate::Model;
     use crate::runtime::C64Runtime;
@@ -702,7 +739,10 @@ mod tests {
     /// listing.
     #[test]
     fn advertised_query_paths_are_unique() {
-        let mut sorted: Vec<&&str> = C64_QUERY_PATHS.iter().collect();
+        let mut sorted: Vec<&&str> = SHARED_QUERY_PATHS
+            .iter()
+            .chain(C64_ONLY_QUERY_PATHS)
+            .collect();
         sorted.sort();
         let mut deduped = sorted.clone();
         deduped.dedup();

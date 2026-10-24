@@ -7,11 +7,11 @@
 
 use common_commodore_iec::IecBus;
 use emu198x_shell::{MachineError, MachineTime};
-use machine_commodore_c64::C64Snapshot;
 use serde::{Deserialize, Serialize};
 
 use crate::drives::IecDriveSnapshot;
-use crate::runtime::C64Runtime;
+use crate::runtime::C64FamilyRuntime;
+use crate::variants::C64FamilyMachine;
 
 /// Version 20: the 1571's and 1581's WD1770 carries its byte pacing, the
 /// cycles between data bytes and the countdown to the next.
@@ -96,12 +96,18 @@ const SNAPSHOT_VERSION: u32 = 20;
 /// surrounding runtime context (model identifier, time, the live IEC bus state,
 /// the per-port drive snapshots, each port's cycle-accumulator phase, and the
 /// expansion bookkeeping a reset rebuilds from).
+///
+/// Generic over the machine's own snapshot type, so a C64's envelope encodes
+/// exactly as it did before the runtime hosted a second machine. A C128's
+/// carries empty drive ports and no expansions, which is what it has; its
+/// profile id keeps it from being restored into a C64, and the C64's from a
+/// C128.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV13 {
+struct SnapshotEnvelopeV13<S> {
     version: u32,
     profile_id: String,
     time: MachineTime,
-    machine: C64Snapshot,
+    machine: S,
     drives: [Option<IecDriveSnapshot>; 4],
     drive_cycle_accum: [u64; 4],
     iec_bus: IecBus,
@@ -113,7 +119,9 @@ struct SnapshotEnvelopeV13 {
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
-pub(crate) fn encode(runtime: &C64Runtime) -> Result<Vec<u8>, MachineError> {
+pub(crate) fn encode<M: C64FamilyMachine>(
+    runtime: &C64FamilyRuntime<M>,
+) -> Result<Vec<u8>, MachineError> {
     postcard::to_allocvec(&SnapshotEnvelopeV13 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str().to_owned(),
@@ -135,7 +143,10 @@ pub(crate) fn encode(runtime: &C64Runtime) -> Result<Vec<u8>, MachineError> {
 /// Decode postcard bytes into a runtime. Validates the version and
 /// the profile identifier; restores the machine state, the per-port
 /// drives, the IEC bus, and the time stamp atomically.
-pub(crate) fn decode(runtime: &mut C64Runtime, bytes: &[u8]) -> Result<(), MachineError> {
+pub(crate) fn decode<M: C64FamilyMachine>(
+    runtime: &mut C64FamilyRuntime<M>,
+    bytes: &[u8],
+) -> Result<(), MachineError> {
     // Read the leading version varint before deserialising the versioned
     // payload. Nested VIC/SID schema changes can otherwise fail inside
     // postcard before the explicit version check explains the incompatibility.
@@ -150,7 +161,7 @@ pub(crate) fn decode(runtime: &mut C64Runtime, bytes: &[u8]) -> Result<(), Machi
         });
     }
 
-    let snapshot: SnapshotEnvelopeV13 =
+    let snapshot: SnapshotEnvelopeV13<M::Snapshot> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
