@@ -11,11 +11,14 @@
 //! lives in `format-commodore-c64-prg::load_prg`, reached here through
 //! [`C64Runtime::load_prg_bytes`].
 
-use emu198x_shell::{HeadlessSession, MachineTime, SessionError, SessionQueryProvider};
+use emu198x_shell::{
+    BasicProgramLoaded, HeadlessSession, LoaderError, MachineTime, SessionError,
+    SessionQueryProvider,
+};
 use format198x_commodore_c64_bas::{BasicProgram, tokenise};
 use thiserror::Error;
 
-use crate::C64Runtime;
+use crate::family_runtime::AsC64Runtime;
 use crate::typing::{DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES, type_string};
 
 /// Default frame budget for waiting on the KERNAL `READY.` prompt before
@@ -87,6 +90,36 @@ pub enum LoadBasicError {
         /// Maximum supported body size.
         limit: usize,
     },
+
+    /// The running machine is not a C64, so BASIC V2's memory layout does
+    /// not apply.
+    #[error("the BASIC loader installs C64 BASIC V2 programs; this machine is not a C64")]
+    NotAC64,
+}
+
+/// The `load_basic_program` script step and MCP tool, for any session that
+/// may hold a C64.
+///
+/// # Errors
+///
+/// [`LoaderError::Unsupported`] when the machine is not a C64, otherwise the
+/// loader's own failure.
+pub(crate) fn load_basic_program_step<R: AsC64Runtime, Q: SessionQueryProvider<R>>(
+    session: &mut HeadlessSession<R, Q>,
+    source: &str,
+    run: bool,
+) -> Result<BasicProgramLoaded, LoaderError> {
+    if session.machine().as_c64().is_none() {
+        return Err(LoaderError::Unsupported {
+            step: "load_basic_program",
+        });
+    }
+    let result = load_basic_source(session, source, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
+        .map_err(|err| LoaderError::Failed(err.to_string()))?;
+    Ok(BasicProgramLoaded {
+        program_bytes: result.program_bytes,
+        ran: result.ran,
+    })
 }
 
 /// Tokenises `source` and installs it, optionally running it.
@@ -98,8 +131,8 @@ pub enum LoadBasicError {
 ///
 /// Returns [`LoadBasicError::Tokenise`] when the source is not valid
 /// BASIC, or any error from [`load_basic_program`].
-pub fn load_basic_source<Q: SessionQueryProvider<C64Runtime>>(
-    session: &mut HeadlessSession<C64Runtime, Q>,
+pub fn load_basic_source<R: AsC64Runtime, Q: SessionQueryProvider<R>>(
+    session: &mut HeadlessSession<R, Q>,
     source: &str,
     run: bool,
     max_boot_frames: u32,
@@ -120,14 +153,18 @@ pub fn load_basic_source<Q: SessionQueryProvider<C64Runtime>>(
 ///
 /// Returns [`LoadBasicError::EmptyProgram`] for a header-only program,
 /// [`LoadBasicError::ProgramTooLarge`] when it overflows the BASIC area,
-/// [`LoadBasicError::Import`] when the PRG import fails, or wraps a
+/// [`LoadBasicError::Import`] when the PRG import fails,
+/// [`LoadBasicError::NotAC64`] for another machine, or wraps a
 /// [`SessionError`] for boot-wait / input failures.
-pub fn load_basic_program<Q: SessionQueryProvider<C64Runtime>>(
-    session: &mut HeadlessSession<C64Runtime, Q>,
+pub fn load_basic_program<R: AsC64Runtime, Q: SessionQueryProvider<R>>(
+    session: &mut HeadlessSession<R, Q>,
     program: &BasicProgram,
     run: bool,
     max_boot_frames: u32,
 ) -> Result<LoadBasicResult, LoadBasicError> {
+    if session.machine().as_c64().is_none() {
+        return Err(LoadBasicError::NotAC64);
+    }
     let body_len = program.bytes.len().saturating_sub(2);
     if body_len == 0 {
         return Err(LoadBasicError::EmptyProgram);
@@ -143,6 +180,8 @@ pub fn load_basic_program<Q: SessionQueryProvider<C64Runtime>>(
 
     let load_addr = session
         .machine_mut()
+        .as_c64_mut()
+        .ok_or(LoadBasicError::NotAC64)?
         .load_prg_bytes(&program.bytes)
         .map_err(LoadBasicError::Import)?;
 
@@ -151,7 +190,11 @@ pub fn load_basic_program<Q: SessionQueryProvider<C64Runtime>>(
     // start cleanly above the program even before an implicit CLR (RUN does
     // its own CLR; this keeps a non-run load consistent for LIST / inspect).
     let vartab = {
-        let machine = session.machine_mut().machine_mut();
+        let machine = session
+            .machine_mut()
+            .as_c64_mut()
+            .ok_or(LoadBasicError::NotAC64)?
+            .machine_mut();
         let vartab =
             u16::from(machine.cpu_read(VARTAB_LO)) | (u16::from(machine.cpu_read(VARTAB_HI)) << 8);
         machine.cpu_write(ARYTAB_LO, (vartab & 0xFF) as u8);
@@ -186,7 +229,7 @@ pub fn load_basic_program<Q: SessionQueryProvider<C64Runtime>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{C64SessionQueryProvider, Model};
+    use crate::{C64Runtime, C64SessionQueryProvider, Model};
     use emu198x_shell::HeadlessSession;
 
     fn stub_session() -> HeadlessSession<C64Runtime, C64SessionQueryProvider> {

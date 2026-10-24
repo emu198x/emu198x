@@ -4608,6 +4608,7 @@ dependencies = [
  "machine-commodore-1541",
  "machine-commodore-1571",
  "machine-commodore-1581",
+ "machine-commodore-c128",
  "machine-commodore-c64",
  "mos-cia-6526",
  "mos-vic-ii",

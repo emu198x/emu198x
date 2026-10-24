@@ -6,13 +6,14 @@
 
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
-    ControlCommand, HeadlessSession, InputEvent, MachineTime, MediaTransportAction,
+    ControlCommand, HeadlessSession, InputEvent, LoaderError, MachineTime, MediaTransportAction,
     MediaTransportCommand, NullTraceSink, SessionDriver, SessionError, SessionQueryProvider,
-    TraceSink,
+    TapeAutoloaded, TraceSink,
 };
 use thiserror::Error;
 
 use crate::C64Runtime;
+use crate::family_runtime::AsC64Runtime;
 
 /// Stable tape slot used by the current C64 runtime.
 pub const DEFAULT_TAPE_AUTOLOAD_SLOT: &str = "tape-1";
@@ -117,8 +118,8 @@ pub enum C64AutoloadError {
 /// Returns an error if the requested slot is unsupported, no tape is loaded,
 /// the boot wait times out, or the prompt never reaches the expected KERNAL
 /// text.
-pub fn autoload_basic_tape(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+pub fn autoload_basic_tape<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     slot: &str,
     max_boot_frames: u32,
     max_prompt_frames: u32,
@@ -133,11 +134,41 @@ pub fn autoload_basic_tape(
     )
 }
 
+/// The `autoload_tape` script step and MCP tool, for any session that may
+/// hold a C64. A `max_boot_frames` of zero takes the default.
+///
+/// # Errors
+///
+/// [`LoaderError::Unsupported`] when the machine is not a C64, otherwise the
+/// autoloader's own failure.
+pub(crate) fn autoload_tape_step<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
+    slot: &str,
+    max_boot_frames: u32,
+) -> Result<TapeAutoloaded, LoaderError> {
+    if session.machine().as_c64().is_none() {
+        return Err(LoaderError::Unsupported {
+            step: "autoload_tape",
+        });
+    }
+    let frames = if max_boot_frames == 0 {
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
+    } else {
+        max_boot_frames
+    };
+    let result = autoload_basic_tape(session, slot, frames, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES)
+        .map_err(|err| LoaderError::Failed(err.to_string()))?;
+    Ok(TapeAutoloaded {
+        slot: result.slot,
+        boot_frames: result.boot.frames,
+    })
+}
+
 /// Same as [`autoload_basic_tape`], but also streams any machine-local trace
 /// events emitted during the boot, keypress, prompt-wait, and tape-start path
 /// into one caller-provided sink.
-pub fn autoload_basic_tape_with_trace_sink(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+pub fn autoload_basic_tape_with_trace_sink<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     slot: &str,
     max_boot_frames: u32,
     max_prompt_frames: u32,
@@ -150,7 +181,11 @@ pub fn autoload_basic_tape_with_trace_sink(
         });
     }
 
-    if !session.machine().machine().tape_is_loaded() {
+    if !session
+        .machine()
+        .as_c64()
+        .is_some_and(|c64| c64.machine().tape_is_loaded())
+    {
         return Err(C64AutoloadError::MissingTape {
             slot: slot.to_owned(),
         });
@@ -274,8 +309,8 @@ fn wait_for_screen_text<D: SessionDriver>(
 /// Returns an error if the requested slot is unsupported, no drive or disk is
 /// present, the boot wait times out, or the KERNAL search banner never
 /// appears.
-pub fn autoload_basic_disk(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+pub fn autoload_basic_disk<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     slot: &str,
     max_boot_frames: u32,
     max_prompt_frames: u32,
@@ -293,8 +328,8 @@ pub fn autoload_basic_disk(
 /// Same as [`autoload_basic_disk`], but also streams any machine-local trace
 /// events emitted during the boot, keypress, and serial search path into one
 /// caller-provided sink.
-pub fn autoload_basic_disk_with_trace_sink(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+pub fn autoload_basic_disk_with_trace_sink<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     slot: &str,
     max_boot_frames: u32,
     max_prompt_frames: u32,
@@ -309,7 +344,11 @@ pub fn autoload_basic_disk_with_trace_sink(
 
     // Device 8 may hold a 1541 or a 1571 (both take `LOAD"*",8,1`); check disk
     // presence model-agnostically rather than through the 1541-only accessor.
-    match session.machine().port_disk_inserted(8) {
+    match session
+        .machine()
+        .as_c64()
+        .and_then(|c64| c64.port_disk_inserted(8))
+    {
         None => {
             return Err(C64AutoloadError::MissingDrive {
                 slot: slot.to_owned(),
@@ -349,8 +388,8 @@ pub fn autoload_basic_disk_with_trace_sink(
 ///
 /// Returns an error if the slot is wrong, the drive or disk is missing, or the
 /// boot/prompt waits time out.
-pub fn autoload_basic_disk_1581(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+pub fn autoload_basic_disk_1581<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     slot: &str,
     max_boot_frames: u32,
     max_prompt_frames: u32,
@@ -364,7 +403,8 @@ pub fn autoload_basic_disk_1581(
 
     let drive = session
         .machine()
-        .drive_1581()
+        .as_c64()
+        .and_then(C64Runtime::drive_1581)
         .ok_or_else(|| C64AutoloadError::MissingDrive {
             slot: slot.to_owned(),
         })?;
@@ -411,8 +451,8 @@ const DISK_LOAD_COMPLETE_FRAMES: u32 = 60_000;
 ///
 /// Propagates the errors of [`autoload_basic_disk`], or a keypress/settle
 /// failure while typing `RUN`.
-pub fn autoload_basic_disk_and_run(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+pub fn autoload_basic_disk_and_run<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     slot: &str,
     max_boot_frames: u32,
     max_prompt_frames: u32,
@@ -436,8 +476,8 @@ pub fn autoload_basic_disk_and_run(
     Ok(result)
 }
 
-fn tap_key_chord(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+fn tap_key_chord<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     keys: &[&'static str],
     trace_sink: &mut dyn TraceSink,
 ) -> Result<(), SessionError> {
@@ -458,8 +498,8 @@ fn tap_key_chord(
     Ok(())
 }
 
-fn type_basic_command(
-    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+fn type_basic_command<R: AsC64Runtime>(
+    session: &mut HeadlessSession<R, impl SessionQueryProvider<R>>,
     command: &str,
     trace_sink: &mut dyn TraceSink,
 ) -> Result<(), C64AutoloadError> {
