@@ -5,8 +5,14 @@
 //! restore hook reconstructs it from serialised state. The electrical colour
 //! cache is the sole reviewed exception: `Vic::rebuild_signal_codes` recovers
 //! it from the saved RGB framebuffer at `C64::restore_snapshot_state`, before
-//! any output is exposed. Every field affecting chip execution is serialised.
-//! See `knowledge/decisions/electrical-video-receiver.md` for this exception.
+//! any output is exposed. See `knowledge/decisions/electrical-video-receiver.md`
+//! for this exception.
+//!
+//! The 6502's `variant` is the second: it names the part fitted, NMOS or the
+//! 65C12's CMOS, and is set by the constructor. A skipped field restores to its
+//! default, `Variant::Nmos`, which is the part every CPU in this stack is (the
+//! 6510 and the drives' 6502s), so a C64 restore cannot change it. Every other
+//! field affecting chip execution is serialised.
 //!
 //! The previous audit named only the SID source file. It therefore missed seven
 //! skipped VIC-II sprite-pipeline fields and treated queued SID audio as
@@ -80,6 +86,14 @@ mod tests {
             && next_line.map(str::trim) == Some("signal_codes: Vec<u16>,")
     }
 
+    /// The 6502's part selector, which restores to the NMOS part this stack
+    /// fits (see the module documentation).
+    fn is_reviewed_cpu_variant(path: &Path, annotation: &str, next_line: Option<&str>) -> bool {
+        path == Path::new("crates/emu198x-mos-6502/src/lib.rs")
+            && annotation == "#[serde(skip)]"
+            && next_line.map(str::trim) == Some("pub(crate) variant: Variant,")
+    }
+
     #[test]
     fn c64_runtime_stack_has_no_unreviewed_serde_skips() {
         let root = workspace_root();
@@ -91,13 +105,17 @@ mod tests {
 
         let mut skips = Vec::new();
         let mut reviewed_caches = 0;
+        let mut reviewed_variants = 0;
         for path in sources {
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("audit cannot read {}: {err}", path.display()));
             for (line, annotation) in serde_skip_lines(&source) {
                 let relative = path.strip_prefix(&root).unwrap_or(&path);
-                if is_reviewed_signal_cache(relative, annotation, source.lines().nth(line)) {
+                let next_line = source.lines().nth(line);
+                if is_reviewed_signal_cache(relative, annotation, next_line) {
                     reviewed_caches += 1;
+                } else if is_reviewed_cpu_variant(relative, annotation, next_line) {
+                    reviewed_variants += 1;
                 } else {
                     skips.push(format!("  {}:{line}: {annotation}", relative.display()));
                 }
@@ -107,6 +125,10 @@ mod tests {
         assert_eq!(
             reviewed_caches, 1,
             "the reviewed VIC cache must occur exactly once"
+        );
+        assert_eq!(
+            reviewed_variants, 1,
+            "the reviewed 6502 variant must occur exactly once"
         );
         assert!(
             skips.is_empty(),
