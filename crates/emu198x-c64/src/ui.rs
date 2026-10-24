@@ -1,7 +1,8 @@
-//! Interactive UI mode — the Commodore 64 on the shared `emu198x-ui` harness.
+//! Interactive UI mode — the Commodore 64 and 128 on the shared `emu198x-ui`
+//! harness.
 //!
 //! This replaces the former bespoke winit + wgpu runner with a thin
-//! [`UiSystem`] descriptor over [`C64Runtime`]. The harness owns the window,
+//! [`UiSystem`] descriptor over [`C64RuntimeKind`]. The harness owns the window,
 //! video filters, framed audio, gamepad/keyboard plumbing, the native menu,
 //! save-states, tape transport, and live variant switching; this file supplies
 //! only the C64-specific knobs:
@@ -12,11 +13,11 @@
 //!   Page Up) the arrow keys + Space fall through to the gameport-2 joystick.
 //! - **Gamepad / keyboard-joystick**: [`C64_JOYSTICK_MAP`] drives gameport 2
 //!   (port 0); every face button is the single C64 fire.
-//! - **Variants**: PAL and NTSC breadbins as the Machine-menu radio. Both share
-//!   the same firmware — KERNAL/BASIC/CHARGEN plus the drive DOS ROMs (1541,
-//!   and the optional 1571/1581 when present) — so
-//!   [`switch_variant`](UiSystem::switch_variant) rebuilds the runtime from the
-//!   stashed firmware bytes via `from_firmware`.
+//! - **Variants**: the four C64 models and the PAL and NTSC C128 as the
+//!   Machine-menu radio. [`switch_variant`](UiSystem::switch_variant) rebuilds
+//!   the runtime from the model's ROMs by convention.
+//! - **C128 screens**: Page Down shows the 40-column VIC-IIe screen or the
+//!   80-column VDC screen; the 40/80 key itself is End.
 //! - **Drives**: [`drive_ports`](UiSystem::drive_ports) /
 //!   [`set_port_drive`](UiSystem::set_port_drive) back the Machine → Drives menu,
 //!   letting the user pick a 1541/1571/1581 (or none) per IEC device 8–11.
@@ -36,7 +37,7 @@ use emu198x_ui::{
     ButtonInputMap, ButtonTarget, DriveOption, DrivePortInfo, HostControl, KeyCode, UiSystem,
     VariantInfo,
 };
-use runtime_commodore_c64::{C64Runtime, DriveKind, Model};
+use runtime_commodore_c64::{AsC64Runtime, C64Runtime, C64RuntimeKind, C64Variant, DriveKind};
 
 use crate::app::C64;
 
@@ -132,6 +133,8 @@ fn map_c64_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Backslash => &["plus"],
         KeyCode::Backquote => &["leftarrow"],
         KeyCode::Tab => &["runstop"],
+        // The C128's 40/80 DISPLAY key; a C64 has no such key and drops it.
+        KeyCode::End => &["40/80"],
         _ => return None,
     })
 }
@@ -152,28 +155,35 @@ fn map_c64_joystick_key(code: KeyCode) -> Option<HostControl> {
 
 // ---- The UiSystem ----------------------------------------------------------
 
-/// The C64 as a [`UiSystem`]. Tracks the active model so the title and the
+/// The C64 family as a [`UiSystem`]. Tracks the active model so the title and the
 /// Machine-menu radio follow live switches, and whether the arrow keys /
 /// Space currently drive the gameport-2 joystick (Page Up).
 pub struct C64System {
-    model: Model,
+    model: C64Variant,
     keyboard_joystick: bool,
 }
 
 impl UiSystem for C64System {
-    type Runtime = C64Runtime;
+    type Runtime = C64RuntimeKind;
 
     fn window_title(&self) -> String {
-        format!("Emu198x | Commodore 64 ({})", self.model.menu_label())
+        let machine = if self.model.is_c128() {
+            "Commodore 128"
+        } else {
+            "Commodore 64"
+        };
+        format!("Emu198x | {machine} ({})", self.model.menu_label())
     }
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
     }
 
+    /// The picture being shown: the VIC-II's, or the C128's VDC when Page
+    /// Down has picked the 80-column screen.
     fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {
-        let vic = runtime.machine().vic();
-        (vic.framebuffer_width(), vic.framebuffer_height())
+        let (_, width, height) = runtime.rgba_frame();
+        (width, height)
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
@@ -213,7 +223,15 @@ impl UiSystem for C64System {
         }
     }
 
-    fn handle_key(&mut self, _runtime: &mut Self::Runtime, code: KeyCode, pressed: bool) -> bool {
+    fn handle_key(&mut self, runtime: &mut Self::Runtime, code: KeyCode, pressed: bool) -> bool {
+        if code == KeyCode::PageDown {
+            if pressed && runtime.as_c128().is_some() {
+                let eighty = !runtime.alternate_screen();
+                runtime.set_alternate_screen(eighty);
+                eprintln!("display: {} columns", if eighty { 80 } else { 40 });
+            }
+            return true;
+        }
         if code == KeyCode::PageUp {
             if pressed {
                 self.keyboard_joystick = !self.keyboard_joystick;
@@ -232,7 +250,9 @@ impl UiSystem for C64System {
     }
 
     fn tape_playing(&self, runtime: &Self::Runtime) -> bool {
-        runtime.machine().tape_is_playing()
+        runtime
+            .as_c64()
+            .is_some_and(|c64| c64.machine().tape_is_playing())
     }
 
     /// Capture host mouse motion as `mouse-1` so a 1351 plugged in with
@@ -244,8 +264,8 @@ impl UiSystem for C64System {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        Model::ALL
-            .iter()
+        C64Variant::all()
+            .into_iter()
             .map(|model| VariantInfo::new(model.variant_id(), model.menu_label()))
             .collect()
     }
@@ -259,16 +279,17 @@ impl UiSystem for C64System {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
-            operation: "unknown Commodore 64 variant",
-        })?;
+        let model =
+            C64Variant::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
+                operation: "unknown Commodore 64 family variant",
+            })?;
         // The model's ROMs by convention (env + `~/.emu198x/roms/…`), the
         // same resolution as the shell's `set_machine` and the Spectrum's
         // and Amiga's menus. A launch-time --rom-dir / --kernal pin is not
         // carried across a switch. The harness re-paces and refreshes;
         // state/media are not preserved (a hardware swap).
         *runtime =
-            build_variant::<C64Runtime>(model, &FirmwareOverrides::none()).map_err(|err| {
+            build_variant::<C64RuntimeKind>(model, &FirmwareOverrides::none()).map_err(|err| {
                 MachineError::Host {
                     reason: format!("switching to {}: {err}", model.menu_label()),
                 }
@@ -279,7 +300,11 @@ impl UiSystem for C64System {
 
     fn drive_ports(&self, runtime: &Self::Runtime) -> Vec<DrivePortInfo> {
         // The C64 IEC bus carries devices 8–11; each can hold a 1541, 1571, or
-        // 1581 (or be empty). Availability follows the loaded DOS ROMs.
+        // 1581 (or be empty). Availability follows the loaded DOS ROMs. The
+        // C128 models no drives yet, so it has no Drives menu.
+        let Some(runtime) = runtime.as_c64() else {
+            return Vec::new();
+        };
         (8u8..=11)
             .map(|device| DrivePortInfo {
                 device,
@@ -308,7 +333,12 @@ impl UiSystem for C64System {
         let kind = drive_kind_for_id(kind_id).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown drive model",
         })?;
-        runtime.set_port_drive(device, kind)
+        runtime
+            .as_c64_mut()
+            .ok_or(MachineError::UnsupportedOperation {
+                operation: "the C128 has no drives yet",
+            })?
+            .set_port_drive(device, kind)
     }
 }
 
@@ -359,6 +389,7 @@ impl UiApp for C64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use runtime_commodore_c64::{C128Model, Model};
 
     #[test]
     fn key_map_covers_cursors_and_shifted_function_keys() {
@@ -394,18 +425,18 @@ mod tests {
     #[test]
     fn the_variant_menu_lists_every_model_by_its_id() {
         let system = C64System {
-            model: Model::C64cNtsc,
+            model: Model::C64cNtsc.into(),
             keyboard_joystick: false,
         };
         let ids: Vec<_> = system.variants().iter().map(|v| v.id.to_string()).collect();
-        assert_eq!(ids, Model::VARIANT_IDS);
+        assert_eq!(ids, C64Variant::VARIANT_IDS);
         assert_eq!(system.current_variant().as_deref(), Some("c64c-ntsc"));
     }
 
     #[test]
     fn page_up_toggles_keyboard_joystick_on_keydown_only() {
         let mut system = C64System {
-            model: Model::C64PalBreadbin,
+            model: Model::C64PalBreadbin.into(),
             keyboard_joystick: false,
         };
         // Key-down flips the mode and consumes the key.
@@ -425,14 +456,14 @@ mod tests {
         // The runtime argument is unused by the Page-Up branch, so a null
         // pointer read is never reached; route through a fresh blank runtime to
         // satisfy the signature without booting firmware.
-        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let mut runtime = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
         system.handle_key(&mut runtime, KeyCode::PageUp, pressed)
     }
 
     #[test]
     fn keyboard_joystick_mode_steals_arrows_and_space_from_keyboard() {
         let mut system = C64System {
-            model: Model::C64PalBreadbin,
+            model: Model::C64PalBreadbin.into(),
             keyboard_joystick: false,
         };
         // Off: arrows are keyboard keys, no host control.
@@ -449,7 +480,7 @@ mod tests {
 
     fn blank_system() -> C64System {
         C64System {
-            model: Model::C64PalBreadbin,
+            model: Model::C64PalBreadbin.into(),
             keyboard_joystick: false,
         }
     }
@@ -472,7 +503,7 @@ mod tests {
         // A blank runtime has no drive DOS ROMs, so every model is unavailable
         // and every port is empty — the descriptor still lists all four devices.
         let system = blank_system();
-        let runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let runtime = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
         let ports = system.drive_ports(&runtime);
 
         assert_eq!(ports.len(), 4);
@@ -490,7 +521,7 @@ mod tests {
     #[test]
     fn set_port_drive_clears_maps_and_rejects_unknown_ids() {
         let mut system = blank_system();
-        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let mut runtime = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
 
         // "none" empties a port and needs no firmware.
         assert!(system.set_port_drive(&mut runtime, 8, "none").is_ok());
@@ -504,5 +535,33 @@ mod tests {
             system.set_port_drive(&mut runtime, 8, "bogus"),
             Err(MachineError::UnsupportedOperation { .. })
         ));
+    }
+
+    #[test]
+    fn a_c128_shows_either_screen_and_has_no_drives() {
+        let mut system = C64System {
+            model: C128Model::C128Pal.into(),
+            keyboard_joystick: false,
+        };
+        assert!(system.window_title().contains("Commodore 128"));
+        let mut runtime = C64RuntimeKind::blank(C128Model::C128Pal.into());
+        let vic = system.framebuffer_size(&runtime);
+        assert!(system.handle_key(&mut runtime, KeyCode::PageDown, true));
+        assert_eq!(system.framebuffer_size(&runtime), (704, 270));
+        assert!(system.handle_key(&mut runtime, KeyCode::PageDown, true));
+        assert_eq!(system.framebuffer_size(&runtime), vic);
+        assert!(system.drive_ports(&runtime).is_empty());
+        assert!(system.set_port_drive(&mut runtime, 8, "none").is_err());
+        assert!(!system.tape_playing(&runtime));
+        assert_eq!(map_c64_keys(KeyCode::End), Some(&["40/80"][..]));
+    }
+
+    #[test]
+    fn page_down_leaves_a_c64_on_its_one_screen() {
+        let mut system = blank_system();
+        let mut runtime = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
+        let size = system.framebuffer_size(&runtime);
+        assert!(system.handle_key(&mut runtime, KeyCode::PageDown, true));
+        assert_eq!(system.framebuffer_size(&runtime), size);
     }
 }
