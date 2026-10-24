@@ -67,7 +67,8 @@
 pub mod dma;
 pub mod ikbd;
 
-use atari_st_glue_mmu::{Frequency, GlueMmu};
+pub use atari_st_glue_mmu::Frequency;
+use atari_st_glue_mmu::GlueMmu;
 use atari_st_shifter::Shifter;
 use emu198x_gi_ay_3_8910::{Ay3_8910, Variant};
 use emu198x_western_digital_wd1770::{Disk, Wd1770};
@@ -639,6 +640,11 @@ impl AtariSt {
         self.ikbd.mouse_buttons(left, right);
     }
 
+    /// One mouse button went down or up.
+    pub fn mouse_button(&mut self, left: bool, pressed: bool) {
+        self.ikbd.mouse_button(left, pressed);
+    }
+
     /// Joystick `port`'s state.
     pub fn joystick(&mut self, port: usize, stick: Stick) {
         self.ikbd.joystick(port, stick);
@@ -999,6 +1005,7 @@ impl AtariSt {
 
     /// Write a byte of RAM directly, without bus timing.
     pub fn poke(&mut self, address: u32, value: u8) {
+        let address = address & 0x00FF_FFFF;
         if address < 0x40_0000 {
             self.write_ram_byte(address, value);
         }
@@ -1066,6 +1073,19 @@ pub fn disk_from_msa(bytes: &[u8]) -> Result<Disk, ImageError> {
         image.sides,
         image.sectors_per_track,
         format_atari_st_msa::SECTOR_SIZE,
+    ))
+}
+
+/// A floppy's sectors as a `.msa` archive, its geometry read the way a
+/// `.st` image's is. `None` when no geometry fits.
+#[must_use]
+pub fn msa_from_disk(disk: &Disk) -> Option<Vec<u8>> {
+    let image = format_atari_st_st::parse(disk.data()).ok()?;
+    let g = image.geometry;
+    Some(format_atari_st_msa::write(
+        g.sectors_per_track,
+        g.sides,
+        &image.data,
     ))
 }
 

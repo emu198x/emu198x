@@ -1133,6 +1133,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-atari-st"
+version = "0.44.2"
+dependencies = [
+ "emu198x-app-icon",
+ "emu198x-shell",
+ "emu198x-ui",
+ "runtime-atari-st",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-c64"
 version = "0.44.2"
 dependencies = [
@@ -1280,6 +1291,7 @@ dependencies = [
  "runtime-atari-5200",
  "runtime-atari-7800",
  "runtime-atari-800xl",
+ "runtime-atari-st",
  "runtime-coleco-colecovision",
  "runtime-commodore-amiga",
  "runtime-commodore-c64",
@@ -4596,6 +4608,19 @@ dependencies = [
  "format-atari-8bit-atr",
  "format198x-atari-8bit-xex",
  "machine-atari-800xl",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-atari-st"
+version = "0.44.2"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-test-skip",
+ "machine-atari-st",
+ "motorola-68000",
  "postcard",
  "serde",
  "serde_json",
