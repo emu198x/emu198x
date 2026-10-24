@@ -1,4 +1,5 @@
-//! The MSX1 as a [`MachineApp`]: its flags, runtime, and report fields.
+//! The MSX1 and MSX2 as a [`MachineApp`]: its flags, runtime, and report
+//! fields.
 //!
 //! MSX chip state — VDP, the AY-3-8910 PSG (`ay.*`), the 8255 PPI — is read
 //! over MCP through the generic `query` tool as query paths (`vdp`, `ay`,
@@ -9,7 +10,9 @@ use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
 use emu198x_shell::{FirmwareOverrides, build_variant, build_variant_or_blank};
-use runtime_msx::{BIOS_FIRMWARE_ID, MapperType, Model, MsxRuntime, MsxSessionQueryProvider};
+use runtime_msx::{
+    BIOS_FIRMWARE_ID, MapperType, Model, MsxRuntime, MsxSessionQueryProvider, SUB_ROM_FIRMWARE_ID,
+};
 use serde_json::{Map, Value};
 
 /// The machine configuration the flags build up.
@@ -69,13 +72,18 @@ impl MachineApp for Msx {
 
     const BIN_NAME: &'static str = "emu198x-msx";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const MACHINE_OPTIONS: &'static str = "    --bios PATH     MSX1 BIOS ROM (32 KB); default
-                    ~/.emu198x/roms/microsoft-msx/msx.rom (or set EMU198X_MSX_BIOS)
-    --rom PATH|ID=PATH  pin BIOS firmware (msx1-bios)
+    const MACHINE_OPTIONS: &'static str = "    --bios PATH     MSX main ROM (32 KB); default
+                    ~/.emu198x/roms/microsoft-msx/msx.rom, or msx2.rom on an
+                    MSX2 (or set EMU198X_MSX_BIOS)
+    --sub-rom PATH  MSX2 SUB-ROM (16 KB); default msx2ext.rom
+                    (or set EMU198X_MSX_SUB_ROM)
+    --rom PATH|ID=PATH  pin firmware (msx1-bios, msx2-sub-rom)
     --rom-dir DIR   firmware directory (or EMU198X_MSX_ROM_DIR)
     --model ID      microsoft-msx1-ntsc | microsoft-msx1-pal | sony-hb-10p |
                     toshiba-hx-10 | mitsubishi-ml-f80 | yamaha-cx5m |
-                    mitsubishi-ml-fx1 | sony-hb-10
+                    mitsubishi-ml-fx1 | sony-hb-10 | microsoft-msx2-ntsc |
+                    microsoft-msx2-pal | philips-vg-8235 | sony-hb-f1 |
+                    panasonic-fs-a1
     --cart PATH     cartridge ROM (slot 1)
     --mapper KIND   cartridge mapper: plain | konami | konami-scc | ascii8 |
                     ascii16 [default: plain]
@@ -91,6 +99,7 @@ impl MachineApp for Msx {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--bios" => self.firmware.pin(BIOS_FIRMWARE_ID, args.path(flag)?),
+            "--sub-rom" => self.firmware.pin(SUB_ROM_FIRMWARE_ID, args.path(flag)?),
             "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
             "--rom" => self
                 .firmware
@@ -284,6 +293,26 @@ mod tests {
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
+    }
+
+    #[test]
+    fn parse_cli_accepts_an_msx2_and_its_sub_rom() {
+        let parsed = parse::<Msx>(&args(&[
+            "--model",
+            "philips-vg-8235",
+            "--sub-rom",
+            "/tmp/msx2ext.rom",
+        ]))
+        .expect("parses");
+        let Parsed::Run { app, .. } = parsed else {
+            panic!("expected a run");
+        };
+        assert_eq!(app.model, Model::PhilipsVg8235);
+        assert!(app.model.is_msx2());
+        assert_eq!(
+            app.firmware.by_id.get(SUB_ROM_FIRMWARE_ID),
+            Some(&PathBuf::from("/tmp/msx2ext.rom"))
+        );
     }
 
     #[test]

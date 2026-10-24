@@ -26,13 +26,16 @@ pub(crate) const MSX_QUERY_PATHS: &[&str] = &[
     "cpu.tstates",
     "machine.frame_count",
     "machine.region",
+    "mapper.registers",
     "ppi",
     "ppi.keyboard_row",
     "ppi.port_a",
+    "rtc",
     "vdp",
     "vdp.framebuffer_height",
     "vdp.framebuffer_width",
     "vdp.scanline",
+    "vdp.screen_mode",
 ];
 
 /// MSX1-family query provider layered above the shared shell surface.
@@ -64,21 +67,41 @@ impl SessionQueryProvider<MsxRuntime> for MsxSessionQueryProvider {
             "cpu.sp" => json!(loaded_machine(machine, path)?.cpu().regs.sp),
             "cpu.tstates" => json!(loaded_machine(machine, path)?.cpu_tstates()),
 
-            // VDP (TMS9918) — grouped snapshot + leaves.
+            // VDP (TMS9918 or V9938) — grouped snapshot + leaves.
             "vdp" => {
-                let vdp = loaded_machine(machine, path)?.vdp();
+                let msx = loaded_machine(machine, path)?;
                 json!({
-                    "scanline": vdp.scanline(),
-                    "framebuffer_width": vdp.framebuffer_width(),
-                    "framebuffer_height": vdp.framebuffer_height(),
+                    "chip": if msx.is_msx2() { "V9938" } else { "TMS9918" },
+                    "scanline": msx.vdp_scanline(),
+                    "framebuffer_width": msx.framebuffer_width(),
+                    "framebuffer_height": msx.framebuffer_height(),
                 })
             }
-            "vdp.scanline" => json!(loaded_machine(machine, path)?.vdp().scanline()),
+            "vdp.scanline" => json!(loaded_machine(machine, path)?.vdp_scanline()),
             "vdp.framebuffer_width" => {
-                json!(loaded_machine(machine, path)?.vdp().framebuffer_width())
+                json!(loaded_machine(machine, path)?.framebuffer_width())
             }
             "vdp.framebuffer_height" => {
-                json!(loaded_machine(machine, path)?.vdp().framebuffer_height())
+                json!(loaded_machine(machine, path)?.framebuffer_height())
+            }
+            "vdp.screen_mode" => {
+                let msx = loaded_machine(machine, path)?;
+                json!(msx.v9938().map(|vdp| format!("{:?}", vdp.mode())))
+            }
+
+            // MSX2 memory mapper and clock.
+            "mapper.registers" => {
+                json!(loaded_machine(machine, path)?.mapper_registers())
+            }
+            "rtc" => {
+                let msx = loaded_machine(machine, path)?;
+                json!(msx.rtc().map(|rtc| {
+                    let now = rtc.date_time();
+                    format!(
+                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                        now.year, now.month, now.day, now.hour, now.minute, now.second
+                    )
+                }))
             }
 
             // AY-3-8910 PSG — grouped snapshot + leaves.
