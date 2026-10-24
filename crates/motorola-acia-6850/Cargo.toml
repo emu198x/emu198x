@@ -1,0 +1,17 @@
+[package]
+name = "motorola-acia-6850"
+description = "Motorola MC6850 Asynchronous Communications Interface Adapter, clocked by its host"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

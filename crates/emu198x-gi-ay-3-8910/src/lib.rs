@@ -25,6 +25,40 @@
 pub mod watch;
 pub use watch::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
 
+/// Which member of the family the chip is.
+///
+/// The Yamaha YM2149 is register-compatible with the AY-3-8910 but has a
+/// finer envelope: 32 steps of half the duration instead of 16, so an
+/// envelope's period is unchanged. Its DAC has 32 levels, nominally 1.5 dB
+/// apart; a fixed volume `v` (1-15) plays at level `2v + 1`. The Atari ST
+/// and the MSX turboR use it.
+///
+/// The variant is configuration, not state: it is not serialised, so a host
+/// re-applies it with [`Ay3_8910::set_variant`] after restoring a snapshot.
+/// That keeps the serialised layout of every AY-3-8910 host unchanged.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Variant {
+    #[default]
+    Ay3_8910,
+    Ym2149,
+}
+
+/// The YM2149's 32-level DAC: level `n` is 1.5 dB × (31 − n) below full
+/// scale, the data sheet's nominal step, and level 0 is silence.
+static YM_VOLUME: [f32; 32] = {
+    let mut table = [0.0f32; 32];
+    // 10^(-1.5/20): the ratio between adjacent levels.
+    let step = 0.841_395_1f32;
+    let mut level = 31;
+    let mut value = 1.0f32;
+    while level > 0 {
+        table[level] = value;
+        value *= step;
+        level -= 1;
+    }
+    table
+};
+
 /// Logarithmic volume table for the AY-3-8910 (0 = silent, 15 = maximum),
 /// the normalised general-AY DAC approximation from the primary reference
 /// (`reference/by-topic/psg-ay-3-8910`). Indices 12-14 previously diverged
@@ -104,6 +138,10 @@ pub struct Ay3_8910 {
     /// keyboard column lines off port B). Defaults to `0xFF` (no wiring).
     #[serde(default = "default_port_b_input")]
     port_b_input: u8,
+
+    /// AY-3-8910 or YM2149; see [`Variant`].
+    #[serde(skip)]
+    variant: Variant,
 }
 
 fn default_port_a_input_mask() -> u8 {
@@ -145,6 +183,7 @@ impl Ay3_8910 {
             samples_written: 0,
             port_a_input_mask: default_port_a_input_mask(),
             port_b_input: default_port_b_input(),
+            variant: Variant::Ay3_8910,
         }
     }
 
@@ -204,7 +243,7 @@ impl Ay3_8910 {
                 // of its first ramp: direction from the Attack bit, level at that
                 // ramp's beginning (0 if rising, 15 if falling).
                 self.env_att = val & 0x04 != 0;
-                self.env_level = if self.env_att { 0 } else { 15 };
+                self.env_level = if self.env_att { 0 } else { self.env_max() };
                 self.env_counter = 0;
                 self.env_holding = false;
                 self.env_prescale = false;
@@ -322,8 +361,9 @@ impl Ay3_8910 {
                     // AY-3-8910's m_step = 2 (MAME ay8910.cpp), i.e. /256 per
                     // 16-step cycle = /16 per step. Stepping on every expiry plays
                     // every volume envelope an octave too fast. (#152)
+                    // The YM2149's 32-step envelope steps on every expiry.
                     self.env_prescale = !self.env_prescale;
-                    if self.env_prescale {
+                    if self.env_prescale || self.variant == Variant::Ym2149 {
                         self.advance_envelope();
                     }
                 }
@@ -410,7 +450,7 @@ impl Ay3_8910 {
         let hold = shape & 0x01 != 0;
 
         if self.env_att {
-            if self.env_level >= 15 {
+            if self.env_level >= self.env_max() {
                 self.env_ramp_complete(cont, alternate, hold);
             } else {
                 self.env_level += 1;
@@ -434,9 +474,10 @@ impl Ay3_8910 {
             self.env_holding = true;
             return;
         }
+        let max = self.env_max();
         if hold {
-            let endpoint = if self.env_att { 15 } else { 0 };
-            self.env_level = if alternate { 15 - endpoint } else { endpoint };
+            let endpoint = if self.env_att { max } else { 0 };
+            self.env_level = if alternate { max - endpoint } else { endpoint };
             self.env_holding = true;
             return;
         }
@@ -444,8 +485,36 @@ impl Ay3_8910 {
             self.env_att = !self.env_att;
         } else {
             // Repeat the same ramp from its start.
-            self.env_level = if self.env_att { 0 } else { 15 };
+            self.env_level = if self.env_att { 0 } else { max };
         }
+    }
+
+    /// The envelope's top level: 15, or 31 on the YM2149.
+    fn env_max(&self) -> u8 {
+        match self.variant {
+            Variant::Ay3_8910 => 15,
+            Variant::Ym2149 => 31,
+        }
+    }
+
+    /// Make the chip an AY-3-8910 or a YM2149. Call it after construction
+    /// and again after restoring a snapshot; see [`Variant`].
+    pub fn set_variant(&mut self, variant: Variant) {
+        self.variant = variant;
+        let max = self.env_max();
+        self.env_level = self.env_level.min(max);
+    }
+
+    /// Which member of the family the chip is.
+    #[must_use]
+    pub fn variant(&self) -> Variant {
+        self.variant
+    }
+
+    /// The current envelope level: 0-15, or 0-31 on the YM2149.
+    #[must_use]
+    pub fn envelope_level(&self) -> u8 {
+        self.env_level
     }
 
     fn compute_output(&self) -> f32 {
@@ -468,10 +537,19 @@ impl Ay3_8910 {
                 vol_reg & 0x0F
             };
 
-            let amplitude = if channel_on {
-                VOLUME[level as usize]
-            } else {
+            let amplitude = if !channel_on {
                 0.0
+            } else if self.variant == Variant::Ym2149 {
+                let level = if vol_reg & 0x10 != 0 {
+                    level
+                } else if level == 0 {
+                    0
+                } else {
+                    level * 2 + 1
+                };
+                YM_VOLUME[usize::from(level)]
+            } else {
+                VOLUME[level as usize]
             };
 
             total += amplitude;
@@ -841,5 +919,76 @@ mod tests {
             15,
             "shape 8 should jump back to 15, not ramp: {seq:?}"
         );
+    }
+
+    /// One full sawtooth (shape 8) cycle's length in ticks, and the distinct
+    /// levels it passes through.
+    fn sawtooth(variant: Variant) -> (usize, usize) {
+        let mut ay = Ay3_8910::new(2_000_000, 44_100, 882);
+        ay.set_variant(variant);
+        ay.select_register(11);
+        ay.write_data(1);
+        ay.select_register(13);
+        ay.write_data(0x08);
+        let top = ay.envelope_level();
+        let mut levels = std::collections::BTreeSet::new();
+        // Tick counts at which the level returns to the top; the first cycle
+        // starts mid-prescale, so compare the second.
+        let mut returns = Vec::new();
+        let mut previous = top;
+        let mut ticks = 0;
+        while returns.len() < 2 {
+            ay.tick();
+            ticks += 1;
+            levels.insert(ay.envelope_level());
+            if ay.envelope_level() == top && previous != top {
+                returns.push(ticks);
+            }
+            previous = ay.envelope_level();
+        }
+        (returns[1] - returns[0], levels.len())
+    }
+
+    #[test]
+    fn the_ym2149_envelope_has_32_steps_over_the_same_period() {
+        let (ay_ticks, ay_levels) = sawtooth(Variant::Ay3_8910);
+        let (ym_ticks, ym_levels) = sawtooth(Variant::Ym2149);
+        assert_eq!(ay_levels, 16);
+        assert_eq!(ym_levels, 32);
+        assert_eq!(ay_ticks, ym_ticks, "the envelope period is unchanged");
+    }
+
+    #[test]
+    fn ym2149_fixed_volumes_sit_on_odd_dac_levels() {
+        let mut ay = Ay3_8910::new(2_000_000, 44_100, 882);
+        ay.set_variant(Variant::Ym2149);
+        assert_eq!(ay.variant(), Variant::Ym2149);
+        ay.select_register(7);
+        ay.write_data(0x3F); // tone and noise off: channels stay high
+        ay.select_register(8);
+        ay.write_data(15);
+        assert!((ay.compute_output() - YM_VOLUME[31] / 3.0).abs() < 1e-6);
+        ay.write_data(1);
+        assert!((ay.compute_output() - YM_VOLUME[3] / 3.0).abs() < 1e-6);
+        ay.write_data(0);
+        assert_eq!(ay.compute_output(), 0.0);
+        assert!(
+            (YM_VOLUME[29] / YM_VOLUME[31] - 0.7079).abs() < 1e-3,
+            "3 dB per fixed step"
+        );
+    }
+
+    #[test]
+    fn the_variant_is_not_serialised() {
+        let ay = Ay3_8910::new(2_000_000, 44_100, 4);
+        let mut ym = Ay3_8910::new(2_000_000, 44_100, 4);
+        ym.set_variant(Variant::Ym2149);
+        let ay_json = serde_json::to_string(&ay).expect("serde round trip");
+        assert_eq!(
+            serde_json::to_string(&ym).expect("serde round trip"),
+            ay_json
+        );
+        let back: Ay3_8910 = serde_json::from_str(&ay_json).expect("serde round trip");
+        assert_eq!(back.variant(), Variant::Ay3_8910);
     }
 }
