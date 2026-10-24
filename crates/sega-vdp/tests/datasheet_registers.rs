@@ -813,7 +813,7 @@ fn mode_4_reads_the_unused_status_bits_back_as_ones() {
 /// crate does not draw them: the whole active area renders as backdrop.
 ///
 /// The test exists so that is a stated limit rather than something a reader
-/// has to infer from a missing branch. Reusing `ti-tms9918`'s pipeline would
+/// has to infer from a missing branch. Reusing `emu198x-ti-tms9918`'s pipeline would
 /// not fix it either — MAME's `315_5124.cpp` gives these modes their own
 /// sixteen-entry palette, quantised into the Sega VDP's output levels, and
 /// notes that "sms and sg1000-mark3 uses a different palette for modes 0 to

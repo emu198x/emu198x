@@ -1,13 +1,13 @@
 //! MC6847 wiring for the Acorn Atom.
 //!
-//! Atom-specific thin wrapper around the shared [`motorola_vdg_6847`] helper
+//! Atom-specific thin wrapper around the shared [`emu198x_motorola_vdg_6847`] helper
 //! crate. The shared crate owns the canonical MC6847 character ROM, mode decode,
 //! and beam-byte render; this wrapper keeps the Atom-specific bits:
 //!
 //! - a **per-byte** render: the machine derives the beam's *dot* position from the
 //!   50 Hz field clock that also drives PC7 field-sync, and [`Mc6847::tick`]
 //!   renders each active display byte as the beam crosses it via the shared
-//!   [`decode_beam_byte`] + [`motorola_vdg_6847::VdgBeamByte::render_range_into`]
+//!   [`decode_beam_byte`] + [`emu198x_motorola_vdg_6847::VdgBeamByte::render_range_into`]
 //!   (the same primitives Dragon-32 uses), sampling the *current* control/CSS and
 //!   live video RAM. A program that switches mode part-way *across* a line — not
 //!   just between lines — therefore renders two modes within one scanline, where
@@ -18,7 +18,7 @@
 //!   decoded into the shared crate's [`VdgControl`] so all eight MC6847 modes
 //!   render — text plus graphics modes 1-5.
 
-use motorola_vdg_6847::{
+use emu198x_motorola_vdg_6847::{
     TEXT_FRAMEBUFFER_HEIGHT, TEXT_FRAMEBUFFER_WIDTH, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
     VdgControl, decode_beam_byte,
 };
@@ -233,7 +233,7 @@ impl Default for Mc6847 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use motorola_vdg_6847::render_visible_argb;
+    use emu198x_motorola_vdg_6847::render_visible_argb;
 
     /// Drive a whole field through the VDG, flipping the control byte at active
     /// beam dot `split`. `byte` supplies the video-RAM contents.
@@ -276,7 +276,7 @@ mod tests {
         // and this machine holds the 288 a PAL set shows. The active lines are
         // the claim — the rest is border, identical in both by construction.
         let width = FB_WIDTH as usize;
-        let shared_top = motorola_vdg_6847::TEXT_TOP_BORDER_LINES;
+        let shared_top = emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES;
         for line in 0..TEXT_FRAMEBUFFER_HEIGHT {
             let mine = (BORDER_TOP as usize + line) * width;
             let theirs = (shared_top + line) * width;

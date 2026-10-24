@@ -40,7 +40,7 @@ pub use keyboard::KeyboardState;
 pub use mos_vic_i::{Vic6560, framebuffer_height, framebuffer_width};
 
 use emu198x_mos_6502::M6502;
-use mos_via_6522::Via6522;
+use emu198x_mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

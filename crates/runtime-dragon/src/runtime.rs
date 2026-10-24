@@ -2,6 +2,9 @@
 
 use std::borrow::Cow;
 
+use emu198x_motorola_vdg_6847::{
+    VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
     MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet,
@@ -20,7 +23,6 @@ use machine_dragon_32::{
     DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis,
     DragonKey, DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
-use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -1154,8 +1156,8 @@ impl MachineCore for DragonRuntime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            motorola_vdg_6847::PAL_OVERSCAN_PIXEL_CLOCK_HZ,
-            motorola_vdg_6847::NTSC_OVERSCAN_PIXEL_CLOCK_HZ,
+            emu198x_motorola_vdg_6847::PAL_OVERSCAN_PIXEL_CLOCK_HZ,
+            emu198x_motorola_vdg_6847::NTSC_OVERSCAN_PIXEL_CLOCK_HZ,
         )
     }
 
@@ -1484,14 +1486,14 @@ impl DragonRuntime {
 
 #[cfg(test)]
 mod tests {
+    use emu198x_motorola_vdg_6847::{
+        TEXT_ROWS, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+    };
     use emu198x_shell::{
         AudioCapture, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore,
         MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
     use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
-    use motorola_vdg_6847::{
-        TEXT_ROWS, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
-    };
 
     use super::*;
 

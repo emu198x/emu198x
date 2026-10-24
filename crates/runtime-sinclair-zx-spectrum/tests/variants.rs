@@ -1148,35 +1148,35 @@ where
 /// Bridge trait so a single generic test covers every AY-equipped
 /// variant without each machine needing identical inherent helpers.
 trait HasAy {
-    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912;
+    fn ay_mut(&mut self) -> &mut emu198x_gi_ay_3_8912::Ay3_8912;
 }
 
 impl HasAy for Spectrum128K {
-    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+    fn ay_mut(&mut self) -> &mut emu198x_gi_ay_3_8912::Ay3_8912 {
         &mut self.ay
     }
 }
 
 impl<V: AmstradVariant> HasAy for SpectrumAmstradClassCore<V> {
-    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+    fn ay_mut(&mut self) -> &mut emu198x_gi_ay_3_8912::Ay3_8912 {
         &mut self.ay
     }
 }
 
 impl HasAy for Pentagon128 {
-    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+    fn ay_mut(&mut self) -> &mut emu198x_gi_ay_3_8912::Ay3_8912 {
         &mut self.ay
     }
 }
 
 impl HasAy for ScorpionZS256 {
-    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+    fn ay_mut(&mut self) -> &mut emu198x_gi_ay_3_8912::Ay3_8912 {
         &mut self.ay
     }
 }
 
 impl HasAy for TimexTS2068 {
-    fn ay_mut(&mut self) -> &mut gi_ay_3_8912::Ay3_8912 {
+    fn ay_mut(&mut self) -> &mut emu198x_gi_ay_3_8912::Ay3_8912 {
         &mut self.ay
     }
 }

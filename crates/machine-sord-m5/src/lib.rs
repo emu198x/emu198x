@@ -49,12 +49,12 @@
 //! These are the implemented rates, not a claim of hardware-measured phase.
 
 use common_z80_machine::Z80Machine;
+use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
+use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_zilog_z80::{BusOp, Z80};
+use emu198x_zilog_z80_ctc::Ctc;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ti_sn76489::{NoiseLfsr, Sn76489};
-use ti_tms9918::{Tms9918, VdpRegion};
-use zilog_z80_ctc::Ctc;
 
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
 const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;

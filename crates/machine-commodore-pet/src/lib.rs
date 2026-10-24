@@ -37,9 +37,9 @@ pub use input::PetKey;
 pub use keyboard::KeyboardState;
 
 use emu198x_mos_6502::M6502;
-use mos_pia_6520::Pia6520;
-use mos_via_6522::Via6522;
-use motorola_6845::Crtc6845;
+use emu198x_mos_pia_6520::Pia6520;
+use emu198x_mos_via_6522::Via6522;
+use emu198x_motorola_6845::Crtc6845;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

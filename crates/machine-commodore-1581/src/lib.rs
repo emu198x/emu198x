@@ -13,11 +13,11 @@
 
 use common_commodore_iec::IecBus;
 use emu198x_mos_6502::M6502;
+use emu198x_western_digital_wd1770::{Disk, Wd1770};
 use format_commodore_c64_d81::D81ParseError;
 use mos_cia_6526::Cia6526;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use western_digital_wd1770::{Disk, Wd1770};
 
 const RAM_SIZE: usize = 0x2000;
 const ROM_SIZE: usize = 0x8000;

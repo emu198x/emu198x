@@ -47,16 +47,16 @@
 pub mod input;
 mod keyboard;
 
+pub use emu198x_ti_tms9918::Tms9918;
 pub use input::MtxKey;
 pub use keyboard::KeyboardState;
-pub use ti_tms9918::Tms9918;
 
 use common_z80_machine::Z80Machine;
+use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
+use emu198x_ti_tms9918::VdpRegion;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
+use emu198x_zilog_z80_ctc::Ctc;
 use serde::{Deserialize, Serialize};
-use ti_sn76489::{NoiseLfsr, Sn76489};
-use ti_tms9918::VdpRegion;
-use zilog_z80_ctc::Ctc;
 
 const VDP_CLOCK_HZ: u64 = 5_369_318;
 const CPU_CLOCK_HZ: u64 = 4_000_000;

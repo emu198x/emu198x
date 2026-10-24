@@ -14,7 +14,7 @@ format-atari-8bit-atr = { path = "../format-atari-8bit-atr", version = "0.44.0" 
 atari-sio = { path = "../atari-sio", version = "0.44.0" }
 atari-pokey = { path = "../atari-pokey", version = "0.44.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-pia-6520 = { path = "../mos-pia-6520", version = "0.44.0" }
+emu198x-mos-pia-6520 = { path = "../emu198x-mos-pia-6520", version = "0.1.0" }
 serde = { workspace = true }
 
 [dev-dependencies]

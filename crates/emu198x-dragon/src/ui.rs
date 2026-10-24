@@ -24,6 +24,9 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
+use emu198x_motorola_vdg_6847::{
+    VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+};
 use emu198x_shell::launch::LaunchError;
 use emu198x_shell::{
     FamilyRuntime, FirmwareOverrides, HeadlessSession, InputEvent, MachineError, MediaImage,
@@ -34,7 +37,6 @@ use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
     UiSystem, VariantInfo, VideoFilter,
 };
-use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use thiserror::Error;
 
