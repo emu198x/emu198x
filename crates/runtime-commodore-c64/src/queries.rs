@@ -564,6 +564,25 @@ pub(crate) fn c64_boot_status<M: C64FamilyMachine>(machine: &M) -> C64BootStatus
         }
     }
 
+    // A machine with a second text screen may have booted onto that one
+    // instead: the C128 with its 40/80 key down.
+    if let Some((codes, width)) = machine.alternate_screen_codes()
+        && let Some(offset) = codes
+            .windows(READY_SCREEN_CODES.len())
+            .position(|window| window == READY_SCREEN_CODES)
+    {
+        let offset = offset as u16;
+        let row = u64::from(offset / width);
+        return C64BootStatus {
+            detected: true,
+            reason: format!(
+                "found READY. screen codes at offset ${offset:04X} on row {row} of the {width}-column screen"
+            ),
+            offset: Some(offset),
+            row: Some(row),
+        };
+    }
+
     C64BootStatus {
         detected: false,
         reason: "READY. screen codes not visible".to_owned(),

@@ -18,16 +18,19 @@ use emu198x_shell::{
     ScriptObservation, TraceEvent, TraceSink,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    AsC64Runtime, C64RuntimeKind, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk,
     autoload_basic_disk_with_trace_sink, autoload_basic_tape, autoload_basic_tape_with_trace_sink,
-    file_loader::load_host_file,
 };
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::app::{C64, DEFAULT_IMPORT_BOOT_FRAMES, DEFAULT_TAPE_SLOT, load_program_bytes};
+use crate::app::{
+    C64, DEFAULT_IMPORT_BOOT_FRAMES, DEFAULT_TAPE_SLOT, import_program, load_program_bytes,
+};
+
+type C64Session = HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>;
 
 #[derive(Debug, Serialize)]
 struct RunnerReport {
@@ -112,8 +115,11 @@ pub fn run(app: &C64, common: &CommonCli) -> Result<(), LaunchError> {
         println!("{json}");
     } else {
         println!(
-            "C64 runtime: time={} boot_detected={} boot_reason={}",
-            report.time, report.boot_detected, report.boot_reason
+            "{} runtime: time={} boot_detected={} boot_reason={}",
+            if app.model.is_c128() { "C128" } else { "C64" },
+            report.time,
+            report.boot_detected,
+            report.boot_reason
         );
         if let Some(message) = &report.loaded_program {
             println!("{message}");
@@ -139,6 +145,11 @@ pub fn run(app: &C64, common: &CommonCli) -> Result<(), LaunchError> {
 
 fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
     cli.check_media_flags()?;
+    if cli.model.is_c128() && (cli.trace_vic_colours || cli.trace_drive_rom_window.is_some()) {
+        return Err(LaunchError::Run(
+            "--trace-vic-colours and --trace-drive-rom trace the C64 runtime only".to_owned(),
+        ));
+    }
 
     if (common.screenshot.is_some() || common.audio_capture.is_some())
         && common.frames == 0
@@ -188,15 +199,18 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
 
     if cli.autoload_tape {
         if trace_collector.is_none() && tracing_enabled {
-            session
-                .machine_mut()
-                .set_trace_vic_colour_writes(cli.trace_vic_colours);
-            session
-                .machine_mut()
-                .set_trace_drive_rom_window(cli.trace_drive_rom_window);
+            set_traces(
+                &mut session,
+                cli.trace_vic_colours,
+                cli.trace_drive_rom_window,
+            );
             trace_collector = Some(TraceCollector::with_limit(cli.trace_limit));
         }
-        if !session.machine().machine().tape_is_loaded() {
+        if !session
+            .machine()
+            .as_c64()
+            .is_some_and(|c64| c64.machine().tape_is_loaded())
+        {
             return Err(LaunchError::Run(
                 "--autoload-tape requires tape media in slot tape-1".to_owned(),
             ));
@@ -224,12 +238,11 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
 
     if cli.autoload_disk {
         if trace_collector.is_none() && tracing_enabled {
-            session
-                .machine_mut()
-                .set_trace_vic_colour_writes(cli.trace_vic_colours);
-            session
-                .machine_mut()
-                .set_trace_drive_rom_window(cli.trace_drive_rom_window);
+            set_traces(
+                &mut session,
+                cli.trace_vic_colours,
+                cli.trace_drive_rom_window,
+            );
             trace_collector = Some(TraceCollector::with_limit(cli.trace_limit));
         }
         if let Some(collector) = trace_collector.as_mut() {
@@ -256,7 +269,7 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
     if let Some(path) = &cli.load {
         let loaded = load_program_bytes(path)?;
         loaded_program = Some(
-            load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)
+            import_program(session.machine_mut(), &loaded.name, &loaded.bytes)
                 .map_err(|err| format!("program import failed: {err}"))?,
         );
     }
@@ -296,22 +309,19 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
                 .run_frames_with_trace_sink(common.frames, collector)
                 .map_err(|err| format!("run failed: {err}"))?;
         }
-        session.machine_mut().set_trace_vic_colour_writes(false);
-        session.machine_mut().set_trace_drive_rom_window(None);
+        set_traces(&mut session, false, None);
     } else if common.frames > 0 {
         if tracing_enabled {
-            session
-                .machine_mut()
-                .set_trace_vic_colour_writes(cli.trace_vic_colours);
-            session
-                .machine_mut()
-                .set_trace_drive_rom_window(cli.trace_drive_rom_window);
+            set_traces(
+                &mut session,
+                cli.trace_vic_colours,
+                cli.trace_drive_rom_window,
+            );
             let mut collector = TraceCollector::with_limit(cli.trace_limit);
             session
                 .run_frames_with_trace_sink(common.frames, &mut collector)
                 .map_err(|err| format!("run failed: {err}"))?;
-            session.machine_mut().set_trace_vic_colour_writes(false);
-            session.machine_mut().set_trace_drive_rom_window(None);
+            set_traces(&mut session, false, None);
             trace_collector = Some(collector);
         } else {
             session
@@ -361,10 +371,7 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
     })
 }
 
-fn query_bool(
-    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    path: &str,
-) -> Result<bool, String> {
+fn query_bool(session: &C64Session, path: &str) -> Result<bool, String> {
     let result = session
         .query(path)
         .map_err(|err| format!("query {path} failed: {err}"))?;
@@ -374,30 +381,21 @@ fn query_bool(
         .ok_or_else(|| format!("query {path} did not return a boolean value"))
 }
 
-fn query_value(
-    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    path: &str,
-) -> Result<Value, String> {
+fn query_value(session: &C64Session, path: &str) -> Result<Value, String> {
     session
         .query(path)
         .map(|result| result.value)
         .map_err(|err| format!("query {path} failed: {err}"))
 }
 
-fn query_string(
-    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    path: &str,
-) -> Result<Option<String>, String> {
+fn query_string(session: &C64Session, path: &str) -> Result<Option<String>, String> {
     let result = session
         .query(path)
         .map_err(|err| format!("query {path} failed: {err}"))?;
     Ok(result.value.as_str().map(str::to_owned))
 }
 
-fn query_string_list(
-    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    path: &str,
-) -> Result<Vec<String>, String> {
+fn query_string_list(session: &C64Session, path: &str) -> Result<Vec<String>, String> {
     let result = session
         .query(path)
         .map_err(|err| format!("query {path} failed: {err}"))?;
@@ -416,10 +414,7 @@ fn query_string_list(
         .collect()
 }
 
-fn collect_queries(
-    session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    paths: &[String],
-) -> Result<Vec<ReportedQuery>, String> {
+fn collect_queries(session: &C64Session, paths: &[String]) -> Result<Vec<ReportedQuery>, String> {
     paths
         .iter()
         .map(|path| {
@@ -432,7 +427,7 @@ fn collect_queries(
 }
 
 fn wait_for_tape_motion_to_stop(
-    session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    session: &mut C64Session,
     max_frames: u32,
 ) -> Result<ScriptObservation, String> {
     let mut frames = 0;
@@ -464,5 +459,14 @@ fn wait_for_tape_motion_to_stop(
             .run_frames(1)
             .map_err(|err| format!("run failed while waiting for tape stop: {err}"))?;
         frames += 1;
+    }
+}
+
+/// Switch the C64 runtime's VIC colour and drive-ROM traces. A C128 has
+/// neither, and `run_cli` refuses the trace flags for one up front.
+fn set_traces(session: &mut C64Session, vic_colours: bool, drive_rom: Option<(u16, u16)>) {
+    if let Some(c64) = session.machine_mut().as_c64_mut() {
+        c64.set_trace_vic_colour_writes(vic_colours);
+        c64.set_trace_drive_rom_window(drive_rom);
     }
 }

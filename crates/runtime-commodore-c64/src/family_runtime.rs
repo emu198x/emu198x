@@ -92,6 +92,21 @@ impl C64Variant {
         }
     }
 
+    /// The board timing: clock, lines and cycles per line.
+    #[must_use]
+    pub fn timing(self) -> common_commodore_c64::timing::C64Timing {
+        match self {
+            Self::C64(model) => C64FamilyModel::timing(model),
+            Self::C128(model) => C64FamilyModel::timing(model),
+        }
+    }
+
+    /// Whether this is a C128.
+    #[must_use]
+    pub const fn is_c128(self) -> bool {
+        matches!(self, Self::C128(_))
+    }
+
     /// The shell profile.
     #[must_use]
     pub fn profile(self) -> MachineProfile {

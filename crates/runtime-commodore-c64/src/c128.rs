@@ -233,6 +233,15 @@ impl C64FamilyMachine for C128 {
         ))
     }
 
+    fn is_extra_key_name(name: &str) -> bool {
+        is_40_80_key(name)
+    }
+
+    /// The KERNAL's 80-column screen: 25 rows of 80 at VDC address `$0000`.
+    fn alternate_screen_codes(&self) -> Option<(&[u8], u16)> {
+        Some((&self.vdc_ram()[..80 * 25], 80))
+    }
+
     fn extra_query_paths(_runtime: &C128Runtime) -> Vec<String> {
         C128_QUERY_PATHS
             .iter()
