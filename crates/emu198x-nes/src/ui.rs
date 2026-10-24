@@ -18,7 +18,7 @@ use emu198x_shell::MachineError;
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use machine_nintendo_nes::{FB_HEIGHT, FB_WIDTH};
-use runtime_nintendo_nes::{ApuChannel, Model, NesRuntime};
+use runtime_nintendo_nes::{ApuChannel, InputDevices, Model, NesRuntime};
 
 use crate::app::{Nes, resolve_battery_save_path, write_battery_save};
 
@@ -41,6 +41,7 @@ const NES_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
 pub struct NesSystem {
     model: Model,
     battery_save_path: Option<PathBuf>,
+    input_devices: InputDevices,
 }
 
 impl UiApp for Nes {
@@ -50,12 +51,19 @@ impl UiApp for Nes {
         NesSystem {
             model: self.model,
             battery_save_path: resolve_battery_save_path(self),
+            input_devices: self.input_devices,
         }
     }
 }
 
 impl UiSystem for NesSystem {
     type Runtime = NesRuntime;
+
+    /// With `--input zapper` the Zapper is in port 2: the mouse aims it
+    /// and the left button is its trigger.
+    fn aim_port(&self) -> Option<u8> {
+        (self.input_devices == InputDevices::Zapper).then_some(2)
+    }
 
     fn window_title(&self) -> String {
         "Emu198x NES".to_owned()

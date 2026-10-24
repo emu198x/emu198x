@@ -13,7 +13,7 @@ use emu198x_shell::{
     FirmwareOverrides, HeadlessSession, MachineCore, MediaKind, build_variant, read_media_asset,
     startup_media,
 };
-use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
+use runtime_nintendo_nes::{InputDevices, Model, NesRuntime, NesSessionQueryProvider};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -51,6 +51,8 @@ pub struct Nes {
     pub smoke_screenshot_dir: Option<PathBuf>,
     pub battery_save: Option<PathBuf>,
     pub no_battery_save: bool,
+    /// `--input`: what is plugged into the controller ports.
+    pub input_devices: InputDevices,
     /// Whether a bare ROM path (no flag) has been taken; only one is allowed.
     positional_rom: bool,
 }
@@ -102,6 +104,19 @@ fn parse_media_arg(spec: &str) -> Result<MediaArg, LaunchError> {
         slot: slot.to_owned(),
         kind: parse_media_kind(kind)?,
         path: PathBuf::from(path),
+    })
+}
+
+fn parse_input_devices(name: &str) -> Result<InputDevices, LaunchError> {
+    Ok(match name {
+        "controllers" | "pads" => InputDevices::Controllers,
+        "zapper" => InputDevices::Zapper,
+        "four-score" | "fourscore" => InputDevices::FourScore,
+        _ => {
+            return Err(LaunchError::Usage(format!(
+                "unknown --input `{name}`; expected controllers, zapper or four-score"
+            )));
+        }
     })
 }
 
@@ -220,6 +235,7 @@ impl Nes {
         let loaded = load_media_bytes(&self.media)?;
         let mut runtime = build_variant::<NesRuntime>(self.model, &FirmwareOverrides::none())
             .map_err(|err| LaunchError::Run(err.to_string()))?;
+        runtime.set_input_devices(self.input_devices);
         runtime
             .load_media(&startup_media::media_set(&loaded))
             .map_err(|err| LaunchError::Run(format!("machine preparation failed: {err}")))?;
@@ -253,6 +269,8 @@ impl MachineApp for Nes {
     --region MODE   ntsc | pal
     --media SLOT:KIND=PATH  media image by slot and kind; --rom is an
                     alias for --media cartridge-1:cartridge=PATH
+    --input DEVICES controllers | zapper (pad 1, Zapper in port 2) |
+                    four-score (four pads) [default: controllers]
     --battery-save PATH     load/write cartridge battery RAM sidecar (default <rom>.sav)
     --no-battery-save       disable automatic .sav load/write
     --assert-blargg assert Blargg-style status output at $6000 after the
@@ -269,6 +287,7 @@ impl MachineApp for Nes {
     X               A
     Right Shift     Select
     Enter           Start
+    Mouse           Zapper (with --input zapper): aim; left button fires
     1-5             toggle Pulse 1, Pulse 2, Triangle, Noise, DMC
     6-0             cycle Pulse 1, Pulse 2, Triangle, Noise, DMC gain";
 
@@ -290,6 +309,7 @@ impl MachineApp for Nes {
             "--smoke-report" => self.smoke_report = Some(args.path(flag)?),
             "--smoke-screenshot-dir" => self.smoke_screenshot_dir = Some(args.path(flag)?),
             "--battery-save" => self.battery_save = Some(args.path(flag)?),
+            "--input" => self.input_devices = parse_input_devices(&args.value(flag)?)?,
             "--no-battery-save" => self.no_battery_save = true,
             positional if !positional.starts_with('-') => {
                 if self.positional_rom {
@@ -760,6 +780,17 @@ mod tests {
         assert_eq!(common.screenshot, Some(PathBuf::from("frame.png")));
         assert_eq!(common.audio_capture, Some(PathBuf::from("audio.wav")));
         assert_eq!(mode, Mode::Script);
+    }
+
+    #[test]
+    fn input_devices_parse() {
+        let (app, _, _) = parsed(&["--input", "zapper", "game.nes"]);
+        assert_eq!(app.input_devices, InputDevices::Zapper);
+        let (app, _, _) = parsed(&["--input", "four-score", "game.nes"]);
+        assert_eq!(app.input_devices, InputDevices::FourScore);
+        let (app, _, _) = parsed(&["game.nes"]);
+        assert_eq!(app.input_devices, InputDevices::Controllers);
+        assert!(parse_input_devices("light-gun").is_err());
     }
 
     #[test]

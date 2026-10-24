@@ -56,7 +56,11 @@ use ricoh_ppu_2c02::Ppu;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+mod ports;
+
 pub use emu198x_ricoh_apu_2a03::{ApuChannel, AudioControls};
+use ports::Ports;
+pub use ports::{InputDevices, zapper_bits};
 pub use ricoh_ppu_2c02::{
     FB_HEIGHT, FB_WIDTH, TV_CROP_BOTTOM, TV_CROP_TOP, TV_VISIBLE_HEIGHT, TV_VISIBLE_WIDTH,
 };
@@ -160,6 +164,8 @@ pub struct NesSnapshot {
     #[serde(default)]
     controller2_state: u8,
     controller_strobe: bool,
+    /// The Zapper and Four Score. Added in runtime snapshot version 2.
+    ports: Ports,
 }
 
 /// NES machine.
@@ -279,6 +285,9 @@ pub struct Nes {
     /// strobe controls both controllers — `$4017` is read-only and
     /// `$4016`'s strobe bit governs the latch.
     controller_strobe: bool,
+    /// What else is plugged in: a Zapper or a Four Score, its pads 3
+    /// and 4, and their state.
+    ports: Ports,
 
     /// Last value driven onto the CPU data bus. Read from any
     /// write-only or unallocated APU register (`$4000-$4014`,
@@ -351,6 +360,7 @@ impl Nes {
             controller2_shift: 0,
             controller2_state: 0,
             controller_strobe: false,
+            ports: Ports::default(),
             open_bus: 0,
         }
     }
@@ -706,6 +716,12 @@ impl Nes {
 
             // $4016: Controller 1. Bits 0-4 are real data, bits
             // 5-7 are open bus (per nesdev).
+            0x4016 if self.ports.devices == InputDevices::FourScore => {
+                let bit =
+                    self.ports
+                        .read_four_score(0, self.controller_strobe, self.controller1_state);
+                (self.open_bus & 0xE0) | bit
+            }
             0x4016 => {
                 let data = if self.controller_strobe {
                     self.controller1_state & 1
@@ -720,6 +736,15 @@ impl Nes {
             // $4017: Controller 2. Same protocol as $4016 — bit 0 of
             // the strobe (latched from the last $4016 write) governs
             // the latch/shift behaviour for both controllers.
+            0x4017 if self.ports.devices == InputDevices::FourScore => {
+                let bit =
+                    self.ports
+                        .read_four_score(1, self.controller_strobe, self.controller2_state);
+                (self.open_bus & 0xE0) | bit
+            }
+            0x4017 if self.ports.devices == InputDevices::Zapper => {
+                (self.open_bus & 0xE0) | self.zapper_read()
+            }
             0x4017 => {
                 let data = if self.controller_strobe {
                     self.controller2_state & 1
@@ -790,6 +815,8 @@ impl Nes {
                 if self.controller_strobe && !new_strobe {
                     self.controller1_shift = self.controller1_state;
                     self.controller2_shift = self.controller2_state;
+                    self.ports
+                        .latch(self.controller1_state, self.controller2_state);
                 }
                 self.controller_strobe = new_strobe;
             }
@@ -987,6 +1014,68 @@ impl Nes {
         self.controller2_state = state;
     }
 
+    /// Set controller 3's buttons, read through a Four Score on `$4016`.
+    /// Same bit layout as [`Self::set_controller1`].
+    pub fn set_controller3(&mut self, state: u8) {
+        self.ports.controller3 = state;
+    }
+
+    /// Set controller 4's buttons, read through a Four Score on `$4017`.
+    pub fn set_controller4(&mut self, state: u8) {
+        self.ports.controller4 = state;
+    }
+
+    /// Controller 3's buttons.
+    #[must_use]
+    pub fn controller3_state(&self) -> u8 {
+        self.ports.controller3
+    }
+
+    /// Controller 4's buttons.
+    #[must_use]
+    pub fn controller4_state(&self) -> u8 {
+        self.ports.controller4
+    }
+
+    /// What is plugged into the controller ports.
+    #[must_use]
+    pub fn input_devices(&self) -> InputDevices {
+        self.ports.devices
+    }
+
+    /// Plug in two pads, a pad and a Zapper, or a Four Score.
+    pub fn set_input_devices(&mut self, devices: InputDevices) {
+        self.ports.devices = devices;
+    }
+
+    /// Point the Zapper at a pixel of the 256x240 picture, or away from
+    /// the screen with `None`.
+    pub fn set_zapper_aim(&mut self, aim: Option<(u16, u16)>) {
+        self.ports.zapper_aim = aim;
+    }
+
+    /// Where the Zapper is pointed.
+    #[must_use]
+    pub fn zapper_aim(&self) -> Option<(u16, u16)> {
+        self.ports.zapper_aim
+    }
+
+    /// Hold or release the Zapper's trigger.
+    pub fn set_zapper_trigger(&mut self, pressed: bool) {
+        self.ports.zapper_trigger = pressed;
+    }
+
+    /// The Zapper's `$4017` bits as the beam stands now.
+    fn zapper_read(&self) -> u8 {
+        zapper_bits(
+            self.ports.zapper_aim,
+            self.ports.zapper_trigger,
+            self.ppu.framebuffer(),
+            self.ppu.scanline(),
+            self.ppu.dot(),
+        )
+    }
+
     /// Capture complete machine state for save-state export.
     #[must_use]
     pub fn snapshot(&self) -> NesSnapshot {
@@ -1017,6 +1106,7 @@ impl Nes {
             controller2_shift: self.controller2_shift,
             controller2_state: self.controller2_state,
             controller_strobe: self.controller_strobe,
+            ports: self.ports.clone(),
         }
     }
 
@@ -1053,6 +1143,7 @@ impl Nes {
         self.controller2_shift = snapshot.controller2_shift;
         self.controller2_state = snapshot.controller2_state;
         self.controller_strobe = snapshot.controller_strobe;
+        self.ports = snapshot.ports;
     }
 
     /// Reconstruct a machine directly from a snapshot. Like
@@ -1090,6 +1181,7 @@ impl Nes {
             controller2_shift: snapshot.controller2_shift,
             controller2_state: snapshot.controller2_state,
             controller_strobe: snapshot.controller_strobe,
+            ports: snapshot.ports,
             // open_bus isn't snapshotted — the next CPU read will
             // refresh it before any code can observe the value.
             open_bus: 0,
@@ -1470,6 +1562,49 @@ mod tests {
 
         nes.set_controller2(0); // release
         assert_eq!(nes.cpu_read(0x4017) & 1, 0);
+    }
+
+    #[test]
+    fn a_four_score_reads_four_pads_and_survives_a_snapshot() {
+        let mut nes = nop_nes();
+        nes.set_input_devices(InputDevices::FourScore);
+        nes.set_controller1(0x01);
+        nes.set_controller2(0x02);
+        nes.set_controller3(0x04);
+        nes.set_controller4(0x08);
+        nes.cpu_write(0x4016, 0x01);
+        nes.cpu_write(0x4016, 0x00);
+        let read = |nes: &mut Nes, addr: u16| -> u32 {
+            (0..24).fold(0, |acc, i| acc | (u32::from(nes.cpu_read(addr) & 1) << i))
+        };
+        assert_eq!(read(&mut nes, 0x4016), 0x01 | (0x04 << 8) | (0x08 << 16));
+        let snapshot = nes.snapshot();
+        let mut restored = Nes::from_snapshot(snapshot);
+        assert_eq!(restored.input_devices(), InputDevices::FourScore);
+        assert_eq!(restored.controller4_state(), 0x08);
+        assert_eq!(
+            read(&mut restored, 0x4017),
+            0x02 | (0x08 << 8) | (0x04 << 16)
+        );
+    }
+
+    #[test]
+    fn a_zapper_replaces_pad_2_on_4017() {
+        let mut nes = nop_nes();
+        nes.set_controller2(0xFF);
+        nes.set_input_devices(InputDevices::Zapper);
+        nes.set_zapper_trigger(true);
+        // Aimed away: no light, trigger held, no serial data.
+        assert_eq!(nes.cpu_read(0x4017) & 0x1F, 0x18);
+        nes.set_zapper_trigger(false);
+        nes.set_zapper_aim(Some((128, 120)));
+        assert_eq!(nes.zapper_aim(), Some((128, 120)));
+        // The picture is black, so still no light.
+        assert_eq!(nes.cpu_read(0x4017) & 0x1F, 0x08);
+        // Pad 1 is unaffected.
+        nes.set_controller1(0x01);
+        nes.cpu_write(0x4016, 0x01);
+        assert_eq!(nes.cpu_read(0x4016) & 1, 1);
     }
 
     #[test]
