@@ -718,11 +718,13 @@ Dragon 32/64 boot workflows. Native menu click-through remains unverified.
 
 ## Game Boy post-boot catalogue
 
-All five existing Game Boy profiles now share runtime-owned ids and frame
-budgets across launch, scripts, MCP and the macOS Machine menu. Short ids
-`dmg0`, `dmg`, `mgb`, `sgb` and `sgb2` remain, with canonical profile ids accepted
-as aliases. SGB menu labels explicitly identify post-boot profiles; boot-ROM
-execution, CGB and a complete SGB host are outside this catalogue.
+All seven Game Boy profiles share runtime-owned ids and frame budgets
+across launch, scripts, MCP and the macOS Machine menu. Short ids `dmg0`,
+`dmg`, `mgb`, `sgb`, `sgb2`, `cgb` and `agb` are accepted, with canonical
+profile ids as aliases. SGB menu labels explicitly identify post-boot
+profiles. The Game Boy Color models run the CGB boot ROM when one is
+supplied and otherwise start post-boot; DMG boot-ROM execution and a
+complete SGB host are outside this catalogue.
 
 A profile change starts a fresh CPU, memory, video and input state while
 retaining the loaded cartridge, its RAM and RTC, and host mixer controls.
