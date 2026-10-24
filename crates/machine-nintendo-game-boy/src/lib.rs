@@ -1,26 +1,37 @@
-//! Nintendo Game Boy (DMG) machine.
+//! Nintendo Game Boy machine: the DMG and its relatives, and the Game
+//! Boy Color.
 //!
 //! Composes the SM83 CPU, PPU, APU, timer, and cartridge into a
-//! single tickable machine. The bus dispatch covers the full DMG
-//! memory map; per-m-cycle orchestration drives the timer / APU /
+//! single tickable machine. The bus dispatch covers the full memory
+//! map; per-m-cycle orchestration drives the timer / APU /
 //! PPU at T-cycle rate, the CPU at m-cycle rate, and OR's all IRQ
 //! sources into `IF` for the CPU's interrupt-dispatch path.
 //!
+//! A Game Boy Color ([`BootProfile::Cgb`], [`BootProfile::Agb`]) adds
+//! the [`cgb`] registers: VRAM and WRAM banks, colour palettes, HDMA
+//! and double speed. At double speed the CPU and timer run twice as
+//! fast as the PPU and APU, so an m-cycle is 2 dots instead of 4.
+//!
 //! Deferred behaviour (will land alongside the relevant test ROMs):
 //!
-//! - Boot-ROM slot. The CPU resets at PC=$0100 with the documented
-//!   post-boot register state instead of running through the
-//!   256-byte boot ROM.
+//! - Boot-ROM slot on the monochrome models. The CPU resets at
+//!   PC=$0100 with the documented post-boot register state instead of
+//!   running through the 256-byte boot ROM. A CGB can run its boot ROM
+//!   ([`GameBoy::new_cgb_with_boot_rom`]) but, without one, starts the
+//!   same way.
 //! - Full OAM DMA bus blocking. Real hardware blocks all CPU access to
 //!   non-HRAM memory for the 160 m-cycles a DMA takes; the DMA transfer
 //!   itself is paced and OAM access is blocked, but full CPU bus gating
 //!   is still deferred.
 
+pub mod cgb;
+#[cfg(test)]
+mod cgb_tests;
 #[cfg(test)]
 mod tests;
 
 use common_nintendo_game_boy::{JoypadButton, JoypadMatrix, MemoryBus};
-use format_nintendo_game_boy_cartridge::{CartridgeHeader, HeaderError, load};
+use format_nintendo_game_boy_cartridge::{CartridgeHeader, CgbSupport, HeaderError, load};
 use nintendo_game_boy_apu::Apu;
 use nintendo_game_boy_mbc::Cartridge;
 use nintendo_game_boy_ppu::Ppu;
@@ -29,10 +40,14 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use sharp_lr35902::{PostBootCpuState, Sm83};
 
+use crate::cgb::{COMPATIBILITY_BG_PALETTE, COMPATIBILITY_OBJ_PALETTE, CgbState};
+
 pub use nintendo_game_boy_apu::{ApuChannel, AudioControls};
 
-const WRAM_SIZE: usize = 0x2000;
-const VRAM_SIZE: usize = 0x2000;
+/// Eight 4 KiB WRAM banks; a DMG uses the first two.
+const WRAM_SIZE: usize = 0x8000;
+/// Two 8 KiB VRAM banks; a DMG uses the first.
+const VRAM_SIZE: usize = 0x4000;
 const OAM_SIZE: usize = 0xA0;
 const HRAM_SIZE: usize = 0x7F;
 
@@ -56,58 +71,73 @@ pub enum BootProfile {
     Sgb,
     /// Super Game Boy 2.
     Sgb2,
+    /// Game Boy Color.
+    Cgb,
+    /// Game Boy Advance running Game Boy Color software.
+    Agb,
 }
 
 impl BootProfile {
-    const fn cpu_state(self) -> PostBootCpuState {
+    /// Whether this is colour hardware.
+    #[must_use]
+    pub const fn is_cgb(self) -> bool {
+        matches!(self, Self::Cgb | Self::Agb)
+    }
+
+    /// The registers the boot ROM leaves. A CGB's depend on whether the
+    /// cartridge put it in CGB mode.
+    const fn cpu_state(self, cgb_mode: bool) -> PostBootCpuState {
         match self {
             Self::Dmg0 => PostBootCpuState::DMG0,
             Self::DmgAbc => PostBootCpuState::DMG_ABC,
             Self::Mgb => PostBootCpuState::MGB,
             Self::Sgb => PostBootCpuState::SGB,
             Self::Sgb2 => PostBootCpuState::SGB2,
+            Self::Cgb if cgb_mode => PostBootCpuState::CGB,
+            Self::Cgb => PostBootCpuState::CGB_DMG,
+            Self::Agb if cgb_mode => PostBootCpuState::AGB,
+            Self::Agb => PostBootCpuState::AGB_DMG,
         }
     }
 
+    /// The DIV counter the boot ROM leaves. The CGB's is not documented,
+    /// so a CGB starts from 0.
     const fn div_counter(self) -> u16 {
         match self {
             Self::Dmg0 => 0x182C,
             Self::DmgAbc | Self::Mgb => 0xABC9,
             Self::Sgb => 0xD85C,
             Self::Sgb2 => 0xD84C,
+            Self::Cgb | Self::Agb => 0,
         }
     }
 
     const fn ch1_envelope(self) -> u8 {
-        match self {
-            Self::Dmg0 | Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 => 0xF3,
-        }
+        0xF3
     }
 
     const fn ch1_sweep(self) -> u8 {
-        match self {
-            Self::Dmg0 | Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 => 0x80,
-        }
+        0x80
     }
 
     const fn ch1_enabled(self) -> bool {
         match self {
             Self::Sgb | Self::Sgb2 => false,
-            Self::Dmg0 | Self::DmgAbc | Self::Mgb => true,
+            Self::Dmg0 | Self::DmgAbc | Self::Mgb | Self::Cgb | Self::Agb => true,
         }
     }
 
     const fn joypad_select(self) -> u8 {
         match self {
             Self::Sgb | Self::Sgb2 => 0xF0,
-            Self::Dmg0 | Self::DmgAbc | Self::Mgb => 0xC0,
+            Self::Dmg0 | Self::DmgAbc | Self::Mgb | Self::Cgb | Self::Agb => 0xC0,
         }
     }
 
     const fn ppu_phase(self) -> (u8, u16) {
         match self {
             Self::Dmg0 => (145, 84),
-            Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 => (0, 0),
+            Self::DmgAbc | Self::Mgb | Self::Sgb | Self::Sgb2 | Self::Cgb | Self::Agb => (0, 0),
         }
     }
 }
@@ -121,10 +151,11 @@ pub struct GameBoy {
     apu: Apu,
     cartridge: Cartridge,
 
-    #[serde(with = "BigArray")]
-    wram: [u8; WRAM_SIZE],
-    #[serde(with = "BigArray")]
-    vram: [u8; VRAM_SIZE],
+    /// `WRAM_SIZE` bytes, on the heap: a CGB's 48 KiB of RAM would
+    /// otherwise make the machine too large to move on a thread's stack.
+    wram: Vec<u8>,
+    /// `VRAM_SIZE` bytes.
+    vram: Vec<u8>,
     #[serde(with = "BigArray")]
     oam: [u8; OAM_SIZE],
     #[serde(with = "BigArray")]
@@ -163,6 +194,13 @@ pub struct GameBoy {
     /// bus-conflicting address while the DMA is running.
     #[serde(default = "default_oam_dma_reg")]
     oam_dma_last_byte: u8,
+
+    /// The Game Boy Color's own state; `None` on monochrome models.
+    #[serde(default)]
+    cgb: Option<Box<CgbState>>,
+    /// A monochrome model in STOP mode.
+    #[serde(default)]
+    dmg_stop_mode: bool,
 }
 
 /// Which of the DMG's two memory buses an address sits on. OAM DMA blocks
@@ -201,10 +239,11 @@ const TRADEMARK_TILE: [u8; 8] = [0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C]
 /// `.loadLogoLoop` / `.tilemapLoop`). Games and test ROMs that skip
 /// clearing VRAM rely on this — the Mealybug Tearoom PPU tests draw
 /// tile `$19` as their sprite. The DMG0 boot ROM's exact VRAM is not
-/// documented, so that profile keeps VRAM clear.
-fn post_boot_vram(cartridge: &Cartridge, boot_profile: BootProfile) -> [u8; VRAM_SIZE] {
-    let mut vram = [0; VRAM_SIZE];
-    if boot_profile == BootProfile::Dmg0 {
+/// documented, so that profile keeps VRAM clear, and so do the colour
+/// models, whose boot ROM draws its own logo.
+fn post_boot_vram(cartridge: &Cartridge, boot_profile: BootProfile) -> Vec<u8> {
+    let mut vram = vec![0; VRAM_SIZE];
+    if boot_profile == BootProfile::Dmg0 || boot_profile.is_cgb() {
         return vram;
     }
     let mut row = 0x0010;
@@ -253,23 +292,37 @@ impl GameBoy {
     /// specific skipped-boot ROM exit profile.
     #[must_use]
     pub fn new_with_boot_profile(cartridge: Cartridge, boot_profile: BootProfile) -> Self {
+        let cgb_mode = boot_profile.is_cgb()
+            && CgbSupport::from_flag(cartridge.read_rom(0x0143)).uses_cgb_mode();
         let mut cpu = Sm83::new();
-        cpu.reset_post_bootrom_with_state(boot_profile.cpu_state());
+        cpu.reset_post_bootrom_with_state(boot_profile.cpu_state(cgb_mode));
 
         let (ppu_ly, ppu_dot) = boot_profile.ppu_phase();
         let vram = post_boot_vram(&cartridge, boot_profile);
+        let mut ppu = Ppu::new_post_bootrom_with_phase(ppu_ly, ppu_dot);
+        let cgb = boot_profile.is_cgb().then(|| {
+            ppu.set_cgb(cgb_mode);
+            if !cgb_mode {
+                ppu.load_compatibility_palettes(
+                    COMPATIBILITY_BG_PALETTE,
+                    COMPATIBILITY_OBJ_PALETTE,
+                    COMPATIBILITY_OBJ_PALETTE,
+                );
+            }
+            Box::new(CgbState::new(cgb_mode, None))
+        });
 
         Self {
             cpu,
             timer: Timer::new_post_bootrom_with_counter(boot_profile.div_counter()),
-            ppu: Ppu::new_post_bootrom_with_phase(ppu_ly, ppu_dot),
+            ppu,
             apu: Apu::new_post_bootrom_with_ch1_regs(
                 boot_profile.ch1_sweep(),
                 boot_profile.ch1_envelope(),
                 boot_profile.ch1_enabled(),
             ),
             cartridge,
-            wram: [0; WRAM_SIZE],
+            wram: vec![0; WRAM_SIZE],
             vram,
             oam: [0; OAM_SIZE],
             hram: [0; HRAM_SIZE],
@@ -289,7 +342,41 @@ impl GameBoy {
             oam_dma_pending_source_high: 0xFF,
             oam_dma_pending_start_delay: 0,
             oam_dma_last_byte: 0xFF,
+            cgb,
+            dmg_stop_mode: false,
         }
+    }
+
+    /// Build a Game Boy Color that runs its boot ROM from `$0000`. The
+    /// boot ROM decides CGB or compatibility mode, sets the palettes,
+    /// and hands over at `$0100`.
+    ///
+    /// `boot_profile` should be [`BootProfile::Cgb`] or
+    /// [`BootProfile::Agb`]; a monochrome profile is treated as `Cgb`.
+    /// The boot ROM is user-supplied firmware, never bundled.
+    #[must_use]
+    pub fn new_cgb_with_boot_rom(
+        cartridge: Cartridge,
+        boot_profile: BootProfile,
+        boot_rom: Vec<u8>,
+    ) -> Self {
+        let boot_profile = if boot_profile.is_cgb() {
+            boot_profile
+        } else {
+            BootProfile::Cgb
+        };
+        let mut machine = Self::new_with_boot_profile(cartridge, boot_profile);
+        machine.cpu.reset();
+        machine.timer = Timer::new();
+        machine.apu = Apu::new();
+        machine.joypad = JoypadMatrix::new();
+        machine.if_reg = 0;
+        machine.ppu = Ppu::new();
+        machine.ppu.write_lcdc(0);
+        // The boot ROM runs in CGB mode until it writes KEY0.
+        machine.ppu.set_cgb(true);
+        machine.cgb = Some(Box::new(CgbState::new(true, Some(boot_rom))));
+        machine
     }
 
     /// Convenience: parse a ROM image and build the Game Boy in one
@@ -317,10 +404,72 @@ impl GameBoy {
         Ok((header, Self::new_with_boot_profile(cart, boot_profile)))
     }
 
+    /// Build a machine that runs `boot_rom` when it is given and the
+    /// profile is a colour one; otherwise as
+    /// [`GameBoy::new_with_boot_profile`].
+    #[must_use]
+    pub fn new_with_boot_rom(
+        cartridge: Cartridge,
+        boot_profile: BootProfile,
+        boot_rom: Option<Vec<u8>>,
+    ) -> Self {
+        match boot_rom {
+            Some(boot_rom) if boot_profile.is_cgb() => {
+                Self::new_cgb_with_boot_rom(cartridge, boot_profile, boot_rom)
+            }
+            _ => Self::new_with_boot_profile(cartridge, boot_profile),
+        }
+    }
+
+    /// Convenience: parse a ROM image and build the machine as
+    /// [`GameBoy::new_with_boot_rom`] does.
+    ///
+    /// # Errors
+    ///
+    /// Forwards any [`HeaderError`] from the cartridge format crate.
+    pub fn from_rom_with_boot_rom(
+        rom: Vec<u8>,
+        boot_profile: BootProfile,
+        boot_rom: Option<Vec<u8>>,
+    ) -> Result<(CartridgeHeader, Self), HeaderError> {
+        let (header, cart) = load(rom)?;
+        Ok((
+            header,
+            Self::new_with_boot_rom(cart, boot_profile, boot_rom),
+        ))
+    }
+
     /// Returns the framebuffer (160 × 144 post-palette 2-bit shades).
+    /// On a CGB in CGB mode these are colour indices, not shades; use
+    /// [`GameBoy::color_framebuffer`].
     #[must_use]
     pub fn framebuffer(&self) -> &[u8] {
         self.ppu.framebuffer()
+    }
+
+    /// A CGB's picture as 160 × 144 RGB555 pixels; `None` on a
+    /// monochrome model.
+    #[must_use]
+    pub fn color_framebuffer(&self) -> Option<&[u16]> {
+        self.ppu.color_framebuffer()
+    }
+
+    /// Whether this is a Game Boy Color.
+    #[must_use]
+    pub fn is_cgb(&self) -> bool {
+        self.cgb.is_some()
+    }
+
+    /// Whether a Game Boy Color is in CGB mode (not DMG compatibility).
+    #[must_use]
+    pub fn cgb_mode(&self) -> bool {
+        self.cgb.as_ref().is_some_and(|cgb| cgb.cgb_mode)
+    }
+
+    /// Whether a Game Boy Color's CPU is at double speed.
+    #[must_use]
+    pub fn double_speed(&self) -> bool {
+        self.cgb.as_ref().is_some_and(|cgb| cgb.double_speed)
     }
 
     /// Current CPU program counter.
@@ -413,21 +562,47 @@ impl GameBoy {
     /// One CPU m-cycle (4 T-cycles): tick the per-T-cycle components,
     /// collect IRQ sources, service the CPU's bus pins, then tick
     /// the CPU.
+    ///
+    /// At CGB double speed the timer still sees 4 T-cycles, but the
+    /// PPU and APU see only 2 dots; the APU reads DIV one bit higher so
+    /// its frame sequencer keeps its real-time rate (Pan Docs, "CGB
+    /// Registers: KEY1"). While HDMA copies, the CPU is held and its
+    /// pending access waits.
     pub fn step_m_cycle(&mut self) {
+        if self.in_stop_mode() {
+            self.tick_stop_mode();
+            return;
+        }
+        let hdma_stall = self.tick_hdma();
         // The CPU's bus pins already hold this M-cycle's access. Some
         // PPU registers take a write part-way through the M-cycle, so
         // the PPU is handed those before its dots run.
-        let ppu_took_write = self.cpu.mreq
+        let ppu_took_write = !hdma_stall
+            && self.cpu.mreq
             && self.cpu.wr
             && !self.cpu.rd
             && self.ppu.stage_cpu_write(self.cpu.addr, self.cpu.data);
-        for _ in 0..4 {
+        let double_speed = self.double_speed();
+        let cgb = self.cgb.is_some();
+        for t in 0..4 {
             let serial_clock_before = self.serial_clock_bit();
             self.timer.tick_t();
             let serial_clock_after = self.serial_clock_bit();
             self.tick_serial_irq(serial_clock_before, serial_clock_after);
-            self.apu.tick(self.timer.counter);
+            if double_speed && t & 1 == 0 {
+                continue;
+            }
+            let div = if double_speed {
+                self.timer.counter >> 1
+            } else {
+                self.timer.counter
+            };
+            self.apu.tick(div);
+            let drawing = cgb && self.ppu.mode() == 3;
             self.ppu.tick(&self.vram, &self.oam);
+            if drawing && self.ppu.mode() == 0 {
+                self.hblank_started();
+            }
         }
 
         if self.timer.consume_overflow() {
@@ -448,24 +623,41 @@ impl GameBoy {
         }
         self.joypad_line_prev = joypad_line;
 
-        self.service_cpu(ppu_took_write);
+        if !hdma_stall {
+            self.service_cpu(ppu_took_write);
+            if self.cpu.stopped {
+                self.handle_stop();
+            }
+        }
+        self.tick_speed_switch_halt();
         self.tick_oam_dma();
     }
 
     /// Run m-cycles until the PPU latches frame-ready (≈ 17 556
-    /// m-cycles per frame). Returns the number of m-cycles the
-    /// frame took.
+    /// m-cycles per frame, twice that at CGB double speed). Returns the
+    /// number of m-cycles the frame took.
     pub fn run_frame(&mut self) -> u32 {
-        const SAFETY_LIMIT: u32 = 30_000; // ~1.7× a normal frame
+        self.run_frame_timed().0
+    }
+
+    /// Like [`GameBoy::run_frame`], but returns the frame's length in
+    /// dots (4.194304 MHz ticks), which a CGB speed switch does not
+    /// change: 70 224 for a full frame at either speed.
+    pub fn run_frame_dots(&mut self) -> u32 {
+        self.run_frame_timed().1
+    }
+
+    /// Runs one frame, returning its CPU m-cycles and its dots.
+    fn run_frame_timed(&mut self) -> (u32, u32) {
+        const SAFETY_LIMIT: u32 = 30_000 * 4; // ~1.7× a frame, in dots
         let mut count = 0;
+        let mut dots = 0;
         loop {
+            dots += if self.double_speed() { 2 } else { 4 };
             self.step_m_cycle();
             count += 1;
-            if self.ppu.consume_frame_ready() {
-                return count;
-            }
-            if count >= SAFETY_LIMIT {
-                return count;
+            if self.ppu.consume_frame_ready() || dots >= SAFETY_LIMIT {
+                return (count, dots);
             }
         }
     }
@@ -491,6 +683,9 @@ impl GameBoy {
     }
 
     fn read_io(&self, addr: u16) -> u8 {
+        if let Some(value) = self.read_cgb_io(addr) {
+            return value;
+        }
         match addr {
             0xFF00 => self.joypad.read_p1(),
             0xFF01 => self.serial_data,
@@ -518,6 +713,9 @@ impl GameBoy {
     }
 
     fn write_io(&mut self, addr: u16, value: u8) {
+        if self.write_cgb_io(addr, value) {
+            return;
+        }
         match addr {
             0xFF00 => self.joypad.write_p1(value),
             0xFF01 => self.serial_data = value,
@@ -672,15 +870,37 @@ impl MemoryBus for GameBoy {
 }
 
 impl GameBoy {
-    fn bus_read(&self, addr: u16) -> u8 {
+    /// Index into VRAM for a CPU address, in the bank VBK selects.
+    fn vram_index(&self, addr: u16) -> usize {
+        let bank = self.cgb.as_ref().map_or(0, |cgb| cgb.vram_offset());
+        bank + usize::from(addr & 0x1FFF)
+    }
+
+    /// Index into WRAM for a CPU address (`$C000-$FDFF`): bank 0, then
+    /// the bank SVBK selects (always bank 1 on a DMG).
+    fn wram_index(&self, addr: u16) -> usize {
+        let offset = usize::from(addr & 0x1FFF);
+        if offset < 0x1000 {
+            offset
+        } else {
+            let bank = self.cgb.as_ref().map_or(1, |cgb| cgb.high_wram_bank());
+            bank * 0x1000 + offset - 0x1000
+        }
+    }
+
+    pub(crate) fn bus_read(&self, addr: u16) -> u8 {
+        if addr < 0x0900
+            && let Some(byte) = self.cgb.as_ref().and_then(|cgb| cgb.boot_rom_byte(addr))
+        {
+            return byte;
+        }
         match addr {
             0x0000..=0x7FFF => self.cartridge.read_rom(addr),
             0x8000..=0x9FFF if self.ppu.cpu_blocks_vram_read() => 0xFF,
-            0x8000..=0x9FFF => self.vram[usize::from(addr - 0x8000)],
+            0x8000..=0x9FFF => self.vram[self.vram_index(addr)],
             0xA000..=0xBFFF => self.cartridge.read_ram(addr),
-            0xC000..=0xDFFF => self.wram[usize::from(addr - 0xC000)],
             // Echo RAM mirrors $C000..=$DDFF.
-            0xE000..=0xFDFF => self.wram[usize::from(addr - 0xE000)],
+            0xC000..=0xFDFF => self.wram[self.wram_index(addr)],
             0xFE00..=0xFE9F if self.oam_dma_active() || self.ppu.cpu_blocks_oam_read() => 0xFF,
             0xFE00..=0xFE9F => self.oam[usize::from(addr - 0xFE00)],
             0xFEA0..=0xFEFF => 0xFF, // unusable region
@@ -694,10 +914,15 @@ impl GameBoy {
         match addr {
             0x0000..=0x7FFF => self.cartridge.write_rom(addr, value),
             0x8000..=0x9FFF if self.ppu.cpu_blocks_vram_write() => {}
-            0x8000..=0x9FFF => self.vram[usize::from(addr - 0x8000)] = value,
+            0x8000..=0x9FFF => {
+                let index = self.vram_index(addr);
+                self.vram[index] = value;
+            }
             0xA000..=0xBFFF => self.cartridge.write_ram(addr, value),
-            0xC000..=0xDFFF => self.wram[usize::from(addr - 0xC000)] = value,
-            0xE000..=0xFDFF => self.wram[usize::from(addr - 0xE000)] = value,
+            0xC000..=0xFDFF => {
+                let index = self.wram_index(addr);
+                self.wram[index] = value;
+            }
             0xFE00..=0xFE9F if self.oam_dma_active() || self.ppu.cpu_blocks_oam_write() => {}
             0xFE00..=0xFE9F => self.oam[usize::from(addr - 0xFE00)] = value,
             0xFEA0..=0xFEFF => {} // unusable region
