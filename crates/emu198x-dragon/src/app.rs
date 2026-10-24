@@ -211,8 +211,8 @@ impl MachineApp for Dragon {
         "--xroar-timeout-seconds",
         "--disk",
     ];
-    const MACHINE_OPTIONS: &'static str = "    --model MODEL       dragon32 | dragon64 [default: dragon32]
-    --rom PATH          Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM; .zip archives are accepted
+    const MACHINE_OPTIONS: &'static str = "    --model MODEL       dragon32 | dragon64 | coco1 | coco2 [default: dragon32]
+    --rom PATH          Dragon 32 BASIC ROM, Dragon 64 compatible-mode ROM, or CoCo Color BASIC (16K: Extended + Color BASIC); .zip archives are accepted
     --rom ID=PATH       pin a catalogue firmware image (bare PATH still names compatible BASIC)
     --rom-dir DIR       firmware directory (or EMU198X_DRAGON_ROM_DIR)
     --rom64 PATH        Dragon 64 64-mode BASIC ROM; otherwise resolved conventionally
@@ -603,10 +603,10 @@ mod tests {
 
     #[test]
     fn a_bad_model_is_a_usage_error() {
-        let err = parse::<Dragon>(&args(&["--model", "coco"])).expect_err("rejects");
+        let err = parse::<Dragon>(&args(&["--model", "trs80"])).expect_err("rejects");
         assert_eq!(
             err,
-            LaunchError::Usage("--model expects dragon32 or dragon64".to_owned())
+            LaunchError::Usage("--model expects dragon32, dragon64, coco1 or coco2".to_owned())
         );
     }
 

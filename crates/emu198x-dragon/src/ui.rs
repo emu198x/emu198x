@@ -41,8 +41,6 @@ use thiserror::Error;
 use crate::app::Dragon;
 
 const DEFAULT_SCALE: u32 = 2;
-const DRAGON_FRAME_HZ: u64 = 50;
-const DRAGON_FRAME_CYCLES: u64 = Model::Dragon32Pal.native_frame_ticks();
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const AUTOLOAD_BOOT_FRAMES: u32 = 100;
 const AUTOLOAD_KEY_EDGE_FRAMES: u32 = 4;
@@ -166,8 +164,8 @@ impl UiSystem for DragonSystem {
         runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / DRAGON_FRAME_HZ as f64)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(1.0 / runtime.model().video_standard().frame_hz() as f64)
     }
 
     fn input_slices_per_frame(&self) -> u32 {
@@ -266,11 +264,9 @@ fn build_runtime(cli: &Dragon) -> Result<DragonRuntime, AppError> {
     let runtime = cli
         .catalogue_runtime()
         .map_err(|reason| AppError::Setup { reason })?;
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        DRAGON_FRAME_CYCLES,
-        DragonSessionQueryProvider,
-    );
+    let frame_ticks = runtime.model().native_frame_ticks();
+    let mut session =
+        HeadlessSession::new_with_query_provider(runtime, frame_ticks, DragonSessionQueryProvider);
 
     if let Some(tape) = &cli.tape {
         let loaded = read_media_asset(tape, MediaKind::Tape).map_err(|err| AppError::Setup {
