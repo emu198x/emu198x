@@ -11,6 +11,7 @@
 
 use super::*;
 use format_nintendo_game_boy_cartridge::CartridgeHeader;
+use format_nintendo_game_boy_cartridge::CartridgeType;
 use nintendo_game_boy_mbc::CartType;
 
 /// Build a 32 KiB ROM with NOPs and a valid header.
@@ -821,10 +822,61 @@ fn diagnostic_mooneye_ppu_lcdon_write_timing_results() {
 // -- Construction ----------------------------------------------------
 
 #[test]
+fn every_header_board_maps_to_its_controller() {
+    let cases = [
+        (
+            CartridgeType::RomOnly { battery: true },
+            CartType::RomOnly { battery: true },
+        ),
+        (
+            CartridgeType::Mbc1 {
+                ram: true,
+                battery: false,
+            },
+            CartType::Mbc1 {
+                ram: true,
+                battery: false,
+            },
+        ),
+        (
+            CartridgeType::Mbc2 { battery: true },
+            CartType::Mbc2 { battery: true },
+        ),
+        (
+            CartridgeType::Mbc3 {
+                ram: true,
+                battery: true,
+                rtc: true,
+            },
+            CartType::Mbc3 {
+                ram: true,
+                battery: true,
+                rtc: true,
+            },
+        ),
+        (
+            CartridgeType::Mbc5 {
+                ram: false,
+                battery: false,
+                rumble: true,
+            },
+            CartType::Mbc5 {
+                ram: false,
+                battery: false,
+                rumble: true,
+            },
+        ),
+    ];
+    for (header, controller) in cases {
+        assert_eq!(board(header), controller);
+    }
+}
+
+#[test]
 fn construction_validates_header() {
     let rom = nop_rom();
     let (header, _) = GameBoy::from_rom(rom).unwrap();
-    assert_eq!(header.cart_type, CartType::RomOnly { battery: false });
+    assert_eq!(header.cart_type, CartridgeType::RomOnly { battery: false });
 }
 
 #[test]
