@@ -127,17 +127,25 @@ impl C64FamilyMachine for C128 {
         firmware: &FirmwareSet<'_>,
     ) -> Result<C128Runtime, MachineError> {
         firmware.validate_for_profile(&model.profile())?;
-        let rom = |id: &str| {
-            firmware
+        // Each image is checked against its own size, so a wrong one is named
+        // by its firmware id rather than by the machine's ROM label.
+        let rom = |id: &str, size: usize| {
+            let bytes = firmware
                 .bytes(id)
-                .map(<[u8]>::to_vec)
-                .ok_or_else(|| MachineError::MissingFirmware { id: id.to_owned() })
+                .ok_or_else(|| MachineError::MissingFirmware { id: id.to_owned() })?;
+            if bytes.len() != size {
+                return Err(MachineError::InvalidFirmware {
+                    id: id.to_owned(),
+                    reason: format!("expected exactly {size} bytes, got {}", bytes.len()),
+                });
+            }
+            Ok(bytes.to_vec())
         };
         let roms = C128RomSet {
-            kernal: rom("commodore-c128-kernal-rom")?,
-            basic_lo: rom("commodore-c128-basic-lo-rom")?,
-            basic_hi: rom("commodore-c128-basic-hi-rom")?,
-            chargen: rom("commodore-c128-character-rom")?,
+            kernal: rom("commodore-c128-kernal-rom", KERNAL_ROM_SIZE)?,
+            basic_lo: rom("commodore-c128-basic-lo-rom", BASIC_HALF_ROM_SIZE)?,
+            basic_hi: rom("commodore-c128-basic-hi-rom", BASIC_HALF_ROM_SIZE)?,
+            chargen: rom("commodore-c128-character-rom", CHARACTER_ROM_SIZE)?,
         };
         let machine = Self::build(model, &roms)?;
         Ok(C128Runtime::assemble(model, machine, roms))

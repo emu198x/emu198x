@@ -256,6 +256,10 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
             observe::<runtime_commodore_c64::C64Runtime>(),
         ),
         (
+            "commodore-c128",
+            observe::<runtime_commodore_c64::C128Runtime>(),
+        ),
+        (
             "commodore-pet",
             observe::<runtime_commodore_pet::PetRuntime>(),
         ),
