@@ -1,15 +1,15 @@
-//! The Commodore 128 in C128 mode, 40 columns.
+//! The Commodore 128 in C128 mode, on 40 or 80 columns.
 //!
 //! Two CPUs share one bus. At power-on the Z80 has it and runs its BIOS,
 //! which hands the bus to the 8502 by setting the MMU's MCR bit 0; the 8502
 //! then runs its reset sequence and boots BASIC 7.0. Around them: the 8722
 //! MMU ([`mmu`]), 128 KB of RAM, the VIC-IIe in its 8566 form, two 6526
-//! CIAs, a SID, the 8563 VDC's registers ([`vdc`]), and 2 KB of colour RAM
+//! CIAs, a SID, the 8563 VDC ([`vdc`]) for 80 columns, and 2 KB of colour RAM
 //! in two banks the 8502's port selects.
 //!
 //! The reference is VICE (`src/c128`, `src/vdc`). Not modelled yet: C64
 //! mode, 2 MHz mode (`$D030` bit 0 is held but the 8502 stays at 1 MHz),
-//! the VDC's display, the datasette, IEC drives and cartridges.
+//! the datasette, IEC drives and cartridges.
 
 mod mmu;
 mod vdc;
@@ -247,6 +247,18 @@ impl C128 {
         self.vic.framebuffer()
     }
 
+    /// The 8563 VDC's 80-column picture, [`Self::VDC_WIDTH`] by
+    /// [`Self::VDC_HEIGHT`].
+    #[must_use]
+    pub fn vdc_framebuffer(&self) -> &[u32] {
+        self.vdc.framebuffer()
+    }
+
+    /// The VDC picture's width in pixels.
+    pub const VDC_WIDTH: usize = vdc::VDC_FB_WIDTH;
+    /// The VDC picture's height in lines.
+    pub const VDC_HEIGHT: usize = vdc::VDC_FB_HEIGHT;
+
     /// The 8563's video RAM.
     #[must_use]
     pub fn vdc_ram(&self) -> &[u8] {
@@ -323,6 +335,7 @@ impl C128 {
             },
         };
         self.vic.tick(&self.memory, phi2_bus);
+        self.vdc.tick();
         self.refresh_keyboard_scan();
         self.cia1.tick();
         self.cia2.tick();
@@ -455,7 +468,7 @@ impl C128 {
             0xD000..=0xD3FF => self.vic.read((addr & 0x3F) as u8),
             0xD400..=0xD4FF => self.sid.cpu_read((addr & 0x1F) as u8),
             0xD500..=0xD5FF => self.mmu.read((addr & 0xFF) as u8),
-            0xD600..=0xD6FF => self.vdc.read(addr, self.phi2_cycles),
+            0xD600..=0xD6FF => self.vdc.read(addr),
             0xD800..=0xDBFF => self.colour_read(addr),
             0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
