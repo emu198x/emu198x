@@ -135,6 +135,8 @@ fn disk_images_load_in_either_format() {
     let msa = format_atari_st_msa::write(9, 2, &raw);
     let disk = disk_from_image(&msa).expect(".msa");
     assert_eq!(disk.data().len(), 737_280);
+    assert_eq!(msa_from_disk(&disk), Some(msa));
+    assert_eq!(msa_from_disk(&Disk::new(vec![0; 100], 1, 1, 1, 512)), None);
     assert!(disk_from_image(&[0x0E, 0x0F, 0]).is_err());
     let error = disk_from_st(&[0; 100]).expect_err("too small");
     assert!(!error.to_string().is_empty());
