@@ -224,6 +224,14 @@ consumers = "Built for the Sega Mega Drive (#496); no machine uses it yet."
 coverage_floor = 97
 
 [[repo]]
+name = "yamaha-v9938"
+crates = ["emu198x-yamaha-v9938"]
+summary = "The Yamaha V9938 video display processor, the MSX2's video chip, with its command engine."
+consumers = "Built for the MSX2 (#2062)."
+# 96.42% line coverage on 2026-10-24.
+coverage_floor = 95
+
+[[repo]]
 name = "yamaha-ym2612"
 crates = ["emu198x-yamaha-ym2612"]
 summary = "The Yamaha YM2612 (OPN2) FM synthesis chip and its CMOS twin, the YM3438."
