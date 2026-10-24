@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::MsxRuntime;
 
+/// Bumped to 7 when the 8255 began modelling its port directions and input lines, which changes its serialised fields.
+///
 /// Bumped to 6 when the TMS9918 began holding a CPU access until its VRAM
 /// access window. The live chip now carries that pending access, so an older
 /// payload decodes the fields after it at the wrong offsets.
@@ -19,7 +21,7 @@ use crate::runtime::MsxRuntime;
 /// Bumped to 5 when the machine gained the live M1 wait-state latch. Restoring
 /// an older snapshot without that latch could insert the wait twice or omit it
 /// when resuming in the middle of an opcode fetch.
-const SNAPSHOT_VERSION: u16 = 6;
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

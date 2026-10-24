@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::AtomRuntime;
 
+// Version 4: the 8255 began modelling its port directions and input lines, which changes its serialised fields.
 // Version 3 preserves the VIA timer 2 load phase (#1677).
-const SNAPSHOT_VERSION: u16 = 3;
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

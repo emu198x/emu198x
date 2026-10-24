@@ -345,7 +345,7 @@ impl Svi328 {
             // PPI port B read ($99): keyboard column data for the row selected
             // via port C.
             0x99 => {
-                let row = self.ppi.keyboard_row() as usize;
+                let row = usize::from(self.ppi.port_c() & 0x0F);
                 self.keyboard.get(row).copied().unwrap_or(0xFF)
             }
             // PPI port C read ($9A).
@@ -383,13 +383,14 @@ impl Svi328 {
             // selects the keyboard row.
             0x94 => self.ppi.write(0, value),
             0x95 => self.ppi.write(1, value),
-            0x96 => {
-                self.ppi.write(2, value);
+            0x96 | 0x97 => {
+                self.ppi.write(port as u8 - 0x94, value);
                 // PC4 is active-low motor control; PC5 is cassette output and
                 // PC6 speaker enable, both intentionally read-only for now.
-                self.cassette.set_motor(value & 0x10 == 0);
+                // Read the line, not the written byte: a mode word or a
+                // bit set/reset on $97 moves it too.
+                self.cassette.set_motor(self.ppi.port_c() & 0x10 == 0);
             }
-            0x97 => self.ppi.write(3, value),
             _ => {}
         }
     }
@@ -561,6 +562,15 @@ impl emu198x_zilog_z80::Z80Stepper for Svi328 {
 mod tests {
     use super::*;
 
+    /// An SVI whose 8255 has the BIOS's "initial set" mode, `$92`: port A
+    /// and port B in, port C out (service manual, § 8255 Control Word).
+    /// Test ROMs never run that code.
+    fn booted(rom: Vec<u8>, region: SviRegion) -> Svi328 {
+        let mut sys = Svi328::new(rom, region);
+        sys.io_write(0x97, 0x92);
+        sys
+    }
+
     fn trap_rom() -> Vec<u8> {
         // 32 KB ROM: NOPs with JR -2 trap at $0008.
         let mut rom = vec![0u8; 0x8000];
@@ -576,7 +586,7 @@ mod tests {
     /// stateful field round-trips, including the VDP's 16 KB VRAM.
     #[test]
     fn snapshot_round_trips_live_state() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.run_frame();
         sys.poke(0xC100, 0xA5); // a work-RAM byte to carry across the snapshot
         assert_eq!(sys.peek(0xC100), 0xA5, "0xC100 is RAM and accepts the poke");
@@ -597,7 +607,7 @@ mod tests {
 
     #[test]
     fn ntsc_frame_returns_expected_tstates() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         let t = sys.run_frame();
         assert_eq!(t, NTSC_TSTATES_PER_FRAME);
         assert_eq!(sys.frame_count(), 1);
@@ -605,14 +615,14 @@ mod tests {
 
     #[test]
     fn pal_frame_returns_expected_tstates() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Pal);
+        let mut sys = booted(trap_rom(), SviRegion::Pal);
         let t = sys.run_frame();
         assert_eq!(t, PAL_TSTATES_PER_FRAME);
     }
 
     #[test]
     fn many_frames_complete_without_panic() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         for _ in 0..60 {
             sys.run_frame();
         }
@@ -621,7 +631,7 @@ mod tests {
 
     #[test]
     fn joystick_directions_read_through_psg_port_a() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.io_write(0x88, 14); // select PSG register 14 (port A)
 
         // Idle: both sticks read all-high.
@@ -644,7 +654,7 @@ mod tests {
 
     #[test]
     fn joystick_fire_buttons_read_on_ppi_port_a() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         // Idle PPI port A: buttons high, no-cassette bit set → 0x7F.
         assert_eq!(sys.io_read(0x98), 0x7F);
 
@@ -658,7 +668,7 @@ mod tests {
 
     #[test]
     fn ppi_cassette_lines_report_media_and_follow_motor_control() {
-        let mut sys = Svi328::new(vec![0; 0x8000], SviRegion::Ntsc);
+        let mut sys = booted(vec![0; 0x8000], SviRegion::Ntsc);
         assert_eq!(sys.io_read(0x98) & 0xC0, 0x40, "empty deck: absent and low");
         sys.insert_cassette(&[vec![0x80]]);
         assert_eq!(sys.io_read(0x98) & 0xC0, 0x00, "inserted tape starts low");
@@ -681,7 +691,7 @@ mod tests {
 
     #[test]
     fn rom_visible_at_reset() {
-        let sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let sys = booted(trap_rom(), SviRegion::Ntsc);
         // BIOS-trap byte at $0008.
         assert_eq!(sys.mem_read(0x0008), 0x18);
         // Read past ROM end → 0xFF from the unmapped fall-through.
@@ -690,7 +700,7 @@ mod tests {
 
     #[test]
     fn ram_overlay_replaces_rom_at_low_window() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         // Bank the lower RAM in via PSG R15 (port B), bit 1 low.
         sys.io_write(0x88, 0x0F); // select R15
         sys.io_write(0x8C, 0x01); // CART=1, BK21=0 → RAM low
@@ -701,7 +711,7 @@ mod tests {
 
     #[test]
     fn psg_port_b_cart_bit_controls_the_cart_overlay() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.insert_cart(vec![0xAA; 0x4000]);
         assert_eq!(sys.memory_control(), (false, false));
         assert_eq!(sys.mem_read(0x8000), 0x00, "cart starts disabled");
@@ -719,7 +729,7 @@ mod tests {
 
     #[test]
     fn ppi_control_port_does_not_change_memory_banks() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.insert_cart(vec![0xAA; 0x4000]);
         sys.io_write(0x97, 0x00);
         assert_eq!(
@@ -731,7 +741,7 @@ mod tests {
 
     #[test]
     fn psg_port_b_drives_lower_ram_bank() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.io_write(0x88, 0x0F); // select R15
         sys.io_write(0x8C, 0x01); // CART=1, BK21=0 → RAM low
         assert!(sys.memory_control().0, "bk21 low should bank RAM in");
@@ -742,7 +752,7 @@ mod tests {
 
     #[test]
     fn keyboard_io_returns_selected_row() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.keyboard[5] = 0xCD;
         // Select row 5 via PPI port C ($96), read the column data at port B ($99).
         sys.io_write(0x96, 0x05);
@@ -751,7 +761,7 @@ mod tests {
 
     #[test]
     fn vdp_dot_ratio_is_three_per_two_tstates() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         let start = sys.vdp.scanline();
         for _ in 0..4 {
             sys.tick_tstate();
@@ -762,7 +772,7 @@ mod tests {
 
     #[test]
     fn key_press_and_release_round_trip() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         sys.press_key(3, 2);
         assert_eq!(sys.keyboard[3] & 0b0000_0100, 0);
         sys.release_key(3, 2);
@@ -771,7 +781,7 @@ mod tests {
 
     #[test]
     fn ay_watch_captures_psg_data_writes() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         assert!(sys.ay_write_watch_records().is_none());
         let cap = sys.start_ay_write_watch();
         assert!(cap > 0);
@@ -794,7 +804,7 @@ mod tests {
     /// register wiring and the host-facing buffer.
     #[test]
     fn psg_tone_reaches_the_audio_buffer() {
-        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        let mut sys = booted(trap_rom(), SviRegion::Ntsc);
         for (register, value) in [(0, 100), (1, 0), (7, 0x3E), (8, 15)] {
             sys.io_write(0x88, register);
             sys.io_write(0x8C, value);

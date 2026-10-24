@@ -27,10 +27,12 @@ fn a_toggler_program_produces_a_non_empty_waveform() {
     // LDA $B002 ; EOR #$04 ; STA $B002 ; JMP $0200 — the Atom beeper loop (toggle
     // PC2), at $0200; auto-runs because the exec address is in low RAM.
     let toggler = [
-        0xAD, 0x02, 0xB0, // LDA $B002
+        0xA9, 0x8A, // LDA #$8A  8255 mode, as the MOS sets it
+        0x8D, 0x03, 0xB0, // STA $B003
+        0xAD, 0x02, 0xB0, // LDA $B002 (loop, $0205)
         0x49, 0x04, // EOR #$04
         0x8D, 0x02, 0xB0, // STA $B002
-        0x4C, 0x00, 0x02, // JMP $0200
+        0x4C, 0x05, 0x02, // JMP $0205
     ];
     let image = atm(0x0200, 0x0200, &toggler);
     let mut media = MediaSet::new();

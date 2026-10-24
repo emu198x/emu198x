@@ -1,87 +1,165 @@
 //! Intel 8255 Programmable Peripheral Interface (PPI).
 //!
-//! Adapted verbatim from `Emu198x-Oldest/crates/intel-8255` (port
-//! 2026-06-01) as commit 1 of 3 unlocking MSX1. Self-contained
-//! port with no external dependencies; first new chip needed by
-//! MSX beyond what ColecoVision + SG-1000 already brought in.
+//! Three 8-bit ports, A, B and C, and a control register that sets each
+//! port's direction or sets and resets single port C bits. Port C splits
+//! into two nibbles with their own directions.
 //!
-//! Three 8-bit I/O ports (A, B, C) with configurable direction, plus a
-//! control register for mode selection and bit set/reset on port C.
+//! The chip knows nothing about the machine around it. The host writes
+//! the levels other devices drive onto input lines into
+//! [`Ppi8255::input_a`], [`Ppi8255::input_b`] and [`Ppi8255::input_c`],
+//! and reads what the chip drives with [`Ppi8255::port_a`],
+//! [`Ppi8255::port_b`] and [`Ppi8255::port_c`]. What an undriven input
+//! line reads (pull-ups, pull-downs, a floating bus) is a fact about the
+//! board, so the host decides it.
 //!
-//! The MSX uses Mode 0 exclusively: Port A = output (slot select),
-//! Port B = input (keyboard data), Port C = output (keyboard row +
-//! cassette + LED).
+//! Mode 0, simple input and output, is modelled. Every machine here
+//! uses it. The handshake lines of Modes 1 and 2 (STB, IBF, OBF, ACK,
+//! INTR, INTE) are not: in those modes the ports keep their programmed
+//! directions, but port C carries no handshake or status bits.
+//!
+//! Source: Intel 8255A datasheet, summarised in the umbrella's
+//! `reference/by-topic/ppi-8255/ppi-8255-reference.md`.
 
 use serde::{Deserialize, Serialize};
 
+/// The mode word RESET leaves: Mode 0, every port an input.
+const RESET_MODE: u8 = 0x9B;
+
 /// Intel 8255 PPI.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ppi8255 {
     /// Port A output latch.
-    pub port_a: u8,
-    /// Port B input value (set externally).
-    pub port_b: u8,
+    output_a: u8,
+    /// Port B output latch.
+    output_b: u8,
     /// Port C output latch.
-    pub port_c: u8,
-    /// Control/mode register.
-    control: u8,
+    output_c: u8,
+    /// The last mode word.
+    mode: u8,
+    /// Levels other devices drive onto port A's lines. Only the bits the
+    /// mode makes inputs are read.
+    pub input_a: u8,
+    /// Levels other devices drive onto port B's lines.
+    pub input_b: u8,
+    /// Levels other devices drive onto port C's lines.
+    pub input_c: u8,
 }
 
 impl Ppi8255 {
-    /// Create a new PPI. Default mode: $82 (Mode 0, Port B input).
+    /// A PPI just out of RESET: every port an input and every output
+    /// latch clear. The input lines start high, as if pulled up; a host
+    /// whose board does otherwise sets them.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            port_a: 0,
-            port_b: 0xFF, // Input defaults high (active-low)
-            port_c: 0,
-            control: 0x82, // MSX default: Mode 0, Port B input
+            output_a: 0,
+            output_b: 0,
+            output_c: 0,
+            mode: RESET_MODE,
+            input_a: 0xFF,
+            input_b: 0xFF,
+            input_c: 0xFF,
         }
     }
 
-    /// Read from a PPI register (address bits 1-0 select A/B/C/control).
+    /// Apply RESET. The input levels belong to the board and stay.
+    pub fn reset(&mut self) {
+        self.output_a = 0;
+        self.output_b = 0;
+        self.output_c = 0;
+        self.mode = RESET_MODE;
+    }
+
+    /// The bits of port A that are inputs.
+    fn input_mask_a(&self) -> u8 {
+        if self.mode & 0x10 != 0 { 0xFF } else { 0x00 }
+    }
+
+    /// The bits of port B that are inputs.
+    fn input_mask_b(&self) -> u8 {
+        if self.mode & 0x02 != 0 { 0xFF } else { 0x00 }
+    }
+
+    /// The bits of port C that are inputs, nibble by nibble.
+    fn input_mask_c(&self) -> u8 {
+        let upper = if self.mode & 0x08 != 0 { 0xF0 } else { 0x00 };
+        let lower = if self.mode & 0x01 != 0 { 0x0F } else { 0x00 };
+        upper | lower
+    }
+
+    fn lines(output: u8, input: u8, input_mask: u8) -> u8 {
+        (output & !input_mask) | (input & input_mask)
+    }
+
+    /// Port A's lines: the latch on output bits, the driven level on
+    /// input bits.
     #[must_use]
-    pub fn read(&self, port: u8) -> u8 {
-        match port & 0x03 {
-            0 => self.port_a,
-            1 => self.port_b,
-            2 => self.port_c,
-            3 => self.control,
-            _ => unreachable!(),
+    pub fn port_a(&self) -> u8 {
+        Self::lines(self.output_a, self.input_a, self.input_mask_a())
+    }
+
+    /// Port B's lines.
+    #[must_use]
+    pub fn port_b(&self) -> u8 {
+        Self::lines(self.output_b, self.input_b, self.input_mask_b())
+    }
+
+    /// Port C's lines.
+    #[must_use]
+    pub fn port_c(&self) -> u8 {
+        Self::lines(self.output_c, self.input_c, self.input_mask_c())
+    }
+
+    /// Read a register; `register` bits 1-0 are A1-A0.
+    ///
+    /// Ports read their lines: an output bit returns its latch, an input
+    /// bit the level driven onto it now, since Mode 0 inputs are not
+    /// latched. The control register cannot be read; the datasheet
+    /// leaves the bus undriven, which reads here as `$FF`.
+    #[must_use]
+    pub fn read(&self, register: u8) -> u8 {
+        match register & 0x03 {
+            0 => self.port_a(),
+            1 => self.port_b(),
+            2 => self.port_c(),
+            _ => 0xFF,
         }
     }
 
-    /// Write to a PPI register.
-    pub fn write(&mut self, port: u8, value: u8) {
-        match port & 0x03 {
-            0 => self.port_a = value,
-            1 => {} // Port B is input-only in MSX config
-            2 => self.port_c = value,
-            3 => {
+    /// Write a register; `register` bits 1-0 are A1-A0.
+    ///
+    /// A port write loads its output latch, which drives the lines only
+    /// where the mode makes them outputs. A control write with D7 set is
+    /// a mode word, which clears every output latch; with D7 clear it
+    /// sets (D0 = 1) or resets bit D3-D1 of port C's latch.
+    pub fn write(&mut self, register: u8, value: u8) {
+        match register & 0x03 {
+            0 => self.output_a = value,
+            1 => self.output_b = value,
+            2 => self.output_c = value,
+            _ => {
                 if value & 0x80 != 0 {
-                    // Mode set
-                    self.control = value;
-                    // Reset all ports on mode set
-                    self.port_a = 0;
-                    self.port_c = 0;
+                    self.mode = value;
+                    self.output_a = 0;
+                    self.output_b = 0;
+                    self.output_c = 0;
                 } else {
-                    // Bit set/reset on Port C
-                    let bit = (value >> 1) & 0x07;
+                    let bit = 1 << ((value >> 1) & 0x07);
                     if value & 0x01 != 0 {
-                        self.port_c |= 1 << bit;
+                        self.output_c |= bit;
                     } else {
-                        self.port_c &= !(1 << bit);
+                        self.output_c &= !bit;
                     }
                 }
             }
-            _ => unreachable!(),
         }
     }
 
-    /// The keyboard row selected by Port C bits 3-0.
+    /// The last mode word written, or `$9B` after RESET. The chip cannot
+    /// return it to the CPU; this is for debuggers and tests.
     #[must_use]
-    pub fn keyboard_row(&self) -> u8 {
-        self.port_c & 0x0F
+    pub fn mode(&self) -> u8 {
+        self.mode
     }
 }
 
@@ -96,43 +174,100 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_state() {
-        let ppi = Ppi8255::new();
-        assert_eq!(ppi.port_a, 0);
-        assert_eq!(ppi.port_b, 0xFF);
-        assert_eq!(ppi.port_c, 0);
+    fn reset_leaves_every_port_an_input() {
+        let mut ppi = Ppi8255::new();
+        assert_eq!(ppi.mode(), RESET_MODE);
+        ppi.input_a = 0x12;
+        ppi.input_b = 0x34;
+        ppi.input_c = 0x56;
+        ppi.write(0, 0xAA);
+        ppi.write(1, 0xBB);
+        ppi.write(2, 0xCC);
+        assert_eq!([ppi.read(0), ppi.read(1), ppi.read(2)], [0x12, 0x34, 0x56]);
     }
 
     #[test]
-    fn port_a_write_read() {
+    fn an_output_port_reads_back_its_latch() {
         let mut ppi = Ppi8255::new();
+        ppi.write(3, 0x80); // Mode 0, every port an output
+        ppi.input_a = 0x00;
         ppi.write(0, 0xAB);
-        assert_eq!(ppi.read(0), 0xAB);
+        ppi.write(1, 0xCD);
+        ppi.write(2, 0xEF);
+        assert_eq!([ppi.read(0), ppi.read(1), ppi.read(2)], [0xAB, 0xCD, 0xEF]);
+        assert_eq!(ppi.port_a(), 0xAB);
     }
 
     #[test]
-    fn port_c_bit_set_reset() {
+    fn an_input_port_reads_its_lines_live() {
         let mut ppi = Ppi8255::new();
-        // Set bit 3 of port C
-        ppi.write(3, 0x07); // bit 7=0, bit 3-1=011(bit3), bit 0=1(set)
-        assert_eq!(ppi.port_c & 0x08, 0x08);
-        // Reset bit 3
-        ppi.write(3, 0x06); // bit 3-1=011(bit3), bit 0=0(reset)
-        assert_eq!(ppi.port_c & 0x08, 0x00);
+        ppi.write(3, 0x82); // A out, B in, C out
+        ppi.input_b = 0x5A;
+        assert_eq!(ppi.read(1), 0x5A);
+        ppi.input_b = 0xA5;
+        assert_eq!(ppi.read(1), 0xA5, "Mode 0 inputs are not latched");
     }
 
     #[test]
-    fn mode_set_resets_ports() {
+    fn writing_an_input_port_drives_nothing_until_it_becomes_an_output() {
         let mut ppi = Ppi8255::new();
-        ppi.write(0, 0xFF); // Port A = $FF
-        ppi.write(3, 0x82); // Mode set
-        assert_eq!(ppi.port_a, 0); // Reset to 0
+        ppi.write(3, 0x82); // B is an input
+        ppi.input_b = 0xFF;
+        ppi.write(1, 0x3C);
+        assert_eq!(ppi.port_b(), 0xFF);
     }
 
     #[test]
-    fn keyboard_row_from_port_c() {
+    fn port_c_nibbles_take_their_own_directions() {
         let mut ppi = Ppi8255::new();
-        ppi.write(2, 0x05); // Row 5
-        assert_eq!(ppi.keyboard_row(), 5);
+        ppi.write(3, 0x88); // C upper in, C lower out
+        ppi.input_c = 0xA5;
+        ppi.write(2, 0x3C);
+        assert_eq!(ppi.read(2), 0xAC);
+        ppi.write(3, 0x81); // C upper out, C lower in
+        ppi.write(2, 0x3C);
+        assert_eq!(ppi.read(2), 0x35);
+    }
+
+    #[test]
+    fn a_mode_word_clears_every_output_latch() {
+        let mut ppi = Ppi8255::new();
+        ppi.write(3, 0x80);
+        ppi.write(0, 0xFF);
+        ppi.write(1, 0xFF);
+        ppi.write(2, 0xFF);
+        ppi.write(3, 0x80);
+        assert_eq!([ppi.read(0), ppi.read(1), ppi.read(2)], [0, 0, 0]);
+    }
+
+    #[test]
+    fn bit_set_reset_changes_one_port_c_bit() {
+        let mut ppi = Ppi8255::new();
+        ppi.write(3, 0x80);
+        ppi.write(3, 0x07); // set PC3
+        assert_eq!(ppi.read(2), 0x08);
+        ppi.write(3, 0x0F); // set PC7
+        assert_eq!(ppi.read(2), 0x88);
+        ppi.write(3, 0x06); // reset PC3
+        assert_eq!(ppi.read(2), 0x80);
+    }
+
+    #[test]
+    fn the_control_register_cannot_be_read() {
+        let mut ppi = Ppi8255::new();
+        ppi.write(3, 0x82);
+        assert_eq!(ppi.read(3), 0xFF);
+        assert_eq!(ppi.mode(), 0x82);
+    }
+
+    #[test]
+    fn reset_keeps_the_boards_input_levels() {
+        let mut ppi = Ppi8255::new();
+        ppi.input_a = 0x00;
+        ppi.write(3, 0x80);
+        ppi.write(0, 0x77);
+        ppi.reset();
+        assert_eq!(ppi.mode(), RESET_MODE);
+        assert_eq!(ppi.read(0), 0x00);
     }
 }

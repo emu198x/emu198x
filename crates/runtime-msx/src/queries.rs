@@ -98,17 +98,17 @@ impl SessionQueryProvider<MsxRuntime> for MsxSessionQueryProvider {
             "ppi" => {
                 let ppi = loaded_machine(machine, path)?.ppi();
                 json!({
-                    "port_a": format!("${:02X}", ppi.port_a),
-                    "keyboard_row": ppi.keyboard_row(),
+                    "port_a": format!("${:02X}", ppi.port_a()),
+                    "keyboard_row": ppi.port_c() & 0x0F,
                 })
             }
             "ppi.port_a" => {
                 json!(format!(
                     "${:02X}",
-                    loaded_machine(machine, path)?.ppi().port_a
+                    loaded_machine(machine, path)?.ppi().port_a()
                 ))
             }
-            "ppi.keyboard_row" => json!(loaded_machine(machine, path)?.ppi().keyboard_row()),
+            "ppi.keyboard_row" => json!(loaded_machine(machine, path)?.ppi().port_c() & 0x0F),
 
             _ => return Ok(None),
         };
