@@ -175,7 +175,7 @@ fn axis_to_pot8(value: i16) -> u8 {
 /// Look up `(row, col)` in the C64 keyboard matrix for a host-level
 /// key name. Returns `None` for keys that don't have a C64 keycap;
 /// the caller silently drops those events.
-fn c64_key_position(name: &str) -> Option<(u8, u8)> {
+pub(crate) fn c64_key_position(name: &str) -> Option<(u8, u8)> {
     let upper = name.to_ascii_uppercase();
     match upper.as_str() {
         "DELETE" | "DEL" | "BACKSPACE" => Some((0, 0)),
