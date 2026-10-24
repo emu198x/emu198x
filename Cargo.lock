@@ -640,6 +640,7 @@ dependencies = [
  "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
+ "peripheral-sinclair-interface1",
  "serde",
  "serde_json",
  "sinclair-ula-7k010e",
@@ -653,6 +654,7 @@ dependencies = [
  "emu198x-zilog-z80",
  "ferranti-ula-6c001e",
  "peripheral-kempston-joystick",
+ "peripheral-sinclair-interface1",
  "serde",
  "serde_json",
 ]
@@ -1920,6 +1922,10 @@ dependencies = [
  "serde",
  "serde-big-array",
 ]
+
+[[package]]
+name = "format-sinclair-zx-spectrum-mdr"
+version = "0.44.2"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-rzx"
@@ -4005,6 +4011,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "peripheral-sinclair-interface1"
+version = "0.44.2"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "format-sinclair-zx-spectrum-mdr",
+ "serde",
+]
+
+[[package]]
 name = "peripheral-ultimate-uci-net"
 version = "0.44.2"
 
@@ -4675,6 +4690,7 @@ dependencies = [
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-amstrad-dsk",
+ "format-sinclair-zx-spectrum-mdr",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-snapshot",
  "format-sinclair-zx-spectrum-szx",
@@ -4696,6 +4712,7 @@ dependencies = [
  "machine-timex-tc2048",
  "machine-timex-ts2068",
  "peripheral-kempston-joystick",
+ "peripheral-sinclair-interface1",
  "png",
  "postcard",
  "serde",

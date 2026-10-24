@@ -1,0 +1,16 @@
+[package]
+name = "peripheral-sinclair-interface1"
+description = "Sinclair ZX Interface 1 and ZX Microdrives — Spectrum edge-connector peripheral"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.44.0" }
+format-sinclair-zx-spectrum-mdr = { path = "../format-sinclair-zx-spectrum-mdr", version = "0.44.0" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

@@ -28,6 +28,17 @@ use crate::mcp::tools::SpectrumSession;
 use crate::script::runner::{ScriptInputs, run_script};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
+/// The Interface 1's Microdrive slots, in drive order.
+const MICRODRIVE_SLOTS: [&str; 8] = [
+    "microdrive-1",
+    "microdrive-2",
+    "microdrive-3",
+    "microdrive-4",
+    "microdrive-5",
+    "microdrive-6",
+    "microdrive-7",
+    "microdrive-8",
+];
 
 /// Error type used by the script runner, the MCP server, and the
 /// portable-snapshot helpers. The launcher turns one into its run-time
@@ -131,6 +142,12 @@ pub struct Spectrum {
     /// `--turbo-tape`: accepted for compatibility; fast-load is armed in
     /// the window with F11.
     pub turbo_tape: bool,
+    /// `--interface1 PATH`: the 8 KB Interface 1 ROM to plug in. The ROM
+    /// is Sinclair's, so it is never bundled.
+    pub interface1: Option<PathBuf>,
+    /// `--microdrive PATH`, repeatable: `.mdr` cartridges for Microdrives
+    /// 1 to 8, in order. Needs `--interface1`.
+    pub microdrives: Vec<PathBuf>,
 }
 
 impl Spectrum {
@@ -202,7 +219,13 @@ impl MachineApp for Spectrum {
                     the same)
     --play-tape     start tape transport on tape-1 immediately
     --autoload-tape wait for boot, type LOAD \"\", and start tape-1
-    --turbo-tape    (accepted; arm fast-load in the UI with F11)";
+    --turbo-tape    (accepted; arm fast-load in the UI with F11)
+    --interface1 PATH
+                    plug in an Interface 1 with this 8 KB ROM image, on
+                    the 16K/48K/+/128K/+2
+    --microdrive PATH
+                    an .mdr cartridge for the next Microdrive, 1 to 8;
+                    repeatable, needs --interface1";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
@@ -227,6 +250,8 @@ impl MachineApp for Spectrum {
             "--play-tape" => self.play_tape = true,
             "--autoload-tape" => self.autoload_tape = true,
             "--turbo-tape" => self.turbo_tape = true,
+            "--interface1" => self.interface1 = Some(args.path(flag)?),
+            "--microdrive" => self.microdrives.push(args.path(flag)?),
             positional if !positional.starts_with('-') => {
                 if self.tape.is_some() {
                     return Err(LaunchError::Usage(
@@ -262,10 +287,28 @@ impl MachineApp for Spectrum {
                 "--play-tape and --autoload-tape are mutually exclusive".to_owned(),
             ));
         }
+        if !self.microdrives.is_empty() && self.interface1.is_none() {
+            return Err(LaunchError::Usage(
+                "--microdrive needs --interface1".to_owned(),
+            ));
+        }
+        if self.microdrives.len() > MICRODRIVE_SLOTS.len() {
+            return Err(LaunchError::Usage(format!(
+                "at most {} --microdrive cartridges",
+                MICRODRIVE_SLOTS.len()
+            )));
+        }
         let model = self.boot_model()?;
         let overrides = firmware_overrides(&self.rom, model)?;
-        let runtime =
+        let mut runtime =
             build_variant::<SpectrumRuntimeKind>(model, &overrides).map_err(|e| e.to_string())?;
+        if let Some(path) = &self.interface1 {
+            let rom =
+                std::fs::read(path).map_err(|e| format!("--interface1 {}: {e}", path.display()))?;
+            runtime
+                .attach_interface1(&rom)
+                .map_err(|e| format!("--interface1 {}: {e}", path.display()))?;
+        }
 
         let frame_ticks = u64::from(runtime.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(
@@ -283,6 +326,16 @@ impl MachineApp for Spectrum {
                 &tape.bytes,
             ));
             session.load_media(&media).map_err(|e| e.to_string())?;
+        }
+
+        for (path, slot) in self.microdrives.iter().zip(MICRODRIVE_SLOTS) {
+            let bytes =
+                std::fs::read(path).map_err(|e| format!("--microdrive {}: {e}", path.display()))?;
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new(slot, MediaKind::Cartridge, &bytes));
+            session
+                .load_media(&media)
+                .map_err(|e| format!("--microdrive {}: {e}", path.display()))?;
         }
 
         if self.autoload_tape {
@@ -520,5 +573,27 @@ mod tests {
             "sinclair-zx-spectrum-128k-rom-1=/a/1.rom",
         ]);
         assert_eq!(app.rom.len(), 2);
+    }
+
+    #[test]
+    fn interface1_and_microdrive_flags_parse() {
+        let (app, _, _) = parsed(&[
+            "--interface1",
+            "if1.rom",
+            "--microdrive",
+            "a.mdr",
+            "--microdrive",
+            "b.mdr",
+        ]);
+        assert_eq!(app.interface1, Some(PathBuf::from("if1.rom")));
+        assert_eq!(
+            app.microdrives,
+            vec![PathBuf::from("a.mdr"), PathBuf::from("b.mdr")]
+        );
+        let (app, _, _) = parsed(&["--microdrive", "a.mdr"]);
+        assert!(
+            app.build_runtime().is_err(),
+            "a Microdrive needs the Interface 1"
+        );
     }
 }

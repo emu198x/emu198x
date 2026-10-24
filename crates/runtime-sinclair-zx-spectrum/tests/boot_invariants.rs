@@ -332,7 +332,42 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-/// **Seam 5 waypoint #5:** Snapshot version is locked at v11.
+/// An Interface 1 takes Microdrive cartridges in the `microdrive-N`
+/// slots, gives them back as `.mdr` bytes, and keeps them in a snapshot.
+/// The ROM is a synthetic stand-in.
+#[test]
+fn microdrive_cartridges_load_export_and_survive_a_snapshot_48k() -> Result<(), Box<dyn Error>> {
+    use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+
+    let mut mdr: Vec<u8> = (0..10 * 543).map(|i| i as u8).collect();
+    mdr.push(1);
+    let load = |runtime: &mut Spectrum48kRuntime, slot: &'static str| {
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(slot, MediaKind::Cartridge, &mdr));
+        runtime.load_media(&media)
+    };
+
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    assert!(
+        load(&mut runtime, "microdrive-1").is_err(),
+        "no Interface 1, no Microdrives"
+    );
+    runtime.attach_interface1(&[0; 0x2000])?;
+    load(&mut runtime, "microdrive-1")?;
+    assert!(load(&mut runtime, "microdrive-9").is_err());
+    assert_eq!(runtime.export_media("microdrive-1", "mdr")?, mdr);
+    assert!(runtime.export_media("microdrive-2", "mdr").is_err());
+
+    let mut restored = Spectrum48kRuntime::blank();
+    restored.restore(&runtime.snapshot()?)?;
+    assert_eq!(restored.export_media("microdrive-1", "mdr")?, mdr);
+
+    runtime.eject_media("microdrive-1")?;
+    assert!(runtime.export_media("microdrive-1", "mdr").is_err());
+    Ok(())
+}
+
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v14.
 ///
 /// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
 /// disk-image cache, 2 → 3 when accepted Z80 interrupt responses
@@ -347,17 +382,17 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v11() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v14() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 11.
+    // and matches the value, so byte 0 of the snapshot bytes == 14.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 11,
-        "snapshot envelope must be at version 11 (paced FDC motion and programmed SRT); \
+        bytes[0], 14,
+        "snapshot envelope must be at version 14 (the Interface 1); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())

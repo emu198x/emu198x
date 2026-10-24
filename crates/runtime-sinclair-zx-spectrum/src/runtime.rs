@@ -103,6 +103,30 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         false
     }
 
+    /// Plugs in an Interface 1 with its 8 KB ROM image, on the 48K- and
+    /// 128K-class machines. The ROM is Sinclair's firmware, supplied by
+    /// the user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB, or if the variant
+    /// hosts no Interface 1 (the default).
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        let _ = rom;
+        Err("this machine does not host an Interface 1".to_owned())
+    }
+
+    /// The Interface 1, if the variant hosts one. Default `None`.
+    fn interface1(&self) -> Option<&peripheral_sinclair_interface1::Interface1> {
+        None
+    }
+
+    /// Mutable access to the Interface 1, if the variant hosts one.
+    /// Default `None`.
+    fn interface1_mut(&mut self) -> Option<&mut peripheral_sinclair_interface1::Interface1> {
+        None
+    }
+
     /// Loads tape blocks parsed from a `.tap` container.
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>);
 
@@ -555,6 +579,43 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         &mut self.machine
     }
 
+    /// Plugs an Interface 1 into the machine; see
+    /// [`SpectrumMachine::attach_interface1`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// Interface 1.
+    pub fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        self.machine.attach_interface1(rom)
+    }
+
+    fn attached_interface1_mut(
+        &mut self,
+        slot: &str,
+    ) -> Result<&mut peripheral_sinclair_interface1::Interface1, MachineError> {
+        match self.machine.interface1_mut() {
+            Some(if1) if if1.is_attached() => Ok(if1),
+            _ => Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            }),
+        }
+    }
+
+    fn insert_microdrive(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
+        let drive = microdrive_index(slot).ok_or_else(|| MachineError::UnknownMediaSlot {
+            slot: slot.to_owned(),
+        })?;
+        let image = format_sinclair_zx_spectrum_mdr::MdrImage::parse(bytes).map_err(|err| {
+            MachineError::InvalidMedia {
+                slot: slot.to_owned(),
+                reason: err.to_string(),
+            }
+        })?;
+        self.attached_interface1_mut(slot)?.insert(drive, &image);
+        Ok(())
+    }
+
     /// Flushes any captured tape `SAVE` to a `.tap` image.
     ///
     /// Unlike a disk `SAVE`, a tape `SAVE` never mutates a mounted (playback)
@@ -795,6 +856,9 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                         bytes: image.bytes.to_vec(),
                     });
                 }
+                MediaKind::Cartridge if microdrive_index(slot).is_some() => {
+                    self.insert_microdrive(slot, image.bytes)?;
+                }
                 MediaKind::Tape | MediaKind::Disk => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
@@ -809,6 +873,10 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        if let Some(drive) = microdrive_index(slot) {
+            self.attached_interface1_mut(slot)?.eject(drive);
+            return Ok(());
+        }
         // Disk eject on a disk-capable variant. On a tape-only variant the
         // machine reports no disk interface, surfaced here as Unsupported so
         // the harness handles it gracefully rather than panicking.
@@ -832,6 +900,23 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        if let Some(drive) = microdrive_index(slot) {
+            if format != "mdr" {
+                return Err(MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: format!("a Microdrive cartridge exports as mdr, not {format}"),
+                });
+            }
+            return self
+                .machine
+                .interface1()
+                .and_then(|if1| if1.cartridge(drive))
+                .map(|image| image.to_bytes())
+                .ok_or_else(|| MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: "no cartridge in this Microdrive".to_owned(),
+                });
+        }
         self.machine
             .export_disk_image(slot, format)
             .map_err(|reason| MachineError::InvalidMedia {
@@ -954,6 +1039,14 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }
+}
+
+/// The drive a `microdrive-1` … `microdrive-8` slot names, from 0.
+fn microdrive_index(slot: &str) -> Option<usize> {
+    let n: usize = slot.strip_prefix("microdrive-")?.parse().ok()?;
+    (1..=peripheral_sinclair_interface1::MICRODRIVE_COUNT)
+        .contains(&n)
+        .then(|| n - 1)
 }
 
 fn is_tzx(bytes: &[u8]) -> bool {

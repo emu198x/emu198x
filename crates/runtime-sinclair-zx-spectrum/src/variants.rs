@@ -34,6 +34,7 @@ use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
 use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};
+use peripheral_sinclair_interface1::Interface1;
 use serde_json::{Value, json};
 
 /// Shared helper for [`SpectrumMachine::set_kempston_button`] overrides.
@@ -397,6 +398,15 @@ impl SpectrumMachine for Spectrum48k {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum48k::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum48k::load_tape_blocks(self, blocks);
     }
@@ -571,6 +581,15 @@ impl SpectrumMachine for Spectrum16K {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum16K::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum16K::load_tape_blocks(self, blocks);
     }
@@ -743,6 +762,15 @@ impl SpectrumMachine for SpectrumPlus {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumPlus::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus::load_tape_blocks(self, blocks);
     }
@@ -909,6 +937,15 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum128K::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum128K::load_tape_blocks(self, blocks);
@@ -1097,6 +1134,15 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
+    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumPlus2::attach_interface1(self, rom).map_err(|err| err.to_string())
+    }
+    fn interface1(&self) -> Option<&Interface1> {
+        Some(&self.interface1)
+    }
+    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
+        Some(&mut self.interface1)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus2::load_tape_blocks(self, blocks);
