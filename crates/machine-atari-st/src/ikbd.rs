@@ -345,6 +345,22 @@ impl Ikbd {
         self.buttons = u8::from(right) | u8::from(left) << 1;
     }
 
+    /// One mouse button went down or up, leaving the other as it was.
+    pub fn mouse_button(&mut self, left: bool, pressed: bool) {
+        let bit = if left { 0x02 } else { 0x01 };
+        if pressed {
+            self.buttons |= bit;
+        } else {
+            self.buttons &= !bit;
+        }
+    }
+
+    /// Joystick `port`'s state as last set.
+    #[must_use]
+    pub fn stick(&self, port: usize) -> Stick {
+        self.sticks.get(port).copied().unwrap_or_default()
+    }
+
     /// A joystick's state. Port 1 is the joystick port; port 0 shares the
     /// mouse port.
     pub fn joystick(&mut self, port: usize, stick: Stick) {
@@ -377,6 +393,19 @@ mod tests {
         assert!(drain(&mut ikbd).is_empty());
         ikbd.tick();
         assert_eq!(drain(&mut ikbd), vec![0xF1]);
+    }
+
+    #[test]
+    fn one_button_changes_alone_and_sticks_read_back() {
+        let mut ikbd = Ikbd::new(8_000_000);
+        ikbd.mouse_button(false, true);
+        ikbd.mouse_button(true, true);
+        ikbd.mouse_button(false, false);
+        ikbd.scan();
+        assert_eq!(drain(&mut ikbd), vec![0xFA, 0, 0], "left only");
+        ikbd.joystick(1, Stick(Stick::UP | Stick::FIRE));
+        assert_eq!(ikbd.stick(1), Stick(0x81));
+        assert_eq!(ikbd.stick(7), Stick::default());
     }
 
     #[test]
