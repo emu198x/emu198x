@@ -14,8 +14,8 @@
 //! write lands, and a CRAM write during the picture puts its colour on the
 //! pixel being output: the "CRAM dot".
 //!
-//! Sprites, which fill [`Vdp::sprite_line`] in the slots marked for them,
-//! are the next stage; until then the sprite layer is empty.
+//! Sprites reach the compositor through [`Vdp::sprite_line`], which the
+//! sprite engine (see [`crate::sprites`]) fills in slots of its own.
 
 use crate::timing::Width;
 use crate::{CRAM_SIZE, State, Vdp};
@@ -81,7 +81,7 @@ impl Vdp {
         self.regs[reg]
     }
 
-    fn double_res(&self) -> bool {
+    pub(crate) fn double_res(&self) -> bool {
         self.reg(0x0C) & 0x06 == 0x06
     }
 
@@ -119,11 +119,24 @@ impl Vdp {
         match hslot {
             244 => self.read_hscroll(),
             249 => self.read_map(0, 0),
-            251 => self.render_map(0, 0),
-            252 => self.render_map(1, 0),
+            251 => {
+                self.render_map(0, 0);
+                self.scan_sprites();
+            }
+            252 => {
+                self.render_map(1, 0);
+                self.scan_sprites();
+            }
             253 => self.read_map(0, 1),
-            255 => self.render_map(0, 1),
-            0 => self.output_column(0),
+            255 => {
+                self.render_map(0, 1);
+                self.scan_sprites();
+            }
+            0 => {
+                self.output_column(0);
+                self.scan_sprites();
+                self.begin_sprite_reads();
+            }
             _ => self.sprite_slot(width, hslot),
         }
         let right_border_slot = match width {
@@ -381,12 +394,6 @@ impl Vdp {
         self.buf_off[0] = (self.buf_off[0] + SCROLL_STEP) % SCROLL_BUFFER as u8;
         self.buf_off[1] = (self.buf_off[1] + SCROLL_STEP) % SCROLL_BUFFER as u8;
     }
-
-    /// The sprite engine's slots. Sprites are the next stage of this crate;
-    /// their slots fetch nothing yet.
-    fn sprite_slot(&mut self, _width: Width, _hslot: u8) {}
-
-    fn sprite_x_slot(&mut self) {}
 
     /// Output this slot's pixels, and at the end of the line move the
     /// output to the next one.
