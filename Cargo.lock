@@ -1389,6 +1389,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-konami-scc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "emu198x-mattel-aquarius"
 version = "0.44.2"
 dependencies = [
