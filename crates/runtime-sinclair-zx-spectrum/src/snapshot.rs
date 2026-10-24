@@ -69,7 +69,10 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 14**: the 48K-, 128K- and Amstrad-class machines carry a
 /// Multiface, its ROM, RAM and paging state. Version 13 lacks it and is
 /// rejected before decoding.
-const SNAPSHOT_VERSION: u32 = 14;
+/// **Version 15**: the 48K- and 128K-class machines carry an Interface 1,
+/// its ROM, paging state and Microdrive cartridges. Version 14 lacks it and is
+/// rejected before decoding.
+const SNAPSHOT_VERSION: u32 = 15;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -248,7 +251,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 14")
+                .contains("unsupported snapshot version 4; expected 15")
         );
     }
 
@@ -265,7 +268,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 14")
+                .contains("unsupported snapshot version 5; expected 15")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -1907,7 +1910,7 @@ mod tests {
             .restore(&old)
             .expect_err("v12 lacks the Kempston mouse");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 12; expected 14"));
+            if reason == "unsupported snapshot version 12; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1920,7 +1923,7 @@ mod tests {
             .restore(&old)
             .expect_err("v11 carries the FDC's removed enabled flag");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 11; expected 14"));
+            if reason == "unsupported snapshot version 11; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1933,7 +1936,7 @@ mod tests {
             .restore(&old)
             .expect_err("v9 lacks programmed ND state");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 9; expected 14"));
+            if reason == "unsupported snapshot version 9; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1941,10 +1944,10 @@ mod tests {
     fn the_previous_version_is_rejected_atomically_before_payload_decode() {
         let mut runtime = SpectrumPlus3Runtime::blank();
         let before = runtime.snapshot().expect("current snapshot");
-        let old = postcard::to_allocvec(&13_u32).expect("old version");
-        let err = runtime.restore(&old).expect_err("v13 has no Multiface");
+        let old = postcard::to_allocvec(&14_u32).expect("old version");
+        let err = runtime.restore(&old).expect_err("v14 has no Interface 1");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 13; expected 14"));
+            if reason == "unsupported snapshot version 14; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1957,7 +1960,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 14"));
+            if reason == "unsupported snapshot version 8; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1968,7 +1971,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 14"));
+            if reason == "unsupported snapshot version 7; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1981,7 +1984,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 14")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 15")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2129,7 +2132,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 14");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 15");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }

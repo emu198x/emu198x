@@ -657,6 +657,7 @@ dependencies = [
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
  "peripheral-multiface",
+ "peripheral-sinclair-interface1",
  "serde",
  "serde_json",
  "sinclair-ula-7k010e",
@@ -672,6 +673,7 @@ dependencies = [
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
  "peripheral-multiface",
+ "peripheral-sinclair-interface1",
  "serde",
  "serde_json",
 ]
@@ -2107,6 +2109,10 @@ dependencies = [
 
 [[package]]
 name = "format-nintendo-nes-ines"
+version = "0.44.2"
+
+[[package]]
+name = "format-sinclair-zx-spectrum-mdr"
 version = "0.44.2"
 
 [[package]]
@@ -4238,6 +4244,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "peripheral-sinclair-interface1"
+version = "0.44.2"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "format-sinclair-zx-spectrum-mdr",
+ "serde",
+]
+
+[[package]]
 name = "peripheral-ultimate-uci-net"
 version = "0.44.2"
 
@@ -4942,6 +4957,7 @@ dependencies = [
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-amstrad-dsk",
+ "format-sinclair-zx-spectrum-mdr",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-snapshot",
  "format-sinclair-zx-spectrum-szx",
@@ -4963,6 +4979,7 @@ dependencies = [
  "machine-timex-ts2068",
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
+ "peripheral-sinclair-interface1",
  "png",
  "postcard",
  "serde",

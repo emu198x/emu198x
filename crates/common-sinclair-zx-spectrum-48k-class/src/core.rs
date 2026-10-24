@@ -36,6 +36,7 @@ use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
 use peripheral_kempston_mouse::KempstonMouse;
 use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
+use peripheral_sinclair_interface1::{Interface1, Interface1RomError};
 
 use crate::tape_input::TapeInput;
 use crate::variant::Variant48kClass;
@@ -80,6 +81,10 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     /// Multiface 128. Unplugged until [`Self::attach_multiface`] supplies
     /// its ROM; while paged in it overlays the bottom 16 KB.
     pub multiface: Multiface,
+    /// Interface 1 and its Microdrives. Unplugged until
+    /// [`Self::attach_interface1`] supplies its ROM; while its shadow ROM
+    /// is paged in it overlays the bottom 16 KB.
+    pub interface1: Interface1,
     tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -124,6 +129,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             kempston: KempstonJoystick::new(),
             kempston_mouse: KempstonMouse::new(),
             multiface: Multiface::default(),
+            interface1: Interface1::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -242,6 +248,16 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             self.z80.nmi = true;
         }
         pulled
+    }
+
+    /// Plugs in an Interface 1 with its 8 KB ROM image. Its eight
+    /// Microdrives start empty; [`Self::interface1`] holds them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), Interface1RomError> {
+        self.interface1.attach(rom)
     }
 
     /// Returns the configured ULA revision (5C vs 6C family).
@@ -519,6 +535,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.z80 = Z80::new();
         self.ula = FerrantiUla::new(revision);
         self.multiface.reset();
+        self.interface1.reset();
         self.audio = make_audio();
         self.audio_frame.fill(0.0);
         self.speaker = SpeakerMixer::default();
@@ -566,17 +583,27 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                     if held && !self.multiface.nmi_asserted() {
                         self.z80.nmi = false;
                     }
+                    self.interface1.on_m1(addr);
                 }
-                self.z80.data_in = match self.multiface.read_memory(addr) {
+                self.z80.data_in = match self
+                    .multiface
+                    .read_memory(addr)
+                    .or_else(|| self.interface1.read_memory(addr))
+                {
                     Some(value) => value,
                     None => self.memory.read(addr),
                 };
+                if self.z80.m1 {
+                    self.interface1.after_m1(addr);
+                }
             }
             Some(BusOp::MemWrite) => {
                 if let Some(w) = &mut self.write_watch {
                     w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
                 }
-                if !self.multiface.write_memory(self.z80.addr, self.z80.data) {
+                if !self.multiface.write_memory(self.z80.addr, self.z80.data)
+                    && !self.interface1.write_memory(self.z80.addr, self.z80.data)
+                {
                     self.memory.write(self.z80.addr, self.z80.data);
                 }
             }
@@ -612,9 +639,13 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             && !self.kempston_mouse.claims_port(port)
             && !self.kempston.claims_port(port)
             && !self.multiface.claims_port(port)
+            && !self.interface1.claims_port(port)
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.interface1.claims_port(port) {
+            return self.interface1.read(port);
+        }
         if self.multiface.claims_port(port) {
             return self.multiface.read(port);
         }
@@ -643,6 +674,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.multiface.observe_io_write(port, data);
         if self.multiface.claims_port(port) {
             self.multiface.write(port, data);
+        }
+        if self.interface1.claims_port(port) {
+            self.interface1.write(port, data);
         }
         if port & 0x01 == 0 {
             self.write_fe(data);
@@ -1565,5 +1599,70 @@ mod multiface_tests {
         m.run_frame();
         m.reset();
         assert!(!m.multiface.is_paged());
+    }
+}
+
+#[cfg(test)]
+mod interface1_tests {
+    use super::*;
+
+    use crate::variant::Spectrum48kMarker;
+
+    type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
+
+    /// `DI; RST 8`, then a handler at `$0008` that stores `$A5` at `$8000`
+    /// and only runs without the Interface 1, and code at `$0701` that
+    /// stores `$77` at `$8001` and spins.
+    fn spectrum_rom() -> [u8; 16 * 1024] {
+        let mut rom = [0; 16 * 1024];
+        rom[..2].copy_from_slice(&[0xF3, 0xCF]);
+        rom[0x08..0x0F].copy_from_slice(&[0x3E, 0xA5, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+        rom[0x701..0x708].copy_from_slice(&[0x3E, 0x77, 0x32, 0x01, 0x80, 0x18, 0xFE]);
+        rom
+    }
+
+    /// A stand-in for the shadow ROM: its `$0008` handler stores `$5A` at
+    /// `$8000` and jumps to `$0700`, where a `NOP` is the last opcode it
+    /// supplies.
+    fn interface1_rom() -> Vec<u8> {
+        let mut rom = vec![0; 0x2000];
+        rom[0x08..0x10].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0xC3, 0x00, 0x07]);
+        rom
+    }
+
+    #[test]
+    fn rst_8_runs_the_shadow_rom_until_0700() {
+        let mut m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        m.attach_interface1(&interface1_rom())
+            .expect("an 8 KB ROM attaches");
+        m.run_frame();
+        assert_eq!(
+            m.memory().read(0x8000),
+            0x5A,
+            "the shadow ROM's handler ran"
+        );
+        assert_eq!(
+            m.memory().read(0x8001),
+            0x77,
+            "then the Spectrum ROM from $0701"
+        );
+        assert!(!m.interface1.is_paged());
+    }
+
+    #[test]
+    fn without_an_interface_1_the_spectrum_rom_handles_rst_8() {
+        let mut m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        m.run_frame();
+        assert_eq!(m.memory().read(0x8000), 0xA5);
+        assert!(m.is_floating_bus_port(0x00EF));
+    }
+
+    #[test]
+    fn the_status_port_answers_once_attached() {
+        let mut m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        m.attach_interface1(&interface1_rom())
+            .expect("an 8 KB ROM attaches");
+        assert!(!m.is_floating_bus_port(0x00EF));
+        assert_eq!(m.port_read(0x00EF), 0xE7);
     }
 }

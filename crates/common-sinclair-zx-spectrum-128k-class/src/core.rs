@@ -33,6 +33,7 @@ use emu198x_zilog_z80::{BusOp, Z80};
 use peripheral_kempston_joystick::KempstonJoystick;
 use peripheral_kempston_mouse::KempstonMouse;
 use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
+use peripheral_sinclair_interface1::{Interface1, Interface1RomError};
 use sinclair_ula_7k010e::SinclairUla;
 
 use crate::memory::Memory128K;
@@ -71,6 +72,10 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     /// Multiface 128. Unplugged until [`Self::attach_multiface`] supplies
     /// its ROM; while paged in it overlays the bottom 16 KB.
     pub multiface: Multiface,
+    /// Interface 1 and its Microdrives. Unplugged until
+    /// [`Self::attach_interface1`] supplies its ROM; while its shadow ROM
+    /// is paged in it overlays the bottom 16 KB.
+    pub interface1: Interface1,
     pub tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -129,6 +134,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             kempston: KempstonJoystick::new(),
             kempston_mouse: KempstonMouse::new(),
             multiface: Multiface::default(),
+            interface1: Interface1::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -293,6 +299,16 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         pulled
     }
 
+    /// Plugs in an Interface 1 with its 8 KB ROM image. Its eight
+    /// Microdrives start empty; [`Self::interface1`] holds them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), Interface1RomError> {
+        self.interface1.attach(rom)
+    }
+
     /// Returns the current half-cycle counter within the frame.
     #[must_use]
     pub const fn hc_value(&self) -> u32 {
@@ -338,6 +354,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         self.z80 = Z80::new();
         self.memory.reset_paging();
         self.multiface.reset();
+        self.interface1.reset();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
@@ -382,17 +399,27 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
                     if held && !self.multiface.nmi_asserted() {
                         self.z80.nmi = false;
                     }
+                    self.interface1.on_m1(addr);
                 }
-                self.z80.data_in = match self.multiface.read_memory(addr) {
+                self.z80.data_in = match self
+                    .multiface
+                    .read_memory(addr)
+                    .or_else(|| self.interface1.read_memory(addr))
+                {
                     Some(value) => value,
                     None => self.memory.read(addr),
                 };
+                if self.z80.m1 {
+                    self.interface1.after_m1(addr);
+                }
             }
             Some(BusOp::MemWrite) => {
                 if let Some(w) = &mut self.write_watch {
                     w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
                 }
-                if !self.multiface.write_memory(self.z80.addr, self.z80.data) {
+                if !self.multiface.write_memory(self.z80.addr, self.z80.data)
+                    && !self.interface1.write_memory(self.z80.addr, self.z80.data)
+                {
                     self.memory.write(self.z80.addr, self.z80.data);
                 }
             }
@@ -428,11 +455,15 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             && !self.kempston_mouse.claims_port(port)
             && !self.kempston.claims_port(port)
             && !self.multiface.claims_port(port)
+            && !self.interface1.claims_port(port)
             && port & 0xc002 != 0xc000
             && port != 0x001f
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.interface1.claims_port(port) {
+            return self.interface1.read(port);
+        }
         if self.multiface.claims_port(port) {
             return self.multiface.read(port);
         }
@@ -479,6 +510,9 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         self.multiface.observe_io_write(port, data);
         if self.multiface.claims_port(port) {
             self.multiface.write(port, data);
+        }
+        if self.interface1.claims_port(port) {
+            self.interface1.write(port, data);
         }
         if port & 0x0001 == 0 {
             self.ula.write_fe(data);
@@ -1033,5 +1067,29 @@ mod multiface_tests {
         m.io_write(0x7FFD, 0x00);
         assert_eq!(m.port_read(0x00BF), 0x7F);
         assert!(m.multiface.claims_port(0x00BF));
+    }
+}
+
+#[cfg(test)]
+mod interface1_tests {
+    use super::*;
+    use crate::variant::Sinclair128KMarker;
+
+    type Spectrum128K = Spectrum128kClassCore<Sinclair128KMarker>;
+
+    #[test]
+    fn rst_8_pages_the_shadow_rom_over_the_128k_rom() {
+        // DI; RST 8 in both ROMs, with no handler of their own.
+        let mut rom = vec![0; 16 * 1024];
+        rom[..2].copy_from_slice(&[0xF3, 0xCF]);
+        // The shadow ROM's handler stores $5A at $8000 and spins.
+        let mut if1_rom = vec![0; 0x2000];
+        if1_rom[0x08..0x0F].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+        let mut m = Spectrum128K::new();
+        m.memory.load_roms(&rom, &rom);
+        m.attach_interface1(&if1_rom).expect("an 8 KB ROM attaches");
+        m.run_frame();
+        assert!(m.interface1.is_paged());
+        assert_eq!(m.memory.read(0x8000), 0x5A);
     }
 }

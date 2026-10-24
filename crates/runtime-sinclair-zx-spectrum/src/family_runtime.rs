@@ -515,6 +515,18 @@ impl SpectrumRuntimeKind {
     pub fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
         match_kind!(self, |rt| rt.attach_multiface(rom))
     }
+
+    /// Plugs an Interface 1 into the active variant with its 8 KB ROM
+    /// image. Microdrive cartridges then load into the `microdrive-1` …
+    /// `microdrive-8` slots as [`emu198x_shell::MediaKind::Cartridge`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// Interface 1.
+    pub fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
+        match_kind!(self, |rt| rt.attach_interface1(rom))
+    }
 }
 
 impl MachineCore for SpectrumRuntimeKind {

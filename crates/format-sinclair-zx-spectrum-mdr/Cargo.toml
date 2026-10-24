@@ -1,0 +1,13 @@
+[package]
+name = "format-sinclair-zx-spectrum-mdr"
+description = ".mdr Microdrive cartridge image format for the ZX Spectrum"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
