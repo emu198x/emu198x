@@ -585,11 +585,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[18])
-        .expect_err("version 18 snapshot should be rejected before payload decode");
+        .restore(&[19])
+        .expect_err("version 19 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 18; expected 19"),
+            if reason == "unsupported snapshot version 19; expected 20"),
         "unexpected error variant: {err:?}",
     );
 }
@@ -735,7 +735,7 @@ fn snapshot_preserves_pra_bank_output_before_during_and_after_the_fetch() {
                 let snapshot = original.snapshot().expect("bank output snapshot");
                 let (version, _) =
                     postcard::take_from_bytes::<u32>(&snapshot).expect("serialized version");
-                assert_eq!(version, 19, "the bank output already has a v19 field");
+                assert!(version >= 19, "the bank output has a field since v19");
                 let mut restored = C64Runtime::blank(model);
                 restored.restore(&snapshot).expect("bank output restore");
                 assert_eq!(
