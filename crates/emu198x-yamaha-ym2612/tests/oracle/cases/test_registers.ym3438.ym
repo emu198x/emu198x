@@ -1,0 +1,301 @@
+variant ym3438
+readmode all
+reg 0 0xb1 0x34
+reg 0 0xb5 0xc0
+reg 0 0x31 0x03
+reg 0 0x41 0x14
+reg 0 0x51 0x1f
+reg 0 0x61 0x00
+reg 0 0x71 0x00
+reg 0 0x81 0x0f
+reg 0 0x91 0x00
+reg 0 0x39 0x01
+reg 0 0x49 0x0a
+reg 0 0x59 0x1f
+reg 0 0x69 0x00
+reg 0 0x79 0x00
+reg 0 0x89 0x0f
+reg 0 0x99 0x00
+reg 0 0x35 0x05
+reg 0 0x45 0x14
+reg 0 0x55 0x1f
+reg 0 0x65 0x00
+reg 0 0x75 0x00
+reg 0 0x85 0x0f
+reg 0 0x95 0x00
+reg 0 0x3d 0x01
+reg 0 0x4d 0x0a
+reg 0 0x5d 0x1f
+reg 0 0x6d 0x00
+reg 0 0x7d 0x00
+reg 0 0x8d 0x0f
+reg 0 0x9d 0x00
+reg 0 0xa5 0x22
+reg 0 0xa1 0x69
+reg 0 0x28 0xf1
+c 4000
+reg 0 0x21 0x40
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+reg 0 0x21 0xc0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+reg 0 0x21 0x41
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+reg 0 0x21 0xc1
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+reg 0 0x2c 0x10
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+c 1
+r 0
+reg 0 0x2c 0x00
+reg 0 0x21 0x00
+reg 0 0x2a 0x5a
+reg 0 0x2c 0x28
+c 3000
+reg 0 0x2c 0x00
+reg 0 0x27 0x0f
+reg 0 0x21 0x04
+c 2000
+r 0
+reg 0 0x21 0x00
+reg 0 0x21 0x20
+c 3000
+reg 0 0x21 0x00
+reg 0 0x2c 0x40
+pin 1
+c 3000
+pin 0
+reg 0 0x2c 0x00
+c 3000

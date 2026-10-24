@@ -1,0 +1,22 @@
+[package]
+name = "emu198x-yamaha-ym2612"
+description = "Yamaha YM2612 (OPN2) and YM3438 FM synthesis chip, cycle-stepped — Sega Mega Drive"
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release.
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["ym2612", "opn2", "fm", "sound", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true
