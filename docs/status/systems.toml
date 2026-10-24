@@ -166,6 +166,12 @@ label = "system:master-system"
 milestone = "Master System 100%"
 
 [[system]]
+machine_id = "sega-mega-drive"
+crate = "emu198x-sega-mega-drive"
+label = "system:mega-drive"
+milestone = "Mega Drive 100%"
+
+[[system]]
 machine_id = "sega-sg-1000"
 crate = "emu198x-sega-sg-1000"
 label = "system:sg-1000"
