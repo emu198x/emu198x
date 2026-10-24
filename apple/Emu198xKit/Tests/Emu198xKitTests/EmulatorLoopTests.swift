@@ -22,24 +22,44 @@ func finish(_ loop: EmulatorLoop) async throws {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(loop.framesRun > 0, "the machine started within the warm-up deadline")
+        // A busy host can starve the loop thread for longer than it will
+        // catch up, and the loop skips that time on purpose. So the rate is
+        // measured against the time the machine was owed: the time the loop
+        // measured, less what it skipped, read with the frame count. The
+        // observer runs until a full window has been owed, or a deadline.
         let clock = ContinuousClock()
         let started = clock.now
-        let initialFrames = loop.framesRun
-        let initialSamples = loop.audio.statistics.written
-        try await Task.sleep(for: .milliseconds(observationMilliseconds))
-        let frames = loop.framesRun - initialFrames
-        let written = loop.audio.statistics.written - initialSamples
-        let elapsed = (clock.now - started).milliseconds / 1_000
-        print("real-time observation: requested=\(observationMilliseconds)ms elapsed=\(elapsed)s frames=\(frames) samples=\(written)")
+        let initial = loop.pacing
+        let target = Double(observationMilliseconds)
+        let deadline = target * 5
+        func owed(_ pacing: EmulatorLoop.Pacing) -> Double {
+            (pacing.clockMilliseconds - initial.clockMilliseconds)
+                - (pacing.skippedMilliseconds - initial.skippedMilliseconds)
+        }
+        repeat {
+            try await Task.sleep(for: .milliseconds(50))
+        } while owed(loop.pacing) < target && (clock.now - started).milliseconds < deadline
+        let end = loop.pacing
+        let observed = (clock.now - started).milliseconds
         try await finish(loop)
 
+        let frames = end.framesRun - initial.framesRun
+        let written = end.samplesWritten - initial.samplesWritten
+        let measured = end.clockMilliseconds - initial.clockMilliseconds
+        let skipped = end.skippedMilliseconds - initial.skippedMilliseconds
+        let owedMilliseconds = measured - skipped
+        print("real-time observation: requested=\(observationMilliseconds)ms observed=\(observed)ms measured=\(measured)ms skipped=\(skipped)ms frames=\(frames) samples=\(written)")
+
         #expect(loop.failure == nil)
-        // Sleep is a minimum: the observer may resume late while the loop runs.
-        // Keep the same rate tolerances over the interval actually observed.
-        let framesPerSecond = Double(frames) / elapsed
-        let samplesPerSecond = Double(written) / elapsed
-        #expect((45.0...55.0).contains(framesPerSecond), "ran \(framesPerSecond) frames per second")
-        #expect((86_000.0...106_000.0).contains(samplesPerSecond), "produced \(samplesPerSecond) stereo samples per second")
+        // The loop's clock cannot run ahead of the observer's. Its first
+        // pass may include a stall from before the observer started, which
+        // the catch-up limit caps at 250 ms.
+        #expect(measured <= observed + 300, "the loop measured \(measured) ms in \(observed) ms")
+        try #require(owedMilliseconds >= target / 2, "the loop was owed only \(owedMilliseconds) ms by the \(deadline) ms deadline")
+        let framesPerSecond = Double(frames) / (owedMilliseconds / 1_000)
+        let samplesPerSecond = Double(written) / (owedMilliseconds / 1_000)
+        #expect((45.0...55.0).contains(framesPerSecond), "ran \(framesPerSecond) frames per owed second")
+        #expect((86_000.0...106_000.0).contains(samplesPerSecond), "produced \(samplesPerSecond) stereo samples per owed second")
         #expect(loop.frames.frame(after: 0) != nil)
     }
 
