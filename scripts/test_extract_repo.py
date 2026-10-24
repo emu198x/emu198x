@@ -10,7 +10,7 @@ import tempfile
 import textwrap
 import tomllib
 import unittest
-from unittest import mock
+import unittest.mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("extract_repo", ROOT / "scripts" / "extract-repo.py")
@@ -24,7 +24,7 @@ def rewrite(manifest: str, moving: set[str]) -> tuple[str, set[str], list[str]]:
         path.parent.mkdir()
         path.write_text(textwrap.dedent(manifest))
         used: set[str] = set()
-        with mock.patch.object(extract_repo, "published", return_value=True):
+        with unittest.mock.patch.object(extract_repo, "published", return_value=True):
             warnings = extract_repo.rewrite_manifest(path, moving, used)
         return path.read_text(), used, warnings
 
@@ -84,7 +84,7 @@ class RewriteManifest(unittest.TestCase):
             path = pathlib.Path(tmp) / "a" / "Cargo.toml"
             path.parent.mkdir()
             path.write_text('[package]\nversion = "0.1.0"\n\n[dependencies]\nb = { path = "../b", version = "9.9.9" }\n')
-            with mock.patch.object(extract_repo, "published", return_value=False):
+            with unittest.mock.patch.object(extract_repo, "published", return_value=False):
                 warnings = extract_repo.rewrite_manifest(path, {"a"}, set())
         self.assertEqual(warnings, ["a: b 9.9.9 is not on crates.io yet"])
 
