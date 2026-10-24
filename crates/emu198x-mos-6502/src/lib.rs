@@ -5,6 +5,20 @@ pub(crate) mod tick;
 use registers::Registers;
 use serde::{Deserialize, Serialize};
 
+/// Which 6502 the core runs as.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Variant {
+    /// The NMOS 6502, 6510 and 2A03, illegal opcodes and all.
+    #[default]
+    Nmos,
+    /// The CMOS 65SC02 instruction set, as in the 65C12 of the BBC Master:
+    /// the CMOS additions, defined `NOP`s for the old illegal opcodes, a
+    /// `JMP (abs)` without the page bug, valid flags in decimal mode, and
+    /// `D` cleared on every interrupt. No Rockwell bit instructions. RDY still
+    /// stalls reads only, as on NMOS; the CMOS part also stalls writes.
+    Cmos,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct M6502 {
     pub regs: Registers,
@@ -91,6 +105,12 @@ pub struct M6502 {
     /// it — revisit against a Mesen2 immediate oracle if one is ever added).
     #[serde(default = "default_ane_magic")]
     pub(crate) ane_magic: u8,
+    /// Which instruction set and bus behaviour the core runs. Set at
+    /// construction and not serialised: it is the part fitted, not state, so
+    /// a machine that holds a CMOS part sets it again after a restore (see
+    /// [`set_variant`](Self::set_variant)).
+    #[serde(skip)]
+    pub(crate) variant: Variant,
 }
 
 fn default_lxa_magic() -> u8 {
@@ -110,6 +130,30 @@ impl M6502 {
     #[must_use]
     pub fn new_2a03() -> Self {
         Self::new_with_decimal(false)
+    }
+
+    /// A 65C12, the CMOS 6502 of the BBC Master.
+    #[must_use]
+    pub fn new_65c12() -> Self {
+        let mut cpu = Self::new();
+        cpu.variant = Variant::Cmos;
+        cpu
+    }
+
+    /// Which 6502 this core runs as.
+    #[must_use]
+    pub fn variant(&self) -> Variant {
+        self.variant
+    }
+
+    /// Set which 6502 this core runs as. A snapshot does not carry it, so a
+    /// machine with a CMOS part calls this after restoring one.
+    pub fn set_variant(&mut self, variant: Variant) {
+        self.variant = variant;
+    }
+
+    pub(crate) fn is_cmos(&self) -> bool {
+        self.variant == Variant::Cmos
     }
 
     fn new_with_decimal(decimal_enabled: bool) -> Self {
@@ -143,6 +187,7 @@ impl M6502 {
             // same class and takes the same per-variant magic.
             lxa_magic: if decimal_enabled { 0xEE } else { 0xFF },
             ane_magic: if decimal_enabled { 0xEE } else { 0xFF },
+            variant: Variant::Nmos,
         }
     }
 
@@ -410,6 +455,13 @@ mod tests {
             Self { cpu, mem }
         }
 
+        /// The same, on a 65C12.
+        fn with_cmos_program(start_pc: u16, program: &[u8]) -> Self {
+            let mut fixture = Self::with_program(start_pc, program);
+            fixture.cpu.set_variant(Variant::Cmos);
+            fixture
+        }
+
         fn step(&mut self) -> bool {
             if self.cpu.rw {
                 self.cpu.data_in = self.mem[usize::from(self.cpu.addr)];
@@ -441,6 +493,96 @@ mod tests {
             }
             self.cpu.total_cycles - before
         }
+    }
+
+    #[test]
+    fn the_cmos_decode_table_covers_every_opcode_without_a_jam() {
+        for opcode in 0u8..=0xFF {
+            let info = cycle::decode_cmos(opcode);
+            let _ = info.operation.category();
+            assert_ne!(info.addr_mode, cycle::AddrMode::Jam, "{opcode:02X}");
+        }
+    }
+
+    #[test]
+    fn the_variant_is_the_part_fitted_not_snapshot_state() {
+        let cpu = M6502::new_65c12();
+        assert_eq!(cpu.variant(), Variant::Cmos);
+        assert_eq!(M6502::new().variant(), Variant::Nmos);
+        let json = serde_json::to_string(&cpu).expect("encode");
+        assert_eq!(
+            json,
+            serde_json::to_string(&M6502::new()).expect("encode"),
+            "the variant leaves every existing snapshot's layout unchanged"
+        );
+        let restored: M6502 = serde_json::from_str(&json).expect("decode");
+        assert_eq!(restored.variant(), Variant::Nmos, "the owner sets it again");
+    }
+
+    #[test]
+    fn cmos_runs_the_old_illegal_opcodes_as_defined_nops() {
+        // $03 is SLO (ind,X) on NMOS and a one-cycle NOP on CMOS.
+        let mut fixture = Fixture::with_cmos_program(0x0400, &[0x03, 0x02, 0x44, 0xEA]);
+        fixture.boot();
+        assert_eq!(fixture.run_one(), 1);
+        assert_eq!(fixture.cpu.regs.pc, 0x0401);
+        // $02 is a two-byte, two-cycle NOP rather than a JAM.
+        assert_eq!(fixture.run_one(), 2);
+        assert_eq!(fixture.cpu.regs.pc, 0x0403);
+        assert!(!fixture.cpu.halted);
+    }
+
+    #[test]
+    fn cmos_jmp_indirect_crosses_the_page_for_its_high_byte() {
+        let mut fixture = Fixture::with_cmos_program(0x0400, &[0x6C, 0xFF, 0x10]);
+        fixture.mem[0x10FF] = 0x34;
+        fixture.mem[0x1100] = 0x12;
+        fixture.mem[0x1000] = 0x56;
+        fixture.boot();
+        assert_eq!(fixture.run_one(), 6);
+        assert_eq!(fixture.cpu.regs.pc, 0x1234, "NMOS would go to $5634");
+    }
+
+    #[test]
+    fn cmos_additions_store_zero_test_and_set_bits_and_branch_always() {
+        // STZ $10; LDA #$0F; TSB $11; BRA +0; PHX; PLY
+        let mut fixture = Fixture::with_cmos_program(
+            0x0400,
+            &[
+                0x64, 0x10, 0xA9, 0x0F, 0x04, 0x11, 0x80, 0x00, 0xA2, 0x5A, 0xDA, 0x7A,
+            ],
+        );
+        fixture.mem[0x10] = 0xFF;
+        fixture.mem[0x11] = 0xF0;
+        fixture.boot();
+        assert_eq!(fixture.run_one(), 3);
+        assert_eq!(fixture.mem[0x10], 0);
+        fixture.run_one();
+        assert_eq!(fixture.run_one(), 5, "TSB zp reads, reads again, writes");
+        assert_eq!(fixture.mem[0x11], 0xFF);
+        assert!(fixture.cpu.regs.zero(), "no bit of A was already set");
+        assert_eq!(fixture.run_one(), 3, "BRA is always taken");
+        fixture.run_one();
+        fixture.run_one();
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.y, 0x5A);
+    }
+
+    #[test]
+    fn cmos_brk_clears_decimal_mode_and_decimal_adc_takes_a_cycle_more() {
+        // SED; ADC #$01 with A = $09 gives $10 in decimal; BRK.
+        let mut fixture = Fixture::with_cmos_program(0x0400, &[0xF8, 0x69, 0x01, 0x00]);
+        fixture.mem[0xFFFE] = 0x00;
+        fixture.mem[0xFFFF] = 0x20;
+        fixture.boot();
+        fixture.cpu.regs.a = 0x09;
+        fixture.run_one();
+        assert_eq!(fixture.run_one(), 3);
+        assert_eq!(fixture.cpu.regs.a, 0x10);
+        assert!(!fixture.cpu.regs.zero() && !fixture.cpu.regs.negative());
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x2000);
+        assert!(!fixture.cpu.regs.decimal(), "CMOS clears D on entry");
     }
 
     #[test]

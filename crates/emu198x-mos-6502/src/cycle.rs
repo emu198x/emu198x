@@ -23,6 +23,16 @@ pub(crate) enum AddrMode {
     Push,
     Pull,
     Jam,
+    /// CMOS `(zp)`: the zero-page pointer without an index.
+    ZeroPageIndirect,
+    /// CMOS `JMP (abs,X)`.
+    JmpAbsX,
+    /// CMOS single-byte, single-cycle `NOP`: the opcode fetch is all of it.
+    Nop1,
+    /// CMOS `$5C`: a three-byte `NOP` that spends eight cycles.
+    Nop5C,
+    /// CMOS `$DC` and `$FC`: a three-byte `NOP` of four cycles.
+    NopAbs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +127,19 @@ pub(crate) enum Operation {
     Las,
     NopRead,
     Jam,
+    // CMOS additions.
+    Bra,
+    Stz,
+    Tsb,
+    Trb,
+    IncA,
+    DecA,
+    Phx,
+    Phy,
+    Plx,
+    Ply,
+    /// `BIT #imm`, which sets only Z.
+    BitImm,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -149,7 +172,8 @@ impl Operation {
             | Self::Axs
             | Self::Ane
             | Self::Lxa
-            | Self::Las => OpCategory::Read,
+            | Self::Las
+            | Self::BitImm => OpCategory::Read,
             Self::Sta
             | Self::Stx
             | Self::Sty
@@ -157,7 +181,8 @@ impl Operation {
             | Self::Sha
             | Self::Shx
             | Self::Shy
-            | Self::Tas => OpCategory::Write,
+            | Self::Tas
+            | Self::Stz => OpCategory::Write,
             Self::Asl
             | Self::Lsr
             | Self::Rol
@@ -169,7 +194,9 @@ impl Operation {
             | Self::Slo
             | Self::Rla
             | Self::Sre
-            | Self::Rra => OpCategory::ReadModWrite,
+            | Self::Rra
+            | Self::Tsb
+            | Self::Trb => OpCategory::ReadModWrite,
             Self::Bcc
             | Self::Bcs
             | Self::Beq
@@ -187,7 +214,12 @@ impl Operation {
             | Self::Php
             | Self::Pla
             | Self::Plp
-            | Self::Jam => OpCategory::Control,
+            | Self::Jam
+            | Self::Bra
+            | Self::Phx
+            | Self::Phy
+            | Self::Plx
+            | Self::Ply => OpCategory::Control,
             _ => OpCategory::Implied,
         }
     }
@@ -1141,5 +1173,53 @@ pub(crate) fn decode(opcode: u8) -> OpcodeInfo {
                 operation: O::Jam,
             }
         }
+    }
+}
+
+/// Decode for the CMOS 65SC02 instruction set, the core of the 65C12. Every
+/// documented NMOS opcode keeps its meaning; the NMOS illegal opcodes become
+/// the CMOS additions or defined `NOP`s.
+pub(crate) fn decode_cmos(opcode: u8) -> OpcodeInfo {
+    use AddrMode as A;
+    use Operation as O;
+    let info = |addr_mode, operation| OpcodeInfo {
+        addr_mode,
+        operation,
+    };
+    match opcode {
+        0x80 => info(A::Relative, O::Bra),
+        0x04 => info(A::ZeroPage, O::Tsb),
+        0x0C => info(A::Absolute, O::Tsb),
+        0x14 => info(A::ZeroPage, O::Trb),
+        0x1C => info(A::Absolute, O::Trb),
+        0x64 => info(A::ZeroPage, O::Stz),
+        0x74 => info(A::ZeroPageX, O::Stz),
+        0x9C => info(A::Absolute, O::Stz),
+        0x9E => info(A::AbsoluteX, O::Stz),
+        0x89 => info(A::Immediate, O::BitImm),
+        0x34 => info(A::ZeroPageX, O::Bit),
+        0x3C => info(A::AbsoluteX, O::Bit),
+        0x1A => info(A::Accumulator, O::IncA),
+        0x3A => info(A::Accumulator, O::DecA),
+        0xDA => info(A::Push, O::Phx),
+        0x5A => info(A::Push, O::Phy),
+        0xFA => info(A::Pull, O::Plx),
+        0x7A => info(A::Pull, O::Ply),
+        0x7C => info(A::JmpAbsX, O::Jmp),
+        0x12 => info(A::ZeroPageIndirect, O::Ora),
+        0x32 => info(A::ZeroPageIndirect, O::And),
+        0x52 => info(A::ZeroPageIndirect, O::Eor),
+        0x72 => info(A::ZeroPageIndirect, O::Adc),
+        0x92 => info(A::ZeroPageIndirect, O::Sta),
+        0xB2 => info(A::ZeroPageIndirect, O::Lda),
+        0xD2 => info(A::ZeroPageIndirect, O::Cmp),
+        0xF2 => info(A::ZeroPageIndirect, O::Sbc),
+        0x02 | 0x22 | 0x42 | 0x62 | 0x82 | 0xC2 | 0xE2 => info(A::Immediate, O::NopRead),
+        0x44 => info(A::ZeroPage, O::NopRead),
+        0x54 | 0xD4 | 0xF4 => info(A::ZeroPageX, O::NopRead),
+        0xDC | 0xFC => info(A::NopAbs, O::NopRead),
+        0x5C => info(A::Nop5C, O::NopRead),
+        _ if opcode & 0x03 == 0x03 => info(A::Nop1, O::Nop),
+        _ => decode(opcode),
     }
 }
