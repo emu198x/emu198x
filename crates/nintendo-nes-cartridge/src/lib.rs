@@ -39,7 +39,10 @@
 //!   [`mapper_from_snapshot`].
 //! - [`format`] holds [`CartridgeHeader`], [`ParsedCartridge`], and
 //!   [`parse_ines`], which builds a board from a parsed file.
-//! - [`mappers`] holds one module per supported mapper number.
+//! - [`mappers`] holds one module per supported mapper number, and
+//!   [`Fds`], the Famicom Disk System's RAM adapter and drive, which
+//!   plugs into the cartridge slot but loads from a `.fds` disk image and
+//!   an 8 KiB BIOS rather than an iNES file.
 //!
 //! Public re-exports below preserve the flat
 //! `nintendo_nes_cartridge::*` API used by downstream crates.
@@ -52,13 +55,14 @@ pub mod mappers;
 pub mod snapshot;
 
 pub use format::{CartridgeHeader, ParsedCartridge, parse_ines};
-pub use mapper::{Mapper, Mirroring};
+pub use mapper::{DiskDrive, Mapper, Mirroring};
 pub use mappers::action53::Action53;
 pub use mappers::axrom::AxRom;
 pub use mappers::bxrom::BxRom;
 pub use mappers::camerica::Camerica;
 pub use mappers::cnrom::CnRom;
 pub use mappers::colordreams::ColorDreams;
+pub use mappers::fds::Fds;
 pub use mappers::fme7::Fme7;
 pub use mappers::mmc1::Mmc1;
 pub use mappers::mmc3::Mmc3;

@@ -203,6 +203,17 @@ pub trait Mapper: Send {
     }
 
     /// Capture concrete mapper state for save-state export.
+    /// The disk drive, for a board that has one (the Famicom Disk
+    /// System's RAM adapter). Cartridges have none.
+    fn disk_drive(&self) -> Option<&dyn DiskDrive> {
+        None
+    }
+
+    /// The disk drive, mutably, to insert or eject a side.
+    fn disk_drive_mut(&mut self) -> Option<&mut dyn DiskDrive> {
+        None
+    }
+
     fn snapshot(&self) -> MapperSnapshot;
 
     /// Cartridge PRG-RAM ($6000-$7FFF work/save RAM), for battery `.sav`
@@ -218,4 +229,24 @@ pub trait Mapper: Send {
     /// with PRG-RAM copy in as many bytes as fit (a short or oversized
     /// sidecar is truncated, never panics).
     fn restore_save_ram(&mut self, _bytes: &[u8]) {}
+}
+
+/// A disk drive behind the cartridge slot, holding one side of a disk
+/// set at a time.
+pub trait DiskDrive {
+    /// How many sides the loaded disk set has.
+    fn side_count(&self) -> usize;
+
+    /// The side in the drive, if any.
+    fn inserted(&self) -> Option<usize>;
+
+    /// Put a side in the drive. A side past the set's end is ignored.
+    fn insert(&mut self, side: usize);
+
+    /// Take the side out.
+    fn eject(&mut self);
+
+    /// The disk set as it stands now, writes included, in the file
+    /// layout it was loaded from.
+    fn image(&self) -> Vec<u8>;
 }

@@ -13,7 +13,9 @@ use emu198x_shell::{
     FirmwareOverrides, HeadlessSession, MachineCore, MediaKind, build_variant, read_media_asset,
     startup_media,
 };
-use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
+use runtime_nintendo_nes::{
+    FDS_BIOS_FIRMWARE_ID, FDS_DISK_SLOT, Model, NesRuntime, NesSessionQueryProvider,
+};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -37,6 +39,27 @@ impl MediaArg {
             path,
         }
     }
+
+    fn disk(path: PathBuf) -> Self {
+        Self {
+            slot: FDS_DISK_SLOT.to_owned(),
+            kind: MediaKind::Disk,
+            path,
+        }
+    }
+
+    /// A bare path: a Famicom Disk System image by its `.fds` extension,
+    /// otherwise a cartridge.
+    fn positional(path: PathBuf) -> Self {
+        let is_disk = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fds"));
+        if is_disk {
+            Self::disk(path)
+        } else {
+            Self::cartridge(path)
+        }
+    }
 }
 
 /// The machine configuration the flags build up.
@@ -51,6 +74,8 @@ pub struct Nes {
     pub smoke_screenshot_dir: Option<PathBuf>,
     pub battery_save: Option<PathBuf>,
     pub no_battery_save: bool,
+    /// `--fds-bios`: the Famicom Disk System BIOS, pinned by path.
+    pub fds_bios: Option<PathBuf>,
     /// Whether a bare ROM path (no flag) has been taken; only one is allowed.
     positional_rom: bool,
 }
@@ -204,6 +229,15 @@ fn load_media_bytes(
 }
 
 impl Nes {
+    /// Firmware pins from the command line: the FDS BIOS, if given.
+    pub(crate) fn firmware_overrides(&self) -> FirmwareOverrides {
+        let mut overrides = FirmwareOverrides::none();
+        if let Some(path) = &self.fds_bios {
+            overrides.pin(FDS_BIOS_FIRMWARE_ID, path);
+        }
+        overrides
+    }
+
     fn configured_runtime(&self, require_media: bool) -> Result<NesRuntime, LaunchError> {
         if self.no_battery_save && self.battery_save.is_some() {
             return Err(LaunchError::Run(
@@ -212,13 +246,13 @@ impl Nes {
         }
         if require_media && self.media.is_empty() {
             return Err(LaunchError::Run(
-                "a cartridge image is required; use --rom or --media cartridge-1:cartridge=PATH"
+                "a cartridge or disk image is required; use --rom, --disk or --media SLOT:KIND=PATH"
                     .to_owned(),
             ));
         }
 
         let loaded = load_media_bytes(&self.media)?;
-        let mut runtime = build_variant::<NesRuntime>(self.model, &FirmwareOverrides::none())
+        let mut runtime = build_variant::<NesRuntime>(self.model, &self.firmware_overrides())
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime
             .load_media(&startup_media::media_set(&loaded))
@@ -251,8 +285,13 @@ impl MachineApp for Nes {
                     (also accepted as a bare positional path)
     --model ID      nintendo-nes-ntsc | nintendo-nes-pal [default: NTSC]
     --region MODE   ntsc | pal
+    --disk PATH     Famicom Disk System .fds image (NTSC model; needs the
+                    FDS BIOS); a bare .fds path does the same
+    --fds-bios PATH 8 KB FDS BIOS (default: EMU198X_FDS_BIOS, or disksys.rom
+                    in the ROM directory)
     --media SLOT:KIND=PATH  media image by slot and kind; --rom is an
-                    alias for --media cartridge-1:cartridge=PATH
+                    alias for --media cartridge-1:cartridge=PATH, --disk for
+                    --media disk-1:disk=PATH
     --battery-save PATH     load/write cartridge battery RAM sidecar (default <rom>.sav)
     --no-battery-save       disable automatic .sav load/write
     --assert-blargg assert Blargg-style status output at $6000 after the
@@ -264,6 +303,7 @@ impl MachineApp for Nes {
                     write one PNG per successful smoke row";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
+    F8              FDS: eject the disk, then insert the next side
     Arrow keys      D-pad
     Z               B
     X               A
@@ -285,6 +325,8 @@ impl MachineApp for Nes {
             }
             "--media" => self.media.push(parse_media_arg(&args.value(flag)?)?),
             "--rom" => self.media.push(MediaArg::cartridge(args.path(flag)?)),
+            "--disk" => self.media.push(MediaArg::disk(args.path(flag)?)),
+            "--fds-bios" => self.fds_bios = Some(args.path(flag)?),
             "--assert-blargg" => self.assert_blargg = true,
             "--smoke-root" => self.smoke_root = Some(args.path(flag)?),
             "--smoke-report" => self.smoke_report = Some(args.path(flag)?),
@@ -299,7 +341,7 @@ impl MachineApp for Nes {
                 }
                 self.positional_rom = true;
                 self.media
-                    .push(MediaArg::cartridge(PathBuf::from(positional)));
+                    .push(MediaArg::positional(PathBuf::from(positional)));
             }
             _ => return Ok(false),
         }
@@ -760,6 +802,22 @@ mod tests {
         assert_eq!(common.screenshot, Some(PathBuf::from("frame.png")));
         assert_eq!(common.audio_capture, Some(PathBuf::from("audio.wav")));
         assert_eq!(mode, Mode::Script);
+    }
+
+    #[test]
+    fn disk_flags_and_fds_paths_go_to_the_disk_slot() {
+        let (app, _, _) = parsed(&["--disk", "game.fds", "--fds-bios", "disksys.rom"]);
+        assert_eq!(app.media, vec![MediaArg::disk(PathBuf::from("game.fds"))]);
+        assert_eq!(app.fds_bios, Some(PathBuf::from("disksys.rom")));
+        assert_eq!(
+            app.firmware_overrides().by_id.get(FDS_BIOS_FIRMWARE_ID),
+            Some(&PathBuf::from("disksys.rom"))
+        );
+        let (app, _, _) = parsed(&["Game.FDS"]);
+        assert_eq!(app.media[0].slot, FDS_DISK_SLOT);
+        assert_eq!(app.media[0].kind, MediaKind::Disk);
+        let (app, _, _) = parsed(&["game.nes"]);
+        assert_eq!(app.media[0].slot, DEFAULT_CARTRIDGE_SLOT);
     }
 
     #[test]

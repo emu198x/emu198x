@@ -5,11 +5,11 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason,
 };
 use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
-use nintendo_nes_cartridge::parse_ines;
+use nintendo_nes_cartridge::{Fds, Mapper, parse_ines};
 
 use crate::input::apply_input_event;
 use crate::snapshot;
-use crate::{Model, profile_for};
+use crate::{FDS_BIOS_FIRMWARE_ID, FDS_DISK_SLOT, Model, profile_for};
 use emu198x_shell::display::Display;
 
 /// One PPU scanline, in dots — the tolerance `run_until` allows itself
@@ -30,7 +30,16 @@ use emu198x_shell::display::Display;
 /// a run covering many fields can absorb the same drift repeatedly.
 const RUN_UNTIL_TOLERANCE_DOTS: u64 = 341;
 
-/// Firmwareless NES runtime over the concrete machine crate.
+/// The iNES mapper number set aside for the Famicom Disk System. The
+/// runtime records it as the loaded board's mapper, which is how a
+/// snapshot or a reset tells a disk from a cartridge.
+pub const FDS_MAPPER_NUMBER: u16 = 20;
+
+/// The FDS BIOS's size.
+const FDS_BIOS_LEN: usize = 8192;
+
+/// NES runtime over the concrete machine crate. Cartridges need no
+/// firmware; Famicom Disk System disks need the FDS BIOS.
 pub struct NesRuntime {
     model: Model,
     profile: MachineProfile,
@@ -39,6 +48,7 @@ pub struct NesRuntime {
     cartridge_bytes: Option<Vec<u8>>,
     cartridge_mapper: Option<u16>,
     has_battery: bool,
+    fds_bios: Option<Vec<u8>>,
     rgba_framebuffer: Vec<u8>,
 }
 
@@ -54,6 +64,7 @@ impl NesRuntime {
             cartridge_bytes: None,
             cartridge_mapper: None,
             has_battery: false,
+            fds_bios: None,
             rgba_framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT * 4) as usize],
         }
     }
@@ -63,13 +74,83 @@ impl NesRuntime {
         self.model
     }
 
-    /// The NES catalogue has no separate firmware images.
+    /// A blank runtime, keeping the FDS BIOS if the firmware set has it.
     pub fn from_firmware(
         model: Model,
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         firmware.validate_for_profile(&profile_for(model))?;
-        Ok(Self::blank(model))
+        let mut runtime = Self::blank(model);
+        if let Some(bios) = firmware.bytes(FDS_BIOS_FIRMWARE_ID) {
+            runtime.set_fds_bios(bios.to_vec())?;
+        }
+        Ok(runtime)
+    }
+
+    /// Supply the 8 KiB Famicom Disk System BIOS, which disks boot from.
+    ///
+    /// # Errors
+    ///
+    /// [`MachineError::InvalidFirmware`] when the image is not 8 KiB.
+    pub fn set_fds_bios(&mut self, bios: Vec<u8>) -> Result<(), MachineError> {
+        if bios.len() != FDS_BIOS_LEN {
+            return Err(MachineError::InvalidFirmware {
+                id: FDS_BIOS_FIRMWARE_ID.to_owned(),
+                reason: format!("expected {FDS_BIOS_LEN} bytes, got {}", bios.len()),
+            });
+        }
+        self.fds_bios = Some(bios);
+        Ok(())
+    }
+
+    /// Whether a Famicom Disk System disk set is loaded.
+    #[must_use]
+    pub fn has_disk(&self) -> bool {
+        self.cartridge_mapper == Some(FDS_MAPPER_NUMBER) && self.machine.is_some()
+    }
+
+    /// How many sides the loaded disk set has; 0 with no disk set.
+    #[must_use]
+    pub fn disk_side_count(&self) -> usize {
+        self.machine
+            .as_ref()
+            .and_then(|machine| machine.mapper.disk_drive())
+            .map_or(0, |drive| drive.side_count())
+    }
+
+    /// The disk side in the drive, if any.
+    #[must_use]
+    pub fn inserted_disk_side(&self) -> Option<usize> {
+        self.machine
+            .as_ref()
+            .and_then(|machine| machine.mapper.disk_drive())
+            .and_then(|drive| drive.inserted())
+    }
+
+    /// Put a disk side in the drive, or take it out with `None`. Games
+    /// ask for a side by name on screen; the drive must be empty for a
+    /// moment between sides for the BIOS to notice the change.
+    pub fn insert_disk_side(&mut self, side: Option<usize>) {
+        if let Some(drive) = self
+            .machine
+            .as_mut()
+            .and_then(|machine| machine.mapper.disk_drive_mut())
+        {
+            match side {
+                Some(side) => drive.insert(side),
+                None => drive.eject(),
+            }
+        }
+    }
+
+    /// The loaded disk set with everything the program has written to it,
+    /// as an `.fds` file in the layout it was loaded from.
+    #[must_use]
+    pub fn disk_image(&self) -> Option<Vec<u8>> {
+        self.machine
+            .as_ref()
+            .and_then(|machine| machine.mapper.disk_drive())
+            .map(|drive| drive.image())
     }
 
     /// Whether the loaded cartridge has battery-backed PRG-RAM — i.e. a
@@ -202,7 +283,57 @@ impl NesRuntime {
         Ok(())
     }
 
+    /// Build the RAM adapter around the BIOS and a disk set.
+    fn disk_board(&self, slot: &str, bytes: &[u8]) -> Result<Box<dyn Mapper>, MachineError> {
+        let bios = self
+            .fds_bios
+            .as_deref()
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: FDS_BIOS_FIRMWARE_ID.to_owned(),
+            })?;
+        let fds = Fds::from_file(bios, bytes).map_err(|reason| MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason,
+        })?;
+        Ok(Box::new(fds))
+    }
+
+    fn load_disk_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
+        let board = self.disk_board(slot, bytes)?;
+        self.has_battery = false;
+        self.machine = Some(Nes::new_with_region(board, self.model.machine_region()));
+        self.cartridge_bytes = Some(bytes.to_vec());
+        self.cartridge_mapper = Some(FDS_MAPPER_NUMBER);
+        self.time = MachineTime::default();
+        self.rgba_framebuffer.fill(0);
+        Ok(())
+    }
+
+    /// Reset with a disk set loaded: the disks keep what was written to
+    /// them, as real disks would.
+    fn rebuild_disk_machine(&mut self) {
+        let image = self
+            .disk_image()
+            .or_else(|| self.cartridge_bytes.clone())
+            .unwrap_or_default();
+        match self.disk_board(FDS_DISK_SLOT, &image) {
+            Ok(board) => {
+                let mut machine = Nes::new_with_region(board, self.model.machine_region());
+                if let Some(previous) = &self.machine {
+                    machine.set_audio_controls(previous.audio_controls());
+                }
+                self.machine = Some(machine);
+            }
+            Err(_) => self.machine = None,
+        }
+        self.rgba_framebuffer.fill(0);
+    }
+
     fn rebuild_loaded_machine(&mut self) {
+        if self.cartridge_mapper == Some(FDS_MAPPER_NUMBER) {
+            self.rebuild_disk_machine();
+            return;
+        }
         let Some(bytes) = self.cartridge_bytes.as_deref() else {
             self.machine = None;
             self.cartridge_mapper = None;
@@ -261,13 +392,13 @@ impl emu198x_shell::FamilyRuntime for NesRuntime {
     fn profile_for(model: Model) -> MachineProfile {
         profile_for(model)
     }
-    fn firmware_sources(_model: Model) -> Vec<emu198x_shell::FirmwareSource> {
-        Vec::new()
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
     }
     fn rom_convention() -> emu198x_shell::RomConvention {
         emu198x_shell::RomConvention {
-            env_var: None,
-            dirs: &[],
+            env_var: Some("EMU198X_NES_ROM_DIR"),
+            dirs: &["nintendo-nes"],
         }
     }
     fn from_firmware(
@@ -282,7 +413,14 @@ impl emu198x_shell::FamilyRuntime for NesRuntime {
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         let mut replacement = Self::from_firmware(model, firmware)?;
-        if let Some(bytes) = &self.cartridge_bytes {
+        if self.has_disk() {
+            let image = self.disk_image().unwrap_or_default();
+            replacement.load_disk_bytes(FDS_DISK_SLOT, &image)?;
+            if let (Some(controls), Some(fresh)) = (self.audio_controls(), &mut replacement.machine)
+            {
+                fresh.set_audio_controls(controls);
+            }
+        } else if let Some(bytes) = &self.cartridge_bytes {
             replacement.load_cartridge_bytes("cartridge-1", bytes)?;
             if let (Some(previous), Some(fresh)) = (&self.machine, &mut replacement.machine) {
                 fresh.mapper.restore_save_ram(previous.mapper.save_ram());
@@ -319,17 +457,28 @@ impl MachineCore for NesRuntime {
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
         for image in &media.images {
-            if image.slot.as_ref() != "cartridge-1" {
+            let slot = image.slot.as_ref();
+            let disk_slot = slot == FDS_DISK_SLOT && self.model == Model::NesNtsc;
+            if slot != "cartridge-1" && !disk_slot {
                 return Err(MachineError::UnknownMediaSlot {
-                    slot: image.slot.as_ref().to_owned(),
+                    slot: slot.to_owned(),
                 });
             }
 
-            if image.kind != MediaKind::Cartridge {
+            let expected = if disk_slot {
+                MediaKind::Disk
+            } else {
+                MediaKind::Cartridge
+            };
+            if image.kind != expected {
                 return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
             }
 
-            self.load_cartridge_bytes(image.slot.as_ref(), image.bytes)?;
+            if disk_slot {
+                self.load_disk_bytes(slot, image.bytes)?;
+            } else {
+                self.load_cartridge_bytes(slot, image.bytes)?;
+            }
         }
 
         Ok(())

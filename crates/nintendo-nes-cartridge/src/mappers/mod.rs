@@ -10,6 +10,8 @@ pub mod bxrom;
 pub mod camerica;
 pub mod cnrom;
 pub mod colordreams;
+pub mod fds;
+pub mod fds_audio;
 pub mod fme7;
 pub mod mmc1;
 pub mod mmc3;
