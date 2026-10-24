@@ -291,6 +291,10 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
             observe::<runtime_sega_game_gear::SmsRuntime>(),
         ),
         (
+            "sega-mega-drive",
+            observe::<runtime_sega_mega_drive::MegaDriveRuntime>(),
+        ),
+        (
             "sega-master-system",
             observe::<runtime_sega_master_system::SmsRuntime>(),
         ),

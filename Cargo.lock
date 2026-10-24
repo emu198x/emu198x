@@ -1280,6 +1280,7 @@ dependencies = [
  "runtime-oric-atmos",
  "runtime-sega-game-gear",
  "runtime-sega-master-system",
+ "runtime-sega-mega-drive",
  "runtime-sega-sg-1000",
  "runtime-sinclair-zx-spectrum",
  "runtime-sinclair-zx80",
@@ -1540,6 +1541,17 @@ dependencies = [
  "png",
  "runtime-sega-master-system",
  "sega-vdp",
+ "serde_json",
+]
+
+[[package]]
+name = "emu198x-sega-mega-drive"
+version = "0.44.2"
+dependencies = [
+ "emu198x-app-icon",
+ "emu198x-shell",
+ "emu198x-ui",
+ "runtime-sega-mega-drive",
  "serde_json",
 ]
 
@@ -4733,6 +4745,18 @@ dependencies = [
  "machine-sega-master-system",
  "postcard",
  "sega-vdp",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-sega-mega-drive"
+version = "0.44.2"
+dependencies = [
+ "emu198x-shell",
+ "machine-sega-mega-drive",
+ "motorola-68000",
+ "postcard",
  "serde",
  "serde_json",
 ]
