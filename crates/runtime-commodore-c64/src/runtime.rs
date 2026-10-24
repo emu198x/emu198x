@@ -1346,6 +1346,9 @@ impl C64Runtime {
 // `Option`). Disassembles through the Asm198x spec crate. See
 // 198x/decisions/rung1-wiring.md.
 emu198x_shell::impl_6502_debug_primitives!(C64Runtime, direct);
+// The C128's 8502 the same way. The macro reaches the runtime's private
+// fields, so both invocations live here beside the struct.
+emu198x_shell::impl_6502_debug_primitives!(crate::C128Runtime, direct);
 
 // Keyboard description for the shared `press_key` / `type_string` tools. The
 // key-name validation + char→keystroke table already live in `crate::input`

@@ -243,6 +243,174 @@ pub fn profile_for(model: Model) -> MachineProfile {
     }
 }
 
+/// Commodore 128 models, in C128 mode.
+///
+/// Both run the same international ROMs; the KERNAL tells PAL from NTSC by
+/// counting the VIC-IIe's lines. The machine does not yet model C64 mode,
+/// the 2 MHz clock, the datasette, serial drives or cartridges, so the
+/// profiles offer no media slots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum C128Model {
+    /// PAL C128: 8566 VIC-IIe, 985,248 Hz.
+    C128Pal,
+    /// NTSC C128: 8564 VIC-IIe, 1,022,727 Hz.
+    C128Ntsc,
+}
+
+impl C128Model {
+    pub const ALL: [Self; 2] = [Self::C128Pal, Self::C128Ntsc];
+
+    /// Distinct from the C64's ids, so one variant list can hold both.
+    pub const VARIANT_IDS: [&'static str; 2] = ["c128-pal", "c128-ntsc"];
+
+    #[must_use]
+    pub const fn model_id(self) -> &'static str {
+        match self {
+            Self::C128Pal => "commodore-c128-pal",
+            Self::C128Ntsc => "commodore-c128-ntsc",
+        }
+    }
+
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::C128Pal => "Commodore 128 (PAL)",
+            Self::C128Ntsc => "Commodore 128 (NTSC)",
+        }
+    }
+
+    #[must_use]
+    pub const fn menu_label(self) -> &'static str {
+        match self {
+            Self::C128Pal => "PAL C128 (8566)",
+            Self::C128Ntsc => "NTSC C128 (8564)",
+        }
+    }
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::C128Pal => "c128-pal",
+            Self::C128Ntsc => "c128-ntsc",
+        }
+    }
+
+    /// `c128` alone names the PAL machine.
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        if id == "c128" {
+            return Some(Self::C128Pal);
+        }
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    /// The machine crate's model for this one.
+    #[must_use]
+    pub const fn machine_model(self) -> machine_commodore_c128::C128Model {
+        match self {
+            Self::C128Pal => machine_commodore_c128::C128Model::Pal,
+            Self::C128Ntsc => machine_commodore_c128::C128Model::Ntsc,
+        }
+    }
+
+    /// The ROMs, under VICE's names first (as its `data/C128` ships them,
+    /// and as the machine's own boot tests read them).
+    ///
+    /// The family app looks in the C64's ROM directory, so each name is
+    /// also tried in a `c128/` directory inside it; a C128 runtime on its
+    /// own looks in `commodore-c128` (see `rom_convention`).
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        vec![
+            FirmwareSource::required(
+                "commodore-c128-kernal-rom",
+                &[
+                    "kernal-318020-05.bin",
+                    "c128-kernal.rom",
+                    "c128/kernal-318020-05.bin",
+                ],
+            ),
+            FirmwareSource::required(
+                "commodore-c128-basic-lo-rom",
+                &[
+                    "basiclo-318018-04.bin",
+                    "c128-basiclo.rom",
+                    "c128/basiclo-318018-04.bin",
+                ],
+            ),
+            FirmwareSource::required(
+                "commodore-c128-basic-hi-rom",
+                &[
+                    "basichi-318019-04.bin",
+                    "c128-basichi.rom",
+                    "c128/basichi-318019-04.bin",
+                ],
+            ),
+            FirmwareSource::required(
+                "commodore-c128-character-rom",
+                &[
+                    "chargen-390059-01.bin",
+                    "c128-chargen.rom",
+                    "c128/chargen-390059-01.bin",
+                ],
+            ),
+        ]
+    }
+}
+
+/// Every C128 profile.
+#[must_use]
+pub fn c128_profiles() -> Vec<MachineProfile> {
+    C128Model::ALL.into_iter().map(c128_profile_for).collect()
+}
+
+/// The profile for one C128 model.
+#[must_use]
+pub fn c128_profile_for(model: C128Model) -> MachineProfile {
+    let (region, summary, clock_rate) = match model {
+        C128Model::C128Pal => (
+            Region::Pal,
+            "PAL Commodore 128 in C128 mode. The Z80 boots first and hands the bus to the 8502, which runs BASIC 7.0 to READY. on the 8566 VIC-IIe; with the 40/80 key down the KERNAL brings BASIC up on the 8563 VDC's 80-column screen instead. Real ROMs boot on both screens. Not yet modelled: C64 mode, the 2 MHz clock, the datasette, serial drives and cartridges.",
+            ClockRate::from_hz(TIMING_PAL_BREADBIN.cpu_hz),
+        ),
+        C128Model::C128Ntsc => (
+            Region::Ntsc,
+            "NTSC Commodore 128 in C128 mode on the 8564 VIC-IIe: the same international ROMs boot BASIC 7.0 to READY. on 40 or 80 columns. Not yet modelled: C64 mode, the 2 MHz clock, the datasette, serial drives and cartridges.",
+            ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
+        ),
+    };
+
+    MachineProfile {
+        machine_id: MachineId::from("commodore-c128"),
+        profile_id: ProfileId::from(model.model_id()),
+        display_name: model.display_name().into(),
+        family: Family::C64,
+        region,
+        release_year: 1985,
+        summary: summary.into(),
+        clock: ClockDesc::new("phi2-cycle", clock_rate),
+        firmware: vec![
+            FirmwareRequirement::new("commodore-c128-kernal-rom", "C128 KERNAL ROM", false),
+            FirmwareRequirement::new("commodore-c128-basic-lo-rom", "C128 BASIC LO ROM", false),
+            FirmwareRequirement::new("commodore-c128-basic-hi-rom", "C128 BASIC HI ROM", false),
+            FirmwareRequirement::new(
+                "commodore-c128-character-rom",
+                "C128 Character Generator ROM",
+                false,
+            ),
+        ],
+        media_slots: Vec::new(),
+        capabilities: CapabilitySet::with_all([
+            known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
+            known_capability("keyboard-matrix"),
+            known_capability("snapshot-export"),
+            known_capability("snapshot-import"),
+            known_capability("scripted-input"),
+            known_capability("variant-switch"),
+        ]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,7 +442,7 @@ mod tests {
 
     #[test]
     fn profile_ids_are_unique() {
-        let profiles = profiles();
+        let profiles: Vec<_> = profiles().into_iter().chain(c128_profiles()).collect();
         let mut ids: Vec<&str> = profiles
             .iter()
             .map(|profile| profile.profile_id.as_str())
@@ -282,6 +450,35 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), profiles.len());
+    }
+
+    #[test]
+    fn c128_variant_ids_round_trip_and_do_not_collide_with_the_c64s() {
+        for (model, id) in C128Model::ALL.into_iter().zip(C128Model::VARIANT_IDS) {
+            assert_eq!(model.variant_id(), id);
+            assert_eq!(C128Model::from_variant_id(id), Some(model));
+            assert_eq!(Model::from_variant_id(id), None);
+        }
+        assert_eq!(C128Model::from_variant_id("c128"), Some(C128Model::C128Pal));
+        assert_eq!(C128Model::from_variant_id("pal"), None);
+    }
+
+    #[test]
+    fn every_c128_firmware_source_is_a_required_profile_requirement() {
+        for model in C128Model::ALL {
+            let profile = c128_profile_for(model);
+            assert_eq!(profile.machine_id.as_str(), "commodore-c128");
+            assert_eq!(profile.firmware.len(), model.firmware_sources().len());
+            for source in model.firmware_sources() {
+                let requirement = profile
+                    .firmware
+                    .iter()
+                    .find(|req| req.id == source.id)
+                    .unwrap_or_else(|| panic!("{} is not in the profile", source.id));
+                assert!(!requirement.optional && !source.optional, "{}", source.id);
+            }
+        }
+        assert_eq!(c128_profile_for(C128Model::C128Ntsc).region, Region::Ntsc);
     }
 
     #[test]

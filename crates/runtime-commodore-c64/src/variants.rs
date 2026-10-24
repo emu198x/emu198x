@@ -488,17 +488,7 @@ impl C64FamilyMachine for C64 {
         source: &str,
         run: bool,
     ) -> Result<BasicProgramLoaded, LoaderError> {
-        let result = crate::basic_loader::load_basic_source(
-            session,
-            source,
-            run,
-            crate::basic_loader::DEFAULT_BASIC_LOADER_BOOT_FRAMES,
-        )
-        .map_err(|err| LoaderError::Failed(err.to_string()))?;
-        Ok(BasicProgramLoaded {
-            program_bytes: result.program_bytes,
-            ran: result.ran,
-        })
+        crate::basic_loader::load_basic_program_step(session, source, run)
     }
 
     fn autoload_tape<Q: SessionQueryProvider<C64Runtime>>(
@@ -506,21 +496,6 @@ impl C64FamilyMachine for C64 {
         slot: &str,
         max_boot_frames: u32,
     ) -> Result<TapeAutoloaded, LoaderError> {
-        let frames = if max_boot_frames == 0 {
-            crate::autoload::DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
-        } else {
-            max_boot_frames
-        };
-        let result = crate::autoload::autoload_basic_tape(
-            session,
-            slot,
-            frames,
-            crate::autoload::DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
-        )
-        .map_err(|err| LoaderError::Failed(err.to_string()))?;
-        Ok(TapeAutoloaded {
-            slot: result.slot,
-            boot_frames: result.boot.frames,
-        })
+        crate::autoload::autoload_tape_step(session, slot, max_boot_frames)
     }
 }

@@ -7,9 +7,10 @@
 //! tools and the BASIC loader's `RUN` step, mirroring the Spectrum tools so
 //! the curriculum capture pipeline behaves identically across platforms.
 
-use emu198x_shell::{HeadlessSession, InputEvent, MachineTime, SessionError, SessionQueryProvider};
+use emu198x_shell::{
+    HeadlessSession, InputEvent, MachineCore, MachineTime, SessionError, SessionQueryProvider,
+};
 
-use crate::C64Runtime;
 use crate::input::keys_for_char;
 
 /// Default frames a key is held down before release. Three frames at 50 Hz
@@ -23,8 +24,8 @@ pub const DEFAULT_TYPE_SETTLE_FRAMES: u32 = 10;
 /// consecutive identical keys as separate presses.
 pub const DEFAULT_INTER_CHAR_FRAMES: u32 = 2;
 
-fn queue_key<Q: SessionQueryProvider<C64Runtime>>(
-    session: &mut HeadlessSession<C64Runtime, Q>,
+fn queue_key<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
     name: &str,
     pressed: bool,
 ) {
@@ -41,8 +42,8 @@ fn queue_key<Q: SessionQueryProvider<C64Runtime>>(
 /// # Errors
 ///
 /// Wraps a [`SessionError`] when a frame-run fails.
-pub fn press_key<Q: SessionQueryProvider<C64Runtime>>(
-    session: &mut HeadlessSession<C64Runtime, Q>,
+pub fn press_key<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
     name: &str,
     hold_frames: u32,
 ) -> Result<MachineTime, SessionError> {
@@ -61,8 +62,8 @@ pub fn press_key<Q: SessionQueryProvider<C64Runtime>>(
 /// # Errors
 ///
 /// Wraps a [`SessionError`] when a frame-run fails.
-pub fn type_string<Q: SessionQueryProvider<C64Runtime>>(
-    session: &mut HeadlessSession<C64Runtime, Q>,
+pub fn type_string<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
     text: &str,
     hold_frames: u32,
     settle_frames: u32,
