@@ -1,0 +1,467 @@
+region ntsc
+frames 3
+crand 773a6782957ff047 00 100
+vrand 252a49dcaaddffd7 0000 8000
+oam 000 b8
+oam 001 2d
+oam 002 cd
+oam 003 34
+oam 004 06
+oam 005 3a
+oam 006 3c
+oam 007 b3
+oam 008 ca
+oam 009 db
+oam 00a 74
+oam 00b 0c
+oam 00c 64
+oam 00d 24
+oam 00e 8b
+oam 00f d0
+oam 010 c4
+oam 011 a5
+oam 012 95
+oam 013 48
+oam 014 7b
+oam 015 8d
+oam 016 72
+oam 017 d2
+oam 018 e6
+oam 019 44
+oam 01a ab
+oam 01b 87
+oam 01c d2
+oam 01d 69
+oam 01e a2
+oam 01f c5
+oam 020 da
+oam 021 04
+oam 022 d9
+oam 023 2b
+oam 024 d9
+oam 025 9b
+oam 026 c6
+oam 027 6a
+oam 028 18
+oam 029 d5
+oam 02a 75
+oam 02b c6
+oam 02c 10
+oam 02d 22
+oam 02e c1
+oam 02f cf
+oam 030 45
+oam 031 da
+oam 032 82
+oam 033 a3
+oam 034 73
+oam 035 b8
+oam 036 3d
+oam 037 ad
+oam 038 5b
+oam 039 c4
+oam 03a 1c
+oam 03b 16
+oam 03c 88
+oam 03d 95
+oam 03e 69
+oam 03f 03
+oam 040 70
+oam 041 71
+oam 042 1b
+oam 043 ed
+oam 044 ee
+oam 045 9f
+oam 046 a4
+oam 047 77
+oam 048 4b
+oam 049 d2
+oam 04a 21
+oam 04b 11
+oam 04c fb
+oam 04d dc
+oam 04e 29
+oam 04f 77
+oam 050 84
+oam 051 bb
+oam 052 05
+oam 053 34
+oam 054 43
+oam 055 7b
+oam 056 5d
+oam 057 1d
+oam 058 43
+oam 059 b3
+oam 05a 11
+oam 05b bb
+oam 05c 4c
+oam 05d bb
+oam 05e 01
+oam 05f 2c
+oam 060 44
+oam 061 b3
+oam 062 72
+oam 063 a1
+oam 064 69
+oam 065 2e
+oam 066 38
+oam 067 70
+oam 068 76
+oam 069 5a
+oam 06a 54
+oam 06b 5d
+oam 06c 82
+oam 06d 82
+oam 06e 64
+oam 06f e3
+oam 070 fe
+oam 071 7b
+oam 072 6a
+oam 073 f6
+oam 074 95
+oam 075 57
+oam 076 a1
+oam 077 d4
+oam 078 dd
+oam 079 77
+oam 07a 2d
+oam 07b 09
+oam 07c 0a
+oam 07d 1f
+oam 07e 39
+oam 07f 3c
+oam 080 4f
+oam 081 04
+oam 082 65
+oam 083 b8
+oam 084 51
+oam 085 85
+oam 086 0a
+oam 087 24
+oam 088 4a
+oam 089 b5
+oam 08a 8b
+oam 08b 1b
+oam 08c c9
+oam 08d 25
+oam 08e db
+oam 08f ed
+oam 090 bf
+oam 091 64
+oam 092 0a
+oam 093 e4
+oam 094 6a
+oam 095 01
+oam 096 88
+oam 097 6a
+oam 098 d4
+oam 099 ab
+oam 09a b4
+oam 09b 6d
+oam 09c e1
+oam 09d b0
+oam 09e e1
+oam 09f 49
+oam 0a0 9d
+oam 0a1 03
+oam 0a2 8f
+oam 0a3 32
+oam 0a4 95
+oam 0a5 4e
+oam 0a6 9c
+oam 0a7 dd
+oam 0a8 a6
+oam 0a9 72
+oam 0aa 4a
+oam 0ab a8
+oam 0ac f8
+oam 0ad 33
+oam 0ae c5
+oam 0af 64
+oam 0b0 cb
+oam 0b1 9e
+oam 0b2 19
+oam 0b3 bd
+oam 0b4 a2
+oam 0b5 1c
+oam 0b6 36
+oam 0b7 28
+oam 0b8 e2
+oam 0b9 a5
+oam 0ba be
+oam 0bb 05
+oam 0bc 8e
+oam 0bd 62
+oam 0be 61
+oam 0bf ca
+oam 0c0 ce
+oam 0c1 57
+oam 0c2 64
+oam 0c3 30
+oam 0c4 e3
+oam 0c5 c8
+oam 0c6 3f
+oam 0c7 12
+oam 0c8 ff
+oam 0c9 0f
+oam 0ca 70
+oam 0cb b9
+oam 0cc c3
+oam 0cd 26
+oam 0ce 43
+oam 0cf e7
+oam 0d0 96
+oam 0d1 b6
+oam 0d2 6a
+oam 0d3 71
+oam 0d4 72
+oam 0d5 9f
+oam 0d6 be
+oam 0d7 ce
+oam 0d8 38
+oam 0d9 23
+oam 0da 09
+oam 0db 36
+oam 0dc 26
+oam 0dd b9
+oam 0de 89
+oam 0df 5e
+oam 0e0 db
+oam 0e1 a8
+oam 0e2 5b
+oam 0e3 0e
+oam 0e4 90
+oam 0e5 8b
+oam 0e6 00
+oam 0e7 2c
+oam 0e8 45
+oam 0e9 36
+oam 0ea 47
+oam 0eb 98
+oam 0ec 38
+oam 0ed d9
+oam 0ee 36
+oam 0ef 0f
+oam 0f0 1f
+oam 0f1 99
+oam 0f2 1b
+oam 0f3 de
+oam 0f4 76
+oam 0f5 d7
+oam 0f6 78
+oam 0f7 b8
+oam 0f8 6b
+oam 0f9 4f
+oam 0fa fe
+oam 0fb d6
+oam 0fc f3
+oam 0fd 47
+oam 0fe 94
+oam 0ff 64
+oam 100 00
+oam 101 f0
+oam 104 00
+oam 105 f0
+oam 108 00
+oam 109 f0
+oam 10c 00
+oam 10d f0
+oam 110 00
+oam 111 f0
+oam 114 00
+oam 115 f0
+oam 118 00
+oam 119 f0
+oam 11c 00
+oam 11d f0
+oam 120 00
+oam 121 f0
+oam 124 00
+oam 125 f0
+oam 128 00
+oam 129 f0
+oam 12c 00
+oam 12d f0
+oam 130 00
+oam 131 f0
+oam 134 00
+oam 135 f0
+oam 138 00
+oam 139 f0
+oam 13c 00
+oam 13d f0
+oam 140 00
+oam 141 f0
+oam 144 00
+oam 145 f0
+oam 148 00
+oam 149 f0
+oam 14c 00
+oam 14d f0
+oam 150 00
+oam 151 f0
+oam 154 00
+oam 155 f0
+oam 158 00
+oam 159 f0
+oam 15c 00
+oam 15d f0
+oam 160 00
+oam 161 f0
+oam 164 00
+oam 165 f0
+oam 168 00
+oam 169 f0
+oam 16c 00
+oam 16d f0
+oam 170 00
+oam 171 f0
+oam 174 00
+oam 175 f0
+oam 178 00
+oam 179 f0
+oam 17c 00
+oam 17d f0
+oam 180 00
+oam 181 f0
+oam 184 00
+oam 185 f0
+oam 188 00
+oam 189 f0
+oam 18c 00
+oam 18d f0
+oam 190 00
+oam 191 f0
+oam 194 00
+oam 195 f0
+oam 198 00
+oam 199 f0
+oam 19c 00
+oam 19d f0
+oam 1a0 00
+oam 1a1 f0
+oam 1a4 00
+oam 1a5 f0
+oam 1a8 00
+oam 1a9 f0
+oam 1ac 00
+oam 1ad f0
+oam 1b0 00
+oam 1b1 f0
+oam 1b4 00
+oam 1b5 f0
+oam 1b8 00
+oam 1b9 f0
+oam 1bc 00
+oam 1bd f0
+oam 1c0 00
+oam 1c1 f0
+oam 1c4 00
+oam 1c5 f0
+oam 1c8 00
+oam 1c9 f0
+oam 1cc 00
+oam 1cd f0
+oam 1d0 00
+oam 1d1 f0
+oam 1d4 00
+oam 1d5 f0
+oam 1d8 00
+oam 1d9 f0
+oam 1dc 00
+oam 1dd f0
+oam 1e0 00
+oam 1e1 f0
+oam 1e4 00
+oam 1e5 f0
+oam 1e8 00
+oam 1e9 f0
+oam 1ec 00
+oam 1ed f0
+oam 1f0 00
+oam 1f1 f0
+oam 1f4 00
+oam 1f5 f0
+oam 1f8 00
+oam 1f9 f0
+oam 1fc 00
+oam 1fd f0
+oam 200 b8
+oam 201 7b
+oam 202 fd
+oam 203 c4
+oam 204 20
+oam 205 7e
+oam 206 cf
+oam 207 2e
+oam 208 08
+oam 209 65
+oam 20a 3c
+oam 20b 90
+oam 20c ac
+oam 20d b4
+oam 20e 92
+oam 20f b8
+oam 210 00
+oam 211 00
+oam 212 00
+oam 213 00
+oam 214 00
+oam 215 00
+oam 216 00
+oam 217 00
+oam 218 00
+oam 219 00
+oam 21a 00
+oam 21b 00
+oam 21c 00
+oam 21d 00
+oam 21e 00
+oam 21f 00
+w 0 0 0 05 01
+w 0 0 0 07 40
+w 0 0 0 08 48
+w 0 0 0 09 51
+w 0 0 0 0a 5b
+w 0 0 0 0b 2f
+w 0 0 0 0c 8f
+w 0 0 0 0d e5
+w 0 0 0 0d 01
+w 0 0 0 0e 66
+w 0 0 0 0e 03
+w 0 0 0 0f cc
+w 0 0 0 0f 02
+w 0 0 0 10 d5
+w 0 0 0 10 01
+w 0 0 0 11 b2
+w 0 0 0 11 01
+w 0 0 0 12 8c
+w 0 0 0 12 03
+w 0 0 0 13 57
+w 0 0 0 13 02
+w 0 0 0 14 39
+w 0 0 0 14 00
+w 0 0 0 2c 1f
+w 0 0 0 2d 00
+w 0 0 0 00 0f
+w 0 0 0 01 02
+w 1 10 0 00 80
+w 1 23 388 00 01
+w 1 36 776 00 02
+w 1 49 1164 00 83
+w 1 62 196 00 04
+w 1 75 584 00 05
+w 1 88 972 00 86
+w 1 101 4 00 07
+w 1 114 392 00 08
+w 1 127 780 00 89
+w 1 140 1168 00 0a
+w 1 153 200 00 0b
+w 1 166 588 00 8c
+w 1 179 976 00 0d
+w 1 192 8 00 0e
+w 1 205 396 00 8f
+w 1 218 784 00 00
+w 2 0 0 00 0f
+w 2 100 1100 00 8f
+w 2 101 1200 00 0f
