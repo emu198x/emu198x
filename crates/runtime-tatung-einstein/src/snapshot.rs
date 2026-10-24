@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::EinsteinRuntime;
 
+/// Bumped to 7 when the WD1770 began pacing its data bytes: it carries the
+/// byte time and the countdown to the next byte.
+///
 /// Bumped to 6 when the TMS9918 began holding a CPU access until its VRAM
 /// access window. The live chip now carries that pending access, so an older
 /// payload decodes the fields after it at the wrong offsets.
@@ -19,7 +22,7 @@ use crate::runtime::EinsteinRuntime;
 /// Bumped to 5 when the fictional NTSC configuration and its serialised region
 /// field were removed. The TC-01 is a PAL-only machine; accepting a version-4
 /// payload would decode the following fields at the wrong offsets.
-const SNAPSHOT_VERSION: u16 = 6;
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
