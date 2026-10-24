@@ -396,7 +396,7 @@ argument, not in this repository.
         claude.symlink_to("AGENTS.md")
 
 
-def extract(repo: str) -> tuple[pathlib.Path, dict, list[str]]:
+def extract(repo: str, ref: str = "main") -> tuple[pathlib.Path, dict, list[str]]:
     entry = load_config(repo)
     crates = entry["crates"]
     repo_dir = ROOT / "target" / "extract" / repo
@@ -404,8 +404,10 @@ def extract(repo: str) -> tuple[pathlib.Path, dict, list[str]]:
         shutil.rmtree(repo_dir)
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    run("git", "clone", "--quiet", "--no-local", "--single-branch", "--branch", "main",
+    run("git", "clone", "--quiet", "--no-local", "--single-branch", "--branch", ref,
         str(ROOT), str(repo_dir))
+    if ref != "main":
+        run("git", "branch", "--quiet", "--force", "--move", ref, "main", cwd=repo_dir)
     if run("git", "rev-parse", "--is-shallow-repository", cwd=repo_dir, capture=True).strip() == "true":
         sys.exit("this checkout is shallow; run `git fetch --unshallow origin main` first")
 
@@ -488,9 +490,12 @@ def main() -> int:
     parser.add_argument("repo", help="repository name from extract-repos.toml")
     parser.add_argument("--verify", action="store_true", help="run fmt, Clippy and the tests")
     parser.add_argument("--push", action="store_true", help="push to an existing empty repository")
+    parser.add_argument("--ref", default="main", help="local branch to extract from (default: main)")
     args = parser.parse_args()
 
-    repo_dir, _, crates = extract(args.repo)
+    if args.push and args.ref != "main":
+        sys.exit("--push takes main only: a repository's history must be what this one merged")
+    repo_dir, _, crates = extract(args.repo, args.ref)
     commits = run("git", "rev-list", "--count", "main", cwd=repo_dir, capture=True).strip()
     print(f"{repo_dir}: {', '.join(crates)} with {commits} commits of history")
     if args.verify:
