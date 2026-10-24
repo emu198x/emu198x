@@ -43,6 +43,13 @@ pub(super) fn create(
             firmware,
             runtime_commodore_c64::C64SessionQueryProvider,
         ),
+        #[cfg(feature = "commodore-c128")]
+        // The family's queries too, for boot detection and the screen text.
+        "commodore-c128" => build_with_queries::<runtime_commodore_c64::C128Runtime, _>(
+            variant,
+            firmware,
+            runtime_commodore_c64::C64SessionQueryProvider,
+        ),
         #[cfg(feature = "commodore-pet")]
         "commodore-pet" => build::<runtime_commodore_pet::PetRuntime>(variant, firmware),
         #[cfg(feature = "commodore-vic-20")]
@@ -139,6 +146,10 @@ pub(super) fn catalogue() -> Vec<Value> {
     #[cfg(feature = "commodore-c64")]
     result.extend(profiles::<runtime_commodore_c64::C64Runtime>(
         "commodore-c64",
+    ));
+    #[cfg(feature = "commodore-c128")]
+    result.extend(profiles::<runtime_commodore_c64::C128Runtime>(
+        "commodore-c128",
     ));
     #[cfg(feature = "commodore-pet")]
     result.extend(profiles::<runtime_commodore_pet::PetRuntime>(

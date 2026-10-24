@@ -220,6 +220,28 @@ fn the_c64_loaders_decline_a_c128() {
     ));
 }
 
+#[test]
+fn firmware_of_the_wrong_size_is_named_by_its_id() {
+    let mut firmware = FirmwareSet::new();
+    for (id, size) in [
+        ("commodore-c128-kernal-rom", 0x4000),
+        ("commodore-c128-basic-lo-rom", 0x4000),
+        ("commodore-c128-basic-hi-rom", 0x2000),
+        ("commodore-c128-character-rom", 0x2000),
+    ] {
+        firmware.push(FirmwareImage::new(
+            id,
+            Box::leak(vec![0; size].into_boxed_slice()),
+        ));
+    }
+    match C128Runtime::from_firmware(C128Model::C128Pal, &firmware).map(|_| ()) {
+        Err(MachineError::InvalidFirmware { id, .. }) => {
+            assert_eq!(id, "commodore-c128-basic-hi-rom");
+        }
+        other => panic!("expected InvalidFirmware, got {other:?}"),
+    }
+}
+
 /// VICE's C128 ROMs from EMU198X_C128_ROM_DIR.
 fn c128_firmware() -> FirmwareSet<'static> {
     let dir = PathBuf::from(std::env::var("EMU198X_C128_ROM_DIR").expect("EMU198X_C128_ROM_DIR"));
