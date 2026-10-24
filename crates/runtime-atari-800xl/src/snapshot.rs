@@ -39,7 +39,8 @@ use crate::runtime::Atari800xlRuntime;
 /// Version 18 carries ANTIC's two-cycle CHBASE delay.
 /// Version 19 retains POKEY partial audio integration and DC-filter history.
 /// Version 20 stores a mounted disk as the drive's own sectors, not an ATR.
-const SNAPSHOT_VERSION: u16 = 20;
+/// Version 21 records the board's RAM fit, for the 130XE's extended banks.
+const SNAPSHOT_VERSION: u16 = 21;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -118,15 +119,15 @@ mod tests {
     use emu198x_shell::MachineError;
 
     #[test]
-    fn version_19_is_rejected_without_mutating_live_state() {
+    fn version_20_is_rejected_without_mutating_live_state() {
         let mut runtime = Atari800xlRuntime::blank(Model::A800xlNtsc);
         runtime.set_time(emu198x_shell::MachineTime::new(12345));
         let before = super::encode(&runtime).expect("current snapshot");
         // Even a truncated old payload must fail at the version gate.
-        let old = postcard::to_allocvec(&19u16).expect("old version prefix");
+        let old = postcard::to_allocvec(&20u16).expect("old version prefix");
         let error = decode(&mut runtime, &old).expect_err("old layout must reject");
         assert!(matches!(error, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 19; expected 20"));
+            if reason == "unsupported snapshot version 20; expected 21"));
         assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
     }
 
