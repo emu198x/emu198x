@@ -11,9 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::MegaDriveRuntime;
 
-/// Version 1 is the first. The machine serialises positionally, so any
-/// change to its layout needs a bump here.
-const SNAPSHOT_VERSION: u16 = 1;
+/// Version 1 was the first; version 2 adds the Power Base Converter to the
+/// machine and Mode 4 to the VDP. The machine serialises positionally, so
+/// any change to its layout needs a bump here.
+const SNAPSHOT_VERSION: u16 = 2;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

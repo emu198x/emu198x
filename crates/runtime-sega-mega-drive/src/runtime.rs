@@ -19,11 +19,19 @@ use crate::profiles::profile_for;
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
+/// The cartridge type that names a Mega Drive cartridge.
+pub const MEGA_DRIVE: &str = "mega-drive";
+/// The cartridge type that names a Master System cartridge, run through
+/// the Power Base Converter.
+pub const MASTER_SYSTEM: &str = "master-system";
+
 pub struct MegaDriveRuntime {
     model: Model,
     profile: MachineProfile,
     pub(crate) machine: Option<MegaDrive>,
     cart_bytes: Option<Vec<u8>>,
+    /// Whether the cartridge goes in through the Power Base Converter.
+    power_base: bool,
     pub(crate) time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -38,6 +46,7 @@ impl MegaDriveRuntime {
             profile: profile_for(model),
             machine: None,
             cart_bytes: None,
+            power_base: false,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -58,9 +67,37 @@ impl MegaDriveRuntime {
     }
 
     /// Insert a cartridge image, raw or `.smd`, and power the console on.
+    /// A Master System image, told by its headers, goes in through the
+    /// Power Base Converter.
     pub fn insert_cartridge(&mut self, image: Vec<u8>) {
+        let rom = cartridge::normalise(image);
+        if cartridge::is_master_system(&rom) {
+            self.insert_master_system_cartridge(rom);
+        } else {
+            self.insert_mega_drive_cartridge(rom);
+        }
+    }
+
+    /// Insert a Mega Drive cartridge, raw or `.smd`, whatever its headers
+    /// say.
+    pub fn insert_mega_drive_cartridge(&mut self, image: Vec<u8>) {
         self.cart_bytes = Some(cartridge::normalise(image));
+        self.power_base = false;
         self.rebuild_machine();
+    }
+
+    /// Insert a Master System cartridge through the Power Base Converter,
+    /// whatever its headers say: the console starts in Master System mode.
+    pub fn insert_master_system_cartridge(&mut self, image: Vec<u8>) {
+        self.cart_bytes = Some(cartridge::normalise_master_system(image));
+        self.power_base = true;
+        self.rebuild_machine();
+    }
+
+    /// Whether the cartridge runs through the Power Base Converter.
+    #[must_use]
+    pub fn power_base(&self) -> bool {
+        self.power_base
     }
 
     #[must_use]
@@ -92,6 +129,7 @@ impl MegaDriveRuntime {
     pub(crate) fn set_machine(&mut self, machine: Option<MegaDrive>) {
         if let Some(machine) = &machine {
             self.cart_bytes = Some(machine.rom().to_vec());
+            self.power_base = machine.master_system_mode();
         }
         self.machine = machine;
         self.update_rgba_framebuffer();
@@ -102,7 +140,12 @@ impl MegaDriveRuntime {
             self.machine = None;
             return;
         };
-        self.machine = Some(MegaDrive::new(rom, self.model.machine_region()));
+        let region = self.model.machine_region();
+        self.machine = Some(if self.power_base {
+            MegaDrive::new_power_base(rom, region)
+        } else {
+            MegaDrive::new(rom, region)
+        });
         self.update_rgba_framebuffer();
     }
 
@@ -178,7 +221,11 @@ impl emu198x_shell::FamilyRuntime for MegaDriveRuntime {
     ) -> Result<Self, MachineError> {
         let mut replacement = Self::from_firmware(model, firmware)?;
         if let Some(cart) = &self.cart_bytes {
-            replacement.insert_cartridge(cart.clone());
+            if self.power_base {
+                replacement.insert_master_system_cartridge(cart.clone());
+            } else {
+                replacement.insert_mega_drive_cartridge(cart.clone());
+            }
         }
         Ok(replacement)
     }
@@ -221,7 +268,12 @@ impl MachineCore for MegaDriveRuntime {
         for image in &media.images {
             match (image.slot.as_ref(), image.kind) {
                 ("cartridge-1", MediaKind::Cartridge) => {
-                    self.insert_cartridge(image.bytes.to_vec());
+                    let bytes = image.bytes.to_vec();
+                    match image.cart_type.as_deref() {
+                        Some(MASTER_SYSTEM) => self.insert_master_system_cartridge(bytes),
+                        Some(_) => self.insert_mega_drive_cartridge(bytes),
+                        None => self.insert_cartridge(bytes),
+                    }
                 }
                 (slot, MediaKind::Cartridge) => {
                     return Err(MachineError::UnknownMediaSlot {
@@ -234,6 +286,12 @@ impl MachineCore for MegaDriveRuntime {
             }
         }
         Ok(())
+    }
+
+    /// A Mega Drive cartridge, or a Master System one through the Power
+    /// Base Converter, for an image whose headers do not say which.
+    fn cartridge_types(&self) -> &'static [&'static str] {
+        &[MEGA_DRIVE, MASTER_SYSTEM]
     }
 
     fn run_until(

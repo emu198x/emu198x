@@ -19,6 +19,9 @@ pub struct MegaDrive {
     pub cart: Option<PathBuf>,
     /// `--model ID`, when given.
     pub model: Option<Model>,
+    /// `--power-base`: run the cartridge as a Master System one, through
+    /// the Power Base Converter, whatever its headers say.
+    pub power_base: bool,
 }
 
 impl MegaDrive {
@@ -26,6 +29,18 @@ impl MegaDrive {
         self.cart
             .as_deref()
             .ok_or_else(|| LaunchError::Run("provide a cartridge with --cart PATH".to_owned()))
+    }
+
+    /// Whether the cartridge goes in through the Power Base Converter by
+    /// the user's say: the flag, or a `.sms` file. Without either, the
+    /// runtime still reads a Master System header.
+    pub fn forces_power_base(&self) -> bool {
+        self.power_base
+            || self
+                .cart
+                .as_deref()
+                .and_then(Path::extension)
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("sms"))
     }
 
     /// The model to run: the one asked for, else the one the cartridge's
@@ -49,8 +64,11 @@ impl MachineApp for MegaDrive {
     const BIN_NAME: &'static str = "emu198x-sega-mega-drive";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
-        "    --cart PATH     cartridge image, raw (.bin/.md/.gen) or .smd
+        "    --cart PATH     cartridge image, raw (.bin/.md/.gen) or .smd, or a
+                    Master System .sms through the Power Base Converter
                     (required; a bare PATH is accepted too)
+    --power-base    run the cartridge as a Master System one, whatever
+                    its file name or headers say
     --model ID      mega-drive-japan | genesis | mega-drive-europe, or a
                     full profile id (alias: --variant) [default: the
                     cartridge header's region, else genesis]";
@@ -65,6 +83,7 @@ impl MachineApp for MegaDrive {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--cart" => self.cart = Some(args.path(flag)?),
+            "--power-base" => self.power_base = true,
             "--variant" | "--model" => {
                 let id = args.value(flag)?;
                 self.model = Some(Model::from_variant_id(&id).ok_or_else(|| {
@@ -98,7 +117,11 @@ impl MachineApp for MegaDrive {
         let mut runtime =
             build_variant::<MegaDriveRuntime>(self.model(), &FirmwareOverrides::none())
                 .map_err(|err| LaunchError::Run(err.to_string()))?;
-        runtime.insert_cartridge(cart);
+        if self.forces_power_base() {
+            runtime.insert_master_system_cartridge(cart);
+        } else {
+            runtime.insert_cartridge(cart);
+        }
         Ok(runtime)
     }
 
@@ -184,8 +207,8 @@ mod tests {
     #[test]
     fn variant_frame_ticks_match() {
         let app = |model| MegaDrive {
-            cart: None,
             model: Some(model),
+            ..MegaDrive::default()
         };
         assert_eq!(app(Model::Genesis).frame_ticks(), 262 * 3420);
         assert_eq!(app(Model::MegaDriveEurope).frame_ticks(), 313 * 3420);
@@ -207,12 +230,30 @@ mod tests {
         std::fs::write(&path, rom).expect("write cartridge");
         let mut app = MegaDrive {
             cart: Some(path.clone()),
-            model: None,
+            ..MegaDrive::default()
         };
         assert_eq!(app.model(), Model::MegaDriveEurope);
         assert_eq!(app.frame_ticks(), Model::MegaDriveEurope.frame_ticks());
         app.model = Some(Model::MegaDriveJapan);
         assert_eq!(app.model(), Model::MegaDriveJapan);
         std::fs::remove_file(path).expect("temporary cartridge should be removable");
+    }
+
+    #[test]
+    fn a_sms_file_or_the_flag_chooses_the_power_base() {
+        let app = |cart: &str, power_base| MegaDrive {
+            cart: Some(PathBuf::from(cart)),
+            power_base,
+            ..MegaDrive::default()
+        };
+        assert!(app("alex-kidd.SMS", false).forces_power_base());
+        assert!(app("game.bin", true).forces_power_base());
+        assert!(!app("sonic.gen", false).forces_power_base());
+        let Parsed::Run { app, .. } =
+            parse::<MegaDrive>(&args(&["game.bin", "--power-base"])).expect("parses")
+        else {
+            panic!("expected a run");
+        };
+        assert!(app.power_base);
     }
 }
