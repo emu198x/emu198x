@@ -244,6 +244,7 @@ members = [
     "crates/sinclair-ula-7k010e",
     "crates/emu198x-ti-sn76489",
     "crates/emu198x-ti-tms9918",
+    "crates/emu198x-yamaha-v9938",
     "crates/emu198x-western-digital-wd1770",
     "crates/emu198x-sega-315-5313",
     "crates/emu198x-yamaha-ym2612",
