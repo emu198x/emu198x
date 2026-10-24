@@ -1,6 +1,6 @@
 //! Logical screen inspection must match bytes read by an actual 6502 guest.
-use format_nintendo_nes_ines::Mmc1;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::Mmc1;
 
 fn write(program: &mut Vec<u8>, address: u16, value: u8) {
     program.extend_from_slice(&[0xA9, value, 0x8D, address as u8, (address >> 8) as u8]);

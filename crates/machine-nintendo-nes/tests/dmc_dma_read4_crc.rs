@@ -23,8 +23,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 /// Frames to run before reading the printed CRC. The ROMs finish well
 /// inside this; 300 is ~5 s emulated.

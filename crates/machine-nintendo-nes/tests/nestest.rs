@@ -93,7 +93,7 @@ fn nestest_smoke() {
     let rom_data = std::fs::read(dir.join("nestest.nes")).expect("read nestest.nes");
     let log_data = std::fs::read_to_string(dir.join("nestest.log")).expect("read nestest.log");
 
-    let parsed = format_nintendo_nes_ines::parse_ines(&rom_data).expect("parse nestest.nes");
+    let parsed = nintendo_nes_cartridge::parse_ines(&rom_data).expect("parse nestest.nes");
     let mut nes = Nes::new(parsed.mapper);
 
     // Run through the 7-cycle reset bootstrap (21 PPU dots).
@@ -211,7 +211,7 @@ fn run_all() {
     let rom_data = std::fs::read(dir.join("nestest.nes")).expect("read nestest.nes");
     let log_data = std::fs::read_to_string(dir.join("nestest.log")).expect("read nestest.log");
 
-    let parsed = format_nintendo_nes_ines::parse_ines(&rom_data).expect("parse nestest.nes");
+    let parsed = nintendo_nes_cartridge::parse_ines(&rom_data).expect("parse nestest.nes");
     let mut nes = Nes::new(parsed.mapper);
 
     // Run the full 7-cycle reset bootstrap (21 PPU dots) so the reset

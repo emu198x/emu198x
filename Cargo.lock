@@ -1916,10 +1916,6 @@ dependencies = [
 [[package]]
 name = "format-nintendo-nes-ines"
 version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
 
 [[package]]
 name = "format-sinclair-zx-spectrum-rzx"
@@ -2874,7 +2870,7 @@ dependencies = [
  "emu198x-mos-6502",
  "emu198x-ricoh-apu-2a03",
  "emu198x-test-skip",
- "format-nintendo-nes-ines",
+ "nintendo-nes-cartridge",
  "ricoh-ppu-2c02",
  "serde",
  "serde-big-array",
@@ -3468,6 +3464,15 @@ name = "nintendo-game-boy-timer"
 version = "0.44.2"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "nintendo-nes-cartridge"
+version = "0.44.2"
+dependencies = [
+ "format-nintendo-nes-ines",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -4283,7 +4288,7 @@ dependencies = [
 name = "ricoh-ppu-2c02"
 version = "0.44.2"
 dependencies = [
- "format-nintendo-nes-ines",
+ "nintendo-nes-cartridge",
  "serde",
  "serde-big-array",
 ]
@@ -4593,8 +4598,8 @@ version = "0.44.2"
 dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
- "format-nintendo-nes-ines",
  "machine-nintendo-nes",
+ "nintendo-nes-cartridge",
  "postcard",
  "ricoh-ppu-2c02",
  "serde",

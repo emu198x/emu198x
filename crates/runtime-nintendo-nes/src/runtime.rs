@@ -4,8 +4,8 @@ use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason,
 };
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
+use nintendo_nes_cartridge::parse_ines;
 
 use crate::input::apply_input_event;
 use crate::snapshot;

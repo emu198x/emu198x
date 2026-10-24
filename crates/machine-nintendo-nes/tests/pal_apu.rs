@@ -24,8 +24,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::{Nes, Region};
+use nintendo_nes_cartridge::parse_ines;
 
 /// Generous: these settle within ~12M ticks, and PAL's slower CPU
 /// against the same master budget needs a little more headroom.

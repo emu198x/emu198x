@@ -22,8 +22,8 @@
 //! default; run with:
 //! `cargo test -p machine-nintendo-nes --test ppu_onscreen -- --ignored --nocapture`
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 use std::path::PathBuf;
 
 /// `result` address for the 2005.10.05 sprite suites.

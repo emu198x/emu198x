@@ -1,6 +1,6 @@
 //! Screen inspection must describe the ROM bytes a guest reads through the PPU.
-use format_nintendo_nes_ines::{Mirroring, Sunsoft4};
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::{Mirroring, Sunsoft4};
 
 const ADDRESSES: [u16; 8] = [
     0x2000, 0x2001, 0x23C0, 0x23FF, 0x2400, 0x2401, 0x27C0, 0x27FF,

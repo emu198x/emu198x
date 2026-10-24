@@ -64,8 +64,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 /// `ricoh-apu-2a03` resamples to this rate.
 const RATE: f32 = 48_000.0;

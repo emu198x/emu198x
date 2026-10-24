@@ -26,8 +26,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 /// The ROM's own readme says it takes up to 16 seconds of emulated
 /// time. At ~5.37 MHz master clock that is ~86M ticks, so allow

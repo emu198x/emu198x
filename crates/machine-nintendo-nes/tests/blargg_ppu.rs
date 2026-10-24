@@ -25,8 +25,8 @@
 //! ROM is present, the test is `#[ignore]`-by-default — run with
 //! `cargo test -p machine-nintendo-nes --test blargg_ppu -- --ignored`.
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 use std::path::PathBuf;
 
 /// Maximum master-clock ticks to give a blargg ROM before declaring a

@@ -10,8 +10,8 @@
 
 use std::path::PathBuf;
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 /// PPU palette entry `$30`.
 const EXPECTED: u32 = 0xFFFF_FEFF;

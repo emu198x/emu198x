@@ -1,0 +1,16 @@
+[package]
+name = "nintendo-nes-cartridge"
+description = "NES cartridge boards: the mapper trait, nametable mirroring, the supported mapper boards and loading them from an iNES / NES 2.0 file."
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.44.0" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[lints]
+workspace = true

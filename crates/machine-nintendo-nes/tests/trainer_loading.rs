@@ -1,6 +1,6 @@
 //! Original guests read trainers through the CPU bus and then modify their RAM.
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 
 fn write(program: &mut Vec<u8>, address: u16, value: u8) {
     program.extend_from_slice(&[0xA9, value, 0x8D, address as u8, (address >> 8) as u8]);

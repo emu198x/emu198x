@@ -9,8 +9,8 @@
 //! Not a gate — it prints and passes. Run with:
 //! `cargo test -p machine-nintendo-nes --test sprdma_dmc_probe -- --ignored --nocapture`
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 use std::path::PathBuf;
 
 const MAX_TICKS: u64 = 200_000_000;

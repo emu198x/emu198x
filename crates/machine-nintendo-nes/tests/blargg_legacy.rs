@@ -21,8 +21,8 @@
 //! cargo test -p machine-nintendo-nes --test blargg_legacy -- --ignored
 //! ```
 
-use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
+use nintendo_nes_cartridge::parse_ines;
 use std::path::PathBuf;
 
 /// Tick ceiling before declaring a hang. These are short CPU tests;
