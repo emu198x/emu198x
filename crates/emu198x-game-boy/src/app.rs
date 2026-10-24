@@ -61,7 +61,7 @@ impl Default for GameBoy {
 
 fn parse_model_arg(model: &str) -> Result<Model, LaunchError> {
     Model::from_variant_id(model).ok_or_else(|| {
-        LaunchError::Usage("--model expects dmg0, dmg, mgb, sgb, or sgb2".to_owned())
+        LaunchError::Usage("--model expects dmg0, dmg, mgb, sgb, sgb2, cgb, or agb".to_owned())
     })
 }
 
@@ -226,7 +226,7 @@ impl MachineApp for GameBoy {
                     (also accepted as a bare positional path)
     --media SLOT:KIND=PATH  media image by slot and kind; --rom is an
                     alias for --media cartridge:cartridge=PATH
-    --model MODEL   dmg0 | dmg | mgb | sgb | sgb2 [default: dmg]
+    --model MODEL   dmg0 | dmg | mgb | sgb | sgb2 | cgb | agb [default: dmg]
     --load-snapshot PATH    restore a runtime snapshot before starting
     --save-snapshot PATH    write a runtime snapshot after a headless run
     --battery-save PATH     load/write cartridge battery RAM sidecar
@@ -447,8 +447,8 @@ mod tests {
     #[test]
     fn a_bad_model_or_media_spec_is_a_usage_error() {
         assert_eq!(
-            parse::<GameBoy>(&args(&["--model", "cgb"])).expect_err("rejects"),
-            LaunchError::Usage("--model expects dmg0, dmg, mgb, sgb, or sgb2".to_owned())
+            parse::<GameBoy>(&args(&["--model", "gba"])).expect_err("rejects"),
+            LaunchError::Usage("--model expects dmg0, dmg, mgb, sgb, sgb2, cgb, or agb".to_owned())
         );
         assert_eq!(
             parse::<GameBoy>(&args(&["--media", "cartridge=x.gb"])).expect_err("rejects"),
