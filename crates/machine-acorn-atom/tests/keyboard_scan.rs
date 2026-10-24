@@ -10,17 +10,19 @@
 use machine_acorn_atom::{AcornAtom, AtomKey};
 
 /// A 24 KB ROM whose reset vector ($FFFC) points at a tiny program at $D000 that
-/// loops: drive keyboard column 6 on port A ($B000), read the row lines back on
+/// sets the 8255's mode as the MOS does, then loops: drive keyboard column 6 on port A ($B000), read the row lines back on
 /// port B ($B001), and store them at $0080. Column 6 is where `A` (matrix (6,3))
 /// and the modifiers (SHIFT on port B bit 7) report.
 fn scan_rom() -> Vec<u8> {
     let mut rom = vec![0xEAu8; 0x6000]; // NOP fill
     let program = [
-        0xA9, 0x06, // LDA #$06       column 6
+        0xA9, 0x8A, // LDA #$8A       A out, B in, C upper in, C lower out
+        0x8D, 0x03, 0xB0, // STA $B003      8255 mode word
+        0xA9, 0x06, // LDA #$06       column 6 (loop, $D005)
         0x8D, 0x00, 0xB0, // STA $B000      drive port A (column select)
         0xAD, 0x01, 0xB0, // LDA $B001      read port B (rows, active-low)
         0x85, 0x80, // STA $80        store the scan result
-        0x4C, 0x00, 0xD0, // JMP $D000      loop forever
+        0x4C, 0x05, 0xD0, // JMP $D005      loop forever
     ];
     rom[0x3000..0x3000 + program.len()].copy_from_slice(&program); // $D000
     // Reset vector at $FFFC maps to rom[0x3000 + ($FFFC - $D000)] = rom[0x5FFC].
