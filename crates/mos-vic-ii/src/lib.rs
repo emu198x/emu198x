@@ -195,15 +195,27 @@ pub enum VicModel {
     /// NTSC 8562 (HMOS-II, C64C): the 6567R8's timing with the grey-dot
     /// colour stage.
     Ntsc8562,
+    /// PAL 8566, the C128's VIC-IIe: the 8565 with two more registers.
+    /// `$D02F` drives the three extra keyboard lines and `$D030` holds the
+    /// 2 MHz and test bits.
+    Pal8566,
+    /// NTSC 8564, the C128's VIC-IIe: the 8562 with the same two registers.
+    Ntsc8564,
 }
 
 impl VicModel {
+    /// Whether this is the C128's VIC-IIe, with `$D02F` and `$D030`.
+    #[must_use]
+    pub const fn is_vic_iie(self) -> bool {
+        matches!(self, Self::Pal8566 | Self::Ntsc8564)
+    }
+
     /// Total raster lines per frame.
     #[must_use]
     pub const fn lines_per_frame(self) -> u16 {
         match self {
-            Self::Pal6569 | Self::Pal8565 => 312,
-            Self::Ntsc6567 | Self::Ntsc8562 => 263,
+            Self::Pal6569 | Self::Pal8565 | Self::Pal8566 => 312,
+            Self::Ntsc6567 | Self::Ntsc8562 | Self::Ntsc8564 => 263,
             Self::Ntsc6567R56A => 262,
         }
     }
@@ -212,8 +224,8 @@ impl VicModel {
     #[must_use]
     pub const fn cycles_per_line(self) -> u8 {
         match self {
-            Self::Pal6569 | Self::Pal8565 => 63,
-            Self::Ntsc6567 | Self::Ntsc8562 => 65,
+            Self::Pal6569 | Self::Pal8565 | Self::Pal8566 => 63,
+            Self::Ntsc6567 | Self::Ntsc8562 | Self::Ntsc8564 => 65,
             Self::Ntsc6567R56A => 64,
         }
     }
@@ -224,8 +236,8 @@ impl VicModel {
     /// because the NTSC variants' extra cycles are inserted there.
     const fn sprite_timing(self) -> SpriteTiming {
         match self {
-            Self::Pal6569 | Self::Pal8565 => SPRITE_TIMING_PAL,
-            Self::Ntsc6567 | Self::Ntsc8562 => SPRITE_TIMING_NTSC,
+            Self::Pal6569 | Self::Pal8565 | Self::Pal8566 => SPRITE_TIMING_PAL,
+            Self::Ntsc6567 | Self::Ntsc8562 | Self::Ntsc8564 => SPRITE_TIMING_NTSC,
             Self::Ntsc6567R56A => SPRITE_TIMING_NTSC_R56A,
         }
     }
@@ -243,7 +255,10 @@ impl VicModel {
     /// `greydot` and `colorsplit` programs carry a reference for each family.
     #[must_use]
     pub const fn has_grey_dot(self) -> bool {
-        matches!(self, Self::Pal8565 | Self::Ntsc8562)
+        matches!(
+            self,
+            Self::Pal8565 | Self::Ntsc8562 | Self::Pal8566 | Self::Ntsc8564
+        )
     }
 }
 
@@ -751,14 +766,15 @@ impl Vic {
     #[must_use]
     pub fn new(model: VicModel) -> Self {
         let (first_vis, last_vis) = match model {
-            VicModel::Pal6569 | VicModel::Pal8565 => {
+            VicModel::Pal6569 | VicModel::Pal8565 | VicModel::Pal8566 => {
                 (PAL_FIRST_VISIBLE_LINE, PAL_LAST_VISIBLE_LINE)
             }
             // The NTSC variants share the visible-line window; R56A has one
             // fewer total line but the same displayed region.
-            VicModel::Ntsc6567 | VicModel::Ntsc6567R56A | VicModel::Ntsc8562 => {
-                (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE)
-            }
+            VicModel::Ntsc6567
+            | VicModel::Ntsc6567R56A
+            | VicModel::Ntsc8562
+            | VicModel::Ntsc8564 => (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE),
         };
         let visible_lines = u32::from(last_vis - first_vis);
         let fb_size = FB_WIDTH as usize * visible_lines as usize;
@@ -1909,6 +1925,7 @@ impl Vic {
             // read-modify-write movement code (`inc $d000`, `dec $d001`)
             // depends on. Only the special-cased registers above diverge.
             r @ (0x00..=0x10 | 0x13..=0x18 | 0x1B..=0x1D) => self.regs[r as usize],
+            r @ (0x2F | 0x30) => self.peek(r),
             // $2F-$3F are unused and drive all data bits high.
             _ => 0xFF,
         }
@@ -1942,6 +1959,10 @@ impl Vic {
             0x1E => self.sprite_sprite_collision,
             0x1F => self.sprite_bg_collision,
             r if r <= 0x2E => self.regs[r as usize],
+            // The VIC-IIe's keyboard lines and clock register: the bits it
+            // does not implement read as 1 (VICE `vicii_read` for the 8564).
+            0x2F if self.model.is_vic_iie() => self.regs[0x2F] | 0xF8,
+            0x30 if self.model.is_vic_iie() => self.regs[0x30] | 0xFC,
             _ => 0xFF,
         }
     }
@@ -2128,6 +2149,23 @@ impl Vic {
     }
 
     /// Set the active VIC bank.
+    /// The VIC-IIe's three extra keyboard lines K0-K2, as `$D02F` drives
+    /// them. All high on any other model.
+    #[must_use]
+    pub fn keyboard_lines(&self) -> u8 {
+        if self.model.is_vic_iie() {
+            self.regs[0x2F] | 0xF8
+        } else {
+            0xFF
+        }
+    }
+
+    /// The VIC-IIe's 2 MHz bit, `$D030` bit 0. Always clear on other models.
+    #[must_use]
+    pub fn fast_mode(&self) -> bool {
+        self.model.is_vic_iie() && self.regs[0x30] & 0x01 != 0
+    }
+
     pub fn set_bank(&mut self, bank: u8) {
         self.vic_bank = bank & 0x03;
     }
