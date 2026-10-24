@@ -105,15 +105,27 @@
 //! The BIOS may be longer than 32 KB: C-BIOS keeps its start-up logo in a
 //! 16 KB ROM at `$8000` in the BIOS slot, which the machine maps by reading
 //! the BIOS image wherever it is long enough.
+//!
+//! # Sound beyond the PSG
+//!
+//! MSX-MUSIC (a YM2413 on ports `$7C`/`$7D`), the FM-PAC cartridge and the
+//! SCC cartridges are described in the `sound` module. Their output is mixed
+//! with the PSG's by [`Msx::end_audio_frame`].
 
 use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use emu198x_intel_8255::Ppi8255;
+pub use emu198x_konami_scc::Scc;
 pub use emu198x_ricoh_rp5c01::{DateTime, Rp5c01};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 pub use emu198x_yamaha_v9938::{Mode as V9938Mode, V9938};
+pub use emu198x_yamaha_ym2413::Ym2413;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
+
+mod sound;
+pub use sound::FM_PAC_SRAM_SIZE;
+use sound::{CartridgeSound, ExpansionMixer, MsxMusic};
 
 /// VDP dot ticks per CPU T-state, numerator (TMS9918A on MSX).
 ///
@@ -241,6 +253,12 @@ pub enum MapperType {
     Ascii8,
     /// ASCII 16 KB: banks at $6000 / $7000.
     Ascii16,
+    /// Panasonic's FM-PAC: MSX-MUSIC in a cartridge, with 8 KB of SRAM.
+    /// The image is its 64 KB ROM.
+    FmPac,
+    /// Konami's Sound Cartridge: an SCC-I and 128 KB of RAM, which the
+    /// image, if any, fills.
+    SoundCartridge,
 }
 
 /// Infer one of the mapper families implemented by this machine from ROM
@@ -250,6 +268,11 @@ pub enum MapperType {
 /// metadata or an explicit user choice should prefer that stronger evidence.
 #[must_use]
 pub fn detect_mapper(rom: &[u8]) -> MapperType {
+    // The FM-PAC's ROM carries the signature the MSX-MUSIC BIOS searches the
+    // slots for, `OPLL` at `$401C`, after its own `PAC2`.
+    if rom.get(0x18..0x20) == Some(b"PAC2OPLL".as_slice()) {
+        return MapperType::FmPac;
+    }
     if rom.len() <= 32 * 1024 {
         return MapperType::Plain;
     }
@@ -302,14 +325,23 @@ struct CartridgeSlot {
     rom: Vec<u8>,
     mapper: MapperType,
     banks: [u8; 4],
+    /// A sound chip, and the RAM or SRAM that comes with it.
+    sound: CartridgeSound,
 }
 
 impl CartridgeSlot {
     fn new(rom: Vec<u8>, mapper: MapperType) -> Self {
+        let sound = match mapper {
+            MapperType::KonamiScc => CartridgeSound::konami_scc(),
+            MapperType::FmPac => CartridgeSound::fm_pac(),
+            MapperType::SoundCartridge => CartridgeSound::sound_cartridge(&rom),
+            _ => CartridgeSound::None,
+        };
         Self {
             rom,
             mapper,
             banks: [0, 1, 2, 3],
+            sound,
         }
     }
 
@@ -318,13 +350,23 @@ impl CartridgeSlot {
             rom: Vec::new(),
             mapper: MapperType::Plain,
             banks: [0; 4],
+            sound: CartridgeSound::None,
         }
     }
 
     fn read(&self, addr: u16) -> u8 {
+        if let Some(value) = self.sound.peek(&self.rom, &self.banks, addr) {
+            return value;
+        }
         if self.rom.is_empty() {
             return 0xFF;
         }
+        // The SCC MegaROM mirrors page 2 into page 0 and page 1 into page 3.
+        let addr = match (self.mapper, addr) {
+            (MapperType::KonamiScc, 0x0000..=0x3FFF) => addr + 0x8000,
+            (MapperType::KonamiScc, 0xC000..=0xFFFF) => addr - 0x8000,
+            _ => addr,
+        };
         match self.mapper {
             MapperType::Plain => {
                 let offset = if addr >= 0x4000 {
@@ -352,10 +394,20 @@ impl CartridgeSlot {
                 let offset = bank * 16384 + (addr as usize & 0x3FFF);
                 self.rom.get(offset).copied().unwrap_or(0xFF)
             }
+            // Their own hardware answers every read.
+            MapperType::FmPac | MapperType::SoundCartridge => 0xFF,
         }
     }
 
+    /// A CPU read's side effects: the SCC's deformation register.
+    fn read_side_effects(&mut self, addr: u16) {
+        let _ = self.sound.read(&self.rom, &self.banks, addr);
+    }
+
     fn write(&mut self, addr: u16, value: u8) {
+        if self.sound.write(&mut self.banks, addr, value) {
+            return;
+        }
         match self.mapper {
             MapperType::Konami => match addr {
                 0x6000..=0x7FFF => self.banks[1] = value,
@@ -382,7 +434,7 @@ impl CartridgeSlot {
                 0x7000..=0x77FF => self.banks[1] = value,
                 _ => {}
             },
-            MapperType::Plain => {}
+            MapperType::Plain | MapperType::FmPac | MapperType::SoundCartridge => {}
         }
     }
 }
@@ -542,6 +594,10 @@ pub struct Msx {
     joystick: [u8; 2],
     /// `None` on an MSX1.
     msx2: Option<Msx2Parts>,
+    /// Built-in MSX-MUSIC, when the machine has it.
+    msx_music: Option<MsxMusic>,
+    /// The cartridges' and MSX-MUSIC's sound, averaged to the PSG's cadence.
+    expansion: ExpansionMixer,
 }
 
 impl Msx {
@@ -589,7 +645,65 @@ impl Msx {
             ay_watch: None,
             joystick: [0xFF; 2],
             msx2: None,
+            msx_music: None,
+            expansion: ExpansionMixer::default(),
         }
+    }
+
+    /// Fit MSX-MUSIC: the FM-BIOS `rom` at `$4000-$7FFF` in `slot`, and a
+    /// YM2413 on ports `$7C`/`$7D`.
+    pub fn install_msx_music(&mut self, slot: SlotAddress, rom: Vec<u8>) {
+        self.msx_music = Some(MsxMusic::new(slot, rom));
+    }
+
+    /// The built-in MSX-MUSIC's YM2413, when the machine has one.
+    #[must_use]
+    pub fn msx_music(&self) -> Option<&Ym2413> {
+        self.msx_music.as_ref().map(|music| &music.ym)
+    }
+
+    fn cart(&self, slot: u8) -> Option<&CartridgeSlot> {
+        match slot {
+            1 => Some(&self.cart1),
+            2 => Some(&self.cart2),
+            _ => None,
+        }
+    }
+
+    /// The SCC of the cartridge in slot 1 or 2, if it has one.
+    #[must_use]
+    pub fn cartridge_scc(&self, slot: u8) -> Option<&Scc> {
+        self.cart(slot)?.sound.scc_chip()
+    }
+
+    /// The YM2413 of the FM-PAC in slot 1 or 2, if there is one.
+    #[must_use]
+    pub fn cartridge_ym2413(&self, slot: u8) -> Option<&Ym2413> {
+        self.cart(slot)?.sound.ym2413()
+    }
+
+    /// The SRAM of the FM-PAC in slot 1 or 2, to save PAC data.
+    #[must_use]
+    pub fn fm_pac_sram(&self, slot: u8) -> Option<&[u8]> {
+        self.cart(slot)?.sound.fm_pac_sram()
+    }
+
+    /// The SRAM of the FM-PAC in slot 1 or 2, to restore PAC data.
+    pub fn fm_pac_sram_mut(&mut self, slot: u8) -> Option<&mut [u8]> {
+        match slot {
+            1 => self.cart1.sound.fm_pac_sram_mut(),
+            2 => self.cart2.sound.fm_pac_sram_mut(),
+            _ => None,
+        }
+    }
+
+    /// Finish the frame's audio: the PSG's samples, with the cartridges'
+    /// and MSX-MUSIC's mixed in, 48 kHz mono.
+    /// Returns how many of `out`'s samples the frame produced; the rest are
+    /// zero.
+    pub fn end_audio_frame(&mut self, out: &mut [f32]) -> usize {
+        self.psg.end_frame(out);
+        self.expansion.end_frame(out).min(out.len())
     }
 
     /// Create an MSX2: a V9938, the SUB-ROM where `layout.sub_rom` says,
@@ -723,6 +837,11 @@ impl Msx {
         while self.cpu_tstates < target {
             self.tick_tstate();
         }
+        self.cart1.sound.end_frame();
+        self.cart2.sound.end_frame();
+        if let Some(music) = &mut self.msx_music {
+            drop(music.ym.take_samples());
+        }
         self.frame_count += 1;
         self.tstates_per_frame
     }
@@ -740,6 +859,7 @@ impl Msx {
         match self.cpu.bus_request() {
             Some(BusOp::MemRead) => {
                 self.cpu.data_in = self.mem_read(self.cpu.addr);
+                self.mem_read_side_effects(self.cpu.addr);
             }
             Some(BusOp::MemWrite) => {
                 self.mem_write(self.cpu.addr, self.cpu.data);
@@ -802,6 +922,13 @@ impl Msx {
             self.bios_rom.get(addr as usize).copied().unwrap_or(0xFF)
         } else if let Some(value) = self.msx2_read(slot, addr) {
             value
+        } else if let Some(value) = self
+            .msx_music
+            .as_ref()
+            .filter(|music| music.slot == slot)
+            .and_then(|music| music.read(addr))
+        {
+            value
         } else if slot == self.layout.cartridge_ports[0] {
             self.cart1.read(addr)
         } else if slot == self.layout.cartridge_ports[1] {
@@ -810,6 +937,20 @@ impl Msx {
             self.ram[addr as usize]
         } else {
             0xFF
+        }
+    }
+
+    /// What a CPU read does besides return a value: only an SCC's
+    /// deformation register notices.
+    fn mem_read_side_effects(&mut self, addr: u16) {
+        if self.subslot_register(addr).is_some() {
+            return;
+        }
+        let slot = self.resolve_slot(addr);
+        if slot == self.layout.cartridge_ports[0] {
+            self.cart1.read_side_effects(addr);
+        } else if slot == self.layout.cartridge_ports[1] {
+            self.cart2.read_side_effects(addr);
         }
     }
 
@@ -955,6 +1096,13 @@ impl Msx {
                 if let Some(parts) = &mut self.msx2 {
                     parts.mapper_registers[usize::from(port & 3)] = value;
                 }
+            }
+            0x7C | 0x7D => {
+                if let Some(music) = &mut self.msx_music {
+                    music.ym.write((port & 1) as u8, value);
+                }
+                self.cart1.sound.write_io(port as u8, value);
+                self.cart2.sound.write_io(port as u8, value);
             }
             0xA0 => self.psg.select_register(value),
             0xA1 => {
@@ -1205,10 +1353,18 @@ impl Z80Machine for Msx {
     }
 
     fn tick_chips(&mut self) {
+        // The cartridges' and MSX-MUSIC's chips run at the CPU clock.
+        let mut level = self.cart1.sound.tick() + self.cart2.sound.tick();
+        if let Some(music) = &mut self.msx_music {
+            level += music.tick();
+        }
+        self.expansion.accumulate(level);
+
         // PSG runs at CPU ÷ 2.
         self.psg_phase ^= 1;
         if self.psg_phase == 0 {
             self.psg.tick();
+            self.expansion.psg_tick();
         }
 
         if let Some(parts) = &mut self.msx2 {
@@ -1232,6 +1388,9 @@ impl emu198x_zilog_z80::Z80Stepper for Msx {
         self.tick_tstate();
     }
 }
+
+#[cfg(test)]
+mod note_tests;
 
 #[cfg(test)]
 mod tests {

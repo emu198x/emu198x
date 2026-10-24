@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::MsxRuntime;
 
+/// Bumped to 10 when cartridges gained their sound hardware (the SCC, the
+/// FM-PAC, the Sound Cartridge), the machine optional MSX-MUSIC, and the
+/// mixer that averages them to the PSG's cadence.
+///
 /// Bumped to 9 when the machine gained the MSX2: the video chip became a
 /// TMS9918-or-V9938 enum, the layout gained the SUB-ROM and mapper slots,
 /// and the machine an optional block of MSX2 parts (SUB-ROM, mapped RAM,
@@ -26,7 +30,7 @@ use crate::runtime::MsxRuntime;
 /// Bumped to 5 when the machine gained the live M1 wait-state latch. Restoring
 /// an older snapshot without that latch could insert the wait twice or omit it
 /// when resuming in the middle of an opcode fetch.
-const SNAPSHOT_VERSION: u16 = 9;
+const SNAPSHOT_VERSION: u16 = 10;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
