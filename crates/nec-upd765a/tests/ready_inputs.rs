@@ -1,10 +1,12 @@
 //! Complete digital READY event/result contract, separate from drive mechanics.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::Upd765a;
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller() -> Upd765a {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     for byte in [3, 0xf0, 3] {
         fdc.write_data(byte);
     }
@@ -14,8 +16,8 @@ fn controller() -> Upd765a {
     fdc
 }
 fn ticks(fdc: &mut Upd765a, count: u32) {
-    for hc in 0..count {
-        fdc.tick(hc);
+    for _ in 0..count {
+        fdc.tick();
     }
 }
 fn result(fdc: &mut Upd765a) -> Vec<u8> {
@@ -151,7 +153,7 @@ fn polling_uses_the_four_mhz_fdc_interval_without_per_period_rounding_drift() {
     let mut events = Vec::new();
     for tick in 1..=116_225 {
         fdc.set_ready(0, events.len() % 2 == 0);
-        fdc.tick(0);
+        fdc.tick();
         if fdc.interrupt {
             events.push(tick);
             result(&mut fdc);

@@ -1,17 +1,19 @@
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller() -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         f.write_data(byte);
     }
     f.insert_disk(0, DiskImage::default());
     f.insert_disk(1, DiskImage::default());
-    for hc in 0..8000 {
-        f.tick(hc);
+    for _ in 0..8000 {
+        f.tick();
     }
     for unit in 0..2 {
         command(&mut f, &[8]);
@@ -20,8 +22,8 @@ fn controller() -> Upd765a {
     f
 }
 fn complete(f: &mut Upd765a) {
-    for hc in 0..200_000 {
-        f.tick(hc);
+    for _ in 0..200_000 {
+        f.tick();
     }
     assert!(f.interrupt);
 }

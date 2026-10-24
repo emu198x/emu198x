@@ -37,9 +37,11 @@ mod tests {
     }
 
     #[test]
-    fn fdc_is_enabled_on_plus3() {
+    fn fdc_is_wired_at_the_plus3_cpu_clock() {
+        // The +3 ticks its FDC once per CPU T-state; the core decodes
+        // its ports (tested in common-sinclair-zx-spectrum-amstrad-class).
         let m = SpectrumPlus3::new();
-        assert!(m.fdc.enabled, "+3 ships with FDC enabled");
+        assert_eq!(m.fdc.host_tick_hz(), 3_546_895);
     }
 
     #[test]

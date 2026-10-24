@@ -1,6 +1,9 @@
 //! Bounded field observations for #1870, not an oracle for disputed results.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn numbers(line: &str) -> Vec<u8> {
     line.split_whitespace()
@@ -55,8 +58,7 @@ fn field_boundary_observations() {
             vec![DiskTrack { sectors }]
         }],
     };
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     if present {
         fdc.insert_disk(0, image.clone());
     }
@@ -88,7 +90,7 @@ fn field_boundary_observations() {
                 result.push(byte);
             }
         }
-        fdc.tick(0);
+        fdc.tick();
         ticks += 1;
     }
     assert!(
@@ -123,8 +125,7 @@ fn field_boundary_observations() {
 #[test]
 fn missing_track_entry_is_present_media_and_recovers() {
     for opcode in [0x42, 0x62, 0xc2, 0xe2] {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.insert_disk(
             0,
             DiskImage {

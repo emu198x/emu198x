@@ -4,12 +4,14 @@
 //! memory, AY, and timing. This type holds the Z80 + Amstrad 40077 gate
 //! array + 4-ROM paged memory + AY-3-8912 + beeper + tape composition.
 //! The variant marker `V: AmstradVariant` is a phantom — it changes the
-//! type identity (so snapshots can't cross variants) and gates the
-//! FDC's `enabled` flag, but otherwise contributes no state.
+//! type identity (so snapshots can't cross variants) and says whether
+//! the FDC is wired, but otherwise contributes no state.
 //!
 //! The µPD765A FDC lives on the core (gated on `Plus3Marker::HAS_FDC`)
-//! because +2A and +2B reuse the same struct shape with `enabled =
-//! false`. Real-hardware-accurately the +2A/+2B/+3 broke the rear edge
+//! because +2A and +2B reuse the same struct shape. The chip knows
+//! nothing of the +3: this core decodes its ports, ticks it at the +3's
+//! CPU clock, and leaves it untouched on a +2A or +2B, which have no
+//! drive connector. Real-hardware-accurately the +2A/+2B/+3 broke the rear edge
 //! connector pinout, so a Kempston Interface doesn't physically fit
 //! these machines — there is intentionally no `KempstonJoystick`
 //! peripheral on this core. See
@@ -23,7 +25,6 @@ use amstrad_ula_40077::AmstradGateArray;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
@@ -99,21 +100,43 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     _variant: PhantomData<V>,
 }
 
+/// The two µPD765A registers the +3 maps into its I/O space.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FdcRegister {
+    /// Main status register, `$2FFD`. Read-only.
+    Status,
+    /// Data register, `$3FFD`.
+    Data,
+}
+
 impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
+    /// Which FDC register `port` reaches, if any. The +3's gate array
+    /// decodes `A15=0 A14=0 A13=1`, `A1=0`, with `A12` choosing status or
+    /// data, so the check is on a `0xF002` mask and shadow addresses
+    /// alias. A +2A or +2B has no drive connector, so nothing is claimed.
+    fn fdc_register(port: u16) -> Option<FdcRegister> {
+        if !V::HAS_FDC {
+            return None;
+        }
+        match port & 0xF002 {
+            0x2000 => Some(FdcRegister::Status),
+            0x3000 => Some(FdcRegister::Data),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub fn new() -> Self {
         let cpu_hz = (TIMING_PLUS2A.master_hz / u64::from(TIMING_PLUS2A.cpu_divisor)) as u32;
         let ay_hz = cpu_hz / 2;
-        // Only the +3 ships the floppy drive. +2A / +2B reuse the same
-        // FDC instance with `enabled = false` so its `claims_port`
-        // always reports false and the bus dispatch never lands on it.
-        // The +3 only routes the FDC's US0 pin to the drive selector;
+        // Only the +3 ships the floppy drive. +2A / +2B carry the same
+        // FDC instance, but `fdc_claims_port` never routes to it and it is
+        // never ticked. The +3 ticks it once per CPU T-state. The +3 only routes the FDC's US0 pin to the drive selector;
         // US1 is electrically a don't-care, so a `0x01` drive mask
         // makes drive bits `00`/`10` both address physical drive 0
         // and `01`/`11` both address drive 1 — matching real hardware
         // and what the +3 BIOS's second-stage loader expects.
-        let mut fdc = Upd765a::new();
-        fdc.enabled = V::HAS_FDC;
+        let mut fdc = Upd765a::new(u64::from(cpu_hz));
         if V::HAS_FDC {
             fdc.set_drive_select_mask(0x01);
         }
@@ -394,10 +417,12 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
-        // The FDC claims its own ports first — `claims_port` honours
-        // the `enabled` flag, so +2A / +2B fall through here.
-        if self.fdc.claims_port(port) {
-            let val = self.fdc.read(port);
+        // The FDC claims its own ports first; +2A / +2B fall through.
+        if let Some(register) = Self::fdc_register(port) {
+            let val = match register {
+                FdcRegister::Status => self.fdc.read_status(),
+                FdcRegister::Data => self.fdc.read_data(),
+            };
             if std::env::var("EMU198X_FDC_TRACE").is_ok() {
                 eprintln!(
                     "[FDC] IN (${port:04x}) = ${val:02x}  pc=${:04x}",
@@ -433,7 +458,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
-        if self.fdc.claims_port(port) {
+        if let Some(register) = Self::fdc_register(port) {
             self.update_fdc_inputs();
             if std::env::var("EMU198X_FDC_TRACE").is_ok() {
                 eprintln!(
@@ -443,7 +468,10 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
                     u16::from_le_bytes([self.z80.regs.e(), self.z80.regs.d()]),
                 );
             }
-            self.fdc.write(port, data);
+            // The main status register is read-only; writes to it are lost.
+            if register == FdcRegister::Data {
+                self.fdc.write_data(data);
+            }
             // Fall through: paging and AY decoding live on orthogonal
             // address bits and may still match the FDC port mask.
         }
@@ -597,8 +625,10 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
         }
         // Peripheral timestamps remain in the driver's master-clock
         // counter units; call frequency is once per CPU T-state.
-        self.update_fdc_inputs();
-        self.fdc.tick(position.halfcycles());
+        if V::HAS_FDC {
+            self.update_fdc_inputs();
+            self.fdc.tick();
+        }
         let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
@@ -734,7 +764,7 @@ mod tests {
         machine.insert_disk(nec_upd765a::DiskImage::default());
         machine.io_write(0x1ffd, 4); // normal mode, motor stopped
         for _ in 0..8000 {
-            machine.fdc.tick(0);
+            machine.fdc.tick();
         }
         machine.fdc.write_data(8);
         assert_eq!(
@@ -745,7 +775,7 @@ mod tests {
         machine.io_write(0x7ffd, 0x20); // paging lock must not lock the motor
         machine.io_write(0x1ffd, 12);
         for _ in 0..8000 {
-            machine.fdc.tick(0);
+            machine.fdc.tick();
         }
         for unit in [0, 2] {
             machine.fdc.write_data(8);
@@ -758,7 +788,7 @@ mod tests {
         }
         machine.io_write(0x1ffd, 4);
         for _ in 0..8000 {
-            machine.fdc.tick(0);
+            machine.fdc.tick();
         }
         for unit in [0, 2] {
             machine.fdc.write_data(8);
@@ -889,16 +919,75 @@ mod tests {
         assert_eq!(m.keyboard, [0xFF; 8]);
     }
 
+    /// The +3 decodes `$2FFD` (main status, read-only) and `$3FFD`
+    /// (data) on a `0xF002` mask, so shadow addresses with the same
+    /// `A15-A12` and `A1` bits alias. Moved here from the chip, which no
+    /// longer knows the +3's ports.
     #[test]
-    fn plus3_enables_fdc_other_variants_disable_it() {
+    fn plus3_decodes_the_fdc_registers_on_its_mask() {
+        type Plus3 = SpectrumAmstradClassCore<Plus3Marker>;
+        assert_eq!(Plus3::fdc_register(0x2FFD), Some(FdcRegister::Status));
+        assert_eq!(Plus3::fdc_register(0x3FFD), Some(FdcRegister::Data));
+        assert_eq!(Plus3::fdc_register(0x2000), Some(FdcRegister::Status));
+        assert_eq!(Plus3::fdc_register(0x3FFC), Some(FdcRegister::Data));
+        assert_eq!(
+            Plus3::fdc_register(0x3FFF),
+            None,
+            "A1 set falls outside the mask"
+        );
+        assert_eq!(Plus3::fdc_register(0x1FFD), None);
+        assert_eq!(Plus3::fdc_register(0x4FFD), None);
+    }
+
+    /// A +2A or +2B has no drive connector: no port reaches the FDC.
+    #[test]
+    fn only_the_plus3_wires_the_fdc() {
+        for port in [0x2FFD, 0x3FFD, 0x2000, 0x3FFC] {
+            assert_eq!(
+                SpectrumAmstradClassCore::<Plus2AMarker>::fdc_register(port),
+                None
+            );
+            assert_eq!(
+                SpectrumAmstradClassCore::<Plus2BMarker>::fdc_register(port),
+                None
+            );
+        }
+    }
+
+    /// The +3 ticks the FDC once per CPU T-state, so that is the rate it
+    /// states to the chip.
+    #[test]
+    fn plus3_ticks_the_fdc_at_its_cpu_clock() {
         let plus3 = SpectrumPlus3::new();
-        assert!(plus3.fdc.enabled, "+3 ships with FDC enabled");
+        assert_eq!(plus3.fdc.host_tick_hz(), 3_546_895);
+    }
 
-        let plus2a = SpectrumPlus2A::new();
-        assert!(!plus2a.fdc.enabled, "+2A has no floppy drive");
+    /// Writes to the read-only main status register change nothing.
+    #[test]
+    fn writes_to_the_main_status_register_are_lost() {
+        let mut plus3 = SpectrumPlus3::new();
+        let before = plus3.fdc.read_status();
+        plus3.io_write(0x2FFD, 0xAA);
+        assert_eq!(
+            plus3.fdc.read_status(),
+            before,
+            "MSR write must not change status"
+        );
+    }
 
-        let plus2b = SpectrumPlus2B::new();
-        assert!(!plus2b.fdc.enabled, "+2B has no floppy drive");
+    /// A port outside the FDC's decode never reaches it. `$BFFD` is the
+    /// AY's data port; `$1FFD` would not do, since its motor bit really
+    /// does change the FDC's READY input.
+    #[test]
+    fn a_port_outside_the_fdc_decode_never_reaches_it() {
+        let mut plus3 = SpectrumPlus3::new();
+        let before = fdc_state(&plus3.fdc);
+        plus3.io_write(0xBFFD, 0x0F);
+        assert_eq!(fdc_state(&plus3.fdc), before);
+    }
+
+    fn fdc_state(fdc: &Upd765a) -> String {
+        serde_json::to_string(fdc).expect("FDC state serialises")
     }
 
     #[test]

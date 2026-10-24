@@ -1,8 +1,11 @@
 //! Register-level Seek checks. These use the controller's existing image-presence
 //! readiness model, not a claim about physical +3 READY wiring or step timing.
 
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn image() -> DiskImage {
     DiskImage {
@@ -39,8 +42,8 @@ fn seek(fdc: &mut Upd765a, select: u8, target: u8) {
 }
 
 fn complete(fdc: &mut Upd765a) {
-    for hc in 0..200_000 {
-        fdc.tick(hc);
+    for _ in 0..200_000 {
+        fdc.tick();
     }
     assert_eq!(
         fdc.read_status() & 0xf0,
@@ -59,8 +62,7 @@ fn sense_interrupt(fdc: &mut Upd765a) -> [u8; 2] {
 fn initially_not_ready_seek_reports_error_for_each_drive_and_same_cylinder() {
     for drive in 0..4 {
         for target in [0, 20] {
-            let mut fdc = Upd765a::new();
-            fdc.enabled = true;
+            let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
             // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
             for byte in [3, 0xf0, 3] {
                 fdc.write_data(byte);
@@ -79,8 +81,7 @@ fn initially_not_ready_seek_reports_error_for_each_drive_and_same_cylinder() {
 
 #[test]
 fn initially_not_ready_seek_preserves_last_ready_position() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         fdc.write_data(byte);
@@ -100,8 +101,7 @@ fn initially_not_ready_seek_preserves_last_ready_position() {
 
 #[test]
 fn seek_uses_masked_drive_readiness_and_echoes_requested_unit() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         fdc.write_data(byte);
@@ -109,8 +109,8 @@ fn seek_uses_masked_drive_readiness_and_echoes_requested_unit() {
     fdc.set_drive_select_mask(1);
     fdc.insert_disk(0, image());
     assert!(ready(&mut fdc, 2), "unit 2 aliases ready drive 0");
-    for hc in 0..8000 {
-        fdc.tick(hc);
+    for _ in 0..8000 {
+        fdc.tick();
     }
     assert_eq!(sense_interrupt(&mut fdc), [0xc0, 0]);
     assert_eq!(sense_interrupt(&mut fdc), [0xc2, 0]);
@@ -128,8 +128,7 @@ fn seek_uses_masked_drive_readiness_and_echoes_requested_unit() {
 
 #[test]
 fn ready_and_not_ready_seek_completions_remain_queued_separately() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         fdc.write_data(byte);

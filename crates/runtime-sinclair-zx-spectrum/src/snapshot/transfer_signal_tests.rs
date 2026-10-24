@@ -77,12 +77,11 @@ fn transfer_request(runtime: &mut SpectrumPlus3Runtime) {
 }
 
 fn transfer_request_limit(runtime: &mut SpectrumPlus3Runtime, limit: u32) {
-    use common_sinclair_zx_spectrum::peripheral::Peripheral;
     for _ in 0..limit {
         if runtime.machine().fdc.read_status() & 0x80 != 0 {
             return;
         }
-        runtime.machine_mut().fdc.tick(0);
+        runtime.machine_mut().fdc.tick();
     }
     panic!("transfer request exceeded {limit} ticks");
 }

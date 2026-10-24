@@ -15,13 +15,13 @@
 //! level rather than runtime field, and any future divergence (e.g. a
 //! +2B-only quirk) lands as a per-marker `impl` block.
 //!
-//! The `HAS_FDC` const gates the FDC chip's `enabled` flag inside the
-//! core. **The FDC currently lives inside the core for back-compat with
+//! The `HAS_FDC` const decides whether the core wires the FDC chip to
+//! its I/O ports and clock. **The FDC currently lives inside the core for back-compat with
 //! the pre-extraction `-plus` crate.** It should move to a peripheral
 //! later — see `knowledge/decisions/spectrum-joystick-architecture.md` for
 //! the equivalent peripheral-extraction reasoning that applies to the
 //! FDC. For now the field stays on the core and the marker controls
-//! whether it's enabled, matching the pre-extraction behaviour exactly.
+//! whether it's wired, matching the pre-extraction behaviour exactly.
 
 /// Marker trait for the supported Amstrad-built Spectrum variants.
 pub trait AmstradVariant: 'static {
@@ -29,9 +29,8 @@ pub trait AmstradVariant: 'static {
     const MODEL_ID: &'static str;
 
     /// Does this variant ship a built-in floppy drive?
-    /// Only the +3 ships the µPD765A; +2A and +2B reuse the FDC chip
-    /// instance with `enabled = false` so its `claims_port` always
-    /// reports false and the bus dispatch never lands on it.
+    /// Only the +3 ships the µPD765A; +2A and +2B carry the FDC chip
+    /// instance, but the core never decodes its ports or ticks it.
     const HAS_FDC: bool = false;
 
     /// Does this variant expose a `disk-a` media slot?

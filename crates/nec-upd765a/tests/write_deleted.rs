@@ -1,12 +1,14 @@
 //! NEC December 1978 p13: Write Deleted Data differs only in its data mark.
 //! Public-register tests, independent of the controller's private command tags.
 mod common;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, ST2_CM, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller(writable: bool) -> Upd765a {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.insert_disk_with_writable(
         0,
         DiskImage {
@@ -45,7 +47,7 @@ fn ready(f: &mut Upd765a) {
         if f.read_status() & 0x80 != 0 {
             return;
         }
-        f.tick(0);
+        f.tick();
     }
     panic!("bounded write request");
 }
@@ -55,7 +57,7 @@ fn transfer(f: &mut Upd765a, bytes: &[u8]) {
         assert_eq!(f.read_status() & 0xf0, 0xb0);
         f.write_data(b);
         for _ in 0..114 {
-            f.tick(0);
+            f.tick();
         }
     }
 }
@@ -121,7 +123,7 @@ fn deleted_partial_overrun_preserves_mark_prefix_and_crc_error() {
     f.write_data(0x99);
     assert_eq!(f.read_data(), 0xff);
     for _ in 0..228 {
-        f.tick(0);
+        f.tick();
     }
     assert_eq!(result(&mut f), [0x40, 0x10, 0, 0, 0, 1, 2]);
     let s = &f.disk_for_export(0).expect("interrupted image").tracks[0][0].sectors[0];
@@ -187,7 +189,7 @@ fn zero_byte_overrun(opcode: u8, old_mark: u8, expected_mark: u8) {
     assert!(f.disk_for_export(0).is_err());
     // No host data strobe: miss the first existing byte deadline.
     for _ in 0..114 {
-        f.tick(0);
+        f.tick();
     }
     assert_eq!(result(&mut f), [0x40, 0x10, 0, 0, 0, 1, 2]);
     let live = f.disk_for_export(0).expect("aborted image");
