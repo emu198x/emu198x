@@ -102,6 +102,11 @@ pub(crate) struct Mode3 {
     pub tile_index_addr: u16,
     pub tile_data_addr: u16,
     pub current_tile: u8,
+    /// CGB tile attributes, read from VRAM bank 1 with the tile index
+    /// (0 on a DMG): bits 0-2 palette, 3 VRAM bank, 5 X flip, 6 Y flip,
+    /// 7 BG over objects.
+    #[serde(default)]
+    pub tile_attributes: u8,
     pub tile_data: [u8; 2],
 
     /// Objects found by the OAM scan, sorted so that the next to be
@@ -143,6 +148,7 @@ impl Mode3 {
             tile_index_addr: 0,
             tile_data_addr: 0,
             current_tile: 0,
+            tile_attributes: 0,
             tile_data: [0; 2],
             objects: [VisibleObject {
                 index: 0,
@@ -227,7 +233,7 @@ impl Ppu {
         m3.disable_window_pixel_insertion_glitch = false;
         m3.bg_fifo.clear();
         m3.obj_fifo.clear();
-        m3.bg_fifo.push_bg_row(0, 0);
+        m3.bg_fifo.push_bg_row(0, 0, 0, false, false);
         m3.fetch = FetchStep::TileT1;
         m3.resume = Resume::LoopTop;
         m3.wait = 0;
@@ -270,9 +276,11 @@ impl Ppu {
                     self.after_window_check();
                 }
                 Resume::ObjCheck => {
+                    // A CGB fetches due objects even with OBJ_EN clear;
+                    // they just don't draw (SameBoy `GB_display_run`).
                     let m3 = &self.m3;
                     let matches = m3.n_objects != 0
-                        && (self.lcdc & lcdc::SPRITES_ENABLE) != 0
+                        && ((self.lcdc & lcdc::SPRITES_ENABLE) != 0 || self.cgb)
                         && self.next_object().x == x_for_object_match(self.position_in_line);
                     self.m3.resume = if matches {
                         Resume::ObjWait
@@ -332,14 +340,27 @@ impl Ppu {
                     return;
                 }
                 Resume::ObjHigh => {
+                    let index = self.next_object().index;
+                    let cgb_mode = self.cgb_mode;
+                    let priority = if self.object_priority_by_index {
+                        index
+                    } else {
+                        0
+                    };
                     let m3 = &mut self.m3;
                     let flags = m3.object_flags;
+                    let palette = if cgb_mode {
+                        flags & 7
+                    } else {
+                        u8::from((flags & 0x10) != 0)
+                    };
                     m3.obj_fifo.overlay_object_row(
                         m3.object_data[0],
                         m3.object_data[1],
-                        u8::from((flags & 0x10) != 0),
+                        palette,
                         (flags & 0x80) != 0,
                         (flags & 0x20) != 0,
+                        priority,
                     );
                     m3.n_objects = m3.n_objects.saturating_sub(1);
                     m3.resume = Resume::ObjCheck;
@@ -413,6 +434,7 @@ impl Ppu {
         let pos = self.position_in_line;
         let m3 = &mut self.m3;
         if self.wx == pos.wrapping_add(7)
+            && (!self.cgb || self.wx == 0)
             && m3.wx_triggered
             && !m3.window_is_being_fetched
             && m3.fetch == FetchStep::TileT1
@@ -449,16 +471,32 @@ impl Ppu {
         } else {
             self.m3.object_tile
         };
-        u16::from(tile) * 16 + u16::from(tile_y) * 2
+        // Attribute bit 3 picks VRAM bank 1 in CGB mode.
+        let bank = if self.cgb_mode && (self.m3.object_flags & 0x08) != 0 {
+            0x2000
+        } else {
+            0
+        };
+        bank + u16::from(tile) * 16 + u16::from(tile_y) * 2
     }
 
     /// Pops a pixel from the FIFOs, mixes it and (once past the
     /// scroll discard) writes it to the framebuffer.
+    ///
+    /// The mixing is SameBoy's `render_pixel_if_possible`. An object
+    /// pixel loses to a non-zero background pixel when its own
+    /// attribute bit 7 or (on a CGB) the tile's attribute bit 7 is set.
+    /// LCDC bit 0 clear blanks the background on a DMG, but in CGB mode
+    /// it only cancels those priority bits.
     fn render_pixel_if_possible(&mut self) {
         let objects_enabled = (self.lcdc & lcdc::SPRITES_ENABLE) != 0;
+        let cgb = self.cgb;
         let m3 = &mut self.m3;
-        // An object at X = 0 that is still pending holds the shifter.
-        if m3.n_objects != 0 && objects_enabled && m3.objects[usize::from(m3.n_objects) - 1].x == 0
+        // An object at X = 0 that is still pending holds the shifter (on
+        // a CGB whether or not objects are enabled).
+        if m3.n_objects != 0
+            && (objects_enabled || cgb)
+            && m3.objects[usize::from(m3.n_objects) - 1].x == 0
         {
             return;
         }
@@ -472,12 +510,12 @@ impl Ppu {
         } else {
             m3.bg_fifo.pop()
         };
-        let mut bg_priority = false;
+        let mut bg_priority = bg.bg_priority;
         let mut object = None;
         if m3.obj_fifo.len() != 0 {
             let item = m3.obj_fifo.pop();
             if item.pixel != 0 && objects_enabled {
-                bg_priority = item.bg_priority;
+                bg_priority |= item.bg_priority;
                 object = Some(item);
             }
         }
@@ -504,31 +542,55 @@ impl Ppu {
             return;
         }
 
-        let bg_index = if (self.lcdc & lcdc::BG_ENABLE) != 0 {
-            bg.pixel
-        } else {
-            0
-        };
-        let mut shade = apply_palette(self.bgp, bg_index);
-        if let Some(item) = object
-            && !(bg_index != 0 && bg_priority)
-        {
-            let palette = if item.palette != 0 {
-                self.obp1
+        let mut bg_enabled = true;
+        if (self.lcdc & lcdc::BG_ENABLE) == 0 {
+            if self.cgb_mode {
+                bg_priority = false;
             } else {
-                self.obp0
-            };
-            shade = apply_palette(palette, item.pixel);
+                bg_enabled = false;
+            }
         }
-        self.put_pixel(shade);
+        let bg_index = if bg_enabled { bg.pixel } else { 0 };
+        if bg_index != 0 && bg_priority {
+            object = None;
+        }
+
+        // In CGB mode the colour index goes straight to palette RAM; in
+        // compatibility mode it goes through BGP/OBPx first, and the
+        // resulting shade indexes the boot ROM's palettes.
+        let (mut shade, mut colour) = if self.cgb_mode {
+            (bg_index, self.palette_colour(false, bg.palette, bg_index))
+        } else {
+            let shade = apply_palette(self.bgp, bg_index);
+            (shade, self.palette_colour(false, bg.palette, shade))
+        };
+        if let Some(item) = object {
+            if self.cgb_mode {
+                shade = item.pixel;
+                colour = self.palette_colour(true, item.palette, item.pixel);
+            } else {
+                let palette = if item.palette != 0 {
+                    self.obp1
+                } else {
+                    self.obp0
+                };
+                shade = apply_palette(palette, item.pixel);
+                colour = self.palette_colour(true, item.palette, shade);
+            }
+        }
+        self.put_pixel(shade, colour);
         self.position_in_line = self.position_in_line.wrapping_add(1);
         self.lcd_x = self.lcd_x.wrapping_add(1);
     }
 
-    fn put_pixel(&mut self, shade: u8) {
+    /// Writes one pixel: its shade, and on a CGB its RGB555 colour.
+    fn put_pixel(&mut self, shade: u8, colour: u16) {
         if self.ly < crate::VBLANK_START && self.lcd_x < SCREEN_WIDTH as u8 {
             let idx = usize::from(self.ly) * SCREEN_WIDTH as usize + usize::from(self.lcd_x);
             self.framebuffer[idx] = shade;
+            if let Some(pixel) = self.color_framebuffer.get_mut(idx) {
+                *pixel = colour;
+            }
         }
     }
 
@@ -537,13 +599,18 @@ impl Ppu {
     pub(crate) fn finish_mode3(&mut self) {
         self.position_in_line = POSITION_START;
         while self.lcd_x < SCREEN_WIDTH as u8 {
-            let shade = if self.lcd_x == 0 || self.ly >= crate::VBLANK_START {
-                0
+            let (shade, colour) = if self.lcd_x == 0 || self.ly >= crate::VBLANK_START {
+                (0, crate::CGB_WHITE)
             } else {
                 let idx = usize::from(self.ly) * SCREEN_WIDTH as usize + usize::from(self.lcd_x);
-                self.framebuffer[idx - 1]
+                let colour = self
+                    .color_framebuffer
+                    .get(idx - 1)
+                    .copied()
+                    .unwrap_or(crate::CGB_WHITE);
+                (self.framebuffer[idx - 1], colour)
             };
-            self.put_pixel(shade);
+            self.put_pixel(shade, colour);
             self.lcd_x += 1;
         }
         let m3 = &mut self.m3;
@@ -570,14 +637,18 @@ impl Ppu {
         }
     }
 
-    /// Bitplane address from the live `TILE_SEL` and fetcher Y.
+    /// Bitplane address from the live `TILE_SEL` and fetcher Y, and on
+    /// a CGB the tile attributes' VRAM bank and Y flip.
     fn tile_data_address(&self) -> u16 {
         let base = if (self.lcdc & lcdc::BG_TILE_DATA_UNSIGNED) != 0 {
             u16::from(self.m3.current_tile) * 16
         } else {
             (0x1000_i32 + i32::from(self.m3.current_tile as i8) * 16) as u16
         };
-        base + u16::from(self.fetcher_y() & 7) * 2
+        let attributes = self.m3.tile_attributes;
+        let bank = if (attributes & 0x08) != 0 { 0x2000 } else { 0 };
+        let y_flip = if (attributes & 0x40) != 0 { 7 } else { 0 };
+        bank + base + u16::from((self.fetcher_y() & 7) ^ y_flip) * 2
     }
 
     /// One step of the background/window fetcher.
@@ -609,6 +680,11 @@ impl Ppu {
             }
             FetchStep::TileT2 => {
                 self.m3.current_tile = vram_byte(vram, self.m3.tile_index_addr);
+                self.m3.tile_attributes = if self.cgb {
+                    vram_byte(vram, self.m3.tile_index_addr + 0x2000)
+                } else {
+                    0
+                };
                 self.m3.fetch = FetchStep::LowT1;
             }
             FetchStep::LowT1 => {
@@ -643,6 +719,7 @@ impl Ppu {
         }
         if m3.wy_triggered
             && (self.lcdc & lcdc::WINDOW_ENABLE) == 0
+            && !self.cgb
             && !m3.disable_window_pixel_insertion_glitch
         {
             // The window was switched off mid-line: if WX matches the
@@ -656,7 +733,14 @@ impl Ppu {
                 return;
             }
         }
-        m3.bg_fifo.push_bg_row(m3.tile_data[0], m3.tile_data[1]);
+        let attributes = m3.tile_attributes;
+        m3.bg_fifo.push_bg_row(
+            m3.tile_data[0],
+            m3.tile_data[1],
+            attributes & 7,
+            (attributes & 0x80) != 0,
+            (attributes & 0x20) != 0,
+        );
         m3.fetch = FetchStep::TileT1;
     }
 }
@@ -669,7 +753,7 @@ fn x_for_object_match(pos: u8) -> u8 {
 }
 
 fn vram_byte(vram: &[u8], addr: u16) -> u8 {
-    vram.get(usize::from(addr & 0x1FFF))
+    vram.get(usize::from(addr & 0x3FFF))
         .copied()
         .unwrap_or(0xFF)
 }
