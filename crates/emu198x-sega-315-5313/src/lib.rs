@@ -14,13 +14,14 @@
 //!
 //! - planes A and B and the window, with every scroll mode, priority,
 //!   shadow and highlight, and output to an ARGB framebuffer (see
-//!   [`render`]).
+//!   [`render`]);
+//! - sprites, scanned, placed and drawn cell by cell in their own slots,
+//!   with the per-line limits, masking, overflow and collision.
 //!
 //! The line is stepped slot by slot from the master clock, so the FIFO, DMA
 //! and the CPU's reads are served exactly when the line's external slots
 //! come round (see [`timing`]), and every display fetch happens in its own
-//! slot. Sprites are the next stage, and Mode 4, the Master System mode,
-//! follows them.
+//! slot. Mode 4, the Master System mode, is still to come.
 //!
 //! # Wiring it up
 //!
@@ -34,6 +35,7 @@
 //! no bus and makes no callbacks.
 
 pub mod render;
+mod sprites;
 pub mod timing;
 
 use serde::{Deserialize, Serialize};
@@ -201,6 +203,7 @@ pub struct Vdp {
     plane_buf: [[u8; 32]; 2],
     buf_off: [u8; 2],
     sprite_line: Vec<u8>,
+    sprites: sprites::Sprites,
     composite: Vec<u8>,
     composite_valid: bool,
     #[serde(skip, default = "blank_frame")]
@@ -270,6 +273,7 @@ impl Vdp {
             plane_buf: [[0; 32]; 2],
             buf_off: [0; 2],
             sprite_line: vec![0; render::LINE_WIDTH],
+            sprites: sprites::Sprites::default(),
             composite: vec![0; render::LINE_WIDTH],
             composite_valid: false,
             frame: blank_frame(),
@@ -344,6 +348,7 @@ impl Vdp {
             && self.hslot != width.line_change() + 1
         {
             self.state = State::Inactive;
+            self.end_sprite_picture();
         }
         if self.state != State::Active || !self.is_active() {
             if self.vcounter == v.blank_start && self.hslot == VINT_SLOT {
@@ -379,6 +384,9 @@ impl Vdp {
         // Pixels leave before the slot's access, so a CRAM write here
         // colours the second of them.
         self.output_pixels(width, hslot, active);
+        if !active && self.mode_5() {
+            self.blank_sprite_slot(width, hslot);
+        }
         if self.vscroll_latch_slot(width, hslot, active) {
             self.latch_vscroll();
         }
@@ -963,5 +971,7 @@ impl Vdp {
 
 #[cfg(test)]
 mod render_tests;
+#[cfg(test)]
+mod sprite_tests;
 #[cfg(test)]
 mod tests;
