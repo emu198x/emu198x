@@ -1,4 +1,4 @@
-//! Game Boy DMG PPU.
+//! Game Boy PPU: the DMG's, and the CGB's.
 //!
 //! Pixel-FIFO renderer ticked at the master clock rate (one call per
 //! T-cycle / dot). Mode 3 is modelled dot by dot (see [`mode3`]): the
@@ -12,6 +12,30 @@
 //! 3 = darkest); the runtime layer maps those to RGBA via the
 //! [`common-nintendo-game-boy::palette`] helpers (or a custom green-LCD
 //! palette).
+//!
+//! # Game Boy Color
+//!
+//! A PPU made with [`Ppu::set_cgb`] is a CGB's. VRAM is then 16 KiB, two
+//! banks, and the fetcher reads each tile's attribute byte from bank 1
+//! in the same dot as its index from bank 0 (SameBoy `display.c`,
+//! `GB_FETCHER_GET_TILE_T2`: "The CGB actually accesses both the tile
+//! index AND the attributes in the same T-cycle"). The attributes give
+//! the tile's colour palette, VRAM bank, flips and BG-over-object bit.
+//! Pixels are coloured through eight BG and eight OBJ palettes of four
+//! RGB555 colours, written through BCPS/BCPD and OCPS/OCPD, and also
+//! land in [`Ppu::color_framebuffer`].
+//!
+//! In CGB mode LCDC bit 0 stops meaning "BG on" and becomes master
+//! priority: clear, objects always draw over the background. Objects
+//! that overlap are ordered by OAM index rather than X. A CGB running
+//! a monochrome cartridge (DMG compatibility mode) renders as a DMG
+//! does, then looks each shade up in BG palette 0 and OBJ palettes 0
+//! and 1, which the boot ROM (or the machine, when it skips the boot
+//! ROM) fills with a compatibility palette.
+//!
+//! Not modelled: the CGB's own mode-3 length (the DMG object-penalty
+//! estimate is used), and the CGB-specific fetcher glitches SameBoy
+//! models (`cgb_wx_glitch`, the CGB-D tile-select glitch).
 //!
 //! Ported from `~/Projects/Emu198x-Zig/src/ppu.zig`. The pin contract
 //! with the machine is two one-shot pulses — `vblank_irq_latched`
@@ -40,6 +64,15 @@ pub const REG_OBP0: u16 = 0xFF48;
 pub const REG_OBP1: u16 = 0xFF49;
 pub const REG_WY: u16 = 0xFF4A;
 pub const REG_WX: u16 = 0xFF4B;
+/// CGB palette registers.
+pub const REG_BCPS: u16 = 0xFF68;
+pub const REG_BCPD: u16 = 0xFF69;
+pub const REG_OCPS: u16 = 0xFF6A;
+pub const REG_OCPD: u16 = 0xFF6B;
+
+/// RGB555 white, the colour of a blank CGB LCD.
+pub const CGB_WHITE: u16 = 0x7FFF;
+const PALETTE_RAM_LEN: usize = 64;
 
 /// `IF` bit positions latched by the PPU.
 pub const IF_VBLANK_BIT: u8 = 0;
@@ -161,6 +194,36 @@ pub struct Ppu {
     stat_irq_latched: bool,
     /// Last-known STAT-line state; used for rising-edge detection.
     stat_line_prev: bool,
+
+    /// This is a CGB's PPU: tile attributes are fetched and pixels are
+    /// coloured through palette RAM.
+    #[serde(default)]
+    cgb: bool,
+    /// The CGB is in CGB mode rather than DMG compatibility mode.
+    #[serde(default)]
+    cgb_mode: bool,
+    /// Overlapping objects are ordered by OAM index (CGB mode) rather
+    /// than by X.
+    #[serde(default)]
+    object_priority_by_index: bool,
+    /// BG and OBJ colour palette RAM: eight palettes of four
+    /// little-endian RGB555 colours each.
+    #[serde(with = "BigArray", default = "blank_palette_ram")]
+    bg_palette_ram: [u8; PALETTE_RAM_LEN],
+    #[serde(with = "BigArray", default = "blank_palette_ram")]
+    obj_palette_ram: [u8; PALETTE_RAM_LEN],
+    /// BCPS / OCPS: bit 7 auto-increment, bits 0-5 the palette RAM index.
+    #[serde(default)]
+    bcps: u8,
+    #[serde(default)]
+    ocps: u8,
+    /// RGB555 pixels, kept only on a CGB.
+    #[serde(default)]
+    color_framebuffer: Vec<u16>,
+}
+
+fn blank_palette_ram() -> [u8; PALETTE_RAM_LEN] {
+    [0xFF; PALETTE_RAM_LEN]
 }
 
 impl Default for Ppu {
@@ -212,7 +275,149 @@ impl Ppu {
             vblank_irq_latched: false,
             stat_irq_latched: false,
             stat_line_prev: false,
+            cgb: false,
+            cgb_mode: false,
+            object_priority_by_index: false,
+            bg_palette_ram: blank_palette_ram(),
+            obj_palette_ram: blank_palette_ram(),
+            bcps: 0,
+            ocps: 0,
+            color_framebuffer: Vec::new(),
         }
+    }
+
+    /// Makes this a CGB's PPU, in CGB mode or in DMG compatibility mode.
+    /// Palette RAM starts white (`$7FFF`); a machine that skips the boot
+    /// ROM loads the compatibility palette with
+    /// [`Ppu::load_compatibility_palettes`].
+    pub fn set_cgb(&mut self, cgb_mode: bool) {
+        self.cgb = true;
+        self.set_cgb_mode(cgb_mode);
+        for ram in [&mut self.bg_palette_ram, &mut self.obj_palette_ram] {
+            for pair in ram.as_chunks_mut::<2>().0 {
+                *pair = CGB_WHITE.to_le_bytes();
+            }
+        }
+        self.color_framebuffer = vec![CGB_WHITE; FRAMEBUFFER_LEN];
+    }
+
+    /// Switches a CGB between CGB mode and DMG compatibility mode, as
+    /// the boot ROM does through KEY0. Object priority follows the mode:
+    /// by OAM index in CGB mode, by X in compatibility mode (the boot
+    /// ROM sets OPRI to match; SameBoy `memory.c`, `GB_IO_OPRI` only
+    /// changes the ordering before the boot ROM finishes).
+    pub fn set_cgb_mode(&mut self, cgb_mode: bool) {
+        self.cgb_mode = cgb_mode;
+        self.object_priority_by_index = cgb_mode;
+    }
+
+    /// Sets the object ordering directly (OPRI bit 0 clear: by OAM index).
+    pub fn set_object_priority_by_index(&mut self, by_index: bool) {
+        self.object_priority_by_index = by_index;
+    }
+
+    /// Whether objects overlap by OAM index (CGB mode) rather than by X.
+    #[must_use]
+    pub const fn object_priority_by_index(&self) -> bool {
+        self.object_priority_by_index
+    }
+
+    /// Whether this is a CGB's PPU.
+    #[must_use]
+    pub const fn is_cgb(&self) -> bool {
+        self.cgb
+    }
+
+    /// Whether the CGB is in CGB mode.
+    #[must_use]
+    pub const fn cgb_mode(&self) -> bool {
+        self.cgb_mode
+    }
+
+    /// Loads DMG compatibility colours: BG palette 0 and OBJ palettes 0
+    /// and 1, four RGB555 colours each, lightest first.
+    pub fn load_compatibility_palettes(&mut self, bg: [u16; 4], obj0: [u16; 4], obj1: [u16; 4]) {
+        let store = |ram: &mut [u8; PALETTE_RAM_LEN], palette: usize, colours: [u16; 4]| {
+            for (i, colour) in colours.into_iter().enumerate() {
+                let at = palette * 8 + i * 2;
+                ram[at..at + 2].copy_from_slice(&colour.to_le_bytes());
+            }
+        };
+        store(&mut self.bg_palette_ram, 0, bg);
+        store(&mut self.obj_palette_ram, 0, obj0);
+        store(&mut self.obj_palette_ram, 1, obj1);
+    }
+
+    /// The CPU cannot reach palette RAM while mode 3 is drawing.
+    #[must_use]
+    pub fn palettes_blocked(&self) -> bool {
+        self.mode() == 3
+    }
+
+    /// Reads BCPS (`$FF68`) or OCPS (`$FF6A`); bit 6 reads 1.
+    #[must_use]
+    pub fn read_palette_index(&self, objects: bool) -> u8 {
+        (if objects { self.ocps } else { self.bcps }) | 0x40
+    }
+
+    /// Writes BCPS or OCPS.
+    pub fn write_palette_index(&mut self, objects: bool, value: u8) {
+        let index = value & 0xBF;
+        if objects {
+            self.ocps = index;
+        } else {
+            self.bcps = index;
+        }
+    }
+
+    /// Reads BCPD (`$FF69`) or OCPD (`$FF6B`) at the current index.
+    /// Reads never advance the index, and return `$FF` during mode 3.
+    #[must_use]
+    pub fn read_palette_data(&self, objects: bool) -> u8 {
+        if self.palettes_blocked() {
+            return 0xFF;
+        }
+        if objects {
+            self.obj_palette_ram[usize::from(self.ocps & 0x3F)]
+        } else {
+            self.bg_palette_ram[usize::from(self.bcps & 0x3F)]
+        }
+    }
+
+    /// Writes BCPD or OCPD. During mode 3 the byte is lost, but the
+    /// index still advances if auto-increment is on (SameBoy `memory.c`,
+    /// `GB_IO_BGPD`).
+    pub fn write_palette_data(&mut self, objects: bool, value: u8) {
+        let blocked = self.palettes_blocked();
+        let (ram, index) = if objects {
+            (&mut self.obj_palette_ram, &mut self.ocps)
+        } else {
+            (&mut self.bg_palette_ram, &mut self.bcps)
+        };
+        if !blocked {
+            ram[usize::from(*index & 0x3F)] = value;
+        }
+        if *index & 0x80 != 0 {
+            *index = 0x80 | (index.wrapping_add(1) & 0x3F);
+        }
+    }
+
+    /// One palette colour as RGB555.
+    #[must_use]
+    pub fn palette_colour(&self, objects: bool, palette: u8, colour: u8) -> u16 {
+        let ram = if objects {
+            &self.obj_palette_ram
+        } else {
+            &self.bg_palette_ram
+        };
+        let at = usize::from(palette & 7) * 8 + usize::from(colour & 3) * 2;
+        u16::from_le_bytes([ram[at], ram[at + 1]]) & 0x7FFF
+    }
+
+    /// The CGB's picture: 160 × 144 RGB555 pixels, or `None` on a DMG.
+    #[must_use]
+    pub fn color_framebuffer(&self) -> Option<&[u16]> {
+        self.cgb.then_some(self.color_framebuffer.as_slice())
     }
 
     /// Returns the current PPU mode.
@@ -475,6 +680,7 @@ impl Ppu {
             self.m3 = Mode3::new();
             self.staged_write = None;
             self.framebuffer.fill(0);
+            self.color_framebuffer.fill(CGB_WHITE);
             self.stat_line_prev = false;
         } else if !was_on && now_on {
             self.lcd_enable_mode0_dots = LCD_ENABLE_MODE0_DOTS;
@@ -672,9 +878,9 @@ impl Ppu {
 
     /// Advance the PPU by one T-cycle (one dot).
     ///
-    /// `vram` must be the 8 KiB DMG VRAM block (i.e. CPU `$8000`
-    /// is `vram[0]`). `oam` must be the 160-byte OAM block (CPU
-    /// `$FE00` = `oam[0]`).
+    /// `vram` must be the VRAM block with CPU `$8000` at `vram[0]`: 8 KiB
+    /// on a DMG, 16 KiB (bank 1 from `vram[$2000]`) on a CGB. `oam` must
+    /// be the 160-byte OAM block (CPU `$FE00` = `oam[0]`).
     pub fn tick(&mut self, vram: &[u8], oam: &[u8]) {
         if (self.lcdc & lcdc::ENABLE) == 0 {
             // LCD off: timing frozen.
