@@ -316,13 +316,14 @@ impl MsxRuntime {
         }
     }
 
-    /// Drain the PSG's mixed audio output buffer (48 kHz mono f32).
+    /// Drain the frame's audio, the PSG with the cartridges' SCC or FM and
+    /// any MSX-MUSIC mixed in (48 kHz mono f32).
     fn take_audio_buffer(&mut self) -> Vec<f32> {
         let Some(machine) = self.machine.as_mut() else {
             return Vec::new();
         };
         let mut out = vec![0.0_f32; self.audio_scratch.len()];
-        machine.psg_mut().end_frame(&mut out);
+        machine.end_audio_frame(&mut out);
         // A whole frame, silence included. This used to trim trailing
         // zeros "to avoid emitting silence past the actual frame", but a
         // zero sample and an absent one are not the same thing to a
