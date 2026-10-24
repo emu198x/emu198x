@@ -286,6 +286,11 @@ fn with_40_80_down_basic_comes_up_on_the_80_column_screen() {
     let text = screen(query(&runtime, "c128.vdc.text.lines"));
     assert!(text.contains("BASIC V7.0"), "{text}");
     assert!(text.lines().any(|line| line.trim() == "READY."), "{text}");
+    assert_eq!(
+        query(&runtime, "boot.detected"),
+        Some(json!(true)),
+        "boot detection reads the 80-column screen too"
+    );
 }
 
 #[test]

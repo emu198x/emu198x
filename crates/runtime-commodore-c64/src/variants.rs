@@ -186,6 +186,19 @@ pub trait C64FamilyMachine: Sized + 'static {
         None
     }
 
+    /// A second text screen's screen codes and its width in characters, for
+    /// boot detection: the C128's 80-column screen in VDC RAM.
+    fn alternate_screen_codes(&self) -> Option<(&[u8], u16)> {
+        None
+    }
+
+    /// A key name only this machine has, beyond the C64's matrix: the
+    /// C128's 40/80 DISPLAY key.
+    fn is_extra_key_name(name: &str) -> bool {
+        let _ = name;
+        false
+    }
+
     /// Insert one image into a media slot.
     ///
     /// # Errors

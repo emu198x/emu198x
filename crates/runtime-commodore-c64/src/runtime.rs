@@ -1356,7 +1356,7 @@ emu198x_shell::impl_6502_debug_primitives!(crate::C128Runtime, direct);
 // C64's keyboard-scan timing.
 impl<M: C64FamilyMachine> emu198x_shell::KeyboardTarget for C64FamilyRuntime<M> {
     fn key_name_is_valid(&self, name: &str) -> bool {
-        crate::input::key_name_is_valid(name)
+        crate::input::key_name_is_valid(name) || M::is_extra_key_name(name)
     }
 
     fn key_names_hint(&self) -> &'static str {
