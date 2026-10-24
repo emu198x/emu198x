@@ -3092,6 +3092,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-sega-mega-drive"
+version = "0.44.2"
+dependencies = [
+ "emu198x-sega-315-5313",
+ "emu198x-ti-sn76489",
+ "emu198x-yamaha-ym2612",
+ "emu198x-zilog-z80",
+ "motorola-68000",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "machine-sega-sg-1000"
 version = "0.44.2"
 dependencies = [
