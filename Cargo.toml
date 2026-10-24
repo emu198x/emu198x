@@ -158,6 +158,7 @@ members = [
     "crates/machine-oric-atmos",
     "crates/machine-commodore-amiga-a1200",
     "crates/machine-msx",
+    "crates/machine-sega-mega-drive",
     "crates/machine-sega-master-system",
     "crates/machine-sega-sg-1000",
     "crates/machine-sord-m5",
