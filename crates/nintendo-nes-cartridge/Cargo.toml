@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+format-nintendo-famicom-fds = { path = "../format-nintendo-famicom-fds", version = "0.44.0" }
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.44.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

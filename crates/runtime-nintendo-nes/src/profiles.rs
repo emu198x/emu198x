@@ -1,9 +1,15 @@
 //! NES family profile catalogue.
 
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
-    ProfileId, Region, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
+    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
+
+/// The Famicom Disk System BIOS's firmware id.
+pub const FDS_BIOS_FIRMWARE_ID: &str = "fds-bios";
+
+/// The media slot a Famicom Disk System disk goes in.
+pub const FDS_DISK_SLOT: &str = "disk-1";
 
 /// Supported NES models in the fresh-workspace bootstrap.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -80,6 +86,21 @@ impl Model {
         self.model_id()
     }
 
+    /// Firmware this model can use: the FDS BIOS, on the NTSC
+    /// (Famicom) model only, since the Disk System never left Japan.
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        match self {
+            Self::NesNtsc => vec![FirmwareSource {
+                id: FDS_BIOS_FIRMWARE_ID,
+                candidates: &["disksys.rom", "fds-bios.rom"],
+                optional: true,
+                env_var: Some("EMU198X_FDS_BIOS"),
+            }],
+            Self::NesPal => Vec::new(),
+        }
+    }
+
     /// User-facing display name.
     #[must_use]
     pub const fn display_name(self) -> &'static str {
@@ -106,16 +127,17 @@ pub fn profile_for(model: Model) -> MachineProfile {
             family: Family::Nes,
             region: model.region(),
             release_year: if model == Model::NesNtsc { 1985 } else { 1986 },
-            summary: "NES NTSC/PAL runtime with headless cartridge boot, NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support, region-specific CPU/PPU/APU execution, RGBA frame output, mono audio, snapshots, and controller input.".into(),
+            summary: "NES NTSC/PAL runtime with headless cartridge boot, NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support, Famicom Disk System disks on the NTSC model, region-specific CPU/PPU/APU execution, RGBA frame output, mono audio, snapshots, and controller input.".into(),
             clock: ClockDesc::new("ppu-dot", ClockRate::from_hz(model.ppu_dot_hz())),
-            firmware: vec![],
-            media_slots: vec![MediaSlot::new(
-                "cartridge-1",
-                "Cartridge Slot",
-                MediaKind::Cartridge,
-                false,
-                WritebackPolicy::InMemoryOnly,
-            )],
+            firmware: match model {
+                Model::NesNtsc => vec![FirmwareRequirement::new(
+                    FDS_BIOS_FIRMWARE_ID,
+                    "Famicom Disk System BIOS (8 KB) — optional, needed for disks",
+                    true,
+                )],
+                Model::NesPal => vec![],
+            },
+            media_slots: media_slots(model),
             capabilities: CapabilitySet::with_all([
                 known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
                 known_capability("variant-switch"),
@@ -125,6 +147,26 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("snapshot-import"),
             ]),
     }
+}
+
+fn media_slots(model: Model) -> Vec<MediaSlot> {
+    let mut slots = vec![MediaSlot::new(
+        "cartridge-1",
+        "Cartridge Slot",
+        MediaKind::Cartridge,
+        false,
+        WritebackPolicy::InMemoryOnly,
+    )];
+    if model == Model::NesNtsc {
+        slots.push(MediaSlot::new(
+            FDS_DISK_SLOT,
+            "Famicom Disk System",
+            MediaKind::Disk,
+            false,
+            WritebackPolicy::InMemoryOnly,
+        ));
+    }
+    slots
 }
 
 #[cfg(test)]
@@ -148,9 +190,18 @@ mod tests {
         let profile = profile_for(Model::NesNtsc);
         assert_eq!(profile.family, Family::Nes);
         assert_eq!(profile.region, Region::Ntsc);
-        assert!(profile.firmware.is_empty());
-        assert_eq!(profile.media_slots.len(), 1);
+        assert_eq!(profile.firmware.len(), 1);
+        assert!(
+            profile.firmware[0].optional,
+            "cartridges boot without the BIOS"
+        );
+        assert_eq!(profile.media_slots.len(), 2);
         assert_eq!(profile.media_slots[0].id.as_ref(), "cartridge-1");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Cartridge);
+        assert_eq!(profile.media_slots[1].id.as_ref(), FDS_DISK_SLOT);
+        assert_eq!(profile.media_slots[1].kind, MediaKind::Disk);
+        let pal = profile_for(Model::NesPal);
+        assert!(pal.firmware.is_empty());
+        assert_eq!(pal.media_slots.len(), 1);
     }
 }

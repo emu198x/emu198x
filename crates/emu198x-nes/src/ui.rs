@@ -6,7 +6,8 @@
 //! launcher opens the window when no automation flag is given.
 //!
 //! Beyond the harness defaults the NES adds two hooks: per-system shortcuts
-//! (the `1`-`5` / `6`-`0` APU channel debug controls) via
+//! (the `1`-`5` / `6`-`0` APU channel debug controls, and `F8` to change
+//! Famicom Disk System sides) via
 //! [`UiSystem::handle_key`], and a teardown that flushes cartridge battery RAM
 //! to its `.sav` sidecar via [`UiSystem::on_exit`].
 
@@ -37,10 +38,14 @@ const NES_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "select")),
 ]);
 
-/// Native region selection and the battery-save path (flushed on exit).
+/// Native region selection, the battery-save path (flushed on exit), the
+/// firmware pins variant switches rebuild with, and the disk side `F8`
+/// inserts next.
 pub struct NesSystem {
     model: Model,
     battery_save_path: Option<PathBuf>,
+    firmware: FirmwareOverrides,
+    next_disk_side: usize,
 }
 
 impl UiApp for Nes {
@@ -50,6 +55,8 @@ impl UiApp for Nes {
         NesSystem {
             model: self.model,
             battery_save_path: resolve_battery_save_path(self),
+            firmware: self.firmware_overrides(),
+            next_disk_side: 0,
         }
     }
 }
@@ -109,12 +116,11 @@ impl UiSystem for NesSystem {
         let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown NES region",
         })?;
-        *runtime =
-            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
-                MachineError::Host {
-                    reason: err.to_string(),
-                }
-            })?;
+        *runtime = build_replacement(runtime, model, &self.firmware).map_err(|err| {
+            MachineError::Host {
+                reason: err.to_string(),
+            }
+        })?;
         self.model = model;
         Ok(())
     }
@@ -122,6 +128,12 @@ impl UiSystem for NesSystem {
     /// The `1`-`5` / `6`-`0` digit row toggles / cycles APU channels for audio
     /// debugging; consume those keys so they aren't treated as buttons.
     fn handle_key(&mut self, runtime: &mut Self::Runtime, code: KeyCode, pressed: bool) -> bool {
+        if code == KeyCode::F8 {
+            if pressed {
+                self.next_disk_side = flip_disk(runtime, self.next_disk_side);
+            }
+            return runtime.has_disk();
+        }
         let action = match code {
             KeyCode::Digit1 => ApuShortcut::Toggle(ApuChannel::Pulse1),
             KeyCode::Digit2 => ApuShortcut::Toggle(ApuChannel::Pulse2),
@@ -146,6 +158,33 @@ impl UiSystem for NesSystem {
         match &self.battery_save_path {
             Some(path) => write_battery_save(runtime, path),
             None => Ok(()),
+        }
+    }
+}
+
+/// Eject the disk, or with the drive empty insert `next`. Returns the side
+/// to insert next time: the one after the side just ejected, so pressing
+/// twice turns a single disk over.
+fn flip_disk(runtime: &mut NesRuntime, next: usize) -> usize {
+    let count = runtime.disk_side_count();
+    if count == 0 {
+        return next;
+    }
+    match runtime.inserted_disk_side() {
+        Some(side) => {
+            runtime.insert_disk_side(None);
+            eprintln!("disk: ejected");
+            (side + 1) % count
+        }
+        None => {
+            let side = next % count;
+            runtime.insert_disk_side(Some(side));
+            eprintln!(
+                "disk: disk {} side {}",
+                side / 2 + 1,
+                if side.is_multiple_of(2) { 'A' } else { 'B' }
+            );
+            side
         }
     }
 }

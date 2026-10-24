@@ -1913,6 +1913,10 @@ name = "format-memotech-mtx"
 version = "0.44.2"
 
 [[package]]
+name = "format-nintendo-famicom-fds"
+version = "0.44.2"
+
+[[package]]
 name = "format-nintendo-game-boy-cartridge"
 version = "0.44.2"
 dependencies = [
@@ -2878,6 +2882,7 @@ dependencies = [
  "emu198x-mos-6502",
  "emu198x-ricoh-apu-2a03",
  "emu198x-test-skip",
+ "format-nintendo-famicom-fds",
  "nintendo-nes-cartridge",
  "ricoh-ppu-2c02",
  "serde",
@@ -3478,6 +3483,7 @@ dependencies = [
 name = "nintendo-nes-cartridge"
 version = "0.44.2"
 dependencies = [
+ "format-nintendo-famicom-fds",
  "format-nintendo-nes-ines",
  "serde",
  "serde-big-array",

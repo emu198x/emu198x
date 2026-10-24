@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::mapper::Mapper;
+use crate::mappers::fds::Fds;
 use crate::mappers::{
     action53::Action53, axrom::AxRom, bxrom::BxRom, camerica::Camerica, cnrom::CnRom,
     colordreams::ColorDreams, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001, nrom::Nrom,
@@ -45,6 +46,8 @@ pub enum MapperSnapshot {
     Sunsoft4(Sunsoft4),
     /// Mapper 71.
     Camerica(Camerica),
+    /// The Famicom Disk System RAM adapter.
+    Fds(Box<Fds>),
 }
 
 /// Rebuild a boxed mapper from a previously exported mapper snapshot.
@@ -65,5 +68,6 @@ pub fn mapper_from_snapshot(snapshot: MapperSnapshot) -> Box<dyn Mapper> {
         MapperSnapshot::Nina001(mapper) => Box::new(mapper),
         MapperSnapshot::Sunsoft4(mapper) => Box::new(mapper),
         MapperSnapshot::Camerica(mapper) => Box::new(mapper),
+        MapperSnapshot::Fds(mapper) => mapper,
     }
 }

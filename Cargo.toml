@@ -60,6 +60,7 @@ members = [
     "crates/format-amstrad-cpc-cdt",
     "crates/format-amstrad-dsk",
     "crates/format-nintendo-game-boy-cartridge",
+    "crates/format-nintendo-famicom-fds",
     "crates/format-nintendo-nes-ines",
     "crates/nintendo-nes-cartridge",
     "crates/format-sinclair-zx-spectrum-rzx",

@@ -1,0 +1,13 @@
+[package]
+name = "format-nintendo-famicom-fds"
+description = "Famicom Disk System .fds file layout: the optional fwNES header, 65,500-byte disk sides and the blocks on each side. No drive or RAM adapter hardware."
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
