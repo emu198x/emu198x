@@ -12,11 +12,15 @@
 //! - the H and V counters, their latch, the status register, and the V-int,
 //!   H-int and external interrupts.
 //!
+//! - planes A and B and the window, with every scroll mode, priority,
+//!   shadow and highlight, and output to an ARGB framebuffer (see
+//!   [`render`]).
+//!
 //! The line is stepped slot by slot from the master clock, so the FIFO, DMA
 //! and the CPU's reads are served exactly when the line's external slots
-//! come round (see [`timing`]). The display fetch slots are scheduled in
-//! their places but fetch nothing yet: rendering is the next stage, and
-//! Mode 4, the Master System mode, follows it.
+//! come round (see [`timing`]), and every display fetch happens in its own
+//! slot. Sprites are the next stage, and Mode 4, the Master System mode,
+//! follows them.
 //!
 //! # Wiring it up
 //!
@@ -29,6 +33,7 @@
 //! machine reads it and hands it over with [`Vdp::dma_word`]. The chip owns
 //! no bus and makes no callbacks.
 
+pub mod render;
 pub mod timing;
 
 use serde::{Deserialize, Serialize};
@@ -183,6 +188,34 @@ pub struct Vdp {
     hv_latch: u16,
     sprite_overflow: bool,
     sprite_collision: bool,
+
+    // The display pipeline (see `render`).
+    hscroll: [u16; 2],
+    vscroll_latch: [u16; 2],
+    map_entries: [u16; 2],
+    v_offset: u8,
+    in_window: bool,
+    window_edge: bool,
+    window_h_latch: u8,
+    window_v_latch: u8,
+    plane_buf: [[u8; 32]; 2],
+    buf_off: [u8; 2],
+    sprite_line: Vec<u8>,
+    composite: Vec<u8>,
+    composite_valid: bool,
+    #[serde(skip, default = "blank_frame")]
+    frame: Vec<u32>,
+    output_row: Option<usize>,
+    frames: u64,
+    frame_width: usize,
+    frame_height: usize,
+}
+
+/// The tallest frame: PAL, borders included.
+const FRAME_ROWS: usize = 294;
+
+fn blank_frame() -> Vec<u32> {
+    vec![0xFF00_0000; render::LINE_WIDTH * FRAME_ROWS]
 }
 
 impl Vdp {
@@ -226,6 +259,24 @@ impl Vdp {
             hv_latch: 0,
             sprite_overflow: false,
             sprite_collision: false,
+            hscroll: [0; 2],
+            vscroll_latch: [0; 2],
+            map_entries: [0; 2],
+            v_offset: 0,
+            in_window: false,
+            window_edge: false,
+            window_h_latch: 0,
+            window_v_latch: 0,
+            plane_buf: [[0; 32]; 2],
+            buf_off: [0; 2],
+            sprite_line: vec![0; render::LINE_WIDTH],
+            composite: vec![0; render::LINE_WIDTH],
+            composite_valid: false,
+            frame: blank_frame(),
+            output_row: None,
+            frames: 0,
+            frame_width: 256 + render::BORDER_LEFT + render::BORDER_RIGHT,
+            frame_height: if pal_machine { 294 } else { 243 },
         }
     }
 
@@ -309,15 +360,32 @@ impl Vdp {
             self.dma_run = true;
         }
 
-        let kind = if self.is_active() {
-            width.active_slot(self.hslot)
-        } else if width.blank_refresh(self.hslot) {
-            Slot::Refresh
-        } else {
+        let active = self.is_active();
+        let hslot = self.hslot;
+        let kind = if !active {
+            if width.blank_refresh(hslot) {
+                Slot::Refresh
+            } else {
+                Slot::External
+            }
+        } else if self.state == State::Preparing
+            && (hslot == width.line_change() || hslot == width.line_change() + 1)
+        {
+            // The line before the picture has no sprites to draw yet.
             Slot::External
+        } else {
+            width.active_slot(hslot)
         };
-        if kind == Slot::External {
-            self.external_slot();
+        // Pixels leave before the slot's access, so a CRAM write here
+        // colours the second of them.
+        self.output_pixels(width, hslot, active);
+        if self.vscroll_latch_slot(width, hslot, active) {
+            self.latch_vscroll();
+        }
+        match kind {
+            Slot::External => self.external_slot(),
+            Slot::Fetch => self.display_slot(width, hslot),
+            Slot::Refresh => {}
         }
         if kind != Slot::Refresh {
             self.request_dma_source();
@@ -328,6 +396,10 @@ impl Vdp {
     fn advance_line(&mut self) {
         let v = self.v_timing();
         self.vcounter = v.next(self.vcounter);
+        if self.mode_5() {
+            self.window_h_latch = self.regs[0x11];
+            self.window_v_latch = self.regs[0x12];
+        }
         if self.state == State::Preparing {
             self.state = State::Active;
         }
@@ -428,6 +500,7 @@ impl Vdp {
                     entry.value
                 };
                 self.cram[(entry.address >> 1) as usize & (CRAM_SIZE - 1)] = value & CRAM_BITS;
+                self.cram_dot(value & CRAM_BITS);
             }
             VSRAM_WRITE => {
                 let index = (entry.address >> 1) as usize & 63;
@@ -888,5 +961,7 @@ impl Vdp {
     }
 }
 
+#[cfg(test)]
+mod render_tests;
 #[cfg(test)]
 mod tests;
