@@ -1,5 +1,7 @@
-//! C64-specific MCP tools: `save_disk`, `save_disk9`, `save_tape`,
-//! `set_port_drive`.
+//! C64-family MCP tools: `save_disk`, `save_disk9`, `save_tape` and
+//! `set_port_drive` for the C64's drives and datasette, and `set_screen` for
+//! the C128's 40- and 80-column screens. A tool for hardware the running
+//! machine lacks says so rather than doing nothing.
 //!
 //! The shared registrars cover the machine-agnostic surface (run frames,
 //! query, media, capture, reset, …) and, from the profile's
@@ -13,11 +15,21 @@
 
 use emu198x_shell::HeadlessSession;
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
-use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, DriveKind};
+use runtime_commodore_c64::{
+    AsC64Runtime, C64Runtime, C64RuntimeKind, C64SessionQueryProvider, DriveKind,
+};
 use serde_json::{Value, json};
 
-/// The C64 MCP session type — the context all C64 tools run against.
-pub type C64Session = HeadlessSession<C64Runtime, C64SessionQueryProvider>;
+/// The C64-family MCP session type — the context all its tools run against.
+pub type C64Session = HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>;
+
+/// The running C64, or the error a C64-only tool gives on a C128.
+fn c64<'a>(session: &'a C64Session, tool: &str) -> Result<&'a C64Runtime, ToolError> {
+    session
+        .machine()
+        .as_c64()
+        .ok_or_else(|| ToolError::Execution(format!("{tool}: the C128 has no such hardware yet")))
+}
 
 /// The IEC device numbers the C64 serial bus carries.
 const IEC_DEVICES: [u8; 4] = [8, 9, 10, 11];
@@ -51,7 +63,8 @@ fn port_map(session: &C64Session) -> Value {
     for device in IEC_DEVICES {
         let label = session
             .machine()
-            .port_drive_kind(device)
+            .as_c64()
+            .and_then(|c64| c64.port_drive_kind(device))
             .map(drive_kind_label);
         map.insert(device.to_string(), json!(label));
     }
@@ -94,12 +107,14 @@ impl Tool<C64Session> for SaveDiskTool {
 
     fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
         let path = required_str(&arguments, "path")?;
-        let bytes = session.machine().flush_drive8_image().ok_or_else(|| {
-            ToolError::Execution(
-                "save_disk: no writable disk mounted in drive 8 (mount with writable=true)"
-                    .to_owned(),
-            )
-        })?;
+        let bytes = c64(session, "save_disk")?
+            .flush_drive8_image()
+            .ok_or_else(|| {
+                ToolError::Execution(
+                    "save_disk: no writable disk mounted in drive 8 (mount with writable=true)"
+                        .to_owned(),
+                )
+            })?;
         let format = disk_image_format(&bytes);
         reject_disk_extension_mismatch("save_disk", path, format)?;
         let len = bytes.len();
@@ -167,12 +182,14 @@ impl Tool<C64Session> for SaveDisk9Tool {
 
     fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
         let path = required_str(&arguments, "path")?;
-        let bytes = session.machine().flush_drive_1581_image().ok_or_else(|| {
-            ToolError::Execution(
-                "save_disk9: no writable 1581 disk on device 9 (mount with writable=true)"
-                    .to_owned(),
-            )
-        })?;
+        let bytes = c64(session, "save_disk9")?
+            .flush_drive_1581_image()
+            .ok_or_else(|| {
+                ToolError::Execution(
+                    "save_disk9: no writable 1581 disk on device 9 (mount with writable=true)"
+                        .to_owned(),
+                )
+            })?;
         let len = bytes.len();
         std::fs::write(path, &bytes).map_err(|err| {
             ToolError::Execution(format!("save_disk9: failed to write {path}: {err}"))
@@ -208,9 +225,11 @@ impl Tool<C64Session> for SaveTapeTool {
 
     fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
         let path = required_str(&arguments, "path")?;
-        let bytes = session.machine().flush_tape_image().ok_or_else(|| {
-            ToolError::Execution("save_tape: no writable tape mounted".to_owned())
-        })?;
+        let bytes = c64(session, "save_tape")?
+            .flush_tape_image()
+            .ok_or_else(|| {
+                ToolError::Execution("save_tape: no writable tape mounted".to_owned())
+            })?;
         let len = bytes.len();
         std::fs::write(path, &bytes).map_err(|err| {
             ToolError::Execution(format!("save_tape: failed to write {path}: {err}"))
@@ -261,6 +280,10 @@ impl Tool<C64Session> for SetPortDriveTool {
 
         session
             .machine_mut()
+            .as_c64_mut()
+            .ok_or_else(|| {
+                ToolError::Execution("set_port_drive: the C128 has no drives yet".to_owned())
+            })?
             .set_port_drive(device, kind)
             .map_err(|err| ToolError::Execution(format!("set_port_drive: {err}")))?;
 
@@ -275,6 +298,54 @@ impl Tool<C64Session> for SetPortDriveTool {
     }
 }
 
+/// `set_screen` — show the C128's 40-column (VIC-IIe) or 80-column (VDC)
+/// screen in the frames, screenshots and recordings the session captures.
+/// This is the monitor the user is looking at, not the 40/80 key: the key
+/// picks the screen the KERNAL uses at reset, and is pressed with
+/// `press_key` as `40/80`.
+struct SetScreenTool;
+
+impl Tool<C64Session> for SetScreenTool {
+    fn name(&self) -> &str {
+        "set_screen"
+    }
+
+    fn description(&self) -> &str {
+        "C128 only: show the 40-column VIC-IIe screen or the 80-column VDC screen (`columns` 40 or 80) in captured frames. The 40/80 key, which picks the screen BASIC uses at reset, is pressed with press_key as `40/80`."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "columns": {"type": "integer", "enum": [40, 80]},
+            },
+            "required": ["columns"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let eighty = match arguments.get("columns").and_then(Value::as_u64) {
+            Some(40) => false,
+            Some(80) => true,
+            _ => {
+                return Err(ToolError::InvalidArguments(
+                    "`columns` must be 40 or 80".to_owned(),
+                ));
+            }
+        };
+        if session.machine().as_c128().is_none() {
+            return Err(ToolError::Execution(
+                "set_screen: only the C128 has an 80-column screen".to_owned(),
+            ));
+        }
+        session.machine_mut().set_alternate_screen(eighty);
+        let body =
+            json!({ "kind": "set_screen", "columns": if eighty { 80 } else { 40 } }).to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
 /// Registers the C64-specific tools on the registry, after the shared
 /// `register_common_tools`. `press_key` / `type_string` now come from the
 /// shared keyboard tier (`register_keyboard_tools`, registered in `app.rs`)
@@ -284,21 +355,24 @@ pub fn register_c64_tools(registry: &mut ToolRegistry<C64Session>) {
     registry.register(Box::new(SaveDisk9Tool));
     registry.register(Box::new(SaveTapeTool));
     registry.register(Box::new(SetPortDriveTool));
+    registry.register(Box::new(SetScreenTool));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SetPortDriveTool, register_c64_tools};
+    use super::{SetPortDriveTool, SetScreenTool, register_c64_tools};
     use emu198x_shell::HeadlessSession;
     use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo, Tool, ToolContent};
     use emu198x_shell::mcp_tools::register_tools_for;
-    use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model};
+    use runtime_commodore_c64::{
+        C64Runtime, C64RuntimeKind, C64SessionQueryProvider, C128Model, Model,
+    };
     use serde_json::{Value, json};
 
-    type C64Session = HeadlessSession<C64Runtime, C64SessionQueryProvider>;
+    type C64Session = HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>;
 
     fn stub_session() -> C64Session {
-        let runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let runtime = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
         HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider)
     }
 
@@ -313,7 +387,11 @@ mod tests {
             Some(vec![0xEA; 0x4000]),
         )
         .expect("stub ROMs (incl. a 1541 DOS ROM) construct a runtime");
-        HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider)
+        HeadlessSession::new_with_query_provider(
+            C64RuntimeKind::C64(runtime),
+            1,
+            C64SessionQueryProvider,
+        )
     }
 
     fn response_json(resp: &emu198x_shell::mcp::ToolResponse) -> Value {
@@ -339,6 +417,7 @@ mod tests {
             "save_disk9",
             "save_tape",
             "set_port_drive",
+            "set_screen",
         ] {
             assert!(
                 server.registry().get(name).is_some(),
@@ -446,5 +525,36 @@ mod tests {
         ] {
             assert!(names.contains(&name), "tools/list missing `{name}`");
         }
+    }
+
+    #[test]
+    fn set_screen_switches_a_c128_and_refuses_a_c64() {
+        let tool = SetScreenTool;
+        let runtime = C64RuntimeKind::blank(C128Model::C128Pal.into());
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider);
+        let resp = tool
+            .call(json!({"columns": 80}), &mut session)
+            .expect("80 columns");
+        assert_eq!(response_json(&resp)["columns"], 80);
+        assert!(session.machine().alternate_screen());
+        tool.call(json!({"columns": 40}), &mut session)
+            .expect("40 columns");
+        assert!(!session.machine().alternate_screen());
+        assert!(tool.call(json!({"columns": 132}), &mut session).is_err());
+
+        let mut c64 = stub_session();
+        assert!(tool.call(json!({"columns": 80}), &mut c64).is_err());
+    }
+
+    #[test]
+    fn the_c64_only_tools_explain_themselves_on_a_c128() {
+        let runtime = C64RuntimeKind::blank(C128Model::C128Pal.into());
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider);
+        let err = SetPortDriveTool
+            .call(json!({"device": 8, "kind": "none"}), &mut session)
+            .expect_err("no drives");
+        assert!(format!("{err:?}").contains("C128"), "{err:?}");
     }
 }

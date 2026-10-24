@@ -11,9 +11,13 @@
 
 use std::path::PathBuf;
 
-use machine_commodore_c128::{C128, C128Roms};
+use machine_commodore_c128::{C128, C128Model, C128Roms};
 
 fn c128() -> C128 {
+    c128_for(C128Model::Pal)
+}
+
+fn c128_for(model: C128Model) -> C128 {
     let dir =
         PathBuf::from(std::env::var("EMU198X_C128_ROM_DIR").expect("set EMU198X_C128_ROM_DIR"));
     let read =
@@ -24,12 +28,15 @@ fn c128() -> C128 {
         read("basichi-318019-04.bin"),
         read("chargen-390059-01.bin"),
     );
-    C128::new(&C128Roms {
-        kernal: &kernal,
-        basic_lo: &basic_lo,
-        basic_hi: &basic_hi,
-        chargen: &chargen,
-    })
+    C128::with_model(
+        &C128Roms {
+            kernal: &kernal,
+            basic_lo: &basic_lo,
+            basic_hi: &basic_hi,
+            chargen: &chargen,
+        },
+        model,
+    )
     .expect("ROMs")
 }
 
@@ -172,4 +179,17 @@ fn screen_code(code: u8) -> char {
         c @ 32..=63 => char::from(c),
         _ => ' ',
     }
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the C128 ROMs — run with --ignored"]
+fn an_ntsc_c128_boots_to_basic_7_on_the_same_roms() {
+    let mut c128 = c128_for(C128Model::Ntsc);
+    let ready = (0..400).any(|_| {
+        c128.run_frame();
+        screen(&c128).contains("READY.")
+    });
+    println!("{}", screen(&c128));
+    assert!(ready, "no READY. after 400 NTSC frames");
+    assert!(screen(&c128).contains("BASIC V7.0"));
 }

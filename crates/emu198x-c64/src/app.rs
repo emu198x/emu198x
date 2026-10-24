@@ -1,5 +1,7 @@
-//! The Commodore 64 as a [`MachineApp`]: its flags, firmware resolution,
-//! runtime construction, and MCP tool set.
+//! The Commodore 64 family as a [`MachineApp`]: its flags, firmware
+//! resolution, runtime construction, and MCP tool set. The family is the four
+//! C64 models and the C128 in C128 mode, held as a [`C64RuntimeKind`] so one
+//! session can start on any of them and `set_machine` can swap between them.
 //!
 //! Script mode is the bespoke runner in `script.rs`, reached through
 //! [`MachineApp::run_script`]: its report carries boot detection, printed
@@ -16,12 +18,12 @@ use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp};
 use emu198x_shell::mcp::ToolRegistry;
 use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::{
-    BootArtifacts, ControlCommand, FirmwareImage, FirmwareOverrides, FirmwareSet, HeadlessSession,
-    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
-    read_firmware_asset, read_media_asset, read_program_asset, resolve_firmware,
+    BootArtifacts, ControlCommand, FamilyRuntime, FirmwareImage, FirmwareOverrides, FirmwareSet,
+    HeadlessSession, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    boot_machine, read_firmware_asset, read_media_asset, read_program_asset, resolve_firmware,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    AsC64Runtime, C64RuntimeKind, C64SessionQueryProvider, C64Variant, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
     autoload_basic_disk_and_run, autoload_basic_tape, file_loader::load_host_file,
@@ -33,6 +35,8 @@ use crate::mcp_tools::register_c64_tools;
 pub(crate) const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 pub(crate) const BASIC_ID: &str = "commodore-c64-basic-rom";
 pub(crate) const CHARACTER_ID: &str = "commodore-c64-character-rom";
+pub(crate) const C128_KERNAL_ID: &str = "commodore-c128-kernal-rom";
+pub(crate) const C128_CHARACTER_ID: &str = "commodore-c128-character-rom";
 pub(crate) const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 pub(crate) const DEFAULT_TRACE_LIMIT: usize = 512;
 pub(crate) const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -63,7 +67,10 @@ pub(crate) struct LoadedProgram {
 /// The machine configuration the flags build up.
 #[derive(Debug, PartialEq, Eq)]
 pub struct C64 {
-    pub model: Model,
+    pub model: C64Variant,
+    /// Hold the C128's 40/80 key down from power-on and show the VDC's
+    /// 80-column screen.
+    pub eighty_column: bool,
     pub rom_dir: Option<PathBuf>,
     pub kernal: Option<PathBuf>,
     pub basic: Option<PathBuf>,
@@ -101,7 +108,8 @@ pub struct C64 {
 impl Default for C64 {
     fn default() -> Self {
         Self {
-            model: Model::C64PalBreadbin,
+            model: C64Variant::C64(Model::C64PalBreadbin),
+            eighty_column: false,
             rom_dir: None,
             kernal: None,
             basic: None,
@@ -134,7 +142,7 @@ impl Default for C64 {
 }
 
 impl MachineApp for C64 {
-    type Runtime = C64Runtime;
+    type Runtime = C64RuntimeKind;
     type Query = C64SessionQueryProvider;
 
     const BIN_NAME: &'static str = "emu198x-c64";
@@ -157,12 +165,18 @@ impl MachineApp for C64 {
         "    --rom-dir DIR        directory containing Commodore ROM images; default
                          EMU198X_C64_ROM_DIR, ~/.emu198x/roms/commodore-c64, or
                          ~/.emu198x/roms/c64, holding kernal.rom, basic.rom,
-                         chargen.rom and the optional 1541/1571/1581 DOS ROMs
+                         chargen.rom and the optional 1541/1571/1581 DOS ROMs.
+                         A C128 reads VICE's C128 ROMs (kernal-318020-05.bin,
+                         basiclo-318018-04.bin, basichi-318019-04.bin,
+                         chargen-390059-01.bin) there or from a c128/ inside it
     --kernal PATH        override KERNAL ROM path
-    --basic PATH         override BASIC ROM path
+    --basic PATH         override BASIC ROM path (C64 only)
     --chargen PATH       override character ROM path
-    --model MODEL        pal, ntsc, c64c-pal, or c64c-ntsc [default: pal]
-                         (c64c models fit the MOS 8580 SID; breadbins the 6581)
+    --model MODEL        pal, ntsc, c64c-pal, c64c-ntsc, c128-pal, or c128-ntsc
+                         [default: pal] (c64c models fit the MOS 8580 SID;
+                         breadbins the 6581; c128 is the C128 in C128 mode)
+    --80-column          C128: hold the 40/80 key down from power-on, so BASIC
+                         comes up on the VDC, and show the 80-column screen
     --load PATH          import a program after boot: .prg, .bas, .t64, .d64,
                          or .p00 (PC64 container)
     --disk PATH          insert one D64 image into drive-8 at startup
@@ -209,7 +223,8 @@ impl MachineApp for C64 {
     Alt / Command        Commodore key
     Tab                  Run/Stop
     Gamepad              maps to gameport 2
-    Machine menu         switch between PAL and NTSC live";
+    Page Down            C128: show the 40- or the 80-column screen
+    Machine menu         switch between the C64 models and the C128 live";
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
@@ -219,12 +234,10 @@ impl MachineApp for C64 {
             "--chargen" => self.chargen = Some(args.path(flag)?),
             "--model" => {
                 let value = args.value(flag)?;
-                self.model = Model::from_variant_id(&value).ok_or_else(|| {
-                    LaunchError::Usage(
-                        "--model expects pal, ntsc, c64c-pal, or c64c-ntsc".to_owned(),
-                    )
-                })?;
+                self.model = C64Variant::from_variant_id(&value)
+                    .ok_or_else(|| LaunchError::Usage(MODEL_USAGE.to_owned()))?;
             }
+            "--80-column" => self.eighty_column = true,
             "--load" => self.load = Some(args.path(flag)?),
             "--disk" => self.disk = Some(args.path(flag)?),
             "--tape" => self.tape = Some(args.path(flag)?),
@@ -289,7 +302,7 @@ impl MachineApp for C64 {
     /// flags asked for when the window opens. Script mode does not use this;
     /// [`run_script`](Self::run_script) boots through [`Self::boot_runtime`]
     /// and drives the media workflow itself so its frames are observable.
-    fn build_runtime(&self) -> Result<C64Runtime, LaunchError> {
+    fn build_runtime(&self) -> Result<C64RuntimeKind, LaunchError> {
         self.check_media_flags()?;
         if self.autoload_run && !self.autoload_disk {
             return Err(LaunchError::Run(
@@ -348,7 +361,7 @@ impl MachineApp for C64 {
                 .wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)
                 .map_err(|err| format!("wait for boot failed: {err}"))?;
             let loaded = load_program_bytes(path)?;
-            let message = load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)?;
+            let message = import_program(session.machine_mut(), &loaded.name, &loaded.bytes)?;
             println!("{message}");
         }
 
@@ -359,14 +372,14 @@ impl MachineApp for C64 {
     /// present at startup — the same way the Spectrum and Amiga MCP servers
     /// resolve their ROMs. A client (or Claude) then drives the session to
     /// debug it; media named on the command line is loaded by the launcher.
-    fn build_mcp_runtime(&self) -> Result<C64Runtime, LaunchError> {
+    fn build_mcp_runtime(&self) -> Result<C64RuntimeKind, LaunchError> {
         self.boot_runtime()
     }
 
     /// The C64's report is built by `script::run`, which
     /// [`run_script`](Self::run_script) calls; the shared loop and this hook
     /// never run for this machine.
-    fn report(&self, _runtime: &C64Runtime, _report: &mut Map<String, Value>) {}
+    fn report(&self, _runtime: &C64RuntimeKind, _report: &mut Map<String, Value>) {}
 
     fn run_script(&self, common: &CommonCli, _raw_args: &[String]) -> Result<(), LaunchError> {
         crate::script::run(self, common)
@@ -374,8 +387,8 @@ impl MachineApp for C64 {
 
     fn register_mcp_tools(
         &self,
-        registry: &mut ToolRegistry<HeadlessSession<C64Runtime, C64SessionQueryProvider>>,
-        session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+        registry: &mut ToolRegistry<HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>>,
+        session: &HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>,
     ) {
         register_tools_for(registry, session);
         register_c64_tools(registry);
@@ -398,10 +411,16 @@ impl C64 {
         Ok(())
     }
 
-    /// Boot a [`C64Runtime`] from the resolved firmware (or the snapshot
+    /// Boot the chosen model from the resolved firmware (or the snapshot
     /// named by `--load-snapshot`) and fit the hardware the flags ask for:
-    /// RAM expansions, the 1351 mouse, and the user-port network devices.
-    pub(crate) fn boot_runtime(&self) -> Result<C64Runtime, LaunchError> {
+    /// on a C64, RAM expansions, the 1351 mouse, and the user-port network
+    /// devices; on a C128, the 40/80 key.
+    pub(crate) fn boot_runtime(&self) -> Result<C64RuntimeKind, LaunchError> {
+        if self.eighty_column && !self.model.is_c128() {
+            return Err(LaunchError::Run(
+                "--80-column needs a C128 model (--model c128-pal or c128-ntsc)".to_owned(),
+            ));
+        }
         let firmware_storage = self.load_firmware_bytes()?;
         let mut firmware = FirmwareSet::new();
         for image in &firmware_storage {
@@ -422,21 +441,44 @@ impl C64 {
                 firmware,
                 snapshot: snapshot_bytes.as_deref(),
             },
-            |firmware| C64Runtime::from_firmware(model, firmware),
-            || C64Runtime::blank(model),
+            |firmware| C64RuntimeKind::from_firmware(model, firmware),
+            || C64RuntimeKind::blank(model),
         )
         .map_err(|err| format!("boot failed: {err}"))?;
+
+        if self.eighty_column {
+            // The KERNAL reads the key once, at reset, so it is held from
+            // power-on; the window shows the screen BASIC will use.
+            machine.set_80_column_key(true);
+            machine.set_alternate_screen(true);
+        }
+
+        let wants_c64_hardware = self.georam_kb.is_some()
+            || self.reu_kb.is_some()
+            || self.mouse_1351_port.is_some()
+            || self.esp_at_tcp
+            || self.ultimate_net;
+        let Some(c64) = machine.as_c64_mut() else {
+            if wants_c64_hardware {
+                return Err(LaunchError::Run(
+                    "--georam, --reu, --mouse-1351, --esp-at-tcp and --ultimate-net fit C64 \
+                     hardware the C128 does not model yet"
+                        .to_owned(),
+                ));
+            }
+            return Ok(machine);
+        };
 
         // Attach expansions only when requested, so a snapshot that restored its
         // own expansion RAM is left intact when the flag is absent.
         if let Some(kb) = self.georam_kb {
-            machine.set_georam(Some(kb));
+            c64.set_georam(Some(kb));
         }
         if let Some(kb) = self.reu_kb {
-            machine.set_reu(Some(kb));
+            c64.set_reu(Some(kb));
         }
         if let Some(port) = self.mouse_1351_port {
-            machine.set_mouse_1351(Some(port));
+            c64.set_mouse_1351(Some(port));
         }
 
         if self.esp_at_tcp {
@@ -451,10 +493,10 @@ impl C64 {
             }
             let cycles_per_bit = u32::try_from(cpu_hz / baud)
                 .map_err(|_| "modem bit period does not fit in a cycle count".to_owned())?;
-            machine.attach_esp_at_tcp_bridge(cycles_per_bit, ESP_AT_FRAME_SIZE);
+            c64.attach_esp_at_tcp_bridge(cycles_per_bit, ESP_AT_FRAME_SIZE);
         }
         if self.ultimate_net {
-            machine.attach_ultimate_uci();
+            c64.attach_ultimate_uci();
         }
 
         Ok(machine)
@@ -463,7 +505,7 @@ impl C64 {
     /// Insert the `--tape` and `--disk` images into their slots.
     pub(crate) fn insert_media(
         &self,
-        session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+        session: &mut HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>,
     ) -> Result<(), LaunchError> {
         if let Some(path) = &self.tape {
             let loaded = read_media_asset(path, MediaKind::Tape)
@@ -498,16 +540,28 @@ impl C64 {
     /// What the firmware flags add to the convention: `--rom-dir` as the
     /// directory, and `--kernal` / `--basic` / `--chargen` pinning one ROM
     /// each. The drive DOS ROMs have no flag; they live beside the others.
+    /// On a C128, `--kernal` and `--chargen` pin its own ROMs; its two BASIC
+    /// halves come from the directory.
     pub(crate) fn firmware_overrides(&self) -> FirmwareOverrides {
         let mut overrides = FirmwareOverrides {
             dir: self.rom_dir.clone(),
             ..FirmwareOverrides::none()
         };
-        for (id, path) in [
-            (KERNAL_ID, &self.kernal),
-            (BASIC_ID, &self.basic),
-            (CHARACTER_ID, &self.chargen),
-        ] {
+        let pins = if self.model.is_c128() {
+            [
+                (C128_KERNAL_ID, &self.kernal),
+                (C128_CHARACTER_ID, &self.chargen),
+            ]
+            .to_vec()
+        } else {
+            [
+                (KERNAL_ID, &self.kernal),
+                (BASIC_ID, &self.basic),
+                (CHARACTER_ID, &self.chargen),
+            ]
+            .to_vec()
+        };
+        for (id, path) in pins {
             if let Some(path) = path {
                 overrides.pin(id, path.clone());
             }
@@ -520,8 +574,14 @@ impl C64 {
     /// `--load-snapshot` is given and nothing resolves, the bundle is empty
     /// and the machine restores from the snapshot alone.
     pub(crate) fn load_firmware_bytes(&self) -> Result<Vec<LoadedFirmware>, LaunchError> {
+        if self.model.is_c128() && self.basic.is_some() {
+            return Err(LaunchError::Run(
+                "--basic pins the C64 BASIC ROM; a C128's two BASIC halves come from --rom-dir"
+                    .to_owned(),
+            ));
+        }
         let overrides = self.firmware_overrides();
-        let resolved = match resolve_firmware::<C64Runtime>(self.model, &overrides) {
+        let resolved = match resolve_firmware::<C64RuntimeKind>(self.model, &overrides) {
             Ok(resolved) => resolved,
             Err(
                 emu198x_shell::FirmwareResolveError::NoRomDir { .. }
@@ -549,6 +609,35 @@ impl C64 {
             })
             .collect()
     }
+}
+
+/// The `--model` usage line.
+const MODEL_USAGE: &str = "--model expects pal, ntsc, c64c-pal, c64c-ntsc, c128-pal, or c128-ntsc";
+
+/// Import a host program for `--load`. A C64 takes every format
+/// [`load_host_file`] knows; a C128 takes a `.prg`, which loads to the
+/// address in its header (BASIC 7.0 programs at `$1C01`), since the other
+/// formats are tokenised or laid out for the C64's BASIC V2 at `$0801`.
+///
+/// # Errors
+///
+/// An unsupported or malformed file.
+pub(crate) fn import_program(
+    runtime: &mut C64RuntimeKind,
+    name: &str,
+    bytes: &[u8],
+) -> Result<String, String> {
+    if let Some(c64) = runtime.as_c64_mut() {
+        return load_host_file(c64, name, bytes);
+    }
+    if !name.to_ascii_lowercase().ends_with(".prg") {
+        return Err(format!("the C128 imports .prg files only: {name}"));
+    }
+    let load_addr = runtime.load_prg_bytes(bytes)?;
+    Ok(format!(
+        "Imported PRG: {name} ({} bytes, load address ${load_addr:04X})",
+        bytes.len()
+    ))
 }
 
 pub(crate) fn load_program_bytes(path: &Path) -> Result<LoadedProgram, LaunchError> {
@@ -610,6 +699,7 @@ mod tests {
     use super::*;
     use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
     use emu198x_shell::launch::{Mode, Parsed, parse};
+    use runtime_commodore_c64::C128Model;
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
@@ -645,7 +735,7 @@ mod tests {
         assert_eq!(
             app,
             C64 {
-                model: Model::C64NtscBreadbin,
+                model: Model::C64NtscBreadbin.into(),
                 rom_dir: Some(PathBuf::from("roms")),
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
@@ -772,21 +862,22 @@ mod tests {
     #[test]
     fn a_bad_model_is_a_usage_error() {
         let err = parse::<C64>(&args(&["--model", "secam"])).expect_err("rejects");
-        assert_eq!(
-            err,
-            LaunchError::Usage("--model expects pal, ntsc, c64c-pal, or c64c-ntsc".to_owned())
-        );
+        assert_eq!(err, LaunchError::Usage(MODEL_USAGE.to_owned()));
     }
 
     #[test]
     fn model_flag_parses_all_variants() {
         for (flag, model) in [
-            ("pal", Model::C64PalBreadbin),
-            ("ntsc", Model::C64NtscBreadbin),
-            ("c64c-pal", Model::C64cPal),
-            ("c64c", Model::C64cPal),
-            ("c64c-ntsc", Model::C64cNtsc),
+            ("pal", Model::C64PalBreadbin.into()),
+            ("ntsc", Model::C64NtscBreadbin.into()),
+            ("c64c-pal", Model::C64cPal.into()),
+            ("c64c", Model::C64cPal.into()),
+            ("c64c-ntsc", Model::C64cNtsc.into()),
+            ("c128-pal", C128Model::C128Pal.into()),
+            ("c128", C128Model::C128Pal.into()),
+            ("c128-ntsc", C128Model::C128Ntsc.into()),
         ] {
+            let model: C64Variant = model;
             let (app, _, _) = parsed(&["--model", flag]);
             assert_eq!(app.model, model, "--model {flag}");
         }
@@ -796,7 +887,7 @@ mod tests {
     fn model_timing_follows_the_region() {
         assert_eq!(
             C64 {
-                model: Model::C64cPal,
+                model: Model::C64cPal.into(),
                 ..C64::default()
             }
             .frame_ticks(),
@@ -804,7 +895,7 @@ mod tests {
         );
         assert_eq!(
             C64 {
-                model: Model::C64NtscBreadbin,
+                model: Model::C64NtscBreadbin.into(),
                 ..C64::default()
             }
             .frame_ticks(),
@@ -877,6 +968,7 @@ mod tests {
             .expect("build a runtime from the local ROM directory");
 
         // The ROMs were retained iff selecting those models on a port succeeds.
+        let runtime = runtime.as_c64_mut().expect("the default model is a C64");
         runtime
             .set_port_drive(10, Some(DriveKind::C1571))
             .expect("1571 DOS ROM should have been loaded");
@@ -885,5 +977,51 @@ mod tests {
             .expect("1581 DOS ROM should have been loaded");
         assert_eq!(runtime.port_drive_kind(10), Some(DriveKind::C1571));
         assert_eq!(runtime.port_drive_kind(11), Some(DriveKind::C1581));
+    }
+
+    #[test]
+    fn the_80_column_flag_needs_a_c128() {
+        let (app, _, _) = parsed(&["--model", "c128-ntsc", "--80-column"]);
+        assert!(app.eighty_column);
+        assert_eq!(app.model, C128Model::C128Ntsc.into());
+        assert_eq!(app.frame_ticks(), 263 * 65);
+
+        let (c64, _, _) = parsed(&["--80-column", "--load-snapshot", "missing.pst"]);
+        let err = c64
+            .boot_runtime()
+            .map(|_| ())
+            .expect_err("a C64 has no VDC");
+        assert!(
+            err.to_string().contains("--80-column needs a C128"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn c64_hardware_flags_are_refused_on_a_c128() {
+        let mut app = C64 {
+            model: C128Model::C128Pal.into(),
+            reu_kb: Some(512),
+            ..C64::default()
+        };
+        assert!(app.firmware_overrides().by_id.is_empty());
+        app.kernal = Some(PathBuf::from("k.bin"));
+        assert!(app.firmware_overrides().by_id.contains_key(C128_KERNAL_ID));
+        app.basic = Some(PathBuf::from("b.bin"));
+        let err = app
+            .load_firmware_bytes()
+            .map(|_| ())
+            .expect_err("no --basic");
+        assert!(err.to_string().contains("--basic"), "{err}");
+    }
+
+    #[test]
+    fn a_c128_imports_only_prg_files() {
+        let mut runtime = C64RuntimeKind::blank(C128Model::C128Pal.into());
+        let message = import_program(&mut runtime, "demo.PRG", &[0x01, 0x1C, 0x00]).expect("a PRG");
+        assert!(message.contains("$1C01"), "{message}");
+        assert!(import_program(&mut runtime, "demo.bas", b"10 PRINT 1").is_err());
+        let mut c64 = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
+        assert!(import_program(&mut c64, "demo.bas", b"10 PRINT 1\n").is_ok());
     }
 }

@@ -102,3 +102,73 @@ fn a_snapshot_mid_boot_resumes_in_lockstep() {
         "the two machines ran identically"
     );
 }
+
+#[test]
+fn an_ntsc_machine_runs_263_lines_of_65_cycles() {
+    let roms = handover_roms();
+    let mut c128 = C128::with_model(
+        &C128Roms {
+            kernal: &roms.0,
+            basic_lo: &roms.1,
+            basic_hi: &roms.2,
+            chargen: &roms.3,
+        },
+        C128Model::Ntsc,
+    )
+    .expect("ROMs");
+    assert_eq!(c128.model(), C128Model::Ntsc);
+    assert_eq!(c128.timing(), C128Model::Ntsc.timing());
+    c128.run_frame();
+    assert_eq!(c128.run_frame(), 263 * 65);
+    let mut pal = machine(&roms);
+    pal.run_frame();
+    assert_eq!(pal.run_frame(), 312 * 63);
+}
+
+#[test]
+fn a_poke_lands_in_ram_under_io_without_touching_the_chips() {
+    let mut c128 = machine(&handover_roms());
+    let border = c128.vic_register(0x20);
+    c128.poke(0xD020, border ^ 0x0F);
+    assert_eq!(c128.vic_register(0x20), border, "the VIC never saw it");
+    assert_eq!(c128.ram(0xD020), border ^ 0x0F, "the RAM underneath did");
+    c128.poke(0x2000, 0x99);
+    assert_eq!(c128.peek(0x2000), 0x99);
+}
+
+#[test]
+fn a_basic_prg_moves_the_end_of_text_pointer() {
+    let mut c128 = machine(&handover_roms());
+    assert_eq!(c128.load_prg(&[0x01, 0x1C, 0xAA, 0xBB, 0xCC]), Ok(0x1C01));
+    assert_eq!(c128.ram(0x1C01), 0xAA);
+    assert_eq!(c128.ram(0x1C03), 0xCC);
+    assert_eq!(
+        (c128.ram(0x1210), c128.ram(0x1211)),
+        (0x04, 0x1C),
+        "end of text at $1C04"
+    );
+    assert_eq!(c128.load_prg(&[0x00, 0xC0, 0x01]), Ok(0xC000));
+    assert_eq!(c128.ram(0x1210), 0x04, "not BASIC text, so untouched");
+    assert!(c128.load_prg(&[0x01]).is_err());
+    assert!(c128.load_prg(&[0xFF, 0xFF, 1, 2]).is_err());
+}
+
+#[test]
+fn a_step_runs_one_8502_instruction() {
+    let mut c128 = machine(&handover_roms());
+    for _ in 0..400 {
+        c128.tick();
+    }
+    assert!(c128.running_8502());
+    let pc = c128.cpu().regs.pc;
+    let cycles = c128.step_instruction();
+    assert!((2..=8).contains(&cycles), "{cycles} cycles");
+    assert_ne!(c128.cpu().regs.pc, pc);
+    c128.cpu_mut().regs.a = 0x5A;
+    assert_eq!(c128.cpu().regs.a, 0x5A);
+    assert_eq!(c128.vic().raster_line(), c128.raster_line());
+    assert_eq!(c128.vic().raster_cycle(), c128.cycle_in_line());
+    assert_eq!(c128.audio_sample_rate(), 48_000);
+    assert_eq!(c128.cia1().ddr_a(), c128.cia1().ddr_a());
+    assert_eq!(c128.cia2().ddr_a(), c128.cia2().ddr_a());
+}
