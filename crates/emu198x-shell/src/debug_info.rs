@@ -541,13 +541,18 @@ impl DebugSymbols {
         found
     }
 
-    /// Rewrites 16-bit address literals in a disassembled instruction into the
+    /// Rewrites address literals in a disassembled instruction into the
     /// labels defined at them: `JSR $C012` becomes `JSR init`.
     ///
-    /// Deliberately narrow, because the input is text produced by four
+    /// Deliberately narrow, because the input is text produced by several
     /// different disassemblers rather than a structured operand:
     ///
-    /// - Only four-digit `$XXXX` literals are considered. Two-digit ones are
+    /// - Only literals of exactly four, six or eight hex digits are
+    ///   considered: the 16-bit addresses of the 8-bit CPUs, the 24-bit
+    ///   long addresses of the 65816, and the 32-bit addresses the 68000
+    ///   disassembler prints for absolute-long operands and branch targets.
+    ///   The whole run of digits is the literal, so `$C0051` is five digits
+    ///   and left alone rather than read as `$C005`. Two-digit ones are
     ///   ambiguous — `!byte $05` is data, not an address — and zero-page
     ///   *labels* (as opposed to constants) are vanishingly rare, so the
     ///   trade is worth making in the safe direction.
@@ -574,10 +579,10 @@ impl DebugSymbols {
                     i.checked_sub(1).map(|p| bytes[p]),
                     Some(b'#') | Some(b'+') | Some(b'-')
                 )
-                && let Some(name) = self.label_for_literal(&bytes[i + 1..])
+                && let Some((name, digits)) = self.label_for_literal(&bytes[i + 1..])
             {
                 out.push_str(name);
-                i += 1 + 4; // the '$' and its four hex digits
+                i += 1 + digits; // the '$' and its hex digits
                 continue;
             }
             // Not a substitution site: copy this character across whole, so
@@ -589,21 +594,22 @@ impl DebugSymbols {
         out
     }
 
-    /// The label at the address spelled by exactly four hex digits at the
-    /// start of `after_dollar`, if there is one.
-    fn label_for_literal(&self, after_dollar: &[u8]) -> Option<&str> {
-        let digits = after_dollar.get(..4)?;
-        if !digits.iter().all(u8::is_ascii_hexdigit) {
+    /// The label at the address spelled by the run of hex digits at the
+    /// start of `after_dollar`, with the run's length, if the run is an
+    /// address width and a label is defined there. Taking part of a longer
+    /// run would name the wrong address, so a run of any other length is
+    /// not a literal at all.
+    fn label_for_literal(&self, after_dollar: &[u8]) -> Option<(&str, usize)> {
+        let len = after_dollar
+            .iter()
+            .take_while(|byte| byte.is_ascii_hexdigit())
+            .count();
+        if !matches!(len, 4 | 6 | 8) {
             return None;
         }
-        // A fifth hex digit means this is not a 16-bit literal, and taking the
-        // first four of it would name the wrong address.
-        if after_dollar.get(4).is_some_and(u8::is_ascii_hexdigit) {
-            return None;
-        }
-        let text = std::str::from_utf8(digits).ok()?;
+        let text = std::str::from_utf8(&after_dollar[..len]).ok()?;
         let addr = u32::from_str_radix(text, 16).ok()?;
-        self.symbol_at(addr)
+        Some((self.symbol_at(addr)?, len))
     }
 
     /// Absolute address of a section-relative location, via the override map
@@ -815,6 +821,31 @@ mod tests {
         // A 24-bit literal's first four digits must not be read as a 16-bit
         // address — that would name a completely unrelated location.
         assert_eq!(sym.symbolise("LDA $C0051"), "LDA $C0051");
+    }
+
+    #[test]
+    fn substitutes_wide_addresses_as_the_68000_and_65816_print_them() {
+        let mut sym = fixture();
+        // Stand in for a 68000 build placed in Mega Drive work RAM.
+        sym.set_section_base(0, 0x00FF_0000);
+        // The 68000 disassembler prints absolute-long operands, branch
+        // targets and PC-relative targets as eight digits.
+        assert_eq!(sym.symbolise("bne $00FF0005"), "bne loop");
+        assert_eq!(
+            sym.symbolise("move.w ($00FF0013).l,D0"),
+            "move.w (counter).l,D0"
+        );
+        assert_eq!(sym.symbolise("lea ($00FF0000,PC),A0"), "lea (start,PC),A0");
+        // A 65816 long address is six.
+        assert_eq!(sym.symbolise("JSL $FF0005"), "JSL loop");
+        // Immediates stay values at every width.
+        assert_eq!(
+            sym.symbolise("move.l #$00FF0005,D0"),
+            "move.l #$00FF0005,D0"
+        );
+        // Runs of an odd width are not addresses.
+        assert_eq!(sym.symbolise("dc.l $0FF0005"), "dc.l $0FF0005");
+        assert_eq!(sym.symbolise("dc.l $000FF00050"), "dc.l $000FF00050");
     }
 
     /// The Spectrum 128 banked fixture, copied from the Asm198x test corpus.
