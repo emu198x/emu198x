@@ -1,0 +1,3 @@
+variant ym2612
+readmode port0
+c 20000
