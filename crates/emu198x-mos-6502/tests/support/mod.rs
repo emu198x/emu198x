@@ -2,8 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod tom_harte;
+
 const LORENZ_6502_DIR_ENV: &str = "EMU198X_6502_LORENZ_DIR";
 const TOM_HARTE_6502_DIR_ENV: &str = "EMU198X_6502_TOM_HARTE_DIR";
+const TOM_HARTE_65C02_DIR_ENV: &str = "EMU198X_65C02_TOM_HARTE_DIR";
 const DORMANN_6502_DIR_ENV: &str = "EMU198X_6502_DORMANN_DIR";
 const DORMANN_PROGRAMMES_DIR_ENV: &str = "EMU198X_6502_DORMANN_PROGRAMMES_DIR";
 const C64_KERNAL_ROM_ENV: &str = "EMU198X_C64_KERNAL_ROM";
@@ -77,6 +80,28 @@ pub fn find_tom_harte_6502_dir() -> Result<PathBuf, String> {
                 home_projects_path("Emu198x-Unclean/Reference/test-suites/processor-tests/6502/v1"),
                 home_projects_path("Reference/test-suites/processor-tests/6502/v1"),
             ],
+        )
+    })
+}
+
+/// Tom Harte's Synertek 65C02 set: the 65SC02 instruction set, without the
+/// Rockwell bit instructions or WDC's `WAI` and `STP`. That is the core of
+/// the 65C12 in the BBC Master.
+pub fn find_tom_harte_65c02_dir() -> Result<PathBuf, String> {
+    let defaults = [
+        home_projects_path("198x/assets/test-suites/processor-tests/65x02/synertek65c02/v1"),
+        repo_root().join("test-data/synertek65c02/v1"),
+    ];
+    let mut candidates = Vec::new();
+    if let Some(path) = std::env::var_os(TOM_HARTE_65C02_DIR_ENV) {
+        candidates.push(PathBuf::from(path));
+    }
+    candidates.extend(defaults.iter().cloned());
+    first_existing_path(candidates).ok_or_else(|| {
+        missing_fixture_message(
+            "Tom Harte Synertek 65C02 corpus",
+            TOM_HARTE_65C02_DIR_ENV,
+            &defaults,
         )
     })
 }
