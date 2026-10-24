@@ -1,0 +1,23 @@
+[package]
+name = "emu198x-wdc-65c816"
+description = "WDC 65C816 CPU with a cycle-accurate pin-level bus interface"
+edition.workspace = true
+# Independently versioned, like the other published CPU crates: the version
+# describes this crate's changes, not the Emu198x suite's releases.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["65816", "65c816", "cpu", "emulator", "snes"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+# Path-only, so the published manifest drops it.
+emu198x-test-skip = { path = "../emu198x-test-skip" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
