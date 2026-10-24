@@ -230,6 +230,7 @@ members = [
     "crates/runtime-sinclair-zx-spectrum",
     "crates/sinclair-ula-7k010e",
     "crates/ti-sn76489",
+    "crates/emu198x-nintendo-s-ppu",
     "crates/ti-tms9918",
     "crates/western-digital-wd1770",
     "crates/emu198x-zilog-z80",
