@@ -290,6 +290,10 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
             "nintendo-nes",
             observe::<runtime_nintendo_nes::NesRuntime>(),
         ),
+        (
+            "nintendo-snes",
+            observe::<runtime_nintendo_snes::SnesRuntime>(),
+        ),
         ("oric-atmos", observe::<runtime_oric_atmos::OricRuntime>()),
         (
             "sega-game-gear",
