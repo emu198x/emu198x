@@ -212,6 +212,12 @@ public final class EmulatorLoop: Sendable {
         var failure: EmulatorError?
         var commandFailures: [EmulatorError] = []
         var framesRun = 0
+        /// Wall-clock time the loop has measured while running, and the part
+        /// of it the catch-up limit discarded after stalls.
+        var clockMilliseconds = 0.0
+        var skippedMilliseconds = 0.0
+        /// Audio values handed to ``audio``, both channels counted.
+        var samplesWritten = 0
     }
 
     private let control = OSAllocatedUnfairLock(initialState: Control())
@@ -250,6 +256,27 @@ public final class EmulatorLoop: Sendable {
 
     public var framesRun: Int { control.withLock { $0.framesRun } }
 
+    /// What the loop has run, read together: frames and audio values
+    /// produced, the wall-clock time it measured while running, and the
+    /// part of that it chose not to catch up after stalls. The measured time
+    /// less the skipped time is what the machine was owed, so a test can
+    /// check the pacing even when the thread is sometimes starved.
+    struct Pacing: Sendable {
+        var framesRun: Int
+        var samplesWritten: Int
+        var clockMilliseconds: Double
+        var skippedMilliseconds: Double
+    }
+
+    var pacing: Pacing {
+        control.withLock {
+            Pacing(
+                framesRun: $0.framesRun, samplesWritten: $0.samplesWritten,
+                clockMilliseconds: $0.clockMilliseconds,
+                skippedMilliseconds: $0.skippedMilliseconds)
+        }
+    }
+
     /// Commands the machine refused since the last call, such as a load of
     /// unreadable media. The loop keeps running after these.
     public func takeCommandFailures() -> [EmulatorError] {
@@ -279,12 +306,22 @@ public final class EmulatorLoop: Sendable {
                 let elapsed = (now - last).milliseconds
                 last = now
                 if !paused {
-                    let ran = try machine.advance(
-                        milliseconds: min(elapsed, Self.catchUpLimitMilliseconds))
+                    let owed = min(elapsed, Self.catchUpLimitMilliseconds)
+                    let ran = try machine.advance(milliseconds: owed)
+                    let samples: Int
                     if ran > 0 {
                         frames.publish(try machine.frame())
-                        audio.write(try machine.drainAudio())
-                        control.withLock { $0.framesRun += ran }
+                        let sound = try machine.drainAudio()
+                        audio.write(sound)
+                        samples = sound.count
+                    } else {
+                        samples = 0
+                    }
+                    control.withLock { control in
+                        control.framesRun += ran
+                        control.samplesWritten += samples
+                        control.clockMilliseconds += elapsed
+                        control.skippedMilliseconds += elapsed - owed
                     }
                 }
                 Thread.sleep(forTimeInterval: 0.002)
