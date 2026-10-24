@@ -37,14 +37,19 @@
 //!               bit 7              bit 0
 //! ```
 //!
+//! Where everything sits is the machine's [`MsxLayout`]. The default:
+//!
 //! - **Slot 0:** Main-ROM (BIOS) at pages 0-1
 //! - **Slot 1:** Cartridge slot 1
 //! - **Slot 2:** Cartridge slot 2
 //! - **Slot 3:** Main RAM (64 KB)
 //!
-//! Subslot expansion (writes to $FFFF when slot 3 is in page 3) is
-//! recognised but currently disabled — MSX1 doesn't need it; MSX2+
-//! adds it.
+//! Real MSX1 machines vary: openMSX's 125 MSX1 configurations use 27
+//! layouts. RAM may sit in slot 1, 2 or 3, share slot 0 with the BIOS, or
+//! hide in a subslot of an expanded slot, and the cartridge ports move to
+//! whichever slots are left. An expanded slot has a subslot register at
+//! `$FFFF` while it is selected for page 3: two bits per page choose its
+//! subslot, and a read returns the complement of what was written.
 //!
 //! # I/O port map
 //!
@@ -103,6 +108,73 @@ const AY_SAMPLE_RATE: u32 = 48_000;
 /// Pre-allocated PSG buffer for ~60 Hz host audio. At 48 kHz and
 /// 60 fps the budget is 800 samples per frame; round up.
 const AY_SAMPLES_PER_FRAME: usize = 1024;
+
+/// A slot: a primary slot, and in an expanded one the subslot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotAddress {
+    pub primary: u8,
+    pub secondary: Option<u8>,
+}
+
+impl SlotAddress {
+    /// A primary slot that is not expanded.
+    #[must_use]
+    pub const fn primary(slot: u8) -> Self {
+        Self {
+            primary: slot,
+            secondary: None,
+        }
+    }
+
+    /// Subslot `secondary` of expanded slot `primary`.
+    #[must_use]
+    pub const fn expanded(primary: u8, secondary: u8) -> Self {
+        Self {
+            primary,
+            secondary: Some(secondary),
+        }
+    }
+}
+
+/// RAM at `start..=end` in one slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RamRegion {
+    pub slot: SlotAddress,
+    pub start: u16,
+    pub end: u16,
+}
+
+/// Where the BIOS, the RAM and the cartridge ports sit.
+///
+/// The RAM regions must not overlap in the address space: they share one
+/// 64 KB store, indexed by address. Every layout openMSX describes for an
+/// MSX1 fits that.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MsxLayout {
+    /// The 32 KB Main-ROM at `$0000-$7FFF`.
+    pub bios: SlotAddress,
+    pub ram: Vec<RamRegion>,
+    /// The slots behind cartridge ports 1 and 2.
+    pub cartridge_ports: [SlotAddress; 2],
+    /// Which primary slots are expanded into four subslots.
+    pub expanded: [bool; 4],
+}
+
+impl Default for MsxLayout {
+    /// The BIOS in slot 0, cartridges in 1 and 2, 64 KB of RAM in 3.
+    fn default() -> Self {
+        Self {
+            bios: SlotAddress::primary(0),
+            ram: vec![RamRegion {
+                slot: SlotAddress::primary(3),
+                start: 0x0000,
+                end: 0xFFFF,
+            }],
+            cartridge_ports: [SlotAddress::primary(1), SlotAddress::primary(2)],
+            expanded: [false; 4],
+        }
+    }
+}
 
 /// MSX video region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -301,6 +373,10 @@ pub struct Msx {
     cart1: CartridgeSlot,
     cart2: CartridgeSlot,
     ram: Vec<u8>,
+    /// Where the BIOS, RAM and cartridge ports sit.
+    layout: MsxLayout,
+    /// The subslot register of each expanded primary slot.
+    subslots: [u8; 4],
     /// Keyboard matrix: 11 rows × 8 columns, active-low (1 = released).
     keyboard: [u8; 11],
     region: MsxRegion,
@@ -343,6 +419,13 @@ impl Msx {
     /// [`Msx::insert_cart2`].
     #[must_use]
     pub fn new(bios_rom: Vec<u8>, region: MsxRegion) -> Self {
+        Self::with_layout(bios_rom, region, MsxLayout::default())
+    }
+
+    /// Create an MSX1 whose BIOS, RAM and cartridge ports sit where `layout`
+    /// says.
+    #[must_use]
+    pub fn with_layout(bios_rom: Vec<u8>, region: MsxRegion, layout: MsxLayout) -> Self {
         let vdp_region = match region {
             MsxRegion::Ntsc => VdpRegion::Ntsc,
             MsxRegion::Pal => VdpRegion::Pal,
@@ -360,6 +443,8 @@ impl Msx {
             cart1: CartridgeSlot::empty(),
             cart2: CartridgeSlot::empty(),
             ram: vec![0u8; 65536],
+            layout,
+            subslots: [0; 4],
             keyboard: [0xFF; 11],
             region,
             m1_wait_phase: 0,
@@ -490,33 +575,77 @@ impl Msx {
         }
     }
 
-    /// Resolve which primary slot is selected for the page containing
-    /// `addr`. PPI port A holds two bits per page.
-    fn resolve_slot(&self, addr: u16) -> u8 {
+    /// Which primary slot is selected for the page containing `addr`. PPI
+    /// port A holds two bits per page.
+    fn primary_slot(&self, addr: u16) -> u8 {
         let page = (addr >> 14) as usize;
         (self.ppi.port_a() >> (page * 2)) & 0x03
     }
 
+    /// The slot the page containing `addr` reaches: the primary slot, and
+    /// in an expanded one the subslot its register selects for that page.
+    fn resolve_slot(&self, addr: u16) -> SlotAddress {
+        let primary = self.primary_slot(addr);
+        if self.layout.expanded[usize::from(primary)] {
+            let page = addr >> 14;
+            let secondary = (self.subslots[usize::from(primary)] >> (page * 2)) & 0x03;
+            SlotAddress::expanded(primary, secondary)
+        } else {
+            SlotAddress::primary(primary)
+        }
+    }
+
+    /// The expanded slot whose subslot register `$FFFF` reaches, if page 3
+    /// is in one.
+    fn subslot_register(&self, addr: u16) -> Option<usize> {
+        let primary = usize::from(self.primary_slot(addr));
+        (addr == 0xFFFF && self.layout.expanded[primary]).then_some(primary)
+    }
+
+    fn in_ram(&self, slot: SlotAddress, addr: u16) -> bool {
+        self.layout
+            .ram
+            .iter()
+            .any(|region| region.slot == slot && (region.start..=region.end).contains(&addr))
+    }
+
     fn mem_read(&self, addr: u16) -> u8 {
-        match self.resolve_slot(addr) {
-            // BIOS at pages 0-1 ($0000-$7FFF).
-            0 if addr < 0x8000 => self.bios_rom.get(addr as usize).copied().unwrap_or(0xFF),
-            0 => 0xFF,
-            1 => self.cart1.read(addr),
-            2 => self.cart2.read(addr),
-            3 => self.ram[addr as usize],
-            _ => 0xFF,
+        if let Some(primary) = self.subslot_register(addr) {
+            return !self.subslots[primary];
+        }
+        let slot = self.resolve_slot(addr);
+        if slot == self.layout.bios && addr < 0x8000 {
+            self.bios_rom.get(addr as usize).copied().unwrap_or(0xFF)
+        } else if slot == self.layout.cartridge_ports[0] {
+            self.cart1.read(addr)
+        } else if slot == self.layout.cartridge_ports[1] {
+            self.cart2.read(addr)
+        } else if self.in_ram(slot, addr) {
+            self.ram[addr as usize]
+        } else {
+            0xFF
         }
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
-        match self.resolve_slot(addr) {
-            0 => {}
-            1 => self.cart1.write(addr, value),
-            2 => self.cart2.write(addr, value),
-            3 => self.ram[addr as usize] = value,
-            _ => {}
+        if let Some(primary) = self.subslot_register(addr) {
+            self.subslots[primary] = value;
+            return;
         }
+        let slot = self.resolve_slot(addr);
+        if slot == self.layout.cartridge_ports[0] {
+            self.cart1.write(addr, value);
+        } else if slot == self.layout.cartridge_ports[1] {
+            self.cart2.write(addr, value);
+        } else if self.in_ram(slot, addr) {
+            self.ram[addr as usize] = value;
+        }
+    }
+
+    /// Where the BIOS, RAM and cartridge ports sit.
+    #[must_use]
+    pub fn layout(&self) -> &MsxLayout {
+        &self.layout
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
@@ -840,6 +969,75 @@ mod tests {
         rom[0x0008] = 0x18;
         rom[0x0009] = 0xFE;
         rom
+    }
+
+    /// The VG 8020-20's layout: RAM in subslot 2 of an expanded slot 3.
+    fn expanded_slot_3() -> Msx {
+        let layout = MsxLayout {
+            ram: vec![RamRegion {
+                slot: SlotAddress::expanded(3, 2),
+                start: 0x0000,
+                end: 0xFFFF,
+            }],
+            expanded: [false, false, false, true],
+            ..MsxLayout::default()
+        };
+        let mut sys = Msx::with_layout(trap_bios(), MsxRegion::Ntsc, layout);
+        sys.ppi.write(3, 0x82);
+        sys
+    }
+
+    #[test]
+    fn the_subslot_register_reads_back_complemented() {
+        let mut sys = expanded_slot_3();
+        sys.ppi.write(0, 0b1100_0000); // page 3 -> slot 3
+        sys.poke(0xFFFF, 0b1010_0000);
+        assert_eq!(sys.peek(0xFFFF), 0b0101_1111);
+    }
+
+    #[test]
+    fn ram_answers_only_in_its_subslot() {
+        let mut sys = expanded_slot_3();
+        sys.ppi.write(0, 0b1100_0000);
+        sys.poke(0xFFFF, 0b1000_0000); // page 3 -> subslot 2
+        sys.poke(0xC000, 0x5A);
+        assert_eq!(sys.peek(0xC000), 0x5A);
+        sys.poke(0xFFFF, 0b0100_0000); // page 3 -> subslot 1
+        assert_eq!(sys.peek(0xC000), 0xFF, "subslot 1 is empty");
+        sys.poke(0xC000, 0x11);
+        sys.poke(0xFFFF, 0b1000_0000);
+        assert_eq!(
+            sys.peek(0xC000),
+            0x5A,
+            "the write to subslot 1 went nowhere"
+        );
+    }
+
+    #[test]
+    fn an_unexpanded_slot_has_no_subslot_register() {
+        let mut sys = booted(MsxRegion::Ntsc);
+        sys.ppi.write(0, 0b1100_0000);
+        sys.poke(0xFFFF, 0x42);
+        assert_eq!(sys.peek(0xFFFF), 0x42, "$FFFF is plain RAM");
+    }
+
+    #[test]
+    fn ram_beside_the_bios_covers_only_its_pages() {
+        let layout = MsxLayout {
+            ram: vec![RamRegion {
+                slot: SlotAddress::primary(0),
+                start: 0x8000,
+                end: 0xFFFF,
+            }],
+            ..MsxLayout::default()
+        };
+        let mut sys = Msx::with_layout(trap_bios(), MsxRegion::Ntsc, layout);
+        sys.ppi.write(3, 0x82);
+        sys.ppi.write(0, 0); // every page in slot 0
+        sys.poke(0x0009, 0x00);
+        assert_eq!(sys.peek(0x0009), 0xFE, "the BIOS is read-only");
+        sys.poke(0x8000, 0x77);
+        assert_eq!(sys.peek(0x8000), 0x77, "RAM fills pages 2 and 3");
     }
 
     /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP +
