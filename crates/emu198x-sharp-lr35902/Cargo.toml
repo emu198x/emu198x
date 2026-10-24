@@ -1,0 +1,24 @@
+[package]
+name = "emu198x-sharp-lr35902"
+description = "Sharp LR35902 (SM83) CPU — Game Boy SoC core, m-cycle pin-level bus"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["sm83", "lr35902", "gameboy", "cpu", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+isa-disasm = { package = "isa198x-disasm", version = "0.1" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

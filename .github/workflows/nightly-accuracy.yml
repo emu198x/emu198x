@@ -111,7 +111,7 @@ jobs:
             filter: run_all
           - name: sm83-tennant
             artifact: sm83
-            crate: sharp-lr35902
+            crate: emu198x-sharp-lr35902
             test: single_step_tests
             env_var: EMU198X_SM83_TENNANT_DIR
             filter: run_all

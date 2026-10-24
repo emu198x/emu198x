@@ -572,8 +572,8 @@ macro_rules! impl_6809_debug_primitives {
 /// expose `cpu() -> &Sm83` (with public `a`/`f`/`b`/`c`/`d`/`e`/`h`/`l`/`sp`/`pc`
 /// and `ime`/`halt_mode`), `peek`, `poke`, and `step_instruction`; the runtime
 /// must have `time: MachineTime` and `update_rgba_framebuffer(&mut self)`.
-/// `disasm` decodes via `sharp_lr35902::disassemble`; I/O tracing is unsupported
-/// (the Game Boy is memory-mapped). Requires `serde_json` and `sharp-lr35902` in
+/// `disasm` decodes via `emu198x_sharp_lr35902::disassemble`; I/O tracing is unsupported
+/// (the Game Boy is memory-mapped). Requires `serde_json` and `emu198x-sharp-lr35902` in
 /// the runtime's dependencies.
 ///
 /// Storage-agnostic: the bare form serves a lazily-built `machine: Option<M>`;
@@ -630,7 +630,7 @@ macro_rules! impl_sm83_debug_primitives {
             }
             fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
-                Some(::sharp_lr35902::disassemble(addr as u16, |a| m.peek(a)))
+                Some(::emu198x_sharp_lr35902::disassemble(addr as u16, |a| m.peek(a)))
             }
             fn dbg_step(&mut self) -> u64 {
                 let ticks = self.dbg_step_no_resync();
