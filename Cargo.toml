@@ -61,6 +61,8 @@ members = [
     "crates/format-amstrad-dsk",
     "crates/format-nintendo-game-boy-cartridge",
     "crates/format-nintendo-nes-ines",
+    "crates/format-nintendo-snes-sfc",
+    "crates/machine-nintendo-snes",
     "crates/format-sinclair-zx-spectrum-rzx",
     "crates/format-sinclair-zx-spectrum-sna",
     "crates/format-sinclair-zx-spectrum-snapshot",
