@@ -1,0 +1,27 @@
+[package]
+name = "machine-atari-st"
+description = "Atari ST (520ST and 1040ST, STF): 68000, GLUE/MMU, Shifter, MFP 68901, ACIAs, YM2149, WD1772 behind the DMA chip, and a protocol-level IKBD"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+motorola-68000 = { path = "../motorola-68000", version = "0.44.0" }
+atari-st-glue-mmu = { path = "../atari-st-glue-mmu", version = "0.44.0" }
+atari-st-shifter = { path = "../atari-st-shifter", version = "0.44.0" }
+motorola-mfp-68901 = { path = "../motorola-mfp-68901", version = "0.44.0" }
+motorola-acia-6850 = { path = "../motorola-acia-6850", version = "0.44.0" }
+emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
+western-digital-wd1770 = { path = "../western-digital-wd1770", version = "0.44.0" }
+format-atari-st-st = { path = "../format-atari-st-st", version = "0.44.0" }
+format-atari-st-msa = { path = "../format-atari-st-msa", version = "0.44.0" }
+serde = { workspace = true }
+
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
