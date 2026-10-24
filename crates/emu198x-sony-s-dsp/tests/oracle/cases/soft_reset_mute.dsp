@@ -1,0 +1,51 @@
+# FLG soft reset and mute, and reads of ENVX/OUTX
+ram 1000 3C 0F 2F 5E 92 1F 2B 1E 44 9C 8B 1D C3 11 0D 77 EE 8E 54 CE C5 B9 55 AA EF 48 70 07 96 93 6C 55
+ram 1020 92 8B 9C 68
+ram 0200 00 10 00 10
+at 0
+w 5D 02
+w 0C 7F
+w 1C 7F
+w 6C E0
+w 00 40
+w 01 40
+w 02 00
+w 03 0F
+w 04 00
+w 05 8F
+w 06 E0
+w 07 7F
+w 10 40
+w 11 40
+w 12 00
+w 13 10
+w 14 00
+w 15 8F
+w 16 E0
+w 17 7F
+w 20 40
+w 21 40
+w 22 00
+w 23 11
+w 24 00
+w 25 8F
+w 26 E0
+w 27 7F
+at 3
+w 4C 07
+at 320
+w 6C 20
+w 4C 07
+at 12817
+w 6C 60
+at 19203
+w 6C 20
+at 25625
+w 6C A0
+at 28800
+w 6C 20
+w 4C 05
+at 32001
+w 08 55
+w 19 AA
+end 41600
