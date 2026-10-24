@@ -145,6 +145,12 @@ impl Disk {
         self
     }
 
+    /// Number of sides.
+    #[must_use]
+    pub fn sides(&self) -> usize {
+        self.sides
+    }
+
     /// Sector size in bytes.
     #[must_use]
     pub fn sector_size(&self) -> usize {

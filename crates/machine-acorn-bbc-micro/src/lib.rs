@@ -655,6 +655,9 @@ pub enum BbcModel {
     ModelBPlus,
 }
 
+/// Bytes in one track of a DFS disc: ten 256-byte sectors.
+const DFS_TRACK_BYTES: usize = 10 * 256;
+
 #[derive(Serialize, Deserialize)]
 pub struct BbcMicro {
     cpu: M6502,
@@ -859,15 +862,45 @@ impl BbcMicro {
     /// Build a disc from an Acorn DFS image: `.ssd` with one side, or `.dsd`
     /// with two, interleaved track by track. Each track holds ten 256-byte
     /// sectors numbered 0-9. The track count follows the image's size: 40,
-    /// or 80 for a larger image.
+    /// or 80 for a larger image. A short image, which is common because
+    /// tools trim the unused tracks, is padded so every sector can be written.
     #[must_use]
     pub fn dfs_disk(image: &[u8], sides: usize, writable: bool) -> Disk {
-        const TRACK_BYTES: usize = 10 * 256;
-        let tracks_in_image = image.len().div_ceil(TRACK_BYTES * sides.max(1));
+        let sides = sides.clamp(1, 2);
+        let tracks_in_image = image.len().div_ceil(DFS_TRACK_BYTES * sides);
         let tracks = if tracks_in_image > 40 { 80 } else { 40 };
-        Disk::new(image.to_vec(), tracks, sides.max(1), 10, 256)
+        let mut data = image.to_vec();
+        data.resize(data.len().max(tracks * sides * DFS_TRACK_BYTES), 0);
+        Disk::new(data, tracks, sides, 10, 256)
             .with_first_sector_id(0)
             .write_protected(!writable)
+    }
+
+    /// How many sides a DFS image holds, from its bytes alone, since an
+    /// image arrives without its `.ssd` or `.dsd` name.
+    ///
+    /// A `.dsd` interleaves the sides track by track, so its second track is
+    /// side 1's track 0, which opens with a catalogue of its own. Its sector
+    /// count, in the second catalogue sector, matches side 0's. In a `.ssd`
+    /// the same bytes are track 1's file data, which almost never matches.
+    /// An image too big for one side of 80 tracks has two, whatever it holds.
+    #[must_use]
+    pub fn dfs_sides(image: &[u8]) -> usize {
+        if image.len() > 80 * DFS_TRACK_BYTES {
+            return 2;
+        }
+        let sector_count = |catalogue: usize| -> Option<u16> {
+            let bytes = image.get(catalogue + 256 + 5..catalogue + 256 + 8)?;
+            // Byte 5 is eight times the file count, at most 31 files.
+            if bytes[0] % 8 != 0 || bytes[0] > 31 * 8 {
+                return None;
+            }
+            Some(u16::from(bytes[1] & 0x03) << 8 | u16::from(bytes[2]))
+        };
+        match (sector_count(0), sector_count(DFS_TRACK_BYTES)) {
+            (Some(side0), Some(side1)) if side0 == side1 && matches!(side0, 400 | 800) => 2,
+            _ => 1,
+        }
     }
 
     /// Write the drive-control latch: select the drive and side, and pulse
@@ -3092,6 +3125,36 @@ mod tests {
         (0..40 * 10 * 256)
             .map(|i: usize| ((i / 2560) as u8) ^ (((i / 256) % 10) as u8) << 4 ^ (i as u8))
             .collect()
+    }
+
+    /// A DFS catalogue for a side of `sectors` sectors holding `files` files.
+    fn catalogue(image: &mut [u8], at: usize, files: u8, sectors: u16) {
+        image[at + 256 + 5] = files * 8;
+        image[at + 256 + 6] = (sectors >> 8) as u8;
+        image[at + 256 + 7] = sectors as u8;
+    }
+
+    #[test]
+    fn dfs_sides_finds_the_second_catalogue_of_a_dsd() {
+        let mut dsd = vec![0u8; 40 * 2 * DFS_TRACK_BYTES];
+        catalogue(&mut dsd, 0, 2, 400);
+        catalogue(&mut dsd, DFS_TRACK_BYTES, 0, 400);
+        assert_eq!(BbcMicro::dfs_sides(&dsd), 2);
+
+        let mut ssd = vec![0u8; 80 * DFS_TRACK_BYTES];
+        catalogue(&mut ssd, 0, 1, 800);
+        assert_eq!(BbcMicro::dfs_sides(&ssd), 1, "track 1 holds no catalogue");
+        assert_eq!(BbcMicro::dfs_sides(&[]), 1);
+        assert_eq!(BbcMicro::dfs_sides(&vec![0; 81 * DFS_TRACK_BYTES]), 2);
+    }
+
+    #[test]
+    fn a_short_dfs_image_is_padded_to_its_tracks() {
+        let disk = BbcMicro::dfs_disk(&[0xAA; 3 * DFS_TRACK_BYTES], 1, true);
+        assert_eq!(disk.data().len(), 40 * DFS_TRACK_BYTES);
+        assert_eq!(disk.data()[0], 0xAA);
+        let long = BbcMicro::dfs_disk(&vec![0; 41 * DFS_TRACK_BYTES], 1, true);
+        assert_eq!(long.data().len(), 80 * DFS_TRACK_BYTES);
     }
 
     fn settle_fdc(sys: &mut BbcMicro) {
