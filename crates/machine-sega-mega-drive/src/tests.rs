@@ -328,3 +328,67 @@ fn the_reset_button_restarts_the_68000_and_holds_the_z80() {
         "the program ran again from the vector"
     );
 }
+
+#[test]
+fn run_frame_returns_a_frames_master_clocks() {
+    for (region, lines) in [(Region::Americas, NTSC_LINES), (Region::Europe, PAL_LINES)] {
+        let mut md = MegaDrive::new(cart(Asm::default().halt(), None, &[]), region);
+        md.run_frame();
+        assert_eq!(md.run_frame(), lines * MCLKS_PER_LINE, "{region:?}");
+    }
+}
+
+#[test]
+fn the_framebuffer_passes_the_vdps_through() {
+    let mut md = MegaDrive::new(cart(Asm::default().halt(), None, &[]), Region::Americas);
+    md.run_frame();
+    assert_eq!(md.frame_width() as usize, md.vdp.frame_width());
+    assert_eq!(md.frame_height() as usize, md.vdp.frame_height());
+    assert!(md.framebuffer().len() >= FRAME_STRIDE * md.frame_height() as usize);
+}
+
+#[test]
+fn audio_comes_out_as_48_khz_stereo_within_range() {
+    // A PSG tone at full volume: channel 0, period $010, attenuation 0.
+    let mut p = Asm::default();
+    p.move_b(0x80, 0xC0_0011)
+        .move_b(0x01, 0xC0_0011)
+        .move_b(0x90, 0xC0_0011)
+        .halt();
+    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut samples = Vec::new();
+    for _ in 0..60 {
+        md.run_frame();
+        samples.extend(md.take_audio());
+    }
+    assert_eq!(samples.len() % 2, 0, "interleaved pairs");
+    // 48 kHz over the clocks run, give or take what is still pending. The
+    // first frame is short: it ends at the first V-blank after power-on.
+    let pairs = samples.len() as u64 / 2;
+    let expected = md.mclk() * u64::from(AUDIO_SAMPLE_RATE) / NTSC_MASTER_HZ;
+    assert!(
+        pairs.abs_diff(expected) <= 2,
+        "{pairs} pairs where {expected} were due"
+    );
+    assert!(samples.iter().all(|s| s.abs() <= 0.75), "no clipping");
+    assert!(samples.iter().any(|s| s.abs() > 0.01), "the PSG is heard");
+}
+
+#[test]
+fn peek_and_poke_reach_rom_and_both_rams_without_side_effects() {
+    let mut md = MegaDrive::new(
+        cart(Asm::default().halt(), None, &[0xABCD]),
+        Region::Americas,
+    );
+    assert_eq!(md.peek(0x400), 0xAB);
+    assert_eq!(md.peek(0x401), 0xCD);
+    md.poke(0xFF_1234, 0x5A);
+    md.poke(0xA0_0010, 0x77);
+    md.poke(0x400, 0x00);
+    assert_eq!(md.peek(0xFF_1234), 0x5A);
+    assert_eq!(md.ram()[0x1234], 0x5A);
+    assert_eq!(md.peek(0xA0_0010), 0x77);
+    assert_eq!(md.z80_ram()[0x10], 0x77);
+    assert_eq!(md.peek(0x400), 0xAB, "ROM is read-only");
+    assert_eq!(md.peek(0xC0_0004), 0xFF, "ports are not read");
+}

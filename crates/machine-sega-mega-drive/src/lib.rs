@@ -44,6 +44,14 @@
 //! cycle's T1 and BUSACK reports it. The Z80 core has no BUSREQ pin, so the
 //! machine models it from the core's public phase.
 //!
+//! # Sound
+//!
+//! [`MegaDrive::take_audio`] mixes the two sound chips into 48 kHz stereo.
+//! The YM2612 makes one sample per 144 of its clocks, which is the master
+//! clock over 1008: about 53.27 kHz on NTSC. A box filter brings that to
+//! 48 kHz, in the way the PSG's own resampler does. The PSG is mono and goes
+//! to both channels.
+//!
 //! # Not yet modelled
 //!
 //! Cartridge SRAM, TMSS, the extra wait a Z80 access to the 68000 window
@@ -63,6 +71,32 @@ use motorola_68000::cpu::State;
 use serde::{Deserialize, Serialize};
 
 pub use io::{Buttons, Device};
+
+/// The NTSC master clock: fifteen times the colour subcarrier.
+pub const NTSC_MASTER_HZ: u64 = 53_693_175;
+/// The PAL master clock: twelve times the colour subcarrier.
+pub const PAL_MASTER_HZ: u64 = 53_203_424;
+/// Master clocks per line.
+pub const MCLKS_PER_LINE: u64 = 3420;
+/// Lines per NTSC frame.
+pub const NTSC_LINES: u64 = 262;
+/// Lines per PAL frame.
+pub const PAL_LINES: u64 = 313;
+/// Pixels from one row of [`MegaDrive::framebuffer`] to the next.
+pub const FRAME_STRIDE: usize = emu198x_sega_315_5313::render::LINE_WIDTH;
+/// The rate [`MegaDrive::take_audio`] delivers.
+pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
+/// Master clocks per YM2612 sample: 7 per YM clock, 144 YM clocks a sample.
+const MCLKS_PER_YM_SAMPLE: u64 = 7 * 144;
+/// Output gains. A YM2612 sample is the sum of a channel's pins across a
+/// sample, and a full-scale pair reaches about +/-4608 on the YM2612 (the
+/// YM3438 is quieter), so this gain keeps the FM within +/-0.5. The PSG's
+/// buffer is DC-blocked and sits within about +/-1, so a quarter keeps it
+/// within +/-0.25. Together they cannot pass +/-0.75, short of clipping.
+/// The balance between the two is not measured against a console.
+const YM_GAIN: f32 = 0.5 / 4608.0;
+/// See [`YM_GAIN`].
+const PSG_GAIN: f32 = 0.25;
 
 /// Master clocks per 68000 clock.
 pub const MCLKS_PER_68K: u8 = 7;
@@ -127,6 +161,16 @@ pub struct MegaDrive {
     refresh_clocks: u32,
     refresh_due: bool,
     refresh_wait: u8,
+
+    /// The YM2612 resampler: a phase in master clocks times 48000, and the
+    /// sum and count of the YM samples in the output sample being built.
+    ym_phase: u64,
+    ym_sum: [i64; 2],
+    ym_count: u32,
+    /// Resampled output from each chip not yet mixed, because the two
+    /// streams end a frame a sample or so apart.
+    ym_pending: Vec<[f32; 2]>,
+    psg_pending: Vec<f32>,
 }
 
 impl MegaDrive {
@@ -136,11 +180,7 @@ impl MegaDrive {
     pub fn new(rom: Vec<u8>, region: Region) -> Self {
         // The PSG and YM2612 are clocked from the master clock's dividers;
         // their constructors take the resulting rate.
-        let z80_hz = if region.pal() {
-            53_203_424 / 15
-        } else {
-            53_693_175 / 15
-        };
+        let z80_hz = (Self::master_hz_for(region) / u64::from(MCLKS_PER_Z80)) as u32;
         let mut machine = Self {
             cpu: Cpu68000::new(),
             z80: Z80::new(),
@@ -169,6 +209,11 @@ impl MegaDrive {
             refresh_clocks: 0,
             refresh_due: false,
             refresh_wait: 0,
+            ym_phase: 0,
+            ym_sum: [0; 2],
+            ym_count: 0,
+            ym_pending: Vec::new(),
+            psg_pending: Vec::new(),
         };
         machine.reset_68000();
         machine
@@ -231,12 +276,80 @@ impl MegaDrive {
         self.mclk += 1;
     }
 
-    /// Run until the VDP finishes a frame.
-    pub fn run_frame(&mut self) {
+    /// Run until the VDP finishes a frame, returning the master clocks it
+    /// took.
+    pub fn run_frame(&mut self) -> u64 {
         let start = self.vdp.frames();
+        let start_mclk = self.mclk;
         while self.vdp.frames() == start {
             self.tick();
         }
+        self.mclk - start_mclk
+    }
+
+    fn master_hz_for(region: Region) -> u64 {
+        if region.pal() {
+            PAL_MASTER_HZ
+        } else {
+            NTSC_MASTER_HZ
+        }
+    }
+
+    /// The master clock rate for this console's region.
+    #[must_use]
+    pub fn master_hz(&self) -> u64 {
+        Self::master_hz_for(self.region)
+    }
+
+    /// The picture: [`frame_width`](Self::frame_width) by
+    /// [`frame_height`](Self::frame_height) `0xAARRGGBB` pixels, borders
+    /// included, at a stride of [`FRAME_STRIDE`].
+    #[must_use]
+    pub fn framebuffer(&self) -> &[u32] {
+        self.vdp.framebuffer()
+    }
+
+    /// The picture's width: 347 in H40, 283 in H32.
+    #[must_use]
+    pub fn frame_width(&self) -> u32 {
+        self.vdp.frame_width() as u32
+    }
+
+    /// The picture's height, borders included.
+    #[must_use]
+    pub fn frame_height(&self) -> u32 {
+        self.vdp.frame_height() as u32
+    }
+
+    /// The sound made since the last call, as interleaved 48 kHz stereo.
+    /// Whatever one chip has made beyond the other waits for the next call.
+    pub fn take_audio(&mut self) -> Vec<f32> {
+        let master_hz = self.master_hz();
+        for [left, right] in self.ym2612.take_samples() {
+            self.ym_sum[0] += i64::from(left);
+            self.ym_sum[1] += i64::from(right);
+            self.ym_count += 1;
+            self.ym_phase += MCLKS_PER_YM_SAMPLE * u64::from(AUDIO_SAMPLE_RATE);
+            if self.ym_phase >= master_hz {
+                self.ym_phase -= master_hz;
+                let count = self.ym_count as f32;
+                self.ym_pending.push([
+                    self.ym_sum[0] as f32 / count * YM_GAIN,
+                    self.ym_sum[1] as f32 / count * YM_GAIN,
+                ]);
+                self.ym_sum = [0; 2];
+                self.ym_count = 0;
+            }
+        }
+        self.psg_pending.extend(self.psg.take_buffer());
+
+        let n = self.ym_pending.len().min(self.psg_pending.len());
+        let mut out = Vec::with_capacity(n * 2);
+        for ([left, right], psg) in self.ym_pending.drain(..n).zip(self.psg_pending.drain(..n)) {
+            out.push(left + psg * PSG_GAIN);
+            out.push(right + psg * PSG_GAIN);
+        }
+        out
     }
 
     /// Master clocks since power-on.
@@ -594,6 +707,31 @@ impl MegaDrive {
     #[must_use]
     pub fn z80_ram(&self) -> &[u8] {
         &self.z80_ram
+    }
+
+    /// The byte at `address` on the 68000's bus as a debugger sees it:
+    /// cartridge, Z80 sound RAM and work RAM, read without side effects.
+    /// Everything else, the chips' ports included, reads `$FF`.
+    #[must_use]
+    pub fn peek(&self, address: u32) -> u8 {
+        let address = address & 0x00FF_FFFF;
+        match address {
+            0x00_0000..=0x3F_FFFF => self.rom.get(address as usize).copied().unwrap_or(0xFF),
+            0xA0_0000..=0xA0_3FFF => self.z80_ram[(address & 0x1FFF) as usize],
+            0xE0_0000..=0xFF_FFFF => self.ram[(address & 0xFFFF) as usize],
+            _ => 0xFF,
+        }
+    }
+
+    /// Write `value` into Z80 sound RAM or work RAM at `address`. The
+    /// cartridge and the chips' ports are left alone.
+    pub fn poke(&mut self, address: u32, value: u8) {
+        let address = address & 0x00FF_FFFF;
+        match address {
+            0xA0_0000..=0xA0_3FFF => self.z80_ram[(address & 0x1FFF) as usize] = value,
+            0xE0_0000..=0xFF_FFFF => self.ram[(address & 0xFFFF) as usize] = value,
+            _ => {}
+        }
     }
 
     /// The cartridge ROM.
