@@ -19,8 +19,8 @@ serde = { workspace = true }
 [dev-dependencies]
 # Path-only on purpose. A dev-dependency carrying a version must resolve
 # on the registry at publish time; without one cargo strips it from the
-# published manifest, which is what lets this crate ship while its test
-# helper stays unpublished.
+# published manifest, so this crate's release never waits on the helper's.
+# It takes the published version when it moves to its own repository (#1997).
 emu198x-test-skip = { path = "../emu198x-test-skip" }
 serde_json = { workspace = true }
 

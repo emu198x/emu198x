@@ -2,10 +2,15 @@
 name = "emu198x-test-skip"
 description = "Declare a test skipped for a missing fixture, so it cannot pass silently"
 edition.workspace = true
-version.workspace = true
-publish = false
+# Independently versioned, not the workspace lockstep version: the cores that
+# leave this workspace (#1997) take it from crates.io, and its version should
+# tell them when *it* changed rather than when the suite did.
+version = "0.1.0"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["testing", "fixtures", "skip", "emulator"]
+categories = ["development-tools::testing"]
 
 # Deliberately dependency-free. This is a dev-dependency of ~50 leaf
 # crates, so anything it pulls in is paid for by all of them.
