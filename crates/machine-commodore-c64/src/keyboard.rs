@@ -83,7 +83,7 @@ impl KeyboardMatrix {
     /// pull-ups. Joystick masks are external active-low inputs. The rules
     /// follow VICE 3.10 c64cia1.c, including SHIFT LOCK's stronger contact.
     #[must_use]
-    pub(crate) fn resolve_ports(
+    pub fn resolve_ports(
         &self,
         pa: u8,
         pb: u8,

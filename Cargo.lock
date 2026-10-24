@@ -2814,6 +2814,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-commodore-c128"
+version = "0.44.2"
+dependencies = [
+ "common-commodore-c64",
+ "emu198x-mos-6502",
+ "emu198x-mos-sid-6581",
+ "emu198x-zilog-z80",
+ "machine-commodore-c64",
+ "mos-cia-6526",
+ "mos-vic-ii",
+ "postcard",
+ "serde",
+ "serde-big-array",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "machine-commodore-c64"
 version = "0.44.2"
 dependencies = [
