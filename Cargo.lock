@@ -4660,6 +4660,7 @@ name = "runtime-msx"
 version = "0.44.2"
 dependencies = [
  "emu198x-shell",
+ "emu198x-test-skip",
  "emu198x-ti-tms9918",
  "emu198x-zilog-z80",
  "machine-msx",

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--model` accepts the real MSX1 machines the runtime now offers, and the window's model menu lists them.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-msx-v0.2.0) - 2026-06-04
 
 ### Added

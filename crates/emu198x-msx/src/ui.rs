@@ -231,7 +231,7 @@ mod tests {
         };
         let runtime = app.build_ui_runtime().expect("window runtime");
         let mut system = app.ui_system();
-        assert_eq!(system.variants().len(), 2);
+        assert_eq!(system.variants().len(), Model::ALL.len());
         let mut replacement =
             build_replacement(&runtime, Model::Msx1Pal, &app.firmware).expect("PAL");
         assert_eq!(system.frame_ticks(&replacement), 228 * 313);

@@ -246,7 +246,7 @@ impl MsxRuntime {
             emu198x_shell::Region::Pal => MsxRegion::Pal,
             _ => MsxRegion::Ntsc,
         };
-        let mut machine = Msx::new(bios, region);
+        let mut machine = Msx::with_layout(bios, region, self.model.layout());
         if let Some(rom) = self.cart1_bytes.clone() {
             machine.insert_cart1(rom, self.cart1_mapper);
         }

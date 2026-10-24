@@ -73,7 +73,9 @@ impl MachineApp for Msx {
                     ~/.emu198x/roms/microsoft-msx/msx.rom (or set EMU198X_MSX_BIOS)
     --rom PATH|ID=PATH  pin BIOS firmware (msx1-bios)
     --rom-dir DIR   firmware directory (or EMU198X_MSX_ROM_DIR)
-    --model ID      microsoft-msx1-ntsc | microsoft-msx1-pal
+    --model ID      microsoft-msx1-ntsc | microsoft-msx1-pal | sony-hb-10p |
+                    toshiba-hx-10 | mitsubishi-ml-f80 | yamaha-cx5m |
+                    mitsubishi-ml-fx1 | sony-hb-10
     --cart PATH     cartridge ROM (slot 1)
     --mapper KIND   cartridge mapper: plain | konami | konami-scc | ascii8 |
                     ascii16 [default: plain]

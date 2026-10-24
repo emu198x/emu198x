@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Six real MSX1 machines beside the two regional presets: Sony HB-10P, Toshiba HX-10, Mitsubishi ML-F80, Yamaha CX5M, Mitsubishi ML-FX1 and Sony HB-10. Each carries its slot layout, region and year from openMSX's machine configuration, and looks for its own BIOS dump before `msx.rom`.
+
 ### Changed
 
 - Advance live-machine snapshots to version 8: the machine now carries its slot layout and subslot registers.

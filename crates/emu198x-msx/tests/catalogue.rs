@@ -140,7 +140,9 @@ fn firmware_pins_and_directory_conventions_work() {
 #[test]
 fn scripts_switch_both_regions_with_both_cartridges_and_reset() {
     let fixture = Fixture::new();
-    for model in runtime_msx::Model::ALL {
+    // The synthetic BIOS assumes the default slot layout, which the two
+    // regional presets share.
+    for model in [runtime_msx::Model::Msx1Ntsc, runtime_msx::Model::Msx1Pal] {
         let report = output(
             fixture
                 .script(json!([
