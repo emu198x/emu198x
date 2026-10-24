@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
 emu198x-yamaha-ym2413 = { path = "../emu198x-yamaha-ym2413", version = "0.1.0" }
+format-nintendo-famicom-fds = { path = "../format-nintendo-famicom-fds", version = "0.44.0" }
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.44.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

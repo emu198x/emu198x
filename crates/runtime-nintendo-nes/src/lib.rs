@@ -7,8 +7,8 @@ mod runtime;
 mod snapshot;
 
 pub use machine_nintendo_nes::{ApuChannel, AudioControls};
-pub use profiles::{Model, profile_for, profiles};
+pub use profiles::{FDS_BIOS_FIRMWARE_ID, FDS_DISK_SLOT, Model, profile_for, profiles};
 pub use queries::NesSessionQueryProvider;
-pub use runtime::NesRuntime;
+pub use runtime::{FDS_MAPPER_NUMBER, NesRuntime};
 
 mod signal;
