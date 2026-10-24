@@ -1542,6 +1542,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sony-spc700"
+version = "0.1.0"
+dependencies = [
+ "emu198x-test-skip",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-sord-m5"
 version = "0.44.2"
 dependencies = [

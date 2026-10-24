@@ -96,6 +96,7 @@ members = [
     "crates/machine-sinclair-zx-spectrum-plus2b",
     "crates/machine-sinclair-zx-spectrum-plus3",
     "crates/emu198x-mos-6502",
+    "crates/emu198x-sony-spc700",
     "crates/mos-pia-6520",
     "crates/mos-cia-6526",
     "crates/mos-cia-8520",
