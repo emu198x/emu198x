@@ -243,6 +243,7 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
             "atari-800xl",
             observe::<runtime_atari_800xl::Atari800xlRuntime>(),
         ),
+        ("atari-st", observe::<runtime_atari_st::AtariStRuntime>()),
         (
             "coleco-colecovision",
             observe::<runtime_coleco_colecovision::CvRuntime>(),
