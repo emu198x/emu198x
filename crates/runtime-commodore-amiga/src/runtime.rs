@@ -480,15 +480,14 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
 
     /// Account for complete system ticks crossed by exact CPU stepping.
     ///
-    /// A faster CPU can stop part-way through a system tick. In that case
-    /// `completed_ticks` is zero, but the framebuffer is still refreshed
-    /// because the tick's chipset phase may already have run.
+    /// A faster CPU can stop part-way through a system tick. Audio and time
+    /// account only for complete ticks; the caller refreshes derived display
+    /// output once its exact stepping span ends.
     pub(crate) fn account_debug_progress(&mut self, completed_ticks: u64) {
         for _ in 0..completed_ticks {
             self.sample_audio_after_tick();
         }
         self.time = self.time.saturating_add(completed_ticks);
-        self.update_rgba_framebuffer();
     }
 }
 
@@ -1527,6 +1526,125 @@ mod tests {
             regular.audio_sample_accumulator,
             stepped.audio_sample_accumulator
         );
+    }
+
+    #[test]
+    fn deferred_debug_steps_keep_machine_progress_without_repacking_the_frame() {
+        for model in [
+            Model::A500OcsPal,
+            Model::A600EcsPal,
+            Model::A1200AgaPal,
+            Model::A500OcsPalGvpA530,
+        ] {
+            let mut regular = AmigaRuntimeKind::blank(model);
+            let mut deferred = AmigaRuntimeKind::blank(model);
+            macro_rules! prime_audio {
+                ($runtime:expr) => {
+                    match $runtime {
+                        AmigaRuntimeKind::Ocs(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                        AmigaRuntimeKind::Ecs(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                        AmigaRuntimeKind::Aga(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                    }
+                };
+            }
+            prime_audio!(&mut regular);
+            prime_audio!(&mut deferred);
+            macro_rules! stale_frame {
+                ($runtime:expr) => {
+                    match $runtime {
+                        AmigaRuntimeKind::Ocs(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                        AmigaRuntimeKind::Ecs(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                        AmigaRuntimeKind::Aga(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                    }
+                };
+            }
+            stale_frame!(&mut deferred);
+            let starts = deferred.cpu_instruction_starts();
+            let time_before = deferred.time().get();
+            for _ in 0..8 {
+                let regular_ticks = regular
+                    .debug_target_mut()
+                    .expect("debug target")
+                    .step_instruction();
+                let deferred_ticks = deferred
+                    .debug_target_mut()
+                    .expect("debug target")
+                    .step_instruction_no_resync();
+                assert_eq!(
+                    deferred_ticks, regular_ticks,
+                    "deferred output must not change machine ticks on {model:?}"
+                );
+            }
+            assert_eq!(deferred.cpu_instruction_starts().wrapping_sub(starts), 8);
+            assert!(
+                deferred.time().get() > time_before,
+                "zero progress cannot pass"
+            );
+            assert_eq!(deferred.time(), regular.time());
+            assert_eq!(deferred.tick_count(), regular.tick_count());
+            assert_eq!(
+                deferred.debug_target().expect("debug target").cpu_state(),
+                regular.debug_target().expect("debug target").cpu_state()
+            );
+            macro_rules! compare_runtime {
+                ($deferred:expr, $regular:expr) => {{
+                    let (d, r) = ($deferred, $regular);
+                    assert_eq!(d.audio_sample_accumulator, r.audio_sample_accumulator);
+                    assert_eq!(d.audio_buffer, r.audio_buffer);
+                    assert!(!d.audio_buffer.is_empty(), "audio accounting must run");
+                    assert_eq!(
+                        d.rgba_framebuffer.first(),
+                        Some(&0x5a),
+                        "a no-resync span must leave its frame mirror untouched"
+                    );
+                    assert_eq!(
+                        d.non_black_pixels,
+                        u32::MAX,
+                        "pixel diagnostics must wait for resync"
+                    );
+                }};
+            }
+            match (&deferred, &regular) {
+                (AmigaRuntimeKind::Ocs(d), AmigaRuntimeKind::Ocs(r)) => compare_runtime!(d, r),
+                (AmigaRuntimeKind::Ecs(d), AmigaRuntimeKind::Ecs(r)) => compare_runtime!(d, r),
+                (AmigaRuntimeKind::Aga(d), AmigaRuntimeKind::Aga(r)) => compare_runtime!(d, r),
+                _ => panic!("matching model variants"),
+            }
+            deferred.debug_target_mut().expect("debug target").resync();
+            macro_rules! compare_frame {
+                ($deferred:expr, $regular:expr) => {{
+                    let (d, r) = ($deferred, $regular);
+                    assert_eq!(d.rgba_framebuffer, r.rgba_framebuffer);
+                    assert_eq!(d.non_black_pixels, r.non_black_pixels);
+                    assert_eq!(d.non_white_pixels, r.non_white_pixels);
+                    assert_eq!(d.first_active_row, r.first_active_row);
+                }};
+            }
+            match (&deferred, &regular) {
+                (AmigaRuntimeKind::Ocs(d), AmigaRuntimeKind::Ocs(r)) => compare_frame!(d, r),
+                (AmigaRuntimeKind::Ecs(d), AmigaRuntimeKind::Ecs(r)) => compare_frame!(d, r),
+                (AmigaRuntimeKind::Aga(d), AmigaRuntimeKind::Aga(r)) => compare_frame!(d, r),
+                _ => panic!("matching model variants"),
+            }
+        }
     }
 
     #[test]

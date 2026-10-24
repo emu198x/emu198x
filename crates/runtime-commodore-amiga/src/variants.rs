@@ -2129,6 +2129,21 @@ impl AmigaRuntimeKind {
     /// [`AmigaLiveAccess::cpu_instruction_starts`] before and after when the
     /// distinction matters.
     pub(crate) fn step_cpu_instruction(&mut self, tick_limit: u64) -> u64 {
+        let completed_ticks = self.step_cpu_instruction_no_resync(tick_limit);
+        self.resync_debug_output();
+        completed_ticks
+    }
+
+    pub(crate) fn resync_debug_output(&mut self) {
+        match self {
+            Self::Ocs(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::Ecs(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::Aga(runtime) => runtime.refresh_rgba_framebuffer(),
+        }
+    }
+
+    /// Advance the CPU while leaving derived display output for the caller.
+    pub(crate) fn step_cpu_instruction_no_resync(&mut self, tick_limit: u64) -> u64 {
         let start_tick = AmigaLiveAccess::tick_count(self);
         let start_instruction = AmigaLiveAccess::cpu_instruction_starts(self);
         let mut completed_ticks = 0;

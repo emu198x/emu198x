@@ -105,6 +105,14 @@ impl DebugPrimitives for AmigaRuntimeKind {
         self.step_cpu_instruction(STEP_TICK_LIMIT)
     }
 
+    fn dbg_step_no_resync(&mut self) -> u64 {
+        self.step_cpu_instruction_no_resync(STEP_TICK_LIMIT)
+    }
+
+    fn dbg_resync(&mut self) {
+        self.resync_debug_output();
+    }
+
     // io_trace defaults to unsupported: the 68000 is memory-mapped, so the
     // debugger uses memory_read / disasm / run_until_pc instead.
 }
