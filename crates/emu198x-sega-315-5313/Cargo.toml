@@ -1,0 +1,23 @@
+[package]
+name = "emu198x-sega-315-5313"
+description = "Sega 315-5313 video display processor, stepped slot by slot — Sega Mega Drive"
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release.
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["vdp", "mega-drive", "genesis", "video", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true
