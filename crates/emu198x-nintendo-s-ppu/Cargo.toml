@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-nintendo-s-ppu"
+description = "Nintendo S-PPU1 5C77 and S-PPU2 5C78: the SNES picture processor pair, stepped one dot at a time"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
