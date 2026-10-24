@@ -1,0 +1,13 @@
+[package]
+name = "format-atari-st-msa"
+description = "Atari ST .msa (Magic Shadow Archiver) floppy images: header, run-length tracks, and expansion to raw sectors"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

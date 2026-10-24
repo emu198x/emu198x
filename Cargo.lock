@@ -1814,6 +1814,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-atari-st-msa"
+version = "0.44.2"
+
+[[package]]
+name = "format-atari-st-st"
+version = "0.44.2"
+
+[[package]]
 name = "format-commodore-c64-crt"
 version = "0.44.2"
 dependencies = [
@@ -2621,6 +2629,24 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "machine-atari-st"
+version = "0.44.2"
+dependencies = [
+ "atari-st-glue-mmu",
+ "atari-st-shifter",
+ "emu198x-gi-ay-3-8910",
+ "emu198x-test-skip",
+ "format-atari-st-msa",
+ "format-atari-st-st",
+ "motorola-68000",
+ "motorola-acia-6850",
+ "motorola-mfp-68901",
+ "serde",
+ "serde_json",
+ "western-digital-wd1770",
 ]
 
 [[package]]
