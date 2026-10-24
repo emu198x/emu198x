@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A CMOS core, `M6502::new_65c12` (`Variant::Cmos`): the 65SC02 instruction
+  set of the BBC Master's 65C12. It adds `BRA`, `STZ`, `TSB`, `TRB`, `PHX`,
+  `PHY`, `PLX`, `PLY`, `INC A`, `DEC A`, the new `BIT` modes, `(zp)` and
+  `JMP (abs,X)`; runs the old illegal opcodes as defined `NOP`s; fixes the
+  `JMP (abs)` page bug; spends a cycle on decimal `ADC` and `SBC` and takes N
+  and Z from the decimal result; reads rather than writes in a
+  read-modify-write's middle cycle; and clears D on every interrupt. It
+  passes Tom Harte's Synertek 65C02 suite cycle for cycle, apart from the
+  bit instructions, `WAI` and `STP`, which the 65C12 does not have, and the
+  NMOS core still passes the NMOS suite in full.
+- `M6502::variant` and `M6502::set_variant`. The variant is not serialised,
+  so existing snapshots keep their layout; a machine with a CMOS part sets
+  it again after restoring one.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-6502-v0.2.0) - 2026-06-04
 
 ### Added

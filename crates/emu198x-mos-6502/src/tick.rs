@@ -2,6 +2,10 @@ use crate::M6502;
 use crate::cycle::{self, AddrMode, OpCategory, Operation};
 use crate::registers::*;
 
+/// `cs.cycle` during the extra cycle a CMOS core spends on a decimal-mode
+/// `ADC` or `SBC`.
+const DECIMAL_CYCLE: u8 = 0xF0;
+
 impl M6502 {
     pub fn tick(&mut self) -> bool {
         // RDY pin: if external hardware (e.g. VIC-II during a bad line)
@@ -106,7 +110,12 @@ impl M6502 {
             let opcode = self.data_in;
             self.regs.pc = self.regs.pc.wrapping_add(1);
             self.cs.opcode = opcode;
-            self.cs.info = Some(cycle::decode(opcode));
+            let info = if self.is_cmos() {
+                cycle::decode_cmos(opcode)
+            } else {
+                cycle::decode(opcode)
+            };
+            self.cs.info = Some(info);
             self.cs.cycle = 1;
             self.cs.addr = 0;
             self.cs.data = 0;
@@ -117,6 +126,12 @@ impl M6502 {
             // instruction. Sample here so the latch is current when
             // the next boundary arrives.
             self.latch_interrupt_samples();
+            if info.addr_mode == AddrMode::Nop1 {
+                // A CMOS one-cycle NOP: the fetch was the whole instruction.
+                self.cs.cycle = 0;
+                self.schedule_opcode_fetch(self.regs.pc);
+                return true;
+            }
             return false;
         }
 
@@ -133,31 +148,10 @@ impl M6502 {
             }
         };
 
-        let done = match info.addr_mode {
-            AddrMode::Implied | AddrMode::Accumulator => self.tick_implied(info.operation),
-            AddrMode::Immediate => self.tick_immediate(info.operation),
-            AddrMode::ZeroPage => self.tick_zero_page(info.operation, 0, false),
-            AddrMode::ZeroPageX => self.tick_zero_page(info.operation, self.regs.x, true),
-            AddrMode::ZeroPageY => self.tick_zero_page(info.operation, self.regs.y, true),
-            AddrMode::Absolute => self.tick_absolute(info.operation, 0, false),
-            AddrMode::AbsoluteX => self.tick_absolute(info.operation, self.regs.x, true),
-            AddrMode::AbsoluteY => self.tick_absolute(info.operation, self.regs.y, true),
-            AddrMode::IndirectX => self.tick_indirect_x(info.operation),
-            AddrMode::IndirectY => self.tick_indirect_y(info.operation),
-            AddrMode::Relative => self.tick_relative(info.operation),
-            AddrMode::Brk => self.tick_brk(),
-            AddrMode::Jsr => self.tick_jsr(),
-            AddrMode::Rts => self.tick_rts(),
-            AddrMode::Rti => self.tick_rti(),
-            AddrMode::JmpAbs => self.tick_jmp_abs(),
-            AddrMode::JmpInd => self.tick_jmp_ind(),
-            AddrMode::Push => self.tick_push(info.operation),
-            AddrMode::Pull => self.tick_pull(info.operation),
-            AddrMode::Jam => {
-                self.halted = true;
-                self.schedule_read(self.regs.pc);
-                true
-            }
+        let done = if self.cs.cycle == DECIMAL_CYCLE {
+            true
+        } else {
+            self.dispatch(info)
         };
 
         if done {
@@ -183,6 +177,42 @@ impl M6502 {
         }
 
         done
+    }
+
+    /// Run one cycle of the decoded instruction; true when it completes.
+    fn dispatch(&mut self, info: cycle::OpcodeInfo) -> bool {
+        match info.addr_mode {
+            AddrMode::Implied | AddrMode::Accumulator => self.tick_implied(info.operation),
+            AddrMode::Immediate => self.tick_immediate(info.operation),
+            AddrMode::ZeroPage => self.tick_zero_page(info.operation, 0, false),
+            AddrMode::ZeroPageX => self.tick_zero_page(info.operation, self.regs.x, true),
+            AddrMode::ZeroPageY => self.tick_zero_page(info.operation, self.regs.y, true),
+            AddrMode::Absolute => self.tick_absolute(info.operation, 0, false),
+            AddrMode::AbsoluteX => self.tick_absolute(info.operation, self.regs.x, true),
+            AddrMode::AbsoluteY => self.tick_absolute(info.operation, self.regs.y, true),
+            AddrMode::IndirectX => self.tick_indirect_x(info.operation),
+            AddrMode::IndirectY => self.tick_indirect_y(info.operation),
+            AddrMode::Relative => self.tick_relative(info.operation),
+            AddrMode::Brk => self.tick_brk(),
+            AddrMode::Jsr => self.tick_jsr(),
+            AddrMode::Rts => self.tick_rts(),
+            AddrMode::Rti => self.tick_rti(),
+            AddrMode::JmpAbs => self.tick_jmp_abs(),
+            AddrMode::JmpInd if self.is_cmos() => self.tick_jmp_ind_cmos(),
+            AddrMode::JmpInd => self.tick_jmp_ind(),
+            AddrMode::Push => self.tick_push(info.operation),
+            AddrMode::Pull => self.tick_pull(info.operation),
+            AddrMode::ZeroPageIndirect => self.tick_zp_indirect(info.operation),
+            AddrMode::JmpAbsX => self.tick_jmp_abs_x(),
+            AddrMode::Nop1 => true,
+            AddrMode::Nop5C => self.tick_nop_5c(),
+            AddrMode::NopAbs => self.tick_nop_abs(),
+            AddrMode::Jam => {
+                self.halted = true;
+                self.schedule_read(self.regs.pc);
+                true
+            }
+        }
     }
 
     /// Capture the IRQ line + I-bit into the penultimate-cycle latches.
@@ -301,8 +331,7 @@ impl M6502 {
     fn tick_immediate(&mut self, op: Operation) -> bool {
         let data = self.data_in;
         self.regs.pc = self.regs.pc.wrapping_add(1);
-        self.apply_read(op, data);
-        true
+        self.finish_read(op, data)
     }
 
     fn tick_zero_page(&mut self, op: Operation, index: u8, indexed: bool) -> bool {
@@ -328,15 +357,12 @@ impl M6502 {
                 false
             }
             3 => match category {
-                OpCategory::Read | OpCategory::Implied => {
-                    self.apply_read(op, self.data_in);
-                    true
-                }
+                OpCategory::Read | OpCategory::Implied => self.finish_read(op, self.data_in),
                 OpCategory::Write => true,
                 OpCategory::ReadModWrite => {
                     self.cs.data = self.data_in;
                     self.cs.cycle = 4;
-                    self.schedule_write(self.cs.addr, self.cs.data);
+                    self.schedule_rmw_dummy();
                     false
                 }
                 OpCategory::Control => true,
@@ -376,6 +402,18 @@ impl M6502 {
                     self.cs.cycle = 3;
                     if is_read && !self.cs.page_crossed {
                         self.schedule_read(self.cs.addr);
+                    } else if self.is_cmos() {
+                        // The CMOS part never reads a half-formed address.
+                        // A shift or rotate that stays in its page skips the
+                        // fix-up cycle altogether; INC and DEC always take it.
+                        let shift = category == OpCategory::ReadModWrite
+                            && !matches!(op, Operation::Inc | Operation::Dec);
+                        if shift && !self.cs.page_crossed {
+                            self.cs.cycle = 4;
+                            self.schedule_read(self.cs.addr);
+                        } else {
+                            self.schedule_read(self.regs.pc.wrapping_sub(1));
+                        }
                     } else {
                         let wrong = (self.cs.addr & 0x00FF)
                             | (self.cs.addr.wrapping_sub(index as u16) & 0xFF00);
@@ -389,23 +427,19 @@ impl M6502 {
             }
             3 => {
                 if is_read && !self.cs.page_crossed {
-                    self.apply_read(op, self.data_in);
-                    return true;
+                    return self.finish_read(op, self.data_in);
                 }
                 self.cs.cycle = 4;
                 self.schedule_zp_abs_cycle3(category, op);
                 false
             }
             4 => match category {
-                OpCategory::Read | OpCategory::Implied => {
-                    self.apply_read(op, self.data_in);
-                    true
-                }
+                OpCategory::Read | OpCategory::Implied => self.finish_read(op, self.data_in),
                 OpCategory::Write => true,
                 OpCategory::ReadModWrite => {
                     self.cs.data = self.data_in;
                     self.cs.cycle = 5;
-                    self.schedule_write(self.cs.addr, self.cs.data);
+                    self.schedule_rmw_dummy();
                     false
                 }
                 OpCategory::Control => true,
@@ -464,15 +498,12 @@ impl M6502 {
                 false
             }
             5 => match category {
-                OpCategory::Read | OpCategory::Implied => {
-                    self.apply_read(op, self.data_in);
-                    true
-                }
+                OpCategory::Read | OpCategory::Implied => self.finish_read(op, self.data_in),
                 OpCategory::Write => true,
                 OpCategory::ReadModWrite => {
                     self.cs.data = self.data_in;
                     self.cs.cycle = 6;
-                    self.schedule_write(self.cs.addr, self.cs.data);
+                    self.schedule_rmw_dummy();
                     false
                 }
                 OpCategory::Control => true,
@@ -515,6 +546,10 @@ impl M6502 {
                 self.cs.cycle = 4;
                 if is_read && !self.cs.page_crossed {
                     self.schedule_read(self.cs.addr);
+                } else if self.is_cmos() {
+                    // CMOS reads the operand byte again rather than a
+                    // half-formed address.
+                    self.schedule_read(self.regs.pc.wrapping_sub(1));
                 } else {
                     let wrong = (self.cs.addr & 0x00FF) | (base & 0xFF00);
                     self.schedule_read(wrong);
@@ -523,23 +558,19 @@ impl M6502 {
             }
             4 => {
                 if is_read && !self.cs.page_crossed {
-                    self.apply_read(op, self.data_in);
-                    return true;
+                    return self.finish_read(op, self.data_in);
                 }
                 self.cs.cycle = 5;
                 self.schedule_zp_abs_cycle3(category, op);
                 false
             }
             5 => match category {
-                OpCategory::Read | OpCategory::Implied => {
-                    self.apply_read(op, self.data_in);
-                    true
-                }
+                OpCategory::Read | OpCategory::Implied => self.finish_read(op, self.data_in),
                 OpCategory::Write => true,
                 OpCategory::ReadModWrite => {
                     self.cs.data = self.data_in;
                     self.cs.cycle = 6;
-                    self.schedule_write(self.cs.addr, self.cs.data);
+                    self.schedule_rmw_dummy();
                     false
                 }
                 OpCategory::Control => true,
@@ -632,6 +663,9 @@ impl M6502 {
             4 => {
                 self.regs.sp = self.regs.sp.wrapping_sub(1);
                 self.regs.set_flag(FLAG_I, true);
+                if self.is_cmos() {
+                    self.regs.set_flag(FLAG_D, false);
+                }
                 self.cs.cycle = 5;
                 // NMI hijack: an NMI edge detected during BRK's
                 // earlier cycles overrides the vector address — the
@@ -841,6 +875,8 @@ impl M6502 {
                 let data = match op {
                     Operation::Pha => self.regs.a,
                     Operation::Php => self.regs.p | FLAG_B | FLAG_U,
+                    Operation::Phx => self.regs.x,
+                    Operation::Phy => self.regs.y,
                     _ => 0,
                 };
                 self.schedule_write(sp, data);
@@ -877,9 +913,187 @@ impl M6502 {
                     Operation::Plp => {
                         self.regs.p = (self.data_in & !FLAG_B) | FLAG_U;
                     }
+                    Operation::Plx => {
+                        self.regs.x = self.data_in;
+                        self.regs.set_nz(self.data_in);
+                    }
+                    Operation::Ply => {
+                        self.regs.y = self.data_in;
+                        self.regs.set_nz(self.data_in);
+                    }
                     _ => {}
                 }
                 true
+            }
+            _ => true,
+        }
+    }
+
+    /// Apply a read operation and say whether the instruction is done. A
+    /// CMOS core spends one more cycle on a decimal-mode `ADC` or `SBC`.
+    fn finish_read(&mut self, op: Operation, data: u8) -> bool {
+        self.apply_read(op, data);
+        let decimal = self.regs.decimal() && !self.decimal_disabled;
+        if self.is_cmos() && decimal && matches!(op, Operation::Adc | Operation::Sbc) {
+            self.cs.cycle = DECIMAL_CYCLE;
+            self.schedule_read(self.addr);
+            return false;
+        }
+        true
+    }
+
+    /// The cycle between a read-modify-write's read and its write. NMOS
+    /// writes the old value back; CMOS reads the address again.
+    fn schedule_rmw_dummy(&mut self) {
+        if self.is_cmos() {
+            self.schedule_read(self.cs.addr);
+        } else {
+            self.schedule_write(self.cs.addr, self.cs.data);
+        }
+    }
+
+    /// CMOS `(zp)`: the pointer is read from zero page, wrapping within it.
+    fn tick_zp_indirect(&mut self, op: Operation) -> bool {
+        let category = op.category();
+        match self.cs.cycle {
+            1 => {
+                self.cs.data = self.data_in;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cs.cycle = 2;
+                self.schedule_read(u16::from(self.cs.data));
+                false
+            }
+            2 => {
+                self.cs.addr = u16::from(self.data_in);
+                self.cs.cycle = 3;
+                self.schedule_read(u16::from(self.cs.data.wrapping_add(1)));
+                false
+            }
+            3 => {
+                self.cs.addr |= u16::from(self.data_in) << 8;
+                self.cs.cycle = 4;
+                self.schedule_zp_abs_cycle3(category, op);
+                false
+            }
+            4 => match category {
+                OpCategory::Read | OpCategory::Implied => self.finish_read(op, self.data_in),
+                _ => true,
+            },
+            _ => true,
+        }
+    }
+
+    /// CMOS `JMP (abs)`: six cycles, and the pointer's high byte comes from
+    /// the next address even across a page boundary. Between the two pointer
+    /// reads the part reads the high byte's address within the page.
+    fn tick_jmp_ind_cmos(&mut self) -> bool {
+        match self.cs.cycle {
+            1 => {
+                self.cs.addr = u16::from(self.data_in);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cs.cycle = 2;
+                self.schedule_read(self.regs.pc);
+                false
+            }
+            2 => {
+                self.cs.addr |= u16::from(self.data_in) << 8;
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cs.cycle = 3;
+                self.schedule_read(self.cs.addr);
+                false
+            }
+            3 => {
+                self.cs.data = self.data_in;
+                self.cs.cycle = 4;
+                let in_page = (self.cs.addr & 0xFF00) | (self.cs.addr.wrapping_add(1) & 0x00FF);
+                self.schedule_read(in_page);
+                false
+            }
+            4 => {
+                self.cs.cycle = 5;
+                self.schedule_read(self.cs.addr.wrapping_add(1));
+                false
+            }
+            5 => {
+                self.regs.pc = u16::from(self.cs.data) | (u16::from(self.data_in) << 8);
+                true
+            }
+            _ => true,
+        }
+    }
+
+    /// CMOS `JMP (abs,X)`.
+    fn tick_jmp_abs_x(&mut self) -> bool {
+        match self.cs.cycle {
+            1 => {
+                self.cs.addr = u16::from(self.data_in);
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cs.cycle = 2;
+                self.schedule_read(self.regs.pc);
+                false
+            }
+            2 => {
+                self.cs.addr |= u16::from(self.data_in) << 8;
+                self.cs.addr = self.cs.addr.wrapping_add(u16::from(self.regs.x));
+                self.cs.cycle = 3;
+                // The index is added while the low operand byte is read again.
+                self.schedule_read(self.regs.pc.wrapping_sub(1));
+                false
+            }
+            3 => {
+                self.cs.cycle = 4;
+                self.schedule_read(self.cs.addr);
+                false
+            }
+            4 => {
+                self.cs.data = self.data_in;
+                self.cs.cycle = 5;
+                self.schedule_read(self.cs.addr.wrapping_add(1));
+                false
+            }
+            5 => {
+                self.regs.pc = u16::from(self.cs.data) | (u16::from(self.data_in) << 8);
+                true
+            }
+            _ => true,
+        }
+    }
+
+    /// CMOS `$5C`: a three-byte `NOP` of eight cycles, which reads its two
+    /// operand bytes and then the next opcode's address five times (MAME's
+    /// `nop_c_aba`; b-em agrees on the length).
+    fn tick_nop_5c(&mut self) -> bool {
+        match self.cs.cycle {
+            1 | 2 => {
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cs.cycle += 1;
+                self.schedule_read(self.regs.pc);
+                false
+            }
+            3..=6 => {
+                self.cs.cycle += 1;
+                self.schedule_read(self.regs.pc);
+                false
+            }
+            _ => true,
+        }
+    }
+
+    /// CMOS `$DC` and `$FC`: a three-byte `NOP` of four cycles, which reads
+    /// its high operand byte twice.
+    fn tick_nop_abs(&mut self) -> bool {
+        match self.cs.cycle {
+            1 | 2 => {
+                if self.cs.cycle == 2 {
+                    self.cs.cycle = 3;
+                    self.regs.pc = self.regs.pc.wrapping_add(1);
+                    self.schedule_read(self.regs.pc.wrapping_sub(1));
+                    return false;
+                }
+                self.regs.pc = self.regs.pc.wrapping_add(1);
+                self.cs.cycle = 2;
+                self.schedule_read(self.regs.pc);
+                false
             }
             _ => true,
         }
@@ -984,6 +1198,9 @@ impl M6502 {
                 self.regs.x = result;
                 self.regs.set_nz(result);
             }
+            Operation::BitImm => {
+                self.regs.set_flag(FLAG_Z, self.regs.a & data == 0);
+            }
             Operation::NopRead | Operation::Nop => {}
             _ => {}
         }
@@ -1055,6 +1272,14 @@ impl M6502 {
                 let carry = self.regs.carry() as u8;
                 self.regs.set_flag(FLAG_C, self.regs.a & 0x01 != 0);
                 self.regs.a = (self.regs.a >> 1) | (carry << 7);
+                self.regs.set_nz(self.regs.a);
+            }
+            Operation::IncA => {
+                self.regs.a = self.regs.a.wrapping_add(1);
+                self.regs.set_nz(self.regs.a);
+            }
+            Operation::DecA => {
+                self.regs.a = self.regs.a.wrapping_sub(1);
                 self.regs.set_nz(self.regs.a);
             }
             Operation::Nop => {}
@@ -1135,6 +1360,14 @@ impl M6502 {
                 self.alu_sbc(result);
                 result
             }
+            Operation::Tsb => {
+                self.regs.set_flag(FLAG_Z, self.regs.a & data == 0);
+                data | self.regs.a
+            }
+            Operation::Trb => {
+                self.regs.set_flag(FLAG_Z, self.regs.a & data == 0);
+                data & !self.regs.a
+            }
             _ => data,
         }
     }
@@ -1144,6 +1377,7 @@ impl M6502 {
             Operation::Sta => self.regs.a,
             Operation::Stx => self.regs.x,
             Operation::Sty => self.regs.y,
+            Operation::Stz => 0,
             Operation::Sax => self.regs.a & self.regs.x,
             Operation::Sha => self.regs.a & self.regs.x & self.unstable_store_high_mask(),
             Operation::Shx => self.regs.x & self.unstable_store_high_mask(),
@@ -1186,6 +1420,7 @@ impl M6502 {
             Operation::Bmi => self.regs.negative(),
             Operation::Bvc => !self.regs.overflow(),
             Operation::Bvs => self.regs.overflow(),
+            Operation::Bra => true,
             _ => false,
         }
     }
@@ -1193,6 +1428,10 @@ impl M6502 {
     fn alu_adc(&mut self, data: u8) {
         if self.regs.decimal() && !self.decimal_disabled {
             self.alu_adc_bcd(data);
+            if self.is_cmos() {
+                // The CMOS part takes N and Z from the decimal result.
+                self.regs.set_nz(self.regs.a);
+            }
         } else {
             let a = self.regs.a as u16;
             let d = data as u16;
@@ -1268,7 +1507,9 @@ impl M6502 {
     }
 
     fn alu_sbc(&mut self, data: u8) {
-        if self.regs.decimal() && !self.decimal_disabled {
+        if self.regs.decimal() && !self.decimal_disabled && self.is_cmos() {
+            self.alu_sbc_bcd_cmos(data);
+        } else if self.regs.decimal() && !self.decimal_disabled {
             self.alu_sbc_bcd(data);
         } else {
             self.alu_adc(data ^ 0xFF);
@@ -1309,6 +1550,33 @@ impl M6502 {
         }
 
         self.regs.a = ((hi as u8) << 4) | (lo as u8 & 0x0F);
+    }
+
+    /// CMOS decimal subtract (Bruce Clark, "Decimal Mode in the NMOS 6500
+    /// series", appendix for the 65C02): C and V come from the binary
+    /// subtract, the result from a decimal correction, and N and Z from it.
+    fn alu_sbc_bcd_cmos(&mut self, data: u8) {
+        let a = i16::from(self.regs.a);
+        let b = i16::from(data);
+        let borrow = 1 - i16::from(self.regs.carry());
+        let inv = data ^ 0xFF;
+        let bin = u16::from(self.regs.a) + u16::from(inv) + u16::from(self.regs.carry());
+        self.regs.set_flag(FLAG_C, bin > 0xFF);
+        self.regs.set_flag(
+            FLAG_V,
+            ((!(u16::from(self.regs.a) ^ u16::from(inv)) & (u16::from(self.regs.a) ^ bin)) & 0x80)
+                != 0,
+        );
+        let al = (a & 0x0F) - (b & 0x0F) - borrow;
+        let mut result = a - b - borrow;
+        if result < 0 {
+            result -= 0x60;
+        }
+        if al < 0 {
+            result -= 0x06;
+        }
+        self.regs.a = result as u8;
+        self.regs.set_nz(self.regs.a);
     }
 
     fn alu_cmp(&mut self, reg: u8, data: u8) {
