@@ -34,7 +34,7 @@ thiserror.workspace = true
 zip = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 # Embeds the application icon in the Windows .exe (no-op elsewhere).
 [build-dependencies]
