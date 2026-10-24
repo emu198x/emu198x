@@ -20,9 +20,11 @@
 //!
 //! The host calls [`Shifter::load`] with each fetched word and
 //! [`Shifter::tick`] once per CPU cycle with the display-enable line. A tick
-//! gives one, two or four pixels as `0x00RRGGBB`. While the display is not
-//! enabled the Shifter shows the border: palette entry 0 in the colour modes,
-//! black in high resolution.
+//! gives one, two or four pixels as `0x00RRGGBB`. A group's pixels start
+//! once its last word has arrived, so the picture runs behind display
+//! enable: in low resolution by the 12 cycles its fourth word takes to come.
+//! The last group of a line shifts out after display enable has dropped. With no group to shift the Shifter shows the border:
+//! palette entry 0 in the colour modes, black in high resolution.
 //!
 //! In high resolution only palette entry 0's lowest bit matters. It inverts
 //! the picture: with it set, as TOS leaves it, a 0 pixel is white and a 1
@@ -30,8 +32,8 @@
 //!
 //! # Not modelled
 //!
-//! - The Shifter's pipeline latency between a word's fetch and its first
-//!   pixel, which positions the picture a few pixels later on hardware.
+//! - The Shifter's few cycles of pipeline latency beyond the group delay
+//!   above, which position the picture a few pixels later on hardware.
 //! - Resolution changes mid-line, as overscan and "sync scrolling" tricks use.
 //!   A change takes effect at the next group.
 //!
@@ -191,16 +193,17 @@ impl Shifter {
         let count = resolution.pixels_per_cycle();
         let mut colours = [0; 4];
         for colour in colours.iter_mut().take(count) {
-            *colour = if display_enable && self.remaining > 0 {
+            *colour = if self.remaining > 0 {
                 self.next_pixel(resolution)
             } else {
                 self.border(resolution)
             };
         }
         if !display_enable {
-            // Between lines the input registers start a fresh group.
+            // Between lines the input registers start a fresh group. A group
+            // already loaded still shifts out: the picture runs a group's
+            // length behind display enable.
             self.loaded = 0;
-            self.remaining = 0;
         }
         Pixels { count, colours }
     }
@@ -309,6 +312,19 @@ mod tests {
         assert_eq!(s.tick(false).as_slice(), &[rgb(0x123)]);
         s.write_resolution(2);
         assert_eq!(s.tick(false).as_slice(), &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_loaded_group_finishes_after_display_enable_drops() {
+        let mut s = Shifter::new();
+        s.write_palette(0, 0x000);
+        s.write_palette(1, 0x700);
+        for word in [0xFFFF, 0, 0, 0] {
+            s.load(word);
+        }
+        let pixels: Vec<u32> = (0..17).map(|_| s.tick(false).as_slice()[0]).collect();
+        assert!(pixels[..16].iter().all(|&p| p == rgb(0x700)));
+        assert_eq!(pixels[16], rgb(0), "then the border");
     }
 
     #[test]
