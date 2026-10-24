@@ -58,9 +58,11 @@ fn parse_mapper(flag: &str, value: &str) -> Result<MapperType, LaunchError> {
         "konami-scc" => MapperType::KonamiScc,
         "ascii8" => MapperType::Ascii8,
         "ascii16" => MapperType::Ascii16,
+        "fm-pac" => MapperType::FmPac,
+        "sound-cartridge" => MapperType::SoundCartridge,
         other => {
             return Err(LaunchError::Usage(format!(
-                "{flag} expects plain|konami|konami-scc|ascii8|ascii16, got {other}"
+                "{flag} expects plain|konami|konami-scc|ascii8|ascii16|fm-pac|sound-cartridge, got {other}"
             )));
         }
     })
@@ -86,7 +88,7 @@ impl MachineApp for Msx {
                     panasonic-fs-a1
     --cart PATH     cartridge ROM (slot 1)
     --mapper KIND   cartridge mapper: plain | konami | konami-scc | ascii8 |
-                    ascii16 [default: plain]
+                    ascii16 | fm-pac | sound-cartridge [default: plain]
     --cart2 PATH    cartridge ROM (slot 2)
     --mapper2 KIND  slot-2 mapper [default: plain]
     --region MODE   ntsc | pal [default: ntsc]";
@@ -321,7 +323,7 @@ mod tests {
         assert_eq!(
             err,
             LaunchError::Usage(
-                "--mapper2 expects plain|konami|konami-scc|ascii8|ascii16, got megarom".to_owned()
+                "--mapper2 expects plain|konami|konami-scc|ascii8|ascii16|fm-pac|sound-cartridge, got megarom".to_owned()
             )
         );
     }
