@@ -106,6 +106,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
     /// Advance the active CPU to one instruction boundary without allowing a
     /// faster processor to run through later boundaries in the same system
     /// tick. Returns whether a boundary was crossed.
+    // Derived display output is deferred; the stepping caller must resync it.
     pub(crate) fn advance_to_cpu_boundary_traced(&mut self) -> bool {
         let start_tick = AmigaLiveAccess::tick_count(&self.machine);
         let crossed_boundary = AmigaMachine::advance_to_cpu_boundary(&mut self.machine);
