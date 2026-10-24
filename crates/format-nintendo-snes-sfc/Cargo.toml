@@ -1,0 +1,13 @@
+[package]
+name = "format-nintendo-snes-sfc"
+description = "Super NES / Super Famicom cartridge image layout: copier header, internal header location, header fields and vectors. No mapper hardware."
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
