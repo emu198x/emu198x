@@ -1,0 +1,91 @@
+# Pitch modulation chains, noise at several rates
+ram 1000 28 08 34 C8 84 02 DD ED C0 18 10 13 EC F0 45 CA 38 A1 B8 65 17 47 0D A0 B6 BC E6 4C 4D EF BE A9
+ram 1020 49 05 25 D8 B4 C9 64 C0 F0 7C FA FF 26 B4 13 A7 72 A8 20 92 87 BE 7C C8 E3 C8 F6 9D D6 D0 0F B3
+ram 1040 A0 FA D4 D6 CA 46 5E 30
+ram 0200 00 10 12 10
+at 0
+w 5D 02
+w 0C 7F
+w 1C 7F
+w 6C 3A
+w 00 30
+w 01 50
+w 02 00
+w 03 04
+w 04 00
+w 05 8F
+w 06 E0
+w 07 7F
+w 10 31
+w 11 4F
+w 12 21
+w 13 07
+w 14 00
+w 15 8F
+w 16 E0
+w 17 7F
+w 20 32
+w 21 4E
+w 22 42
+w 23 0A
+w 24 00
+w 25 8F
+w 26 E0
+w 27 7F
+w 30 33
+w 31 4D
+w 32 63
+w 33 0D
+w 34 00
+w 35 8F
+w 36 E0
+w 37 7F
+w 40 34
+w 41 4C
+w 42 84
+w 43 10
+w 44 00
+w 45 8F
+w 46 E0
+w 47 7F
+w 50 35
+w 51 4B
+w 52 A5
+w 53 13
+w 54 00
+w 55 8F
+w 56 E0
+w 57 7F
+w 60 36
+w 61 4A
+w 62 C6
+w 63 16
+w 64 00
+w 65 8F
+w 66 E0
+w 67 7F
+w 70 37
+w 71 49
+w 72 E7
+w 73 19
+w 74 00
+w 75 8F
+w 76 E0
+w 77 7F
+w 2D AE
+w 3D 41
+at 2
+w 4C FF
+at 12800
+w 6C 3F
+at 24001
+w 6C 25
+at 35202
+w 6C 30
+at 46403
+w 6C 21
+at 57604
+w 6C 20
+at 68805
+w 6C 3C
+end 83200

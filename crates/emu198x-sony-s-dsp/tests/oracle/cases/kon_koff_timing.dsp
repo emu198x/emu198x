@@ -1,0 +1,227 @@
+# KON, KOFF and ENDX written at every step position in a sample
+ram 1000 54 CA 18 25 30 BB 1D 6D 13 1C D6 23 7B 2E D9 1E 3F 72 A1 CB 19 71 17 44 94 D6 49
+ram 1100 80 9D 5C 34 60 BE 31 20 1E 94 FE DA A0 EE E8 B9 99 7F C4 7C 29 99 FD AF E5 93 25 1C 54 AF 4D FA
+ram 1120 D7 14 27 A0 5B FE E9 23 2F 8A F2 21 1F
+ram 0200 00 10 00 10 00 11 09 11
+at 0
+w 5D 02
+w 0C 7F
+w 1C 7F
+w 6C 20
+w 00 40
+w 01 40
+w 02 00
+w 03 10
+w 04 00
+w 05 8F
+w 06 E0
+w 07 7F
+w 10 40
+w 11 40
+w 12 40
+w 13 10
+w 14 01
+w 15 8F
+w 16 E0
+w 17 7F
+w 20 40
+w 21 40
+w 22 80
+w 23 10
+w 24 00
+w 25 8F
+w 26 E0
+w 27 7F
+w 30 40
+w 31 40
+w 32 C0
+w 33 10
+w 34 01
+w 35 8F
+w 36 E0
+w 37 7F
+w 40 40
+w 41 40
+w 42 00
+w 43 11
+w 44 00
+w 45 8F
+w 46 E0
+w 47 7F
+w 50 40
+w 51 40
+w 52 40
+w 53 11
+w 54 01
+w 55 8F
+w 56 E0
+w 57 7F
+w 60 40
+w 61 40
+w 62 80
+w 63 11
+w 64 00
+w 65 8F
+w 66 E0
+w 67 7F
+w 70 40
+w 71 40
+w 72 C0
+w 73 11
+w 74 01
+w 75 8F
+w 76 E0
+w 77 7F
+at 1312
+w 4C 01
+at 1314
+w 7C FF
+at 1323
+w 5C 00
+at 1376
+w 5C 00
+at 2497
+w 4C 0A
+at 2509
+w 5C 0A
+at 3683
+w 4C 44
+at 3696
+w 5C 44
+at 4870
+w 4C 0A
+at 4884
+w 5C 00
+at 6058
+w 4C 10
+at 6073
+w 5C 10
+at 7247
+w 4C A0
+at 7249
+w 7C FF
+at 7263
+w 5C A0
+at 8437
+w 4C 44
+at 8454
+w 5C 00
+at 9628
+w 4C A0
+at 9646
+w 5C A0
+at 9692
+w 5C 00
+at 10820
+w 4C 01
+at 10839
+w 5C 01
+at 12013
+w 4C 0A
+at 12033
+w 5C 00
+at 13207
+w 4C 44
+at 13209
+w 7C FF
+at 13228
+w 5C 44
+at 14402
+w 4C 0A
+at 14424
+w 5C 0A
+at 15598
+w 4C 10
+at 15621
+w 5C 00
+at 16795
+w 4C A0
+at 16819
+w 5C A0
+at 17993
+w 4C 44
+at 18018
+w 5C 44
+at 18057
+w 5C 00
+at 19192
+w 4C A0
+at 19194
+w 7C FF
+at 19218
+w 5C 00
+at 20392
+w 4C 01
+at 20419
+w 5C 01
+at 21593
+w 4C 0A
+at 21621
+w 5C 0A
+at 22795
+w 4C 44
+at 22824
+w 5C 00
+at 23998
+w 4C 0A
+at 24028
+w 5C 0A
+at 25202
+w 4C 10
+at 25204
+w 7C FF
+at 25233
+w 5C 10
+at 26407
+w 4C A0
+at 26439
+w 5C 00
+at 26471
+w 5C 00
+at 27613
+w 4C 44
+at 27646
+w 5C 44
+at 28820
+w 4C A0
+at 28854
+w 5C A0
+at 30028
+w 4C 01
+at 30063
+w 5C 00
+at 31237
+w 4C 0A
+at 31239
+w 7C FF
+at 31273
+w 5C 0A
+at 32447
+w 4C 44
+at 32484
+w 5C 44
+at 33658
+w 4C 0A
+at 33696
+w 5C 00
+at 34870
+w 4C 10
+at 34909
+w 5C 10
+at 34934
+w 5C 00
+at 36083
+w 4C A0
+at 36123
+w 5C A0
+at 37297
+w 4C 44
+at 37299
+w 7C FF
+at 37338
+w 5C 00
+at 38512
+w 4C A0
+at 38554
+w 5C A0
+end 44912

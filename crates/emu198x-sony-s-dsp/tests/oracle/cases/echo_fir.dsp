@@ -1,0 +1,66 @@
+# Echo: delay, feedback, the FIR, EON, and the write-enable flag
+ram 1000 A4 CA B4 0C A0 35 3A C4 47 00 4F 0F DB 11 EF 86 91 8A B8 60 7A DD 50 A7 E2 7F 6E 14 3E 19 40 5C
+ram 1020 A6 CD 38 46 68 42 DE F2 99 D3 DF 31 FE 93 32 F0 3F EF 22 4B 9D 65
+ram 0200 00 10 00 10
+at 0
+w 5D 02
+w 0C 7F
+w 1C 7F
+w 6C 20
+w 0F 7F
+w 1F 00
+w 2F E0
+w 3F 10
+w 4F F8
+w 5F 20
+w 6F 08
+w 7F C0
+w 6D 80
+w 7D 03
+w 0D 60
+w 2C 50
+w 3C B0
+w 4D 0B
+w 00 60
+w 01 20
+w 02 00
+w 03 09
+w 04 00
+w 05 8F
+w 06 E0
+w 07 7F
+w 10 60
+w 11 30
+w 12 55
+w 13 0A
+w 14 00
+w 15 8F
+w 16 E0
+w 17 7F
+w 20 60
+w 21 40
+w 22 AA
+w 23 0B
+w 24 00
+w 25 8F
+w 26 E0
+w 27 7F
+w 30 60
+w 31 50
+w 32 FF
+w 33 0C
+w 34 00
+w 35 8F
+w 36 E0
+w 37 7F
+at 4
+w 4C 0F
+at 2057
+w 6C 00
+at 64000
+w 7D 01
+at 83230
+w 6C 20
+at 92800
+w 6D 90
+end 108800

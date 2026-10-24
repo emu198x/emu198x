@@ -1,0 +1,21 @@
+[package]
+name = "emu198x-sony-s-dsp"
+description = "Sony S-DSP: the SNES sound generator, eight BRR voices with echo, stepped by its host"
+edition.workspace = true
+# Independently versioned, like the other published chip crates.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["snes", "dsp", "brr", "sound", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
