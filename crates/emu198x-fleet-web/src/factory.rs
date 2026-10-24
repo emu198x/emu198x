@@ -63,6 +63,8 @@ pub(super) fn create(
         }
         #[cfg(feature = "nintendo-nes")]
         "nintendo-nes" => build::<runtime_nintendo_nes::NesRuntime>(variant, firmware),
+        #[cfg(feature = "nintendo-snes")]
+        "nintendo-snes" => build::<runtime_nintendo_snes::SnesRuntime>(variant, firmware),
         #[cfg(feature = "oric-atmos")]
         "oric-atmos" => build::<runtime_oric_atmos::OricRuntime>(variant, firmware),
         #[cfg(feature = "sega-game-gear")]
@@ -166,6 +168,10 @@ pub(super) fn catalogue() -> Vec<Value> {
     ));
     #[cfg(feature = "nintendo-nes")]
     result.extend(profiles::<runtime_nintendo_nes::NesRuntime>("nintendo-nes"));
+    #[cfg(feature = "nintendo-snes")]
+    result.extend(profiles::<runtime_nintendo_snes::SnesRuntime>(
+        "nintendo-snes",
+    ));
     #[cfg(feature = "oric-atmos")]
     result.extend(profiles::<runtime_oric_atmos::OricRuntime>("oric-atmos"));
     #[cfg(feature = "sega-game-gear")]
