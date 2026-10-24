@@ -1958,6 +1958,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-nintendo-snes-sfc"
+version = "0.44.2"
+
+[[package]]
 name = "format-sinclair-zx-spectrum-rzx"
 version = "0.44.2"
 dependencies = [
@@ -2914,6 +2918,19 @@ dependencies = [
  "ricoh-ppu-2c02",
  "serde",
  "serde-big-array",
+]
+
+[[package]]
+name = "machine-nintendo-snes"
+version = "0.44.2"
+dependencies = [
+ "emu198x-nintendo-s-ppu",
+ "emu198x-sony-s-dsp",
+ "emu198x-sony-spc700",
+ "emu198x-wdc-65c816",
+ "format-nintendo-snes-sfc",
+ "postcard",
+ "serde",
 ]
 
 [[package]]
