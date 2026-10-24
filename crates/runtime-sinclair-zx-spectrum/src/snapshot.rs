@@ -59,7 +59,12 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 11** (approved2026-10-22): preserves programmed FDC SRT and
 /// independent paced Seek/Recalibrate motion, including fractional phase.
 /// Version10 lacks that positional state and is rejected before decoding.
-const SNAPSHOT_VERSION: u32 = 11;
+/// **Version 12** (2026-10-24): the µPD765A no longer carries the +3's
+/// wiring. Its `enabled` flag is gone (the core decodes the FDC's ports
+/// and ticks it only on a +3), and it stores the rate its host ticks it
+/// at. Version 11 has the flag where version 12 does not, so it is
+/// rejected before positional decode.
+const SNAPSHOT_VERSION: u32 = 12;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -238,7 +243,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 11")
+                .contains("unsupported snapshot version 4; expected 12")
         );
     }
 
@@ -255,7 +260,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 11")
+                .contains("unsupported snapshot version 5; expected 12")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -371,18 +376,17 @@ mod tests {
     }
 
     fn send_fdc_bytes(runtime: &mut SpectrumPlus3Runtime, bytes: &[u8]) {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for &byte in bytes {
             for _ in 0..5000 {
                 if runtime.machine().fdc.read_status() & 0x80 != 0 {
                     break;
                 }
-                runtime.machine_mut().fdc.tick(0);
+                runtime.machine_mut().fdc.tick();
             }
             assert_eq!(runtime.machine().fdc.read_status() & 0xf0, 0xb0);
             runtime.machine_mut().fdc.write_data(byte);
             for _ in 0..114 {
-                runtime.machine_mut().fdc.tick(0);
+                runtime.machine_mut().fdc.tick();
             }
         }
     }
@@ -395,13 +399,12 @@ mod tests {
     }
 
     fn read_fdc_byte(runtime: &mut SpectrumPlus3Runtime) -> u8 {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for _ in 0..10_000 {
             if runtime.machine().fdc.read_status() & 0x80 != 0 {
                 return runtime.machine_mut().fdc.read_data();
             }
             assert_eq!(runtime.machine().fdc.read_status(), 0x70);
-            runtime.machine_mut().fdc.tick(0);
+            runtime.machine_mut().fdc.tick();
         }
         panic!("read byte deadline");
     }
@@ -434,14 +437,13 @@ mod tests {
     }
 
     fn await_fdc_read_request(runtime: &mut SpectrumPlus3Runtime) {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for _ in 0..10_000 {
             if runtime.machine().fdc.read_status() & 0x80 != 0 {
                 assert_eq!(runtime.machine().fdc.read_status(), 0xf0);
                 return;
             }
             assert_eq!(runtime.machine().fdc.read_status(), 0x70);
-            runtime.machine_mut().fdc.tick(0);
+            runtime.machine_mut().fdc.tick();
         }
         panic!("read request deadline");
     }
@@ -796,6 +798,11 @@ mod tests {
                 postcard::to_allocvec(&([None::<u8>; 4], 0_u8))
                     .expect("empty motion options and reset SRT"),
             );
+            // Version 12 moved the +3's wiring out of the chip: its old
+            // `enabled` flag, the first field of this tail, is gone.
+            let (enabled, tail) =
+                postcard::take_from_bytes::<bool>(tail).expect("legacy enabled flag");
+            assert!(enabled, "the fixtures were captured on a +3");
             current.extend_from_slice(tail);
             current.extend(
                 postcard::to_allocvec(&(
@@ -808,13 +815,14 @@ mod tests {
                     [None::<bool>; 4],
                     [None::<bool>; 4],
                     [None::<bool>; 4],
-                    true, // synthetic current controller's legacy ND fallback
+                    true,          // synthetic current controller's legacy ND fallback
+                    3_546_895_u64, // the +3's host tick rate, added in version 12
                 ))
                 .expect("current external drive inputs and mode"),
             );
             let mut original = SpectrumPlus3Runtime::blank();
             original.machine_mut().fdc =
-                postcard::from_bytes(&current).expect("synthetic v11 controller");
+                postcard::from_bytes(&current).expect("synthetic v12 controller");
             assert_eq!(
                 postcard::to_allocvec(&original.machine().fdc).expect("same layout"),
                 current
@@ -913,7 +921,6 @@ mod tests {
 
     #[test]
     fn read_track_id_crc_survives_native_checkpoints_and_interior_overrun() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         use emu198x_shell::{MediaImage, MediaKind, MediaSet};
         for (st1, st2) in [(0, 0), (0x20, 0), (0x20, 0x20)] {
             for accepted in [0, 1, 179] {
@@ -942,7 +949,7 @@ mod tests {
                             let expected = if interrupted {
                                 await_fdc_read_request(runtime);
                                 for _ in 0..114 {
-                                    runtime.machine_mut().fdc.tick(0);
+                                    runtime.machine_mut().fdc.tick();
                                 }
                                 [0x40, 0x10 | if st2 == 0 { st1 } else { 0 }, 0, 0, 0, 1, 2]
                             } else {
@@ -1096,7 +1103,6 @@ mod tests {
 
     #[test]
     fn current_read_snapshot_retains_position_errors_and_remaining_overrun_deadline() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for (opcode, first_crc) in [(0x46, false), (0x4c, false), (0x42, false), (0x42, true)] {
             for accepted in [0, 1, 511, 512, 513, 1023] {
                 for at_request in [false, true] {
@@ -1112,7 +1118,7 @@ mod tests {
                     if at_request {
                         await_fdc_read_request(&mut original);
                         for _ in 0..interval - 1 {
-                            original.machine_mut().fdc.tick(0);
+                            original.machine_mut().fdc.tick();
                         }
                         assert_eq!(original.machine().fdc.read_status(), 0xf0);
                     }
@@ -1127,7 +1133,7 @@ mod tests {
                     for runtime in [&mut original, &mut restored] {
                         await_fdc_read_request(runtime);
                         for _ in 0..if at_request { 1 } else { interval } {
-                            runtime.machine_mut().fdc.tick(0);
+                            runtime.machine_mut().fdc.tick();
                         }
                         assert_eq!(
                             drain_fdc_result(runtime),
@@ -1162,7 +1168,6 @@ mod tests {
 
     #[test]
     fn current_read_snapshot_resumes_partial_normal_and_overrun_results() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for opcode in [0x46, 0x4c, 0x42] {
             for overrun in [false, true] {
                 for drained in [0, 1, 3, 6] {
@@ -1175,7 +1180,7 @@ mod tests {
                     if overrun {
                         await_fdc_read_request(&mut original);
                         for _ in 0..114 {
-                            original.machine_mut().fdc.tick(0);
+                            original.machine_mut().fdc.tick();
                         }
                     }
                     let expected = [
@@ -1215,7 +1220,6 @@ mod tests {
 
     #[test]
     fn paced_read_snapshot_preserves_request_and_deadline() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for opcode in [0x46, 0x4c, 0x42] {
             for consumed in [false, true] {
                 for elapsed in [0, 1, 113] {
@@ -1225,22 +1229,22 @@ mod tests {
                         if original.machine().fdc.read_status() & 0x80 != 0 {
                             break;
                         }
-                        original.machine_mut().fdc.tick(0);
+                        original.machine_mut().fdc.tick();
                     }
                     assert_eq!(original.machine().fdc.read_status(), 0xf0);
                     if consumed {
                         assert_eq!(original.machine_mut().fdc.read_data(), 0xe5);
                     }
                     for _ in 0..elapsed {
-                        original.machine_mut().fdc.tick(0);
+                        original.machine_mut().fdc.tick();
                     }
                     let saved = original.snapshot().expect("paced read checkpoint");
                     let mut restored = SpectrumPlus3Runtime::blank();
                     restored.restore(&saved).expect("restore paced read");
                     assert_eq!(restored.snapshot().expect("identical state"), saved);
                     for _ in elapsed..114 {
-                        original.machine_mut().fdc.tick(0);
-                        restored.machine_mut().fdc.tick(0);
+                        original.machine_mut().fdc.tick();
+                        restored.machine_mut().fdc.tick();
                     }
                     assert_eq!(
                         original.machine().fdc.read_status(),
@@ -1379,7 +1383,6 @@ mod tests {
 
     #[test]
     fn ready_poll_and_partial_sis_result_survive_native_restore() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for ticks_before in [0, 7000, 8000] {
             for consumed in [0, 1] {
                 let mut original = SpectrumPlus3Runtime::blank();
@@ -1388,7 +1391,7 @@ mod tests {
                 }
                 original.machine_mut().fdc.set_ready(0, true);
                 for _ in 0..ticks_before {
-                    original.machine_mut().fdc.tick(0);
+                    original.machine_mut().fdc.tick();
                 }
                 if ticks_before == 8000 {
                     send_fdc_command(&mut original, &[8]);
@@ -1403,7 +1406,7 @@ mod tests {
                 for runtime in [&mut original, &mut restored] {
                     if ticks_before != 8000 {
                         for _ in 0..8000 {
-                            runtime.machine_mut().fdc.tick(0);
+                            runtime.machine_mut().fdc.tick();
                         }
                         send_fdc_command(runtime, &[8]);
                         assert_eq!(runtime.machine_mut().fdc.read_data(), 0xc0);
@@ -1423,7 +1426,6 @@ mod tests {
 
     #[test]
     fn pending_seek_and_each_sis_byte_preserve_busy_across_restore() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         // Pending completion, SIS before ST0, and SIS after ST0 are distinct.
         for phase in 0..3 {
             let mut original = SpectrumPlus3Runtime::blank();
@@ -1431,7 +1433,7 @@ mod tests {
             send_fdc_command(&mut original, &[3, 0xf0, 3]);
             send_fdc_command(&mut original, &[15, 0, 7]);
             for _ in 0..50_000 {
-                original.machine_mut().fdc.tick(0);
+                original.machine_mut().fdc.tick();
             }
             assert_eq!(original.machine().fdc.read_status(), 0x81);
             if phase > 0 {
@@ -1590,7 +1592,6 @@ mod tests {
         selected: u8,
         control: SdsNativeControl,
     ) -> (Vec<u8>, Vec<[u8; 2]>) {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         assert_eq!(
             runtime.machine().fdc.read_status(),
             boundary.msr(),
@@ -1633,7 +1634,7 @@ mod tests {
         // Continue the chip's existing READY event engine. This is a bounded
         // preservation check, not evidence for an exact hardware poll latency.
         for _ in 0..8000 {
-            runtime.machine_mut().fdc.tick(0);
+            runtime.machine_mut().fdc.tick();
         }
         assert!(runtime.machine().fdc.interrupt, "retained READY attention");
         let mut attention = Vec::with_capacity(3);
@@ -1674,7 +1675,6 @@ mod tests {
         boundary: SdsNativeBoundary,
         control: SdsNativeControl,
     ) -> serde_json::Value {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         let (mut original, source) = writable_sector_runtime(false);
         let live = postcard::to_allocvec(
             original
@@ -1686,7 +1686,7 @@ mod tests {
         .expect("live image identity");
         sds_native_inputs(&mut original, signals ^ 31);
         for _ in 0..8000 {
-            original.machine_mut().fdc.tick(0);
+            original.machine_mut().fdc.tick();
         }
         assert!(
             original.machine().fdc.interrupt,
@@ -1894,6 +1894,19 @@ mod tests {
     }
 
     #[test]
+    fn version_eleven_is_rejected_atomically_before_payload_decode() {
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        let before = runtime.snapshot().expect("current snapshot");
+        let old = postcard::to_allocvec(&11_u32).expect("old version");
+        let err = runtime
+            .restore(&old)
+            .expect_err("v11 carries the FDC's removed enabled flag");
+        assert!(matches!(err, MachineError::InvalidSnapshot { reason }
+            if reason == "unsupported snapshot version 11; expected 12"));
+        assert_eq!(runtime.snapshot().expect("unchanged"), before);
+    }
+
+    #[test]
     fn version_nine_is_rejected_atomically_before_payload_decode() {
         let mut runtime = SpectrumPlus3Runtime::blank();
         let before = runtime.snapshot().expect("current snapshot");
@@ -1902,7 +1915,7 @@ mod tests {
             .restore(&old)
             .expect_err("v9 lacks programmed ND state");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 9; expected 11"));
+            if reason == "unsupported snapshot version 9; expected 12"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1915,7 +1928,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 11"));
+            if reason == "unsupported snapshot version 8; expected 12"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1926,7 +1939,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 11"));
+            if reason == "unsupported snapshot version 7; expected 12"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1939,7 +1952,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 11")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 12")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2040,22 +2053,21 @@ mod tests {
 
     #[test]
     fn mid_write_snapshot_resumes_identically_including_byte_deadline() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         let (mut original, _) = writable_sector_runtime(true);
         let payload: Vec<_> = (0..512).map(|i| (i as u8).wrapping_add(71)).collect();
         send_fdc_command(&mut original, &[0x45, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
         send_fdc_bytes(&mut original, &payload[..179]);
         original.machine_mut().fdc.write_data(payload[179]);
         for _ in 0..27 {
-            original.machine_mut().fdc.tick(0);
+            original.machine_mut().fdc.tick();
         }
         let saved = original.snapshot().expect("mid-write snapshot");
         let mut restored = SpectrumPlus3Runtime::blank();
         restored.restore(&saved).expect("restore mid-write");
         assert_eq!(restored.snapshot().expect("restored snapshot"), saved);
         for _ in 27..114 {
-            original.machine_mut().fdc.tick(0);
-            restored.machine_mut().fdc.tick(0);
+            original.machine_mut().fdc.tick();
+            restored.machine_mut().fdc.tick();
         }
         send_fdc_bytes(&mut original, &payload[180..]);
         send_fdc_bytes(&mut restored, &payload[180..]);
@@ -2088,7 +2100,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 11");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 12");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
@@ -2097,14 +2109,13 @@ mod tests {
     }
 
     fn wait_format(runtime: &mut SpectrumPlus3Runtime, expected: u8) {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         for _ in 0..800_000 {
             let status = runtime.machine().fdc.read_status() & 0xf0;
             if status == expected {
                 return;
             }
             assert_ne!(status, 0xd0, "unexpected format result");
-            runtime.machine_mut().fdc.tick(0);
+            runtime.machine_mut().fdc.tick();
         }
         panic!("format request/result deadline exceeded");
     }
@@ -2121,7 +2132,6 @@ mod tests {
 
     #[test]
     fn format_snapshot_resumes_every_id_boundary_and_gap_without_source_replay() {
-        use common_sinclair_zx_spectrum::peripheral::Peripheral;
         // Before any ID, between each ID byte, and during the final fill/gap.
         for accepted in 0..=4 {
             let (mut original, source) = writable_sector_runtime(true);
@@ -2132,7 +2142,7 @@ mod tests {
                 original.machine_mut().fdc.write_data(byte);
             }
             for _ in 0..27 {
-                original.machine_mut().fdc.tick(0);
+                original.machine_mut().fdc.tick();
             }
             let saved = original.snapshot().expect("format checkpoint");
             let mut restored = SpectrumPlus3Runtime::blank();

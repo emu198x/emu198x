@@ -1,4 +1,3 @@
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::Upd765a;
 
 pub fn await_read(f: &mut Upd765a) {
@@ -7,7 +6,7 @@ pub fn await_read(f: &mut Upd765a) {
             return;
         }
         assert_eq!(f.read_status() & 0x70, 0x70, "waiting for read byte");
-        f.tick(0);
+        f.tick();
     }
     panic!("read request deadline");
 }

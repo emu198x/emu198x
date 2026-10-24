@@ -1,18 +1,21 @@
 use super::*;
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn command(f: &mut Upd765a, bytes: &[u8]) {
     for &byte in bytes {
         f.write_data(byte);
     }
 }
 fn prepared() -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     for unit in 0..4 {
         f.set_ready(unit, true);
     }
     for _ in 0..100_000 {
-        f.tick(0);
+        f.tick();
     }
     for unit in 0..4 {
         command(&mut f, &[8]);
@@ -23,7 +26,7 @@ fn prepared() -> Upd765a {
 }
 fn advance(f: &mut Upd765a, ticks: u64) {
     for _ in 0..ticks {
-        f.tick(0);
+        f.tick();
     }
 }
 fn sis(f: &mut Upd765a) -> [u8; 2] {
@@ -31,7 +34,7 @@ fn sis(f: &mut Upd765a) -> [u8; 2] {
     [f.read_data(), f.read_data()]
 }
 fn interval() -> u64 {
-    2_000 * common_sinclair_zx_spectrum::timing::CPU_HZ_128K
+    2_000 * SPECTRUM_128_CPU_HZ
 }
 
 #[test]
@@ -42,7 +45,7 @@ fn physical_and_logical_position_change_one_step_at_each_rational_boundary() {
     let first = interval().div_ceil(1_000_000);
     advance(&mut f, first - 1);
     assert_eq!((f.track[0], f.pcn[0]), (1, 1));
-    f.tick(0);
+    f.tick();
     assert_eq!((f.track[0], f.pcn[0]), (2, 2));
     let second = (2 * interval()).div_ceil(1_000_000);
     advance(&mut f, second - first);
@@ -102,7 +105,7 @@ fn readiness_and_t0_use_logical_samples_while_aliases_move_one_physical_head() {
     command(&mut f, &[15, 2, 3]);
     assert_eq!((f.track[0], f.pcn[2]), (1, 1));
     f.set_ready(2, false);
-    f.tick(0);
+    f.tick();
     assert_eq!(sis(&mut f), [0x6a, 1]);
     assert_eq!(f.track[0], 1);
     f.set_ready(2, true);
@@ -144,7 +147,7 @@ fn reprogramming_preserves_current_interval_and_reset_aborts_without_more_steps(
     let remaining = f.motion[0].expect("active").remaining;
     command(&mut f, &[3, 0xf0, 3]);
     assert_eq!(f.motion[0].expect("active").remaining, remaining);
-    let slow = 30_000 * common_sinclair_zx_spectrum::timing::CPU_HZ_128K;
+    let slow = 30_000 * SPECTRUM_128_CPU_HZ;
     advance(&mut f, slow.div_ceil(1_000_000) - 1000);
     assert_eq!(f.pcn[0], 2);
     assert_eq!(
@@ -194,7 +197,7 @@ fn asynchronous_seek_completion_cannot_change_an_overlapping_read_result() {
         let mut waited = 0;
         while f.read_status() & 0xc0 != 0xc0 {
             assert!(waited < 10_000);
-            f.tick(0);
+            f.tick();
             waited += 1;
         }
         assert_eq!(f.read_data(), 0x5a);

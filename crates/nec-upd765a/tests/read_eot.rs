@@ -4,6 +4,10 @@
 mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn sector(c: u8, r: u8, deleted: bool) -> DiskSector {
     DiskSector {
         c,
@@ -17,8 +21,7 @@ fn sector(c: u8, r: u8, deleted: bool) -> DiskSector {
 }
 
 fn controller(sectors: Vec<DiskSector>) -> Upd765a {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.insert_disk(
         0,
         DiskImage {

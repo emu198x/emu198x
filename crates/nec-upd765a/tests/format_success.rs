@@ -1,7 +1,10 @@
 //! Format's recorded IDs and payload lengths have independent sources.
 //! NEC December 1978, printed p14, Format A Track. Component-only evidence.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn old_track() -> DiskTrack {
     DiskTrack {
@@ -24,7 +27,7 @@ fn wait(fdc: &mut Upd765a) {
         if fdc.read_status() & 0x80 != 0 {
             return;
         }
-        fdc.tick(0);
+        fdc.tick();
     }
     panic!("bounded Format request/result wait exceeded");
 }
@@ -46,8 +49,7 @@ fn format_success_preserves_authored_ids_and_command_sized_filler() {
             };
             let count = if standard { 9 } else { 1 };
             let filler = if standard { 0xe5 } else { 0x69 };
-            let mut fdc = Upd765a::new();
-            fdc.enabled = true;
+            let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
             fdc.insert_disk_with_writable(
                 0,
                 DiskImage {

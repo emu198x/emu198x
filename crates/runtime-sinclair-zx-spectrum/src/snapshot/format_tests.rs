@@ -23,13 +23,12 @@ fn format_native_fixture(writable: bool, nd: bool) -> (SpectrumPlus3Runtime, Vec
 }
 
 fn format_native_wait(runtime: &mut SpectrumPlus3Runtime, result: bool) {
-    use common_sinclair_zx_spectrum::peripheral::Peripheral;
     for _ in 0..1_000_000 {
         let status = runtime.machine().fdc.read_status();
         if (result && status == 0xd0) || (!result && status & 0x80 != 0) {
             return;
         }
-        runtime.machine_mut().fdc.tick(0);
+        runtime.machine_mut().fdc.tick();
     }
     panic!("Format native bounded wait exceeded");
 }

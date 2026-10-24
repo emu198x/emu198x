@@ -4,6 +4,10 @@
 //! deliberately not asserted by this sector-image test.
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn read_id(fdc: &mut Upd765a, select: u8) -> [u8; 7] {
     assert_eq!(fdc.read_status(), 0x80, "controller accepts a new command");
     fdc.write_data(0x4a); // MFM Read ID
@@ -19,8 +23,7 @@ fn read_id(fdc: &mut Upd765a, select: u8) -> [u8; 7] {
 }
 
 fn assert_missing_id(image: Option<DiskImage>, select: u8) {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     if let Some(image) = image {
         fdc.insert_disk(0, image);
     }
@@ -107,8 +110,7 @@ fn read_id_without_image_cannot_report_success() {
 
 #[test]
 fn valid_read_id_preserves_recorded_chrn_rotation_and_plus3_drive_alias() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.set_drive_select_mask(1);
     fdc.insert_disk(0, valid_image());
     assert_eq!(read_id(&mut fdc, 2), [2, 0, 0, 7, 3, 0xc1, 1]);
@@ -119,8 +121,7 @@ fn valid_read_id_preserves_recorded_chrn_rotation_and_plus3_drive_alias() {
 #[test]
 fn read_id_reports_id_crc_and_keeps_data_errors_out_of_results() {
     for (head, drive) in [(0, 0), (1, 1)] {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         let sectors = [(0x20, 0), (0x20, 0x20), (0, 0), (0x25, 0x41)]
             .into_iter()
             .enumerate()

@@ -1,8 +1,11 @@
 //! Host media replacement/ejection must not splice images into one read.
 //! This follows the existing media-change abort policy, not READY timing.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 mod common;
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn image(base: u8, deleted: bool, crc: bool) -> DiskImage {
     DiskImage {
@@ -50,8 +53,7 @@ fn changing_selected_disk_aborts_reads_without_delivering_more_cached_bytes() {
     for op in [0x46, 0x4c, 0x42] {
         for (consumed, rqm_high) in [(0, false), (0, true), (1, false), (512, false), (512, true)] {
             for eject in [false, true] {
-                let mut f = Upd765a::new();
-                f.enabled = true;
+                let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
                 f.insert_disk(0, image(0x10, op == 0x4c, false));
                 command(&mut f, op);
                 consume(&mut f, consumed, 0x10);
@@ -69,7 +71,7 @@ fn changing_selected_disk_aborts_reads_without_delivering_more_cached_bytes() {
                     "op={op:02x} consumed={consumed} high={rqm_high} eject={eject}"
                 );
                 for _ in 0..228 {
-                    f.tick(0);
+                    f.tick();
                 }
                 assert_eq!(
                     f.read_status(),
@@ -115,8 +117,7 @@ fn changing_unrelated_disk_does_not_abort_or_change_selected_read() {
     for op in [0x46, 0x4c, 0x42] {
         for consumed in [0, 1, 512] {
             for eject in [false, true] {
-                let mut f = Upd765a::new();
-                f.enabled = true;
+                let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
                 f.insert_disk(0, image(0x10, op == 0x4c, false));
                 command(&mut f, op);
                 let mut bytes = Vec::new();
@@ -153,8 +154,7 @@ fn changing_unrelated_disk_does_not_abort_or_change_selected_read() {
 }
 #[test]
 fn track_media_change_retains_completed_crc_but_not_pending_future_status() {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     f.insert_disk(0, image(0x10, false, true));
     command(&mut f, 0x42);
     consume(&mut f, 512, 0x10);
@@ -164,8 +164,7 @@ fn track_media_change_retains_completed_crc_but_not_pending_future_status() {
 #[test]
 fn media_change_keeps_encountered_mark_and_excludes_incomplete_crc() {
     for op in [0x46, 0x4c] {
-        let mut f = Upd765a::new();
-        f.enabled = true;
+        let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
         f.insert_disk(0, image(0x10, op != 0x4c, true));
         command(&mut f, op);
         consume(&mut f, 1, 0x10);

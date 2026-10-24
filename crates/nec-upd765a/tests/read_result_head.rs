@@ -1,11 +1,13 @@
 //! ID H in read results is independent of physical HD in ST0 and side selection.
 mod common;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller(opcode: u8, h: u8, crc: bool) -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     f.insert_disk(
         0,
         DiskImage {
@@ -104,7 +106,7 @@ fn interrupted_read_returns_requested_id_head() {
                 payload(&mut f, consumed, hd);
                 common::await_read(&mut f);
                 for _ in 0..114 {
-                    f.tick(0);
+                    f.tick();
                 }
                 result(&mut f, [0x40 | hd << 2, 0x10, 0, 0, h, 1, 2]);
                 command(&mut f, opcode, hd, h, 1);
