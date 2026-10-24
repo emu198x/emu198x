@@ -1534,6 +1534,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-nintendo-s-ppu"
+version = "0.44.2"
+dependencies = [
+ "serde",
+ "serde-big-array",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-oric-atmos"
 version = "0.44.2"
 dependencies = [
