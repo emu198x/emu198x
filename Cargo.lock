@@ -1525,6 +1525,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-ricoh-rp5c01"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "emu198x-sega-315-5313"
 version = "0.1.0"
 dependencies = [
@@ -3018,8 +3025,10 @@ dependencies = [
  "common-z80-machine",
  "emu198x-gi-ay-3-8912",
  "emu198x-intel-8255",
+ "emu198x-ricoh-rp5c01",
  "emu198x-test-skip",
  "emu198x-ti-tms9918",
+ "emu198x-yamaha-v9938",
  "emu198x-zilog-z80",
  "postcard",
  "serde",
