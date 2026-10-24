@@ -161,6 +161,12 @@ label = "system:nes"
 milestone = "NES 100%"
 
 [[system]]
+machine_id = "nintendo-snes"
+crate = "emu198x-snes"
+label = "system:snes"
+milestone = "SNES 100%"
+
+[[system]]
 machine_id = "oric"
 crate = "emu198x-oric-atmos"
 label = "system:oric"

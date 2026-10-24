@@ -1314,6 +1314,7 @@ dependencies = [
  "runtime-msx",
  "runtime-nintendo-game-boy",
  "runtime-nintendo-nes",
+ "runtime-nintendo-snes",
  "runtime-oric-atmos",
  "runtime-sega-game-gear",
  "runtime-sega-master-system",
@@ -1680,6 +1681,17 @@ dependencies = [
  "machine-sinclair-zx81",
  "png",
  "runtime-sinclair-zx81",
+ "serde_json",
+]
+
+[[package]]
+name = "emu198x-snes"
+version = "0.44.2"
+dependencies = [
+ "emu198x-app-icon",
+ "emu198x-shell",
+ "emu198x-ui",
+ "runtime-nintendo-snes",
  "serde_json",
 ]
 
@@ -4994,6 +5006,19 @@ dependencies = [
  "nintendo-nes-cartridge",
  "postcard",
  "ricoh-ppu-2c02",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "runtime-nintendo-snes"
+version = "0.44.2"
+dependencies = [
+ "emu198x-shell",
+ "format-nintendo-snes-sfc",
+ "isa198x-disasm",
+ "machine-nintendo-snes",
+ "postcard",
  "serde",
  "serde_json",
 ]
