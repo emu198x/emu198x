@@ -1,6 +1,6 @@
 [package]
 name = "format-nintendo-game-boy-cartridge"
-description = "Game Boy cartridge header parser + Cartridge construction"
+description = "Game Boy cartridge header parser: title, flags, board type, ROM and RAM sizes and checksums. No mapper hardware."
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -8,7 +8,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc", version = "0.44.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

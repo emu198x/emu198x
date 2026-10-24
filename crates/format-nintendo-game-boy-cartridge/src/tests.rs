@@ -29,7 +29,10 @@ fn rejects_short_roms() {
 fn rejects_unknown_cart_type() {
     let rom = make_rom(0x8000, |r| r[offset::CART_TYPE] = 0x77);
     let err = CartridgeHeader::parse(&rom).unwrap_err();
-    assert!(matches!(err, HeaderError::UnknownCartType { byte: 0x77 }));
+    assert!(matches!(
+        err,
+        HeaderError::UnknownCartridgeType { byte: 0x77 }
+    ));
 }
 
 #[test]
@@ -38,7 +41,7 @@ fn rejects_unsupported_mbc6() {
     let err = CartridgeHeader::parse(&rom).unwrap_err();
     assert!(matches!(
         err,
-        HeaderError::UnsupportedCartType {
+        HeaderError::UnsupportedCartridgeType {
             byte: 0x20,
             name: "MBC6"
         }
@@ -88,7 +91,7 @@ fn parses_rom_only_cartridge_with_no_ram() {
         r[offset::TITLE..offset::TITLE + 4].copy_from_slice(b"TEST");
     });
     let header = CartridgeHeader::parse(&rom).unwrap();
-    assert_eq!(header.cart_type, CartType::RomOnly { battery: false });
+    assert_eq!(header.cart_type, CartridgeType::RomOnly { battery: false });
     assert_eq!(header.rom_size, 0x8000);
     assert_eq!(header.ram_size, 0);
     assert_eq!(header.title, "TEST");
@@ -104,7 +107,7 @@ fn parses_mbc1_with_ram_and_battery() {
     let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(
         header.cart_type,
-        CartType::Mbc1 {
+        CartridgeType::Mbc1 {
             ram: true,
             battery: true
         }
@@ -122,7 +125,7 @@ fn parses_mbc3_with_rtc() {
     let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(
         header.cart_type,
-        CartType::Mbc3 {
+        CartridgeType::Mbc3 {
             ram: true,
             battery: true,
             rtc: true
@@ -142,7 +145,7 @@ fn parses_mbc5_with_rumble() {
     let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(
         header.cart_type,
-        CartType::Mbc5 {
+        CartridgeType::Mbc5 {
             ram: true,
             battery: true,
             rumble: true
@@ -162,15 +165,16 @@ fn cgb_flag_shortens_title_to_eleven_bytes() {
 }
 
 #[test]
-fn load_returns_cartridge_with_correct_ram_size() {
+fn the_ram_size_code_gives_external_ram_bytes() {
     let rom = make_rom(0x10000, |r| {
         r[offset::ROM_SIZE] = 0x01;
         r[offset::CART_TYPE] = 0x03;
         r[offset::RAM_SIZE] = 0x02;
     });
-    let (header, cart) = load(rom).unwrap();
+    let header = CartridgeHeader::parse(&rom).unwrap();
     assert_eq!(header.ram_size, 0x2000);
-    assert_eq!(cart.ram().len(), 0x2000);
+    assert!(header.cart_type.has_battery());
+    assert_eq!(header.cart_type.name(), "MBC1");
 }
 
 #[test]

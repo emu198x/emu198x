@@ -1,10 +1,10 @@
 //! Game Boy cartridge header parser.
 //!
 //! The DMG / CGB cartridge header lives at ROM offsets `$0100..=$014F`.
-//! This crate decodes it into a [`CartridgeHeader`], and pairs that
-//! with the ROM bytes to construct a fully-loaded
-//! [`Cartridge`](nintendo_game_boy_mbc::Cartridge) from the
-//! [`nintendo-game-boy-mbc`] crate.
+//! This crate decodes it into a [`CartridgeHeader`]. It describes the
+//! board the header names without modelling it: the memory bank
+//! controllers themselves live in `nintendo-game-boy-mbc`, and the
+//! machine builds one from the header.
 //!
 //! Header layout (Pan Docs §11):
 //!
@@ -16,7 +16,7 @@
 //! | `$0143`          | CGB flag (`$80` = CGB-supported, `$C0` = CGB-only)|
 //! | `$0144..=$0145`  | new licensee code (2 ASCII bytes)                |
 //! | `$0146`          | SGB flag (`$03` = SGB-aware)                     |
-//! | `$0147`          | cartridge type byte → [`CartType`]               |
+//! | `$0147`          | cartridge type byte → [`CartridgeType`]          |
 //! | `$0148`          | ROM size code (`32 KiB << code`)                 |
 //! | `$0149`          | RAM size code → external-RAM bytes               |
 //! | `$014A`          | destination code (`$00` = Japan, `$01` = world)  |
@@ -25,7 +25,6 @@
 //! | `$014D`          | header checksum (sum of `$0134..=$014C` bytes)   |
 //! | `$014E..=$014F`  | global checksum (16-bit big-endian)              |
 
-use nintendo_game_boy_mbc::{CartType, Cartridge};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -67,7 +66,7 @@ pub struct CartridgeHeader {
     /// SGB flag. `$03` = SGB-aware.
     pub sgb_flag: u8,
     /// Decoded cartridge type.
-    pub cart_type: CartType,
+    pub cart_type: CartridgeType,
     /// ROM size in bytes (`32 KiB << code` for codes 0..=8).
     pub rom_size: usize,
     /// External RAM size in bytes (0 / 2 KiB / 8 KiB / 32 KiB / 64 KiB / 128 KiB).
@@ -145,15 +144,51 @@ impl CartridgeHeader {
     }
 }
 
-/// Parse the header and build the loaded [`Cartridge`].
-///
-/// # Errors
-///
-/// As [`CartridgeHeader::parse`].
-pub fn load(rom: Vec<u8>) -> Result<(CartridgeHeader, Cartridge), HeaderError> {
-    let header = CartridgeHeader::parse(&rom)?;
-    let cart = Cartridge::new(rom, header.cart_type, header.ram_size);
-    Ok((header, cart))
+/// The board the cartridge-type byte at `$0147` describes: which memory
+/// bank controller, and whether it carries RAM, a battery, a clock or a
+/// rumble motor. The byte describes hardware; this crate only names it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum CartridgeType {
+    /// `$00`, `$08`, `$09`: no controller, any RAM wired directly.
+    RomOnly { battery: bool },
+    /// `$01..=$03`.
+    Mbc1 { ram: bool, battery: bool },
+    /// `$05..=$06`. MBC2 has 512 four-bit cells of RAM inside it.
+    Mbc2 { battery: bool },
+    /// `$0F..=$13`. The clock and the battery are independent.
+    Mbc3 { ram: bool, battery: bool, rtc: bool },
+    /// `$19..=$1E`.
+    Mbc5 {
+        ram: bool,
+        battery: bool,
+        rumble: bool,
+    },
+}
+
+impl CartridgeType {
+    /// The controller's name, for logs and messages.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::RomOnly { .. } => "ROM only",
+            Self::Mbc1 { .. } => "MBC1",
+            Self::Mbc2 { .. } => "MBC2",
+            Self::Mbc3 { .. } => "MBC3",
+            Self::Mbc5 { .. } => "MBC5",
+        }
+    }
+
+    /// Whether the board keeps anything alive with a battery.
+    #[must_use]
+    pub const fn has_battery(self) -> bool {
+        match self {
+            Self::RomOnly { battery }
+            | Self::Mbc1 { battery, .. }
+            | Self::Mbc2 { battery }
+            | Self::Mbc3 { battery, .. }
+            | Self::Mbc5 { battery, .. } => battery,
+        }
+    }
 }
 
 /// Header-decoding errors.
@@ -165,10 +200,10 @@ pub enum HeaderError {
     /// Cart-type byte denotes a mapper this crate doesn't (yet)
     /// implement.
     #[error("unsupported cartridge type ${byte:02X} ({name})")]
-    UnsupportedCartType { byte: u8, name: &'static str },
+    UnsupportedCartridgeType { byte: u8, name: &'static str },
     /// Cart-type byte isn't in any documented Pan Docs slot.
     #[error("unknown cartridge type byte ${byte:02X}")]
-    UnknownCartType { byte: u8 },
+    UnknownCartridgeType { byte: u8 },
     /// ROM-size code is outside the documented 0..=8 range.
     #[error("invalid ROM size code ${code:02X}")]
     InvalidRomSize { code: u8 },
@@ -185,107 +220,107 @@ pub enum HeaderError {
     HeaderChecksumMismatch { stored: u8, computed: u8 },
 }
 
-fn decode_cart_type(byte: u8) -> Result<CartType, HeaderError> {
+fn decode_cart_type(byte: u8) -> Result<CartridgeType, HeaderError> {
     match byte {
-        0x00 => Ok(CartType::RomOnly { battery: false }),
-        0x01 => Ok(CartType::Mbc1 {
+        0x00 => Ok(CartridgeType::RomOnly { battery: false }),
+        0x01 => Ok(CartridgeType::Mbc1 {
             ram: false,
             battery: false,
         }),
-        0x02 => Ok(CartType::Mbc1 {
+        0x02 => Ok(CartridgeType::Mbc1 {
             ram: true,
             battery: false,
         }),
-        0x03 => Ok(CartType::Mbc1 {
+        0x03 => Ok(CartridgeType::Mbc1 {
             ram: true,
             battery: true,
         }),
-        0x05 => Ok(CartType::Mbc2 { battery: false }),
-        0x06 => Ok(CartType::Mbc2 { battery: true }),
+        0x05 => Ok(CartridgeType::Mbc2 { battery: false }),
+        0x06 => Ok(CartridgeType::Mbc2 { battery: true }),
         // ROM+RAM (rare, 32 KiB ROMs). No MBC — the cartridge wires RAM
         // directly and the ram-size byte drives the allocation. $09 adds a
         // battery, so its RAM persists to the `.sav` sidecar; $08 does not.
-        0x08 => Ok(CartType::RomOnly { battery: false }),
-        0x09 => Ok(CartType::RomOnly { battery: true }),
-        0x0F => Ok(CartType::Mbc3 {
+        0x08 => Ok(CartridgeType::RomOnly { battery: false }),
+        0x09 => Ok(CartridgeType::RomOnly { battery: true }),
+        0x0F => Ok(CartridgeType::Mbc3 {
             ram: false,
             battery: true,
             rtc: true,
         }),
-        0x10 => Ok(CartType::Mbc3 {
+        0x10 => Ok(CartridgeType::Mbc3 {
             ram: true,
             battery: true,
             rtc: true,
         }),
-        0x11 => Ok(CartType::Mbc3 {
+        0x11 => Ok(CartridgeType::Mbc3 {
             ram: false,
             battery: false,
             rtc: false,
         }),
-        0x12 => Ok(CartType::Mbc3 {
+        0x12 => Ok(CartridgeType::Mbc3 {
             ram: true,
             battery: false,
             rtc: false,
         }),
-        0x13 => Ok(CartType::Mbc3 {
+        0x13 => Ok(CartridgeType::Mbc3 {
             ram: true,
             battery: true,
             rtc: false,
         }),
-        0x19 => Ok(CartType::Mbc5 {
+        0x19 => Ok(CartridgeType::Mbc5 {
             ram: false,
             battery: false,
             rumble: false,
         }),
-        0x1A => Ok(CartType::Mbc5 {
+        0x1A => Ok(CartridgeType::Mbc5 {
             ram: true,
             battery: false,
             rumble: false,
         }),
-        0x1B => Ok(CartType::Mbc5 {
+        0x1B => Ok(CartridgeType::Mbc5 {
             ram: true,
             battery: true,
             rumble: false,
         }),
-        0x1C => Ok(CartType::Mbc5 {
+        0x1C => Ok(CartridgeType::Mbc5 {
             ram: false,
             battery: false,
             rumble: true,
         }),
-        0x1D => Ok(CartType::Mbc5 {
+        0x1D => Ok(CartridgeType::Mbc5 {
             ram: true,
             battery: false,
             rumble: true,
         }),
-        0x1E => Ok(CartType::Mbc5 {
+        0x1E => Ok(CartridgeType::Mbc5 {
             ram: true,
             battery: true,
             rumble: true,
         }),
         // Documented but not (yet) supported.
-        0x0B..=0x0D => Err(HeaderError::UnsupportedCartType {
+        0x0B..=0x0D => Err(HeaderError::UnsupportedCartridgeType {
             byte,
             name: "MMM01",
         }),
-        0x20 => Err(HeaderError::UnsupportedCartType { byte, name: "MBC6" }),
-        0x22 => Err(HeaderError::UnsupportedCartType {
+        0x20 => Err(HeaderError::UnsupportedCartridgeType { byte, name: "MBC6" }),
+        0x22 => Err(HeaderError::UnsupportedCartridgeType {
             byte,
             name: "MBC7+SENSOR+RUMBLE+RAM+BATTERY",
         }),
-        0xFC => Err(HeaderError::UnsupportedCartType {
+        0xFC => Err(HeaderError::UnsupportedCartridgeType {
             byte,
             name: "POCKET CAMERA",
         }),
-        0xFD => Err(HeaderError::UnsupportedCartType {
+        0xFD => Err(HeaderError::UnsupportedCartridgeType {
             byte,
             name: "BANDAI TAMA5",
         }),
-        0xFE => Err(HeaderError::UnsupportedCartType { byte, name: "HuC3" }),
-        0xFF => Err(HeaderError::UnsupportedCartType {
+        0xFE => Err(HeaderError::UnsupportedCartridgeType { byte, name: "HuC3" }),
+        0xFF => Err(HeaderError::UnsupportedCartridgeType {
             byte,
             name: "HuC1+RAM+BATTERY",
         }),
-        _ => Err(HeaderError::UnknownCartType { byte }),
+        _ => Err(HeaderError::UnknownCartridgeType { byte }),
     }
 }
 
@@ -296,10 +331,10 @@ fn decode_rom_size(code: u8) -> Result<usize, HeaderError> {
     Ok(0x8000usize << code)
 }
 
-fn decode_ram_size(code: u8, cart_type: CartType) -> Result<usize, HeaderError> {
+fn decode_ram_size(code: u8, cart_type: CartridgeType) -> Result<usize, HeaderError> {
     // MBC2's "RAM" lives on the mapper chip (512×4 bits = 512 bytes).
     // The header byte is conventionally `$00`.
-    if matches!(cart_type, CartType::Mbc2 { .. }) {
+    if matches!(cart_type, CartridgeType::Mbc2 { .. }) {
         return Ok(0x200);
     }
     Ok(match code {
