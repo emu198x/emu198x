@@ -89,6 +89,9 @@ jobs:
       - name: Check Apple TV content bootstrap refuses bad inputs
         run: python3 scripts/test_bootstrap_apple_local_content.py
 
+      - name: Check crate extraction rewrites manifests and lists movable crates
+        run: python3 scripts/test_extract_repo.py
+
       - name: Check crates.io probes identify themselves
         run: python3 scripts/check-crates-io-user-agent.py --self-test
 
