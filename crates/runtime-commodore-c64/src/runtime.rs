@@ -6,24 +6,24 @@ use common_commodore_iec::IecBus;
 use emu198x_esp_at_modem::EspAtTcpBridge;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
-    ResetKind, RunResult, StopReason, TraceEvent,
+    MachineError, MachineProfile, MachineTime, MediaImage, MediaKind, MediaSet,
+    MediaTransportAction, ResetKind, RunResult, StopReason, TraceEvent,
 };
 use machine_commodore_1541::Drive1541;
 use machine_commodore_1581::Drive1581;
-use machine_commodore_c64::{AudioControls, C64, C64Config, C64Model, SidChannel};
+use machine_commodore_c64::{AudioControls, C64, C64Model, SidChannel};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::Model;
 use crate::drives::{DriveKind, IecDrive, IecDriveSnapshot};
-use crate::input::apply_input_event;
 use crate::snapshot;
-use crate::{Model, profile_for};
+use crate::variants::{C64FamilyMachine, C64FamilyModel, C64RomSet};
 use emu198x_shell::display::Display;
 
-const KERNAL_ROM_SIZE: usize = 0x2000;
-const BASIC_ROM_SIZE: usize = 0x2000;
-const CHARACTER_ROM_SIZE: usize = 0x1000;
+pub(crate) const KERNAL_ROM_SIZE: usize = 0x2000;
+pub(crate) const BASIC_ROM_SIZE: usize = 0x2000;
+pub(crate) const CHARACTER_ROM_SIZE: usize = 0x1000;
 const DOS1541_ROM_SIZE: usize = 0x4000;
 const DOS1571_ROM_SIZE: usize = 0x8000;
 const DOS1581_ROM_SIZE: usize = 0x8000;
@@ -39,19 +39,25 @@ pub(crate) const SCREEN_RAM_BASE: u16 = 0x0400;
 pub(crate) const SCREEN_TEXT_WIDTH: usize = 40;
 pub(crate) const SCREEN_TEXT_HEIGHT: usize = 25;
 
-/// Firmware-backed Commodore 64 runtime.
 /// How many `phi2` cycles pass between chances for the Ultimate to move bytes.
 /// It buffers, so this only has to be often enough to keep a socket draining.
 const UCI_POLL_INTERVAL: u16 = 512;
 
-pub struct C64Runtime {
+/// Firmware-backed runtime for one machine of the C64 family: the C64 itself
+/// ([`C64Runtime`]) or the C128 ([`crate::C128Runtime`]).
+///
+/// The drive, expansion and user-port fields serve the C64; a machine without
+/// that hardware never fills them, and its profile offers no slot for them.
+pub struct C64FamilyRuntime<M: C64FamilyMachine> {
     profile: MachineProfile,
-    model: Model,
-    machine: C64,
+    model: M::Model,
+    machine: M,
     time: MachineTime,
-    kernal_rom: Vec<u8>,
-    basic_rom: Vec<u8>,
-    character_rom: Vec<u8>,
+    /// The ROMs the machine was built from, kept so a reset can rebuild it.
+    roms: M::Roms,
+    /// Show the machine's second picture, when it has one, instead of the
+    /// VIC-II's: the C128's 80-column VDC.
+    alternate_screen: bool,
     /// Retained DOS ROMs, one slot per drive model, so `set_port_drive` can
     /// build any model on demand and a reset rebuilds every configured port.
     dos_rom_1541: Option<Vec<u8>>,
@@ -90,6 +96,9 @@ pub struct C64Runtime {
     trace_drive_rom_window: Option<(u16, u16)>,
     last_drive_trace_state: Option<DriveRomTraceState>,
 }
+
+/// The Commodore 64 runtime.
+pub type C64Runtime = C64FamilyRuntime<C64>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 struct DriveRomTraceState {
@@ -155,7 +164,7 @@ struct DriveRomTraceState {
 }
 
 impl Model {
-    const fn to_machine_model(self) -> C64Model {
+    pub(crate) const fn to_machine_model(self) -> C64Model {
         match self {
             Self::C64PalBreadbin => C64Model::PalBreadbin,
             Self::C64NtscBreadbin => C64Model::NtscBreadbin,
@@ -189,8 +198,13 @@ impl C64Runtime {
             validate_rom_size("commodore-1541-dos-rom", drive_rom, DOS1541_ROM_SIZE)?;
         }
 
-        let machine = build_machine(model, &kernal_rom, &basic_rom, &character_rom)?;
-        let mut iec_bus = IecBus::new();
+        let roms = C64RomSet {
+            kernal: kernal_rom,
+            basic: basic_rom,
+            character: character_rom,
+        };
+        let machine = C64::build(model, &roms)?;
+        let mut runtime = Self::assemble(model, machine, roms);
         // Default port layout: a 1541 on device 8 when its ROM is present.
         let drive8 = match drive8_dos_rom.as_deref() {
             Some(rom) => Some(
@@ -198,7 +212,7 @@ impl C64Runtime {
                     DriveKind::C1541,
                     rom,
                     DRIVE_1541_DEVICE_NUMBER,
-                    &mut iec_bus,
+                    &mut runtime.iec_bus,
                 )
                 .map_err(|reason| MachineError::InvalidFirmware {
                     id: "commodore-1541-dos-rom".to_owned(),
@@ -207,37 +221,9 @@ impl C64Runtime {
             ),
             None => None,
         };
-        let rgba_framebuffer = vec![
-            0;
-            (machine.vic().framebuffer_width() * machine.vic().framebuffer_height() * 4)
-                as usize
-        ];
-
-        Ok(Self {
-            profile: profile_for(model),
-            model,
-            machine,
-            time: MachineTime::default(),
-            kernal_rom,
-            basic_rom,
-            character_rom,
-            dos_rom_1541: drive8_dos_rom,
-            dos_rom_1571: None,
-            dos_rom_1581: None,
-            drives: [drive8, None, None, None],
-            drive_cycle_accum: [0; IEC_PORT_COUNT],
-            cartridge_image: None,
-            georam_kb: None,
-            reu_kb: None,
-            mouse_1351_port: None,
-            iec_bus,
-            rgba_framebuffer,
-            esp_at_tcp_bridge: None,
-            uci_poll_countdown: UCI_POLL_INTERVAL,
-            trace_vic_colour_writes: false,
-            trace_drive_rom_window: None,
-            last_drive_trace_state: None,
-        })
+        runtime.dos_rom_1541 = drive8_dos_rom;
+        runtime.drives[0] = drive8;
+        Ok(runtime)
     }
 
     /// Creates a runtime from the profile-declared firmware set.
@@ -246,7 +232,7 @@ impl C64Runtime {
     ///
     /// Returns an error if firmware is missing or invalid.
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        let profile = profile_for(model);
+        let profile = model.profile();
         firmware.validate_for_profile(&profile)?;
 
         let kernal = firmware.bytes("commodore-c64-kernal-rom").ok_or_else(|| {
@@ -349,6 +335,47 @@ impl C64Runtime {
         let port = port_index(device)?;
         self.drives[port].as_ref().map(IecDrive::disk_inserted)
     }
+}
+
+impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
+    /// A runtime around a freshly built machine, with nothing plugged in.
+    pub(crate) fn assemble(model: M::Model, machine: M, roms: M::Roms) -> Self {
+        let rgba_framebuffer = vec![
+            0;
+            (machine.vic().framebuffer_width() * machine.vic().framebuffer_height() * 4)
+                as usize
+        ];
+        Self {
+            profile: model.profile(),
+            model,
+            machine,
+            time: MachineTime::default(),
+            roms,
+            alternate_screen: false,
+            dos_rom_1541: None,
+            dos_rom_1571: None,
+            dos_rom_1581: None,
+            drives: [None, None, None, None],
+            drive_cycle_accum: [0; IEC_PORT_COUNT],
+            cartridge_image: None,
+            georam_kb: None,
+            reu_kb: None,
+            mouse_1351_port: None,
+            iec_bus: IecBus::new(),
+            rgba_framebuffer,
+            esp_at_tcp_bridge: None,
+            uci_poll_countdown: UCI_POLL_INTERVAL,
+            trace_vic_colour_writes: false,
+            trace_drive_rom_window: None,
+            last_drive_trace_state: None,
+        }
+    }
+
+    /// The model this runtime is running.
+    #[must_use]
+    pub fn model(&self) -> M::Model {
+        self.model
+    }
 
     /// Builds one drive of `kind` for `device` from the retained DOS ROM,
     /// syncing it onto the IEC bus. Errors when that model's ROM is absent.
@@ -373,33 +400,44 @@ impl C64Runtime {
 
     /// Creates a runtime backed by zero-filled ROMs.
     #[must_use]
-    pub fn blank(model: Model) -> Self {
-        match Self::new(
-            model,
-            vec![0; KERNAL_ROM_SIZE],
-            vec![0; BASIC_ROM_SIZE],
-            vec![0; CHARACTER_ROM_SIZE],
-            None,
-        ) {
-            Ok(runtime) => runtime,
+    pub fn blank(model: M::Model) -> Self {
+        let roms = M::blank_roms();
+        match M::build(model, &roms) {
+            Ok(machine) => Self::assemble(model, machine, roms),
             Err(reason) => unreachable!(
-                "blank C64 runtime should always construct from fixed-size ROM images: {reason}"
+                "a blank runtime should always construct from fixed-size ROM images: {reason}"
             ),
         }
     }
 
-    /// Returns the wrapped C64 machine.
+    /// Returns the wrapped machine.
     #[must_use]
-    pub fn machine(&self) -> &C64 {
+    pub fn machine(&self) -> &M {
         &self.machine
     }
 
-    /// Returns mutable access to the wrapped C64 machine.
+    /// Returns mutable access to the wrapped machine.
     #[must_use]
-    pub fn machine_mut(&mut self) -> &mut C64 {
+    pub fn machine_mut(&mut self) -> &mut M {
         &mut self.machine
     }
 
+    /// Whether the machine's second picture is shown instead of the VIC-II's.
+    #[must_use]
+    pub fn alternate_screen(&self) -> bool {
+        self.alternate_screen
+    }
+
+    /// Show the machine's second picture, when it has one (the C128's
+    /// 80-column VDC), or go back to the VIC-II's. A machine with only the
+    /// VIC-II ignores the request.
+    pub fn set_alternate_screen(&mut self, on: bool) {
+        self.alternate_screen = on && self.machine.alternate_framebuffer().is_some();
+        self.update_rgba_framebuffer();
+    }
+}
+
+impl C64Runtime {
     /// Current host-side SID audio controls.
     #[must_use]
     pub fn audio_controls(&self) -> AudioControls {
@@ -420,7 +458,9 @@ impl C64Runtime {
     pub fn set_audio_channel_gain(&mut self, channel: SidChannel, gain: f32) {
         self.machine.set_audio_channel_gain(channel, gain);
     }
+}
 
+impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
     /// The 1541 on device 8, when port 0 holds one. Returns `None` if the port
     /// is empty or holds a different model; the `drive8.*` query surface and the
     /// disk-autoload path are 1541-shaped and read through here.
@@ -449,7 +489,9 @@ impl C64Runtime {
     pub fn flush_drive8_image(&self) -> Option<Vec<u8>> {
         self.drives[0].as_ref()?.flush_image()
     }
+}
 
+impl C64Runtime {
     /// Flushes the recorded SAVE tape to `.tap` bytes for the writable work
     /// image, or `None` when no writable tape is mounted. Rides the same
     /// write-back model as [`Self::flush_drive8_image`].
@@ -457,7 +499,9 @@ impl C64Runtime {
     pub fn flush_tape_image(&self) -> Option<Vec<u8>> {
         self.machine.flush_tape_image()
     }
+}
 
+impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
     /// Returns the current runtime time in `phi2` cycles.
     #[must_use]
     pub const fn time(&self) -> MachineTime {
@@ -528,12 +572,7 @@ impl C64Runtime {
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
-        self.machine = build_machine(
-            self.model,
-            &self.kernal_rom,
-            &self.basic_rom,
-            &self.character_rom,
-        )?;
+        self.machine = M::build(self.model, &self.roms)?;
         self.iec_bus = IecBus::new();
         // Rebuild every configured port from its retained ROM, preserving the
         // user's per-port model choice across the reset (the drives stay plugged
@@ -549,6 +588,13 @@ impl C64Runtime {
         }
         self.drive_cycle_accum = [0; IEC_PORT_COUNT];
         self.time = MachineTime::default();
+        M::reattach_after_reset(self)
+    }
+}
+
+impl C64Runtime {
+    /// The C64's half of a reset: what stays plugged in goes back in.
+    pub(crate) fn c64_reattach_after_reset(&mut self) -> Result<(), MachineError> {
         // The cartridge stays in the port across a reset, so re-insert it into
         // the freshly built machine before the KERNAL runs its cold start.
         if let Some(image) = self.cartridge_image.as_deref() {
@@ -606,14 +652,18 @@ impl C64Runtime {
             _ => None,
         };
     }
+}
 
+impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
     /// The control port a 1351 mouse is plugged into, if any. Host pointer
     /// events route here.
     #[must_use]
     pub fn mouse_1351_port(&self) -> Option<u8> {
         self.mouse_1351_port
     }
+}
 
+impl C64Runtime {
     /// Plug an ESP-AT modem into the user port, bridged to a real TCP
     /// transport. Connections open only once the emulated client sends
     /// `AT+CIPSTART`.
@@ -645,7 +695,9 @@ impl C64Runtime {
         self.machine.set_user_port_pb0(true);
         self.machine.set_user_port_flag2(true);
     }
+}
 
+impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
     /// Attached GeoRAM size in KiB, if any. Retained across a reset.
     #[must_use]
     pub fn georam_kb(&self) -> Option<usize> {
@@ -687,12 +739,57 @@ impl C64Runtime {
     /// Resync the RGBA framebuffer from the machine's native buffer. Named for
     /// the debug-target macros, which call it after a poke/step.
     fn update_rgba_framebuffer(&mut self) {
-        repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
+        // Field by field, so the machine is borrowed while the buffer is written.
+        let alternate = self
+            .alternate_screen
+            .then(|| self.machine.alternate_framebuffer())
+            .flatten();
+        let pixels = match alternate {
+            Some((pixels, _, _)) => pixels,
+            None => self.machine.framebuffer(),
+        };
+        repack_rgba8888(pixels, &mut self.rgba_framebuffer);
+    }
+
+    /// The second picture, when it is the one being shown.
+    fn shown_alternate_screen(&self) -> Option<(&[u32], u32, u32)> {
+        if self.alternate_screen {
+            self.machine.alternate_framebuffer()
+        } else {
+            None
+        }
+    }
+
+    /// The picture a frame shows: RGBA bytes, width and height.
+    #[must_use]
+    pub fn rgba_frame(&self) -> (&[u8], u32, u32) {
+        let (width, height) = match self.shown_alternate_screen() {
+            Some((_, width, height)) => (width, height),
+            None => (
+                self.machine.vic().framebuffer_width(),
+                self.machine.vic().framebuffer_height(),
+            ),
+        };
+        (&self.rgba_framebuffer, width, height)
     }
 
     fn emit_frame(&mut self, host: &mut HostIo<'_>) -> Result<(), MachineError> {
-        repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
-        let pal = matches!(self.model, Model::C64PalBreadbin | Model::C64cPal);
+        self.update_rgba_framebuffer();
+        if let Some((_, width, height)) = self.shown_alternate_screen() {
+            // The VDC drives an RGBI monitor, so there is no composite signal
+            // to describe.
+            host.frame_sink.push_frame(FramePacket {
+                signal: None,
+                timestamp: self.time,
+                format: emu198x_shell::PixelFormat::Rgba8888,
+                width,
+                height,
+                palette: None,
+                pixels: &self.rgba_framebuffer,
+            })?;
+            return Ok(());
+        }
+        let pal = self.model.is_pal();
         let pixel_hz = if pal {
             mos_vic_ii::PAL_DOT_CLOCK_HZ
         } else {
@@ -817,46 +914,49 @@ impl C64Runtime {
     }
 }
 
-impl emu198x_shell::FamilyRuntime for C64Runtime {
-    type Model = Model;
+impl<M: C64FamilyMachine> emu198x_shell::FamilyRuntime for C64FamilyRuntime<M>
+where
+    Self: MachineCore,
+{
+    type Model = M::Model;
 
-    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        Self::from_firmware(model, firmware)
+    fn from_firmware(model: M::Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        M::runtime_from_firmware(model, firmware)
     }
 
     fn native_frame_ticks(&self) -> u64 {
-        u64::from(self.model.timing().cycles_per_frame)
+        u64::from(C64FamilyModel::timing(self.model).cycles_per_frame)
     }
 
     fn variant_ids() -> &'static [&'static str] {
-        &Model::VARIANT_IDS
+        M::Model::variant_ids()
     }
 
-    fn model_from_id(id: &str) -> Option<Model> {
-        Model::from_variant_id(id)
+    fn model_from_id(id: &str) -> Option<M::Model> {
+        M::Model::from_variant_id(id)
     }
 
-    fn variant_id(model: Model) -> &'static str {
-        model.variant_id()
+    fn variant_id(model: M::Model) -> &'static str {
+        C64FamilyModel::variant_id(model)
     }
 
-    fn profile_for(model: Model) -> MachineProfile {
-        profile_for(model)
+    fn profile_for(model: M::Model) -> MachineProfile {
+        model.profile()
     }
 
     fn rom_convention() -> emu198x_shell::RomConvention {
-        emu198x_shell::RomConvention {
-            env_var: Some("EMU198X_C64_ROM_DIR"),
-            dirs: &["commodore-c64", "c64"],
-        }
+        M::rom_convention()
     }
 
-    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
-        model.firmware_sources()
+    fn firmware_sources(model: M::Model) -> Vec<emu198x_shell::FirmwareSource> {
+        C64FamilyModel::firmware_sources(model)
     }
 }
 
-impl MachineCore for C64Runtime {
+impl<M: C64FamilyMachine> MachineCore for C64FamilyRuntime<M>
+where
+    Self: emu198x_shell::DebugTarget,
+{
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
         machine: &str,
@@ -879,97 +979,13 @@ impl MachineCore for C64Runtime {
 
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
         for image in &media.images {
-            match image.slot.as_ref() {
-                "tape-1" => {
-                    if image.kind != MediaKind::Tape {
-                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
-                    }
-
-                    if image.writable {
-                        // A writable tape is a blank SAVE work image; the KERNAL
-                        // records onto it and it flushes to a `.tap` sidecar.
-                        self.machine.insert_blank_writable_tape();
-                    } else {
-                        self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
-                            MachineError::InvalidMedia {
-                                slot: image.slot.as_ref().to_owned(),
-                                reason,
-                            }
-                        })?;
-                    }
-                }
-                "cartridge-1" => {
-                    if image.kind != MediaKind::Cartridge {
-                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
-                    }
-                    self.machine
-                        .insert_crt_bytes(image.bytes)
-                        .map_err(|reason| MachineError::InvalidMedia {
-                            slot: image.slot.as_ref().to_owned(),
-                            reason,
-                        })?;
-                    // Retain the image so a later reset re-inserts it, and so the
-                    // KERNAL runs the cartridge cold-start on the next reset.
-                    self.cartridge_image = Some(image.bytes.to_vec());
-                }
-                slot if drive_slot_device(slot).is_some() => {
-                    if image.kind != MediaKind::Disk {
-                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
-                    }
-                    let device = drive_slot_device(slot).expect("guarded above");
-                    let port = port_index(device).expect("drive slot device is 8-11");
-                    let drive = self.drives[port].as_mut().ok_or_else(|| {
-                        MachineError::MissingFirmware {
-                            id: format!("drive on IEC device {device}"),
-                        }
-                    })?;
-                    drive
-                        .load_disk(image.bytes, image.writable)
-                        .map_err(|reason| MachineError::InvalidMedia {
-                            slot: image.slot.as_ref().to_owned(),
-                            reason,
-                        })?;
-                }
-                _ => {
-                    return Err(MachineError::UnknownMediaSlot {
-                        slot: image.slot.as_ref().to_owned(),
-                    });
-                }
-            }
+            M::load_media_image(self, image)?;
         }
-
         Ok(())
     }
 
     fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
-        match slot {
-            slot if drive_slot_device(slot).is_some() => {
-                let device = drive_slot_device(slot).expect("guarded above");
-                let port = port_index(device).expect("drive slot device is 8-11");
-                let drive =
-                    self.drives[port]
-                        .as_mut()
-                        .ok_or_else(|| MachineError::MissingFirmware {
-                            id: format!("drive on IEC device {device}"),
-                        })?;
-                drive.eject_disk();
-                Ok(())
-            }
-            "cartridge-1" => {
-                self.cartridge_image = None;
-                self.machine.remove_cartridge();
-                Ok(())
-            }
-            // The datasette has no eject path on the C64 machine (it only
-            // loads/plays/stops a tape), so tape eject stays unsupported until
-            // an eject method exists on the core to surface here.
-            "tape-1" => Err(MachineError::UnsupportedOperation {
-                operation: "eject_media",
-            }),
-            _ => Err(MachineError::UnknownMediaSlot {
-                slot: slot.to_owned(),
-            }),
-        }
+        M::eject_media_slot(self, slot)
     }
 
     fn run_until(
@@ -978,7 +994,7 @@ impl MachineCore for C64Runtime {
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         for event in host.input_events {
-            apply_input_event(&mut self.machine, event);
+            self.machine.apply_input_event(event);
         }
 
         let mut prev_border = self.machine.vic_register(0x20) & 0x0F;
@@ -1130,7 +1146,7 @@ impl MachineCore for C64Runtime {
                 // the mixed stream. They currently have no shell sink, but
                 // must still be drained on the same boundary so long-running
                 // sessions do not retain every sample since power-on.
-                drop(self.machine.take_audio_channel_buffers());
+                self.machine.drain_audio_stems();
                 if !audio.is_empty() {
                     host.audio_sink.push_audio(AudioPacket {
                         timestamp: self.time,
@@ -1170,6 +1186,135 @@ impl MachineCore for C64Runtime {
     }
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
+        M::command(self, command)
+    }
+
+    // Eager machine (firmware-backed at construction) — the `direct` arm.
+    emu198x_shell::debug_target_hooks!(direct);
+
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        Some(self)
+    }
+
+    fn load_basic_program<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        source: &str,
+        run: bool,
+    ) -> Result<emu198x_shell::BasicProgramLoaded, emu198x_shell::LoaderError> {
+        M::load_basic_program(session, source, run)
+    }
+
+    fn autoload_tape<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        slot: &str,
+        max_boot_frames: u32,
+    ) -> Result<emu198x_shell::TapeAutoloaded, emu198x_shell::LoaderError> {
+        M::autoload_tape(session, slot, max_boot_frames)
+    }
+}
+
+impl C64Runtime {
+    /// The C64's media slots: the datasette, the cartridge port and the
+    /// drives on IEC devices 8-11.
+    pub(crate) fn c64_load_media_image(
+        &mut self,
+        image: &MediaImage<'_>,
+    ) -> Result<(), MachineError> {
+        match image.slot.as_ref() {
+            "tape-1" => {
+                if image.kind != MediaKind::Tape {
+                    return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                }
+
+                if image.writable {
+                    // A writable tape is a blank SAVE work image; the KERNAL
+                    // records onto it and it flushes to a `.tap` sidecar.
+                    self.machine.insert_blank_writable_tape();
+                } else {
+                    self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: image.slot.as_ref().to_owned(),
+                            reason,
+                        }
+                    })?;
+                }
+            }
+            "cartridge-1" => {
+                if image.kind != MediaKind::Cartridge {
+                    return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                }
+                self.machine
+                    .insert_crt_bytes(image.bytes)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: image.slot.as_ref().to_owned(),
+                        reason,
+                    })?;
+                // Retain the image so a later reset re-inserts it, and so the
+                // KERNAL runs the cartridge cold-start on the next reset.
+                self.cartridge_image = Some(image.bytes.to_vec());
+            }
+            slot if drive_slot_device(slot).is_some() => {
+                if image.kind != MediaKind::Disk {
+                    return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                }
+                let device = drive_slot_device(slot).expect("guarded above");
+                let port = port_index(device).expect("drive slot device is 8-11");
+                let drive =
+                    self.drives[port]
+                        .as_mut()
+                        .ok_or_else(|| MachineError::MissingFirmware {
+                            id: format!("drive on IEC device {device}"),
+                        })?;
+                drive
+                    .load_disk(image.bytes, image.writable)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: image.slot.as_ref().to_owned(),
+                        reason,
+                    })?;
+            }
+            _ => {
+                return Err(MachineError::UnknownMediaSlot {
+                    slot: image.slot.as_ref().to_owned(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Eject one of the C64's media slots.
+    pub(crate) fn c64_eject_media_slot(&mut self, slot: &str) -> Result<(), MachineError> {
+        match slot {
+            slot if drive_slot_device(slot).is_some() => {
+                let device = drive_slot_device(slot).expect("guarded above");
+                let port = port_index(device).expect("drive slot device is 8-11");
+                let drive =
+                    self.drives[port]
+                        .as_mut()
+                        .ok_or_else(|| MachineError::MissingFirmware {
+                            id: format!("drive on IEC device {device}"),
+                        })?;
+                drive.eject_disk();
+                Ok(())
+            }
+            "cartridge-1" => {
+                self.cartridge_image = None;
+                self.machine.remove_cartridge();
+                Ok(())
+            }
+            // The datasette has no eject path on the C64 machine (it only
+            // loads/plays/stops a tape), so tape eject stays unsupported until
+            // an eject method exists on the core to surface here.
+            "tape-1" => Err(MachineError::UnsupportedOperation {
+                operation: "eject_media",
+            }),
+            _ => Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            }),
+        }
+    }
+
+    /// The C64's control commands: the datasette's transport.
+    pub(crate) fn c64_command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
         match command {
             ControlCommand::MediaTransport(command) => {
                 if command.slot.as_ref() != "tape-1" {
@@ -1195,54 +1340,6 @@ impl MachineCore for C64Runtime {
             }),
         }
     }
-
-    // Eager machine (firmware-backed at construction) — the `direct` arm.
-    emu198x_shell::debug_target_hooks!(direct);
-
-    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
-        Some(self)
-    }
-
-    fn load_basic_program<Q: emu198x_shell::SessionQueryProvider<Self>>(
-        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
-        source: &str,
-        run: bool,
-    ) -> Result<emu198x_shell::BasicProgramLoaded, emu198x_shell::LoaderError> {
-        let result = crate::basic_loader::load_basic_source(
-            session,
-            source,
-            run,
-            crate::basic_loader::DEFAULT_BASIC_LOADER_BOOT_FRAMES,
-        )
-        .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
-        Ok(emu198x_shell::BasicProgramLoaded {
-            program_bytes: result.program_bytes,
-            ran: result.ran,
-        })
-    }
-
-    fn autoload_tape<Q: emu198x_shell::SessionQueryProvider<Self>>(
-        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
-        slot: &str,
-        max_boot_frames: u32,
-    ) -> Result<emu198x_shell::TapeAutoloaded, emu198x_shell::LoaderError> {
-        let frames = if max_boot_frames == 0 {
-            crate::autoload::DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
-        } else {
-            max_boot_frames
-        };
-        let result = crate::autoload::autoload_basic_tape(
-            session,
-            slot,
-            frames,
-            crate::autoload::DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
-        )
-        .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
-        Ok(emu198x_shell::TapeAutoloaded {
-            slot: result.slot,
-            boot_frames: result.boot.frames,
-        })
-    }
 }
 
 // 6502 debug target via the shared macro (`direct`: `machine: C64` is eager, not
@@ -1254,7 +1351,7 @@ emu198x_shell::impl_6502_debug_primitives!(C64Runtime, direct);
 // key-name validation + char→keystroke table already live in `crate::input`
 // (and back the BASIC loader's RUN step); this just surfaces them plus the
 // C64's keyboard-scan timing.
-impl emu198x_shell::KeyboardTarget for C64Runtime {
+impl<M: C64FamilyMachine> emu198x_shell::KeyboardTarget for C64FamilyRuntime<M> {
     fn key_name_is_valid(&self, name: &str) -> bool {
         crate::input::key_name_is_valid(name)
     }
@@ -1281,23 +1378,6 @@ impl emu198x_shell::KeyboardTarget for C64Runtime {
             default_type_settle_frames: crate::DEFAULT_TYPE_SETTLE_FRAMES,
         }
     }
-}
-
-fn build_machine(
-    model: Model,
-    kernal_rom: &[u8],
-    basic_rom: &[u8],
-    character_rom: &[u8],
-) -> Result<C64, MachineError> {
-    C64::new(C64Config {
-        model: model.to_machine_model(),
-        kernal_rom,
-        basic_rom,
-        character_rom,
-    })
-    .map_err(|reason| MachineError::InvalidRequest {
-        reason: reason.to_string(),
-    })
 }
 
 /// Maps an IEC device number (8–11) to its port index (0–3), or `None` when out
