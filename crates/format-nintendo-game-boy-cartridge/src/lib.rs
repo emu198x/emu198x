@@ -142,6 +142,48 @@ impl CartridgeHeader {
             global_checksum,
         })
     }
+
+    /// What the cartridge asks of a Game Boy Color, from the CGB flag.
+    ///
+    /// Bit 7 marks a CGB game. The CGB boot ROM copies the flag to KEY0,
+    /// and a flag with bit 2 or 3 also set selects a non-CGB mode, so
+    /// such a cartridge runs like a DMG one (Pan Docs, "CGB Flag" and
+    /// "CGB Registers: KEY0"; SameBoy `memory.c`, `GB_IO_KEY0`).
+    #[must_use]
+    pub const fn cgb_support(&self) -> CgbSupport {
+        CgbSupport::from_flag(self.cgb_flag)
+    }
+}
+
+/// How a cartridge uses a Game Boy Color, decoded from the CGB flag.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CgbSupport {
+    /// A DMG game: a CGB runs it in DMG compatibility mode.
+    None,
+    /// A CGB-enhanced game that also runs on a DMG (flag `$80`).
+    Enhanced,
+    /// A CGB-only game (flag `$C0`).
+    Only,
+}
+
+impl CgbSupport {
+    /// Decodes a CGB flag byte (ROM offset `$0143`).
+    #[must_use]
+    pub const fn from_flag(flag: u8) -> Self {
+        if flag & 0x80 == 0 || flag & 0x0C != 0 {
+            Self::None
+        } else if flag & 0x40 != 0 {
+            Self::Only
+        } else {
+            Self::Enhanced
+        }
+    }
+
+    /// Whether a CGB runs the cartridge in CGB mode.
+    #[must_use]
+    pub const fn uses_cgb_mode(self) -> bool {
+        !matches!(self, Self::None)
+    }
 }
 
 /// The board the cartridge-type byte at `$0147` describes: which memory
