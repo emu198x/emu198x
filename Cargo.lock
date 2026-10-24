@@ -2584,6 +2584,7 @@ dependencies = [
  "emu198x-mos-via-6522",
  "emu198x-motorola-6845",
  "emu198x-ti-sn76489",
+ "emu198x-western-digital-wd1770",
  "format-acorn-uef",
  "postcard",
  "serde",

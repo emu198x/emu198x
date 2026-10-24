@@ -82,6 +82,9 @@ use saa5050::Saa5050;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+pub use emu198x_western_digital_wd1770::Disk;
+use emu198x_western_digital_wd1770::Wd1770;
+
 /// Nanoseconds per 2 MHz master tick — the cassette receiver's time base.
 const NS_PER_MASTER_TICK: u64 = 500;
 
@@ -640,6 +643,18 @@ fn blank_frame() -> Vec<u32> {
 }
 
 /// BBC Micro Model B machine.
+/// Which BBC Micro this is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BbcModel {
+    /// The Model B: 32 KB.
+    #[default]
+    ModelB,
+    /// The Model B+ (1985): 64 KB. To the Model B's 32 KB it adds 12 KB of
+    /// paged RAM at `&8000-&AFFF` and a 20 KB shadow screen behind
+    /// `&3000-&7FFF`.
+    ModelBPlus,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct BbcMicro {
     cpu: M6502,
@@ -650,6 +665,32 @@ pub struct BbcMicro {
     psg: Sn76489,
     #[serde(with = "BigArray")]
     ram: [u8; 32768],
+    /// Which model this is. Defaults so a Model B snapshot taken before the
+    /// B+ existed still reads as one.
+    model: BbcModel,
+    /// The B+'s extra 32 KB, empty on a Model B: the 12 KB of paged RAM in
+    /// `[0, &3000)`, then the 20 KB shadow screen in `[&3000, &8000)`. So a
+    /// shadow address `&3000-&7FFF` indexes it directly, and so does a video
+    /// address when the display shows the shadow screen, as MAME's
+    /// `setvideoshadow` offsets its fetches by `&8000`.
+    bplus_ram: Vec<u8>,
+    /// ROMSEL bit 7 on a B+: paged RAM at `&8000-&AFFF` in place of the
+    /// selected ROM.
+    paged_ram: bool,
+    /// ACCCON (`&FE34`) bit 7 on a B+: the display shows the shadow screen,
+    /// and the VDU drivers reach it.
+    shadow_screen: bool,
+    /// Whether the instruction now executing reaches the shadow screen at
+    /// `&3000-&7FFF`: decided at each opcode fetch, from where the opcode
+    /// came from.
+    shadow_access: bool,
+    /// The B+'s WD1770, at `&FE84-&FE87` and repeating to `&FE9F`. Present on
+    /// every model so the shape is fixed; wired only on a B+.
+    fdc: Wd1770,
+    /// The B+'s drive-control latch at `&FE80`: bits 0 and 1 select drive 0
+    /// or 1, bit 2 the side, bit 3 single density, bit 5 releases the
+    /// controller's reset (MAME `bbcbp_state::drive_control_w`).
+    drive_control: u8,
     mos_rom: Vec<u8>,
     sideways_roms: Vec<Vec<u8>>,
     rom_bank: u8,
@@ -740,6 +781,13 @@ impl BbcMicro {
             user_via: Via6522::new(),
             psg: Sn76489::new(SN76489_CLOCK_HZ, NoiseLfsr::Tms15),
             ram: [0; 32768],
+            model: BbcModel::ModelB,
+            bplus_ram: Vec::new(),
+            paged_ram: false,
+            shadow_screen: false,
+            shadow_access: false,
+            fdc: Wd1770::new(),
+            drive_control: 0,
             mos_rom,
             sideways_roms: Vec::new(),
             rom_bank: 0,
@@ -764,6 +812,109 @@ impl BbcMicro {
             cassette: CassetteReceiver::new(),
             deck_running: true,
         }
+    }
+
+    /// Create a Model B+ with its 16 KB OS 2.00 ROM: the Model B with 64 KB.
+    #[must_use]
+    pub fn new_b_plus(mos_rom: Vec<u8>) -> Self {
+        let mut machine = Self::new(mos_rom);
+        machine.model = BbcModel::ModelBPlus;
+        machine.bplus_ram = vec![0; 0x8000];
+        machine
+    }
+
+    /// Which model this is.
+    #[must_use]
+    pub const fn model(&self) -> BbcModel {
+        self.model
+    }
+
+    /// Put a disc in drive 0 or 1 of a B+. Does nothing on a Model B, whose
+    /// 8271 controller is not modelled, or for any other drive.
+    pub fn insert_disk(&mut self, drive: usize, disk: Disk) {
+        if self.model == BbcModel::ModelBPlus && drive < 2 {
+            self.fdc.insert_disk(drive, disk);
+        }
+    }
+
+    /// Take the disc out of drive 0 or 1, returning it with any writes.
+    pub fn eject_disk(&mut self, drive: usize) -> Option<Disk> {
+        if drive < 2 {
+            self.fdc.eject_disk(drive)
+        } else {
+            None
+        }
+    }
+
+    /// The disc in drive 0 or 1.
+    #[must_use]
+    pub fn disk(&self, drive: usize) -> Option<&Disk> {
+        if drive < 2 {
+            self.fdc.disk(drive)
+        } else {
+            None
+        }
+    }
+
+    /// Build a disc from an Acorn DFS image: `.ssd` with one side, or `.dsd`
+    /// with two, interleaved track by track. Each track holds ten 256-byte
+    /// sectors numbered 0-9. The track count follows the image's size: 40,
+    /// or 80 for a larger image.
+    #[must_use]
+    pub fn dfs_disk(image: &[u8], sides: usize, writable: bool) -> Disk {
+        const TRACK_BYTES: usize = 10 * 256;
+        let tracks_in_image = image.len().div_ceil(TRACK_BYTES * sides.max(1));
+        let tracks = if tracks_in_image > 40 { 80 } else { 40 };
+        Disk::new(image.to_vec(), tracks, sides.max(1), 10, 256)
+            .with_first_sector_id(0)
+            .write_protected(!writable)
+    }
+
+    /// Write the drive-control latch: select the drive and side, and pulse
+    /// the controller's reset when bit 5 releases it.
+    fn write_drive_control(&mut self, value: u8) {
+        if value & 0x01 != 0 {
+            self.fdc.set_drive(0);
+        } else if value & 0x02 != 0 {
+            self.fdc.set_drive(1);
+        }
+        self.fdc.set_side((value >> 2) & 0x01);
+        // Bit 3 selects single density, a byte every 64 µs: 128 ticks at the
+        // 2 MHz the chip is ticked at here. Double density is twice as fast.
+        // The DFS takes each byte on an NMI, which is edge-triggered, so DRQ
+        // has to fall between bytes.
+        self.fdc
+            .set_byte_cycles(if value & 0x08 != 0 { 128 } else { 64 });
+        let releasing_reset = self.drive_control & 0x20 == 0 && value & 0x20 != 0;
+        self.drive_control = value;
+        if releasing_reset {
+            self.fdc.reset();
+        }
+    }
+
+    /// Whether `addr` reaches the B+'s paged RAM rather than a sideways ROM.
+    fn in_paged_ram(&self, addr: u16) -> bool {
+        self.paged_ram && (0x8000..=0xAFFF).contains(&addr)
+    }
+
+    /// Whether `addr` reaches the B+'s shadow screen rather than main RAM.
+    fn in_shadow_screen(&self, addr: u16) -> bool {
+        self.shadow_access && (0x3000..=0x7FFF).contains(&addr)
+    }
+
+    /// At an opcode fetch, decide whether the instruction reaches the shadow
+    /// screen. On a B+ with ACCCON bit 7 set, code running in the MOS's VDU
+    /// drivers (`&C000-&DFFF`) does, and so does code in paged RAM between
+    /// `&A000` and `&AFFF`; everything else sees main RAM. MAME
+    /// `bbcbp_state::fetch_r`.
+    fn latch_shadow_access(&mut self, opcode_addr: u16) {
+        self.shadow_access = self.model == BbcModel::ModelBPlus
+            && self.shadow_screen
+            && match opcode_addr {
+                0xC000..=0xDFFF => true,
+                0xA000..=0xAFFF => self.paged_ram,
+                _ => false,
+            };
     }
 
     /// Loads a cassette tape from a decoded UEF pulse stream, rewound to the
@@ -909,6 +1060,9 @@ impl BbcMicro {
             // edge that closes it. A 2 MHz cycle has only the one tick.
             if tick + 1 == cost {
                 if self.cpu.rw {
+                    if self.cpu.sync {
+                        self.latch_shadow_access(self.cpu.addr);
+                    }
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
                 } else {
                     self.mem_write(self.cpu.addr, self.cpu.data);
@@ -941,6 +1095,14 @@ impl BbcMicro {
         }
         self.tick_cassette(cost);
         self.cpu.irq = self.system_via.irq || self.user_via.irq || self.acia.irq();
+        if self.model == BbcModel::ModelBPlus {
+            for _ in 0..cost {
+                self.fdc.tick();
+            }
+            // The 1770's INTRQ and DRQ both drive NMI: the DFS moves every
+            // byte in its NMI handler (MAME `bbc_state::update_nmi`).
+            self.cpu.nmi = self.fdc.intrq() || self.fdc.drq();
+        }
         self.master_ticks += cost;
         self.cpu_cycles += 1;
         // A cycle can cost more than one tick, so it may carry the machine
@@ -1072,6 +1234,9 @@ impl BbcMicro {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
+        if self.in_shadow_screen(addr) || self.in_paged_ram(addr) {
+            return self.bplus_ram[usize::from(addr & 0x7FFF)];
+        }
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
             0x8000..=0xBFFF => self
@@ -1084,6 +1249,9 @@ impl BbcMicro {
             // its registers (the Advanced User Guide's SHEILA map, which
             // opens its hardware section: "the same devices appear at
             // several different Sheila addresses").
+            0xFE84..=0xFE9F if self.model == BbcModel::ModelBPlus => {
+                self.fdc.read((addr & 0x03) as u8)
+            }
             0xFE40..=0xFE5F => self.system_via.read((addr & 0x0F) as u8),
             0xFE60..=0xFE7F => self.user_via.read((addr & 0x0F) as u8),
             0xFEC0..=0xFEDF => self.adc.read((addr & 0x03) as u8),
@@ -1098,6 +1266,10 @@ impl BbcMicro {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if self.in_shadow_screen(addr) || self.in_paged_ram(addr) {
+            self.bplus_ram[usize::from(addr & 0x7FFF)] = value;
+            return;
+        }
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize] = value,
             0xFE00..=0xFE07 if addr & 1 == 0 => self.crtc.write_address(value),
@@ -1110,6 +1282,17 @@ impl BbcMicro {
             0xFE08..=0xFE0F => self.acia.write(addr, value),
             // Serial ULA: RX/TX baud, RS423/cassette select, bit 7 motor relay.
             0xFE10..=0xFE1F => self.serial_ula = value,
+            // ROMSEL at `&FE30`; on a B+, bit 7 pages RAM in at `&8000-&AFFF`,
+            // and ACCCON at `&FE34` selects the shadow screen with bit 7.
+            // Each repeats at +8 (MAME `bbcbp_state::romsel_w`).
+            0xFE30..=0xFE3F if self.model == BbcModel::ModelBPlus => match addr & 0x07 {
+                0x00 => {
+                    self.rom_bank = value & 0x0F;
+                    self.paged_ram = value & 0x80 != 0;
+                }
+                0x04 => self.shadow_screen = value & 0x80 != 0,
+                _ => {}
+            },
             0xFE30..=0xFE3F => self.rom_bank = value & 0x0F,
             0xFE40..=0xFE5F => {
                 let reg = (addr & 0x0F) as u8;
@@ -1127,6 +1310,12 @@ impl BbcMicro {
                 }
             }
             0xFE60..=0xFE7F => self.user_via.write((addr & 0x0F) as u8, value),
+            0xFE80..=0xFE83 if self.model == BbcModel::ModelBPlus => {
+                self.write_drive_control(value);
+            }
+            0xFE84..=0xFE9F if self.model == BbcModel::ModelBPlus => {
+                self.fdc.write((addr & 0x03) as u8, value);
+            }
             // Only a write to the control register ($FEC0, reg 0) starts a
             // conversion. Beginning one releases EOC (CB1 high) until the
             // countdown completes and pulls it low again. Writes to the result
@@ -1243,6 +1432,16 @@ impl BbcMicro {
         }
     }
 
+    /// The byte the video circuitry fetches at `address`: from the B+'s
+    /// shadow screen while ACCCON selects it, otherwise from main RAM.
+    fn video_byte(&self, address: u16) -> u8 {
+        if self.shadow_screen {
+            self.bplus_ram[usize::from(address & 0x7FFF)]
+        } else {
+            self.ram[usize::from(address & 0x7FFF)]
+        }
+    }
+
     /// Draw the character the 6845 is addressing at `column` of the current
     /// line, if it is displaying one.
     fn draw_character(&mut self, column: u8) {
@@ -1251,7 +1450,7 @@ impl BbcMicro {
         };
         let ma = self.crtc.memory_address();
         let ra = self.crtc.raster_address();
-        let byte = self.ram[usize::from(self.video_address(ma, ra))];
+        let byte = self.video_byte(self.video_address(ma, ra));
         if self.video_ula.teletext() {
             self.draw_teletext_character(rows, usize::from(column), byte, ra);
             return;
@@ -1468,6 +1667,9 @@ impl BbcMicro {
     /// `$FF` for the SHEILA I/O page).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
+        if self.in_shadow_screen(addr) || self.in_paged_ram(addr) {
+            return self.bplus_ram[usize::from(addr & 0x7FFF)];
+        }
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
             0x8000..=0xBFFF => self
@@ -2807,5 +3009,149 @@ mod tests {
         // Reading the data register clears the latched DCD.
         let _ = sys.mem_read(0xFE09);
         assert_eq!(sys.mem_read(0xFE08) & 0x04, 0, "reading data clears DCD");
+    }
+
+    /// Run `program` from `&C000` (the MOS's VDU-driver range) on a B+.
+    fn b_plus_running(program: &[u8], instructions: usize) -> BbcMicro {
+        let mut sys = BbcMicro::new_b_plus(rom_running(program));
+        for _ in 0..instructions + 2 {
+            sys.step_instruction();
+        }
+        sys
+    }
+
+    #[test]
+    fn b_plus_romsel_bit_7_pages_ram_in_over_the_sideways_rom() {
+        let mut sys = BbcMicro::new_b_plus(trap_rom());
+        assert_eq!(sys.model(), BbcModel::ModelBPlus);
+        sys.mem_write(0xFE30, 0x80);
+        sys.mem_write(0x8000, 0x42);
+        sys.mem_write(0xAFFF, 0x24);
+        assert_eq!([sys.mem_read(0x8000), sys.mem_read(0xAFFF)], [0x42, 0x24]);
+        assert_eq!(sys.mem_read(0xB000), 0xFF, "paged RAM ends at &AFFF");
+        sys.mem_write(0xFE38, 0x00); // ROMSEL repeats at +8
+        assert_eq!(sys.mem_read(0x8000), 0xFF, "the empty sideways slot again");
+        sys.mem_write(0xFE30, 0x80);
+        assert_eq!(sys.mem_read(0x8000), 0x42, "paged RAM kept its contents");
+    }
+
+    #[test]
+    fn a_model_b_ignores_romsel_bit_7_and_acccon() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.mem_write(0xFE30, 0x80);
+        sys.mem_write(0x8000, 0x42);
+        assert_eq!(sys.mem_read(0x8000), 0xFF);
+        sys.mem_write(0xFE34, 0x80); // on a Model B this is ROMSEL again
+        assert_eq!(sys.rom_bank, 0);
+        assert!(!sys.shadow_screen);
+    }
+
+    #[test]
+    fn vdu_driver_code_writes_the_shadow_screen_and_other_code_main_ram() {
+        // At &C000, inside the VDU drivers' range: select the shadow screen,
+        // then store &55 at &3000.
+        let program = [
+            0xA9, 0x80, // LDA #&80
+            0x8D, 0x34, 0xFE, // STA &FE34 (ACCCON: shadow)
+            0xA9, 0x55, // LDA #&55
+            0x8D, 0x00, 0x30, // STA &3000
+            0x4C, 0x0A, 0xC0, // JMP &C00A (spin)
+        ];
+        let mut sys = b_plus_running(&program, 4);
+        assert_eq!(sys.ram[0x3000], 0x00, "main RAM untouched");
+        assert_eq!(sys.bplus_ram[0x3000], 0x55, "the shadow screen took it");
+        // Code outside &C000-&DFFF sees main RAM.
+        sys.latch_shadow_access(0x0200);
+        assert_eq!(sys.mem_read(0x3000), 0x00);
+        sys.latch_shadow_access(0xC000);
+        assert_eq!(sys.mem_read(0x3000), 0x55);
+        // Code in paged RAM between &A000 and &AFFF reaches it only with paged
+        // RAM selected.
+        sys.latch_shadow_access(0xA000);
+        assert_eq!(sys.mem_read(0x3000), 0x00);
+        sys.mem_write(0xFE30, 0x80);
+        sys.latch_shadow_access(0xA000);
+        assert_eq!(sys.mem_read(0x3000), 0x55);
+    }
+
+    #[test]
+    fn the_display_shows_the_shadow_screen_when_selected() {
+        let mut sys = BbcMicro::new_b_plus(trap_rom());
+        sys.ram[0x3000] = 0x11;
+        sys.bplus_ram[0x3000] = 0x99;
+        assert_eq!(sys.video_byte(0x3000), 0x11);
+        sys.mem_write(0xFE34, 0x80);
+        assert_eq!(sys.video_byte(0x3000), 0x99, "the shadow screen is shown");
+        sys.mem_write(0xFE3C, 0x00); // ACCCON repeats at +8
+        assert_eq!(sys.video_byte(0x3000), 0x11);
+    }
+
+    /// A 40-track single-sided DFS image whose every byte names its track,
+    /// sector and offset.
+    fn ssd_image() -> Vec<u8> {
+        (0..40 * 10 * 256)
+            .map(|i: usize| ((i / 2560) as u8) ^ (((i / 256) % 10) as u8) << 4 ^ (i as u8))
+            .collect()
+    }
+
+    fn settle_fdc(sys: &mut BbcMicro) {
+        for _ in 0..10_000 {
+            sys.fdc.tick();
+            if sys.fdc.peek_status() & 0x01 == 0 {
+                return;
+            }
+        }
+        panic!("the 1770 stayed busy");
+    }
+
+    #[test]
+    fn the_b_plus_1770_decodes_at_fe84_and_repeats_to_fe9f() {
+        let mut sys = BbcMicro::new_b_plus(trap_rom());
+        sys.mem_write(0xFE85, 0x27); // track register
+        assert_eq!(sys.mem_read(0xFE85), 0x27);
+        assert_eq!(sys.mem_read(0xFE9D), 0x27, "repeats every four bytes");
+        let mut model_b = BbcMicro::new(trap_rom());
+        model_b.mem_write(0xFE85, 0x27);
+        assert_eq!(model_b.mem_read(0xFE85), 0xFF, "no 1770 on a Model B");
+        model_b.insert_disk(0, BbcMicro::dfs_disk(&ssd_image(), 1, false));
+        assert!(model_b.disk(0).is_none());
+    }
+
+    #[test]
+    fn releasing_the_drive_latch_reset_restores_the_head() {
+        let mut sys = BbcMicro::new_b_plus(trap_rom());
+        sys.insert_disk(0, BbcMicro::dfs_disk(&ssd_image(), 1, false));
+        sys.mem_write(0xFE85, 9);
+        sys.mem_write(0xFE80, 0x09); // drive 0, single density, held in reset
+        assert_eq!(sys.fdc.peek_status() & 0x01, 0, "no reset pulse yet");
+        sys.mem_write(0xFE80, 0x29); // release reset
+        assert_ne!(sys.fdc.peek_status() & 0x01, 0, "the Restore runs");
+        settle_fdc(&mut sys);
+        assert_eq!(sys.mem_read(0xFE85), 0, "the head is back on track 0");
+    }
+
+    #[test]
+    fn a_sector_read_raises_nmi_for_each_byte() {
+        let mut sys = BbcMicro::new_b_plus(trap_rom());
+        let image = ssd_image();
+        sys.insert_disk(1, BbcMicro::dfs_disk(&image, 1, false));
+        sys.mem_write(0xFE80, 0x2A); // drive 1, single density, out of reset
+        settle_fdc(&mut sys);
+        sys.mem_read(0xFE84); // clear the Restore's INTRQ
+        sys.mem_write(0xFE86, 3); // sector 3, track 0
+        sys.mem_write(0xFE84, 0x80); // Read Sector
+        let mut data = Vec::new();
+        for _ in 0..200_000 {
+            sys.fdc.tick();
+            sys.cpu.nmi = sys.fdc.intrq() || sys.fdc.drq();
+            if sys.fdc.drq() {
+                assert!(sys.cpu.nmi, "DRQ drives NMI");
+                data.push(sys.mem_read(0xFE87));
+            } else if sys.fdc.intrq() {
+                break;
+            }
+        }
+        assert_eq!(data, image[3 * 256..4 * 256]);
+        assert_eq!(sys.mem_read(0xFE84) & 0x1C, 0, "no errors");
     }
 }
