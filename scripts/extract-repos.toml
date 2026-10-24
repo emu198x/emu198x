@@ -216,6 +216,14 @@ consumers = "Used by the Commodore 1571 and 1581 drives and the Tatung Einstein.
 coverage_floor = 89
 
 [[repo]]
+name = "sega-315-5313"
+crates = ["emu198x-sega-315-5313"]
+summary = "The Sega 315-5313 video display processor of the Mega Drive."
+consumers = "Built for the Sega Mega Drive (#496); no machine uses it yet."
+# 99.11% line coverage on 2026-10-24.
+coverage_floor = 99
+
+[[repo]]
 name = "yamaha-ym2612"
 crates = ["emu198x-yamaha-ym2612"]
 summary = "The Yamaha YM2612 (OPN2) FM synthesis chip and its CMOS twin, the YM3438."
