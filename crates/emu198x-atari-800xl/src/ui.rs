@@ -81,8 +81,8 @@ impl UiSystem for Atari800xlSystem {
 
     fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(match runtime.model() {
-            Model::A800xlPal => 1.0 / 50.0,
-            Model::A800xlNtsc => 1.0 / 60.0,
+            Model::A800xlPal | Model::A130xePal => 1.0 / 50.0,
+            Model::A800xlNtsc | Model::A130xeNtsc => 1.0 / 60.0,
         })
     }
 
@@ -216,7 +216,7 @@ mod tests {
             };
             let mut runtime = app.build_ui_runtime().expect("runtime");
             let mut system = app.ui_system();
-            assert_eq!(system.variants().len(), 2);
+            assert_eq!(system.variants().len(), Model::ALL.len());
             assert_eq!(
                 system.current_variant().as_deref(),
                 Some(model.variant_id())
@@ -230,7 +230,7 @@ mod tests {
                 assert_eq!(system.frame_ticks(&runtime), other.frame_ticks());
                 assert_eq!(
                     system.frame_duration(&runtime),
-                    Duration::from_secs_f64(if other == Model::A800xlPal {
+                    Duration::from_secs_f64(if other.region() == emu198x_shell::Region::Pal {
                         1.0 / 50.0
                     } else {
                         1.0 / 60.0
