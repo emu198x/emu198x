@@ -1,11 +1,13 @@
 //! Public-register read handshake regressions. No host-time sleeps.
 mod common;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller_pending(op: u8) -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     f.insert_disk(
         0,
         DiskImage {
@@ -35,7 +37,7 @@ fn controller(op: u8) -> Upd765a {
         if f.read_status() & 0x80 != 0 {
             return f;
         }
-        f.tick(0);
+        f.tick();
     }
     panic!("initial read request deadline");
 }
@@ -54,7 +56,7 @@ fn first_read_request_waits_for_pre_data_interval() {
 }
 fn ticks(f: &mut Upd765a, n: u32) {
     for _ in 0..n {
-        f.tick(0);
+        f.tick();
     }
 }
 fn result(f: &mut Upd765a) -> [u8; 7] {
@@ -146,8 +148,7 @@ fn paced_complete_payload_preserves_eot_and_drains_exactly_seven_results() {
 fn overrun_retains_encountered_control_mark_but_not_a_future_one() {
     for op in [0x46, 0x4c] {
         for sectors_before_mark in [0, 1] {
-            let mut f = Upd765a::new();
-            f.enabled = true;
+            let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
             let wanted_deleted = op == 0x4c;
             let sectors = (0..=sectors_before_mark)
                 .map(|i| DiskSector {
@@ -179,7 +180,7 @@ fn overrun_retains_encountered_control_mark_but_not_a_future_one() {
                 if f.read_status() & 0x80 != 0 {
                     break;
                 }
-                f.tick(0);
+                f.tick();
             }
             assert_eq!(f.read_status(), 0xf0);
             ticks(&mut f, 114);

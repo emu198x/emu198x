@@ -1,10 +1,12 @@
 mod common;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller(mask: u8) -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         f.write_data(byte);
@@ -34,8 +36,8 @@ fn controller(mask: u8) -> Upd765a {
     );
     // Settle and drain initial external READY attention before testing PCNs.
     // Data-result IRQ can remain high, so IRQ alone is not a new seek deadline.
-    for hc in 0..8000 {
-        f.tick(hc);
+    for _ in 0..8000 {
+        f.tick();
     }
     for _ in 0..5 {
         f.write_data(8);
@@ -54,8 +56,8 @@ fn seek(f: &mut Upd765a, select: u8, target: u8) {
 }
 fn complete(fdc: &mut Upd765a) {
     // Busy now includes unacknowledged completions, so it is not a motion timer.
-    for hc in 0..200_000 {
-        fdc.tick(hc);
+    for _ in 0..200_000 {
+        fdc.tick();
     }
     assert!(fdc.interrupt, "bounded seek completion raises IRQ");
 }
@@ -122,8 +124,8 @@ fn alias_failed_seek_preserves_pcn_and_echoes_unit_and_head() {
     complete(&mut f);
     assert_eq!(sis(&mut f), [0x26, 3]);
     f.eject_disk(0);
-    for hc in 0..8000 {
-        f.tick(hc);
+    for _ in 0..8000 {
+        f.tick();
     }
     assert_eq!(sis(&mut f), [0xc8, 0], "physical A READY fell");
     assert_eq!(

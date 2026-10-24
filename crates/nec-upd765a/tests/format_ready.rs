@@ -1,10 +1,12 @@
 //! Independent READY must gate Format Track even while a writable image exists.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn controller() -> Upd765a {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.insert_disk_with_writable(
         0,
         DiskImage {
@@ -75,7 +77,7 @@ fn not_ready_mounted_image_rejects_format_without_execution() {
                 original(&fdc);
                 // Elapsed time cannot restart a rejected format.
                 for _ in 0..100_000 {
-                    fdc.tick(0);
+                    fdc.tick();
                 }
                 original(&fdc);
                 assert_eq!(fdc.read_status() & 0xf0, 0x80);
@@ -113,7 +115,7 @@ fn wait_request(fdc: &mut Upd765a) {
         if fdc.read_status() & 0x80 != 0 {
             return;
         }
-        fdc.tick(0);
+        fdc.tick();
     }
     panic!("format request/result exceeded bounded wait");
 }

@@ -332,13 +332,14 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-/// **Seam 5 waypoint #5:** Snapshot version is locked at v11.
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v12.
 ///
 /// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
 /// disk-image cache, 2 → 3 when accepted Z80 interrupt responses
 /// gained a serialisable sequence identity, 3 → 4 for tape stop-release
 /// state, 4 → 5 for live writable disk media (#1764), and 5 → 6 for
-/// per-sector FDC read progress (#1833, explicitly approved). Any further breaking
+/// per-sector FDC read progress (#1833, explicitly approved), on through
+/// 11 → 12 when the µPD765A shed the +3's wiring. Any further breaking
 /// change to the envelope must update [`SNAPSHOT_VERSION`] and
 /// document the upgrade path in
 /// `crates/runtime-sinclair-zx-spectrum/src/snapshot.rs`. This
@@ -347,17 +348,17 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v11() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v12() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 11.
+    // and matches the value, so byte 0 of the snapshot bytes == 12.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 11,
-        "snapshot envelope must be at version 11 (paced FDC motion and programmed SRT); \
+        bytes[0], 12,
+        "snapshot envelope must be at version 12 (FDC without +3 wiring); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())

@@ -1,10 +1,12 @@
 //! NEC December 1978 p15, Table4: compare every disk byte against host bytes.
 //! Stock MAME 0.289 has documented Scan disagreements, not a passing oracle.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 fn controller(values: &[u8], deleted: bool) -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     f.insert_disk(
         0,
         DiskImage {
@@ -40,7 +42,7 @@ fn ready(f: &mut Upd765a) {
         if f.read_status() & 0x80 != 0 {
             return;
         }
-        f.tick(0);
+        f.tick();
     }
     panic!("bounded scan request");
 }
@@ -50,7 +52,7 @@ fn supply(f: &mut Upd765a, host: &[u8]) {
         assert_eq!(f.read_status(), 0xb0);
         f.write_data(b);
         for _ in 0..114 {
-            f.tick(0);
+            f.tick();
         }
     }
 }
@@ -134,7 +136,7 @@ fn scan_overrun_is_non_mutating_and_direction_is_enforced() {
     f.write_data(0x21);
     f.write_data(0x99);
     for _ in 0..228 {
-        f.tick(0);
+        f.tick();
     }
     assert_eq!(result(&mut f)[1], 0x10);
     assert_eq!(
@@ -241,7 +243,7 @@ fn scan_equal_counts_first_later_and_absent_hits_without_mutating_media() {
                 }
                 _ => {}
             }
-            f.tick(0);
+            f.tick();
         }
         assert!(completed, "bounded result phase");
         let observed = result(&mut f);

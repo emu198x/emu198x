@@ -2,6 +2,10 @@
 mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
+
 fn image(deleted: bool) -> DiskImage {
     DiskImage {
         sides: 1,
@@ -42,8 +46,7 @@ fn result(fdc: &mut Upd765a) -> [u8; 7] {
 
 fn ready_admission(opcode: u8) {
     for select in 0..4 {
-        let mut fdc = Upd765a::new();
-        fdc.enabled = true;
+        let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
         fdc.set_drive_select_mask(1);
         let physical = usize::from(select & 1);
         let source = image(opcode == 0x4c);

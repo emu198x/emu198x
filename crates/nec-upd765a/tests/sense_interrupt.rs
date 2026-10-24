@@ -1,8 +1,11 @@
 //! Public-register result framing, independent of the private result buffer.
 //! No-pending SIS already selects Invalid Command; that result has ST0 only.
 
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::Upd765a;
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn assert_empty_interrupt_result(fdc: &mut Upd765a, busy: u8) {
     fdc.write_data(0x08);
@@ -20,8 +23,7 @@ fn assert_empty_interrupt_result(fdc: &mut Upd765a, busy: u8) {
 
 #[test]
 fn no_pending_interrupt_returns_one_byte_then_accepts_a_command() {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     // Explicit fastest programmed rate; this fixture tests framing/PCN, not SRT.
     for byte in [3, 0xf0, 3] {
         fdc.write_data(byte);
@@ -31,15 +33,14 @@ fn no_pending_interrupt_returns_one_byte_then_accepts_a_command() {
 }
 
 fn ready_controller() -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     for byte in [3, 0xf0, 3] {
         f.write_data(byte);
     }
     f.set_ready(0, true);
     f.set_ready(3, true);
     for _ in 0..100_000 {
-        f.tick(0);
+        f.tick();
     }
     for unit in [0, 3] {
         f.write_data(8);
@@ -57,8 +58,8 @@ fn querying_before_seek_completion_keeps_the_seek_active() {
     assert_eq!(fdc.read_status(), 0x81);
     assert_empty_interrupt_result(&mut fdc, 1);
     assert!(!fdc.interrupt);
-    for hc in 0..200_000 {
-        fdc.tick(hc);
+    for _ in 0..200_000 {
+        fdc.tick();
     }
     assert!(fdc.interrupt);
     fdc.write_data(0x08);
@@ -76,8 +77,8 @@ fn completed_seeks_keep_two_bytes_and_drain_in_drive_order() {
     for byte in [0x0f, 3, 9, 0x0f, 0, 7] {
         fdc.write_data(byte);
     }
-    for hc in 0..200_000 {
-        fdc.tick(hc);
+    for _ in 0..200_000 {
+        fdc.tick();
     }
     for drive in [0, 3] {
         fdc.write_data(0x08);

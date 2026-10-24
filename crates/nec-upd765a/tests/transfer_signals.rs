@@ -1,15 +1,17 @@
 //! Programmed transfer-mode and IRQ regressions (NEC processor interface/Specify).
 //! No DMA bus transfer is claimed by these register-level observations.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn controller(nd: u8) -> Upd765a {
     controller_with_writable(nd, false)
 }
 
 fn controller_with_writable(nd: u8, writable: bool) -> Upd765a {
-    let mut fdc = Upd765a::new();
-    fdc.enabled = true;
+    let mut fdc = Upd765a::new(SPECTRUM_128_CPU_HZ);
     fdc.insert_disk_with_writable(
         0,
         DiskImage {
@@ -52,11 +54,11 @@ fn await_byte(fdc: &mut Upd765a) {
 }
 
 fn await_byte_limit(fdc: &mut Upd765a, limit: u32) {
-    for hc in 0..limit {
+    for _ in 0..limit {
         if fdc.read_status() & 0x80 != 0 {
             return;
         }
-        fdc.tick(hc);
+        fdc.tick();
     }
     panic!("byte request exceeded {limit} ticks");
 }
@@ -300,8 +302,8 @@ fn queued_ready_attention_survives_payload_irq_acknowledgements() {
         fdc.write_data(byte);
     }
     fdc.set_ready(1, true);
-    for hc in 0..8_000 {
-        fdc.tick(hc);
+    for _ in 0..8_000 {
+        fdc.tick();
     }
     assert!(fdc.interrupt, "create independent READY attention");
     fdc.write_data(4);
@@ -342,11 +344,11 @@ fn unread_payload_request_becomes_an_acknowledgeable_overrun_result() {
         assert_eq!(fdc.interrupt, nd != 0);
         // Observe the existing bounded sector-model timeout, without claiming
         // an exact silicon service deadline from its particular tick count.
-        for hc in 0..10_000 {
+        for _ in 0..10_000 {
             if fdc.read_status() == 0xd0 && fdc.interrupt {
                 break;
             }
-            fdc.tick(hc);
+            fdc.tick();
         }
         assert_eq!(fdc.read_status(), 0xd0);
         assert!(fdc.interrupt, "overrun has completion IRQ in both modes");

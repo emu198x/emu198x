@@ -1,7 +1,10 @@
 //! Current transfer position and encountered errors, through public registers.
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 mod common;
+
+/// The +3's CPU clock, which these cases were written against: the +3
+/// ticks the controller once per T-state.
+const SPECTRUM_128_CPU_HZ: u64 = 3_546_895;
 
 fn sector(id: u8, deleted: bool, crc: bool) -> DiskSector {
     DiskSector {
@@ -15,8 +18,7 @@ fn sector(id: u8, deleted: bool, crc: bool) -> DiskSector {
     }
 }
 fn controller(op: u8, sectors: Vec<DiskSector>, eot: u8) -> Upd765a {
-    let mut f = Upd765a::new();
-    f.enabled = true;
+    let mut f = Upd765a::new(SPECTRUM_128_CPU_HZ);
     f.insert_disk(
         0,
         DiskImage {
@@ -41,7 +43,7 @@ fn overrun(f: &mut Upd765a) -> [u8; 7] {
     common::await_read(f);
     assert_eq!(f.read_status(), 0xf0);
     for _ in 0..114 {
-        f.tick(0);
+        f.tick();
     }
     result(f)
 }
