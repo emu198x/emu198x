@@ -22,7 +22,8 @@ use crate::runtime::Svi328Runtime;
 /// holds a 240-line buffer that a version-4 PAL machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 6;
+/// Bumped to 7 when the 8255 began modelling its port directions and input lines, which changes its serialised fields.
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

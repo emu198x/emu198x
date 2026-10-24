@@ -355,7 +355,7 @@ impl Msx {
             cpu: Z80::new(),
             vdp: Tms9918::new(vdp_region),
             psg: Ay3_8912::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
-            ppi: Ppi8255::new(),
+            ppi: Self::new_ppi(),
             bios_rom,
             cart1: CartridgeSlot::empty(),
             cart2: CartridgeSlot::empty(),
@@ -494,7 +494,7 @@ impl Msx {
     /// `addr`. PPI port A holds two bits per page.
     fn resolve_slot(&self, addr: u16) -> u8 {
         let page = (addr >> 14) as usize;
-        (self.ppi.port_a >> (page * 2)) & 0x03
+        (self.ppi.port_a() >> (page * 2)) & 0x03
     }
 
     fn mem_read(&self, addr: u16) -> u8 {
@@ -538,7 +538,7 @@ impl Msx {
             0xA9 => {
                 // Port B = keyboard column for the row selected by
                 // PPI port C bits 0-3.
-                let row = self.ppi.keyboard_row() as usize;
+                let row = usize::from(self.ppi.port_c() & 0x0F);
                 if row < self.keyboard.len() {
                     self.keyboard[row]
                 } else {
@@ -651,6 +651,18 @@ impl Msx {
     /// audio frame).
     pub fn psg_mut(&mut self) -> &mut Ay3_8912 {
         &mut self.psg
+    }
+
+    /// The PPI as the MSX board wires it. Until the BIOS sets the mode,
+    /// every port is an input and its lines are undriven. The MSX
+    /// standard has every page in primary slot 0 after reset, which is
+    /// where the CPU must find the BIOS, so port A's slot-select lines
+    /// read low; port C's lines do too.
+    fn new_ppi() -> Ppi8255 {
+        let mut ppi = Ppi8255::new();
+        ppi.input_a = 0x00;
+        ppi.input_c = 0x00;
+        ppi
     }
 
     /// PPI reference.
@@ -811,6 +823,15 @@ impl emu198x_zilog_z80::Z80Stepper for Msx {
 mod tests {
     use super::*;
 
+    /// An MSX whose 8255 has the mode the BIOS sets at reset: port A
+    /// (slot select) out, port B (keyboard) in, port C out. The trap BIOS
+    /// never runs that code.
+    fn booted(region: MsxRegion) -> Msx {
+        let mut sys = Msx::new(trap_bios(), region);
+        sys.ppi.write(3, 0x82);
+        sys
+    }
+
     fn trap_bios() -> Vec<u8> {
         // 32 KB BIOS-shaped ROM full of NOPs with a JR -2 trap at
         // $0008 — gives the Z80 something legal to run for boot-
@@ -828,7 +849,7 @@ mod tests {
     /// every stateful field round-trips, including the VDP's 16 KB VRAM.
     #[test]
     fn snapshot_round_trips_live_state() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         sys.run_frame();
         // RAM lives in slot 3; at reset PPI port A = 0 selects slot 0 for
         // every page, so route page 3 ($C000-$FFFF) to slot 3 before poking.
@@ -852,7 +873,7 @@ mod tests {
 
     #[test]
     fn ntsc_frame_returns_expected_tstates() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         let t = sys.run_frame();
         assert_eq!(t, NTSC_TSTATES_PER_FRAME);
         assert_eq!(sys.frame_count(), 1);
@@ -860,7 +881,7 @@ mod tests {
 
     #[test]
     fn ay_watch_captures_psg_data_writes() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         // Disarmed by default: no records.
         assert!(sys.ay_write_watch_records().is_none());
 
@@ -893,14 +914,14 @@ mod tests {
 
     #[test]
     fn pal_frame_returns_expected_tstates() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Pal);
+        let mut sys = booted(MsxRegion::Pal);
         let t = sys.run_frame();
         assert_eq!(t, PAL_TSTATES_PER_FRAME);
     }
 
     #[test]
     fn many_frames_complete_without_panic() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         for _ in 0..60 {
             sys.run_frame();
         }
@@ -911,7 +932,7 @@ mod tests {
     fn default_slot_layout_reads_bios_then_ram() {
         // PPI port A defaults to 0 → slot 0 selected for all four
         // pages. Page 0 (BIOS NOP region) should read 0.
-        let sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let sys = booted(MsxRegion::Ntsc);
         assert_eq!(sys.mem_read(0x0000), 0);
         // BIOS-trap byte at $0008.
         assert_eq!(sys.mem_read(0x0008), 0x18);
@@ -921,7 +942,7 @@ mod tests {
 
     #[test]
     fn slot_select_routes_pages() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         // Select slot 3 (RAM) for page 3 only.
         sys.ppi.write(0, 0b1100_0000); // page 3 → slot 3
         sys.mem_write(0xC000, 0xAB);
@@ -934,7 +955,7 @@ mod tests {
 
     #[test]
     fn joystick_reads_through_psg_port_a() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
 
         // Port 1 is selected by default (R15 bit 6 = 0). Press up + fire.
         sys.set_joystick(1, true, false, false, false, true);
@@ -961,7 +982,7 @@ mod tests {
 
     #[test]
     fn keyboard_press_and_release_round_trip() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         sys.press_key(2, 3);
         assert_eq!(sys.keyboard[2] & 0b0000_1000, 0);
         sys.release_key(2, 3);
@@ -970,7 +991,7 @@ mod tests {
 
     #[test]
     fn keyboard_io_returns_selected_row() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         sys.keyboard[5] = 0x42;
         // Select row 5 via PPI port C bits 0-3.
         sys.ppi.write(2, 0x05);
@@ -979,7 +1000,7 @@ mod tests {
 
     #[test]
     fn vdp_dot_ratio_is_three_per_two_tstates() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         let start = sys.vdp.scanline();
         for _ in 0..4 {
             sys.tick_tstate();
@@ -990,7 +1011,7 @@ mod tests {
 
     #[test]
     fn cart_plain_mapper_reads_at_0x4000() {
-        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut sys = booted(MsxRegion::Ntsc);
         let mut cart = vec![0u8; 0x4000];
         cart[0] = 0x42;
         cart[1] = 0xAA;

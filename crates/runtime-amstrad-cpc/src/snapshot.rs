@@ -11,10 +11,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::AmstradCpcRuntime;
 
+// Bumped to 3: the 8255 began modelling its port directions and input lines, which changes its serialised fields.
+//
 // Bumped to 2: the 6845 now carries its interlace field (#163). postcard is
 // not self-describing, so a field added to the CRTC shifts every byte after
 // it.
-const SNAPSHOT_VERSION: u16 = 2;
+const SNAPSHOT_VERSION: u16 = 3;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
