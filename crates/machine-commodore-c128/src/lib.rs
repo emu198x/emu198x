@@ -14,7 +14,7 @@
 mod mmu;
 mod vdc;
 
-use common_commodore_c64::TIMING_PAL_BREADBIN;
+use common_commodore_c64::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_mos_6502::M6502;
 use emu198x_mos_sid_6581::Sid6581;
 use emu198x_zilog_z80::{BusOp, Z80};
@@ -26,6 +26,9 @@ use serde::{Deserialize, Serialize};
 use vdc::Vdc;
 
 const RAM_SIZE: usize = 0x2_0000;
+/// Where BASIC 7.0's program text starts, and the pointer to its end.
+const BASIC_TEXT_START: u16 = 0x1C01;
+const BASIC_TEXT_TOP: u16 = 0x1210;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// Z80 half-cycles per phi2 cycle: the C128's Z80 runs at an effective
 /// 2 MHz, two T-states for each 1 MHz cycle.
@@ -43,6 +46,36 @@ pub struct C128Roms<'a> {
     /// `chargen-390059-01.bin`: 8 KB, the C64's character set then the
     /// C128's.
     pub chargen: &'a [u8],
+}
+
+/// Which television standard the machine was built for. The two differ in
+/// the VIC-IIe (8566 or 8564), the crystal and so the phi2 clock, and the
+/// mains rate the CIAs' time-of-day clocks count.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum C128Model {
+    /// PAL, 312 lines of 63 cycles at 985,248 Hz.
+    #[default]
+    Pal,
+    /// NTSC, 263 lines of 65 cycles at 1,022,727 Hz.
+    Ntsc,
+}
+
+impl C128Model {
+    /// The board timing for this standard.
+    #[must_use]
+    pub const fn timing(self) -> C64Timing {
+        match self {
+            Self::Pal => TIMING_PAL_BREADBIN,
+            Self::Ntsc => TIMING_NTSC_BREADBIN,
+        }
+    }
+
+    const fn vic_model(self) -> VicModel {
+        match self {
+            Self::Pal => VicModel::Pal8566,
+            Self::Ntsc => VicModel::Ntsc8564,
+        }
+    }
 }
 
 /// Why a ROM set was refused.
@@ -139,6 +172,7 @@ impl VicMemory for Memory {
 /// A Commodore 128.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct C128 {
+    model: C128Model,
     cpu: M6502,
     z80: Z80,
     mmu: Mmu,
@@ -163,6 +197,16 @@ impl C128 {
     ///
     /// A ROM of the wrong size.
     pub fn new(roms: &C128Roms<'_>) -> Result<Self, RomError> {
+        Self::with_model(roms, C128Model::Pal)
+    }
+
+    /// A C128 for one television standard, at power-on. The ROMs are the
+    /// same for both: the KERNAL tells them apart by the VIC's line count.
+    ///
+    /// # Errors
+    ///
+    /// A ROM of the wrong size.
+    pub fn with_model(roms: &C128Roms<'_>, model: C128Model) -> Result<Self, RomError> {
         let mut basic = checked("BASIC low", roms.basic_lo, 0x4000)?;
         basic.extend(checked("BASIC high", roms.basic_hi, 0x4000)?);
         let memory = Memory {
@@ -175,7 +219,7 @@ impl C128 {
             port_data: 0,
             vic_ram_bank: 0,
         };
-        let timing = TIMING_PAL_BREADBIN;
+        let timing = model.timing();
         let mut cia1 = Cia6526::new_with_tod(timing.cia_tod_divider);
         cia1.set_model(CiaModel::Mos6526A);
         let mut cia2 = Cia6526::new_with_tod(timing.cia_tod_divider);
@@ -184,16 +228,17 @@ impl C128 {
         // board does.
         cia2.write(0x02, 0x03);
         cia2.write(0x00, 0x03);
-        let mut vic = Vic::new(VicModel::Pal8566);
+        let mut vic = Vic::new(model.vic_model());
         vic.set_bank(0);
         let mut cpu = M6502::new();
         cpu.reset();
         let mut machine = Self {
+            model,
             cpu,
             z80: Z80::new(),
             mmu: Mmu::new(),
             vic,
-            vdc: Vdc::new(),
+            vdc: Vdc::new(timing.cpu_hz),
             cia1,
             cia2,
             sid: Sid6581::new(timing.cpu_hz, AUDIO_SAMPLE_RATE),
@@ -213,10 +258,84 @@ impl C128 {
         self.z80.rehydrate_walker_sequence();
     }
 
+    /// The television standard this machine was built for.
+    #[must_use]
+    pub const fn model(&self) -> C128Model {
+        self.model
+    }
+
+    /// The board timing: clock, lines and cycles per line.
+    #[must_use]
+    pub const fn timing(&self) -> C64Timing {
+        self.model.timing()
+    }
+
     /// The 8502.
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
         &self.cpu
+    }
+
+    /// The 8502, mutably, for debuggers.
+    pub fn cpu_mut(&mut self) -> &mut M6502 {
+        &mut self.cpu
+    }
+
+    /// The VIC-IIe.
+    #[must_use]
+    pub const fn vic(&self) -> &Vic {
+        &self.vic
+    }
+
+    /// CIA 1: keyboard and joysticks.
+    #[must_use]
+    pub const fn cia1(&self) -> &Cia6526 {
+        &self.cia1
+    }
+
+    /// CIA 2: the VIC bank, the serial bus and the user port.
+    #[must_use]
+    pub const fn cia2(&self) -> &Cia6526 {
+        &self.cia2
+    }
+
+    /// One VIC register as a debugger sees it, without side effects.
+    #[must_use]
+    pub fn vic_register(&self, index: u8) -> u8 {
+        self.vic.peek(index & 0x3F)
+    }
+
+    /// The beam's raster line.
+    #[must_use]
+    pub fn raster_line(&self) -> u16 {
+        self.vic.raster_line()
+    }
+
+    /// The cycle within the raster line.
+    #[must_use]
+    pub fn cycle_in_line(&self) -> u8 {
+        self.vic.raster_cycle()
+    }
+
+    /// The SID's output sample rate, in Hz.
+    #[must_use]
+    pub const fn audio_sample_rate(&self) -> u32 {
+        AUDIO_SAMPLE_RATE
+    }
+
+    /// Run until the 8502 has finished one whole instruction, and return the
+    /// phi2 cycles that took. While the Z80 has the bus the 8502 does not
+    /// move, so the step gives up after 1024 cycles rather than wait.
+    pub fn step_instruction(&mut self) -> u64 {
+        let start = self.phi2_cycles;
+        let cap = start + 1024;
+        while self.cpu.instruction_complete() && self.phi2_cycles < cap {
+            self.tick();
+        }
+        while !self.cpu.instruction_complete() && self.phi2_cycles < cap {
+            self.tick();
+        }
+        self.phi2_cycles - start
     }
 
     /// The Z80.
@@ -299,6 +418,45 @@ impl C128 {
                 target => self.read_target(target),
             },
         }
+    }
+
+    /// A debugger write to what the 8502 sees at `addr`. It lands in the RAM
+    /// under any ROM or I/O, so it never sets off a chip; an MMU register
+    /// at `$FF00-$FF04` is written, since that is all the address holds.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        match self.mmu.target_8502(addr) {
+            Target::MmuMirror(index) => self.mmu.write_mirror(index, value),
+            target => self.write_ram_under(target, addr, value),
+        }
+    }
+
+    /// Put a PRG file's bytes into bank 0 RAM at the address its first two
+    /// bytes give, and return that address. A program loaded at `$1C01`, the
+    /// start of BASIC 7.0's text, also moves BASIC's end-of-program pointer
+    /// at `$1210` to follow it, so `LIST` and `RUN` see it.
+    ///
+    /// # Errors
+    ///
+    /// A file shorter than its two-byte header, or one running past `$FFFF`.
+    pub fn load_prg(&mut self, data: &[u8]) -> Result<u16, String> {
+        let [lo, hi, body @ ..] = data else {
+            return Err("PRG file is shorter than its two-byte load address".to_owned());
+        };
+        let start = u16::from_le_bytes([*lo, *hi]);
+        let end = usize::from(start) + body.len();
+        if end > 0x1_0000 {
+            return Err(format!(
+                "PRG of {} bytes at ${start:04X} runs past $FFFF",
+                body.len()
+            ));
+        }
+        self.memory.ram[usize::from(start)..end].copy_from_slice(body);
+        if start == BASIC_TEXT_START {
+            let [end_lo, end_hi] = (end as u16).to_le_bytes();
+            self.memory.ram[usize::from(BASIC_TEXT_TOP)] = end_lo;
+            self.memory.ram[usize::from(BASIC_TEXT_TOP) + 1] = end_hi;
+        }
+        Ok(start)
     }
 
     /// The 40-column screen as text: 25 lines of the screen RAM at `$0400`
