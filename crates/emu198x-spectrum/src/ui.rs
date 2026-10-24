@@ -141,6 +141,8 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Digit9 => &["9"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["enter"],
         KeyCode::Space => &["space"],
+        // Not a Spectrum key: the red button of a plugged-in Multiface.
+        KeyCode::F5 => &[runtime_sinclair_zx_spectrum::NMI_KEY],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["caps"],
         KeyCode::AltLeft | KeyCode::AltRight => &["symbol"],
         // Membrane-wired cursor keys: Caps Shift + 5/6/7/8 — the exact contacts
@@ -670,6 +672,7 @@ mod tests {
             Some(&["caps", "8"][..])
         );
         assert_eq!(map_spectrum_keys(KeyCode::AltLeft), Some(&["symbol"][..]));
+        assert_eq!(map_spectrum_keys(KeyCode::F5), Some(&["nmi"][..]));
     }
 
     #[test]

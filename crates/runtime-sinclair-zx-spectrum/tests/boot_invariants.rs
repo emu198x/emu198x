@@ -370,33 +370,68 @@ fn kempston_mouse_follows_host_pointer_events_48k() -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-/// **Seam 5 waypoint #5:** Snapshot version is locked at v13.
+/// The `nmi` key presses the Multiface's red button: the NMI handler then
+/// runs from the Multiface's ROM, not the Spectrum's, and the paged state
+/// survives a snapshot. Both ROMs are synthetic stand-ins.
+#[test]
+fn the_nmi_key_runs_the_multiface_48k() -> Result<(), Box<dyn Error>> {
+    let mut rom = vec![0; 16 * 1024];
+    rom[..3].copy_from_slice(&[0xF3, 0x18, 0xFE]); // DI; JR $
+    let mut multiface_rom = vec![0; 0x2000];
+    // LD A,$5A; LD ($8000),A; JR $
+    multiface_rom[0x66..0x6D].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&rom)?;
+    runtime.attach_multiface(&multiface_rom)?;
+    runtime.run_until(MachineTime::new(10_000), &mut null_host())?;
+
+    let events = [InputEvent::Key {
+        name: Cow::Borrowed(runtime_sinclair_zx_spectrum::NMI_KEY),
+        pressed: true,
+    }];
+    let mut host = HostIo {
+        input_events: &events,
+        frame_sink: Box::leak(Box::new(NullFrameSink)),
+        audio_sink: Box::leak(Box::new(NullAudioSink)),
+        trace_sink: Box::leak(Box::new(NullTraceSink)),
+    };
+    let later = MachineTime::new(runtime.time().get() + 300_000);
+    runtime.run_until(later, &mut host)?;
+    assert!(runtime.machine().multiface.is_paged());
+    assert_eq!(runtime.machine().read_byte(0x8000), 0x5A);
+
+    let mut restored = Spectrum48kRuntime::blank();
+    restored.restore(&runtime.snapshot()?)?;
+    assert!(restored.machine().multiface.is_paged());
+    Ok(())
+}
+
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v14.
 ///
 /// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
 /// disk-image cache, 2 → 3 when accepted Z80 interrupt responses
 /// gained a serialisable sequence identity, 3 → 4 for tape stop-release
 /// state, 4 → 5 for live writable disk media (#1764), and 5 → 6 for
 /// per-sector FDC read progress (#1833, explicitly approved), on through
-/// 11 → 12 when the µPD765A shed the +3's wiring, and 12 → 13 for the
-/// Kempston mouse. Any further breaking change to the envelope must
-/// update [`SNAPSHOT_VERSION`] and document the upgrade path in
+/// 11 → 12 when the µPD765A shed the +3's wiring, 12 → 13 for the
+/// Kempston mouse and 13 → 14 for the Multiface. Any further breaking
+/// change to the envelope must update [`SNAPSHOT_VERSION`] and document the upgrade path in
 /// `crates/runtime-sinclair-zx-spectrum/src/snapshot.rs`. This
 /// waypoint locks the current version so a drive-by bump fails.
 ///
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v13() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v14() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 13.
+    // and matches the value, so byte 0 of the snapshot bytes == 14.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 13,
-        "snapshot envelope must be at version 13 (Kempston mouse); \
+        bytes[0], 14,
+        "snapshot envelope must be at version 14 (the Multiface); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())
