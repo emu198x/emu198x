@@ -1,6 +1,6 @@
 [package]
 name = "machine-msx"
-description = "MSX1 home computer machine wiring — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+description = "MSX1 and MSX2 home computer machine wiring — Z80 + TMS9918A or V9938 + AY-3-8910 + 8255 PPI, with the MSX2 memory mapper and RP5C01 clock"
 version.workspace = true
 publish = false
 edition.workspace = true
@@ -11,6 +11,8 @@ repository.workspace = true
 emu198x-gi-ay-3-8912 = { path = "../emu198x-gi-ay-3-8912", version = "0.1.0" }
 emu198x-intel-8255 = { path = "../emu198x-intel-8255", version = "0.1.0" }
 emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
+emu198x-yamaha-v9938 = { path = "../emu198x-yamaha-v9938", version = "0.1.0" }
+emu198x-ricoh-rp5c01 = { path = "../emu198x-ricoh-rp5c01", version = "0.1.0" }
 common-z80-machine = { path = "../common-z80-machine", version = "0.44.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 serde = { workspace = true }

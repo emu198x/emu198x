@@ -1,4 +1,4 @@
-//! Runtime wrapper for the fresh-workspace MSX1 baseline.
+//! Runtime wrapper for the MSX1 and MSX2 machines.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
@@ -8,19 +8,20 @@ use emu198x_shell::{
 use machine_msx::{MapperType, Msx, MsxRegion, detect_mapper};
 
 use crate::input::apply_input_event;
-use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
+use crate::profiles::{BIOS_FIRMWARE_ID, Model, SUB_ROM_FIRMWARE_ID, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
 const BIOS_SIZE: usize = 32 * 1024;
+const SUB_ROM_SIZE: usize = 16 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// PSG buffer size — matches `machine-msx`'s internal allocation.
 const AUDIO_SAMPLES_PER_FRAME: usize = 1024;
 
-/// MSX1 runtime. The machine cannot construct without a 32 KB BIOS,
-/// so the runtime stays in `Option` until firmware is provided (via
-/// `from_firmware`, `MachineCore::load_media` with a `Snapshot` slot,
-/// or programmatic `set_bios`).
+/// MSX runtime. The machine cannot construct without a 32 KB BIOS, and an
+/// MSX2 without its 16 KB SUB-ROM too, so the runtime stays in `Option`
+/// until firmware is provided (via `from_firmware`, a snapshot restore, or
+/// programmatic `set_bios` and `set_sub_rom`).
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
@@ -61,6 +62,8 @@ pub struct MsxRuntime {
     model: Model,
     machine: Option<Msx>,
     bios_bytes: Option<Vec<u8>>,
+    /// The MSX2 SUB-ROM; unused on an MSX1.
+    sub_rom_bytes: Option<Vec<u8>>,
     cart1_bytes: Option<Vec<u8>>,
     cart1_mapper: MapperType,
     cart2_bytes: Option<Vec<u8>>,
@@ -84,6 +87,7 @@ impl MsxRuntime {
             model,
             machine: None,
             bios_bytes: None,
+            sub_rom_bytes: None,
             cart1_bytes: None,
             cart1_mapper: MapperType::Plain,
             cart2_bytes: None,
@@ -114,17 +118,43 @@ impl MsxRuntime {
     /// # Errors
     ///
     /// Returns an error if the firmware set fails profile validation
-    /// or omits the BIOS image.
+    /// or omits the BIOS image, or an MSX2's SUB-ROM.
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes =
+        let image = |id: &str| {
             firmware
-                .bytes(BIOS_FIRMWARE_ID)
-                .ok_or_else(|| MachineError::MissingFirmware {
-                    id: BIOS_FIRMWARE_ID.to_owned(),
-                })?;
-        Self::new(model, bytes.to_vec())
+                .bytes(id)
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| MachineError::MissingFirmware { id: id.to_owned() })
+        };
+        let mut runtime = Self::blank(model);
+        if model.is_msx2() {
+            runtime.set_sub_rom(image(SUB_ROM_FIRMWARE_ID)?)?;
+        }
+        runtime.set_bios(image(BIOS_FIRMWARE_ID)?)?;
+        Ok(runtime)
+    }
+
+    /// Replace the MSX2 SUB-ROM and rebuild the wrapped machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidFirmware` if the SUB-ROM is not
+    /// exactly 16 KB.
+    pub fn set_sub_rom(&mut self, sub_rom: Vec<u8>) -> Result<(), MachineError> {
+        if sub_rom.len() != SUB_ROM_SIZE {
+            return Err(MachineError::InvalidFirmware {
+                id: SUB_ROM_FIRMWARE_ID.to_owned(),
+                reason: format!(
+                    "SUB-ROM is {} bytes; expected {SUB_ROM_SIZE}",
+                    sub_rom.len()
+                ),
+            });
+        }
+        self.sub_rom_bytes = Some(sub_rom);
+        self.rebuild_machine();
+        Ok(())
     }
 
     /// Replace the BIOS image and rebuild the wrapped machine.
@@ -215,6 +245,7 @@ impl MsxRuntime {
         // Reset and regional replacement must use the restored media, not the
         // firmware and cartridges from before the snapshot was loaded.
         self.bios_bytes = machine.as_ref().map(|m| m.bios_rom().to_vec());
+        self.sub_rom_bytes = machine.as_ref().and_then(Msx::sub_rom).map(<[u8]>::to_vec);
         self.cart1_bytes = machine
             .as_ref()
             .and_then(|m| m.cartridge(1))
@@ -235,8 +266,9 @@ impl MsxRuntime {
         self.update_rgba_framebuffer();
     }
 
-    /// Rebuild the wrapped Msx instance from the current BIOS +
-    /// cartridge bytes. Called after BIOS / region / reset changes.
+    /// Rebuild the wrapped Msx instance from the current BIOS, SUB-ROM and
+    /// cartridge bytes. Called after firmware / region / reset changes. An
+    /// MSX2 waits for both of its ROMs.
     fn rebuild_machine(&mut self) {
         let Some(bios) = self.bios_bytes.clone() else {
             self.machine = None;
@@ -246,7 +278,15 @@ impl MsxRuntime {
             emu198x_shell::Region::Pal => MsxRegion::Pal,
             _ => MsxRegion::Ntsc,
         };
-        let mut machine = Msx::with_layout(bios, region, self.model.layout());
+        let mut machine = if self.model.is_msx2() {
+            let Some(sub_rom) = self.sub_rom_bytes.clone() else {
+                self.machine = None;
+                return;
+            };
+            Msx::msx2(bios, sub_rom, region, self.model.layout())
+        } else {
+            Msx::with_layout(bios, region, self.model.layout())
+        };
         if let Some(rom) = self.cart1_bytes.clone() {
             machine.insert_cart1(rom, self.cart1_mapper);
         }
@@ -448,12 +488,15 @@ impl MachineCore for MsxRuntime {
     /// The TMS9918 family drove a television through a colour-subcarrier
     /// crystal, so its dots are not square: 8:7 on the NTSC parts, about
     /// 1.382 on the PAL TMS9929A. Presenting the 288x240 framebuffer unstretched
-    /// claimed otherwise.
+    /// claimed otherwise. The V9938 keeps the dot clock but its framebuffer
+    /// has two columns a dot, for the 512-wide modes, so its pixels come at
+    /// twice the rate and are half as wide.
     fn display(&self) -> Option<Display> {
+        let columns_per_dot = if self.model.is_msx2() { 2.0 } else { 1.0 };
         Display::television_for_region(
             self.profile().region,
-            emu198x_ti_tms9918::PAL_DOT_CLOCK_HZ,
-            emu198x_ti_tms9918::NTSC_DOT_CLOCK_HZ,
+            emu198x_ti_tms9918::PAL_DOT_CLOCK_HZ * columns_per_dot,
+            emu198x_ti_tms9918::NTSC_DOT_CLOCK_HZ * columns_per_dot,
         )
     }
 

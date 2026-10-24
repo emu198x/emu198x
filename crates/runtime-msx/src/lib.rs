@@ -1,4 +1,4 @@
-//! MSX1 family metadata and runtime surface.
+//! MSX family metadata and runtime surface: MSX1 and MSX2.
 //!
 //! Wraps `machine_msx::Msx` behind the `MachineCore` trait so the
 //! shared `emu198x-shell` runner (HeadlessSession, MCP server,
@@ -17,6 +17,6 @@ mod runtime;
 mod snapshot;
 
 pub use machine_msx::{MapperType, MsxRegion};
-pub use profiles::{BIOS_FIRMWARE_ID, Model, profile_for, profiles};
+pub use profiles::{BIOS_FIRMWARE_ID, Model, SUB_ROM_FIRMWARE_ID, profile_for, profiles};
 pub use queries::MsxSessionQueryProvider;
 pub use runtime::MsxRuntime;

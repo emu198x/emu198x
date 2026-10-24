@@ -12,6 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::MsxRuntime;
 
+/// Bumped to 9 when the machine gained the MSX2: the video chip became a
+/// TMS9918-or-V9938 enum, the layout gained the SUB-ROM and mapper slots,
+/// and the machine an optional block of MSX2 parts (SUB-ROM, mapped RAM,
+/// mapper registers, RP5C01).
+///
 /// Bumped to 7 when the 8255 began modelling its port directions and input lines, which changes its serialised fields.
 ///
 /// Bumped to 6 when the TMS9918 began holding a CPU access until its VRAM
@@ -21,7 +26,7 @@ use crate::runtime::MsxRuntime;
 /// Bumped to 5 when the machine gained the live M1 wait-state latch. Restoring
 /// an older snapshot without that latch could insert the wait twice or omit it
 /// when resuming in the middle of an opcode fetch.
-const SNAPSHOT_VERSION: u16 = 8;
+const SNAPSHOT_VERSION: u16 = 9;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

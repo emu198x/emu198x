@@ -1,4 +1,4 @@
-//! MSX1 home computer machine wiring.
+//! MSX1 and MSX2 home computer machine wiring.
 //!
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-msx` used the
@@ -80,11 +80,38 @@
 //! [`Msx::run_frame`] corresponds to one Z80 T-state; per iteration
 //! the phase counter advances by 3 and yields one VDP dot whenever
 //! it reaches 2. PSG ticks every other T-state (clock ÷ 2).
+//!
+//! # MSX2
+//!
+//! [`Msx::msx2`] builds the 1985 standard's machine. Against an MSX1 it
+//! adds:
+//!
+//! - **VDP:** a Yamaha V9938 with 128 KB of VRAM in place of the TMS9918,
+//!   on ports `$98-$9B` (`$9A` the palette, `$9B` indirect register
+//!   writes). Its dot clock and 342-dot line are the TMS9918's, so it steps
+//!   on the same 3:2 phase.
+//! - **SUB-ROM:** 16 KB of BIOS extensions at `$0000-$3FFF` in the slot
+//!   [`MsxLayout::sub_rom`] names, usually subslot 0 of an expanded slot 3.
+//! - **Memory mapper:** RAM in 16 KB segments, one chosen for each page by
+//!   the registers on ports `$FC-$FF` (pages 0 to 3). A segment number wraps
+//!   at the mapper's size. Every machine modelled here reads all eight bits
+//!   back, openMSX's `largest`; the S1985 engine's five-bit read-back is not
+//!   modelled. Machines whose RAM is plain 64 KB leave [`MsxLayout::mapper`]
+//!   empty and the ports read `$FF`.
+//! - **Clock:** a Ricoh RP5C01 behind a register latch on port `$B4` and
+//!   its data on `$B5`, stepped at its 16,384 Hz rate from the CPU clock, so
+//!   time passes with emulated time.
+//!
+//! The BIOS may be longer than 32 KB: C-BIOS keeps its start-up logo in a
+//! 16 KB ROM at `$8000` in the BIOS slot, which the machine maps by reading
+//! the BIOS image wherever it is long enough.
 
 use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use emu198x_intel_8255::Ppi8255;
+pub use emu198x_ricoh_rp5c01::{DateTime, Rp5c01};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+pub use emu198x_yamaha_v9938::{Mode as V9938Mode, V9938};
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +130,8 @@ const PAL_SCANLINES_PER_FRAME: u64 = 313;
 const NTSC_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PER_FRAME;
 const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_FRAME;
 
+/// The Z80's clock, which steps the RP5C01's 16,384 Hz divider.
+const CPU_CLOCK_HZ: u32 = 3_579_545;
 const AY_CLOCK_HZ: u32 = 1_789_773;
 const AY_SAMPLE_RATE: u32 = 48_000;
 /// Pre-allocated PSG buffer for ~60 Hz host audio. At 48 kHz and
@@ -144,6 +173,15 @@ pub struct RamRegion {
     pub end: u16,
 }
 
+/// An MSX2 memory mapper: `size_kb` of RAM filling all four pages of one
+/// slot, a 16 KB segment a page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryMapper {
+    pub slot: SlotAddress,
+    /// A power of two, at least 64.
+    pub size_kb: u16,
+}
+
 /// Where the BIOS, the RAM and the cartridge ports sit.
 ///
 /// The RAM regions must not overlap in the address space: they share one
@@ -153,7 +191,11 @@ pub struct RamRegion {
 pub struct MsxLayout {
     /// The 32 KB Main-ROM at `$0000-$7FFF`.
     pub bios: SlotAddress,
+    /// The MSX2 SUB-ROM at `$0000-$3FFF`, when there is one.
+    pub sub_rom: Option<SlotAddress>,
     pub ram: Vec<RamRegion>,
+    /// The MSX2 memory mapper, when the RAM is mapped.
+    pub mapper: Option<MemoryMapper>,
     /// The slots behind cartridge ports 1 and 2.
     pub cartridge_ports: [SlotAddress; 2],
     /// Which primary slots are expanded into four subslots.
@@ -165,11 +207,13 @@ impl Default for MsxLayout {
     fn default() -> Self {
         Self {
             bios: SlotAddress::primary(0),
+            sub_rom: None,
             ram: vec![RamRegion {
                 slot: SlotAddress::primary(3),
                 start: 0x0000,
                 end: 0xFFFF,
             }],
+            mapper: None,
             cartridge_ports: [SlotAddress::primary(1), SlotAddress::primary(2)],
             expanded: [false; 4],
         }
@@ -343,6 +387,91 @@ impl CartridgeSlot {
     }
 }
 
+/// The video chip: the MSX1's TMS9918 or the MSX2's V9938.
+#[derive(Serialize, Deserialize)]
+enum Video {
+    Tms9918(Box<Tms9918>),
+    V9938(Box<V9938>),
+}
+
+impl Video {
+    fn tick(&mut self) {
+        match self {
+            Self::Tms9918(vdp) => {
+                vdp.tick();
+            }
+            Self::V9938(vdp) => {
+                vdp.tick();
+            }
+        }
+    }
+
+    fn interrupt(&self) -> bool {
+        match self {
+            Self::Tms9918(vdp) => vdp.interrupt,
+            Self::V9938(vdp) => vdp.interrupt,
+        }
+    }
+
+    fn framebuffer(&self) -> &[u32] {
+        match self {
+            Self::Tms9918(vdp) => vdp.framebuffer(),
+            Self::V9938(vdp) => vdp.framebuffer(),
+        }
+    }
+
+    fn framebuffer_width(&self) -> u32 {
+        match self {
+            Self::Tms9918(vdp) => vdp.framebuffer_width(),
+            Self::V9938(vdp) => vdp.framebuffer_width(),
+        }
+    }
+
+    fn framebuffer_height(&self) -> u32 {
+        match self {
+            Self::Tms9918(vdp) => vdp.framebuffer_height(),
+            Self::V9938(vdp) => vdp.framebuffer_height(),
+        }
+    }
+
+    fn read(&mut self, port: u8) -> u8 {
+        match (self, port) {
+            (Self::Tms9918(vdp), 0x98) => vdp.read_data(),
+            (Self::Tms9918(vdp), 0x99) => vdp.read_status(),
+            (Self::V9938(vdp), 0x98) => vdp.read_data(),
+            (Self::V9938(vdp), 0x99) => vdp.read_status(),
+            _ => 0xFF,
+        }
+    }
+
+    fn write(&mut self, port: u8, value: u8) {
+        match (self, port) {
+            (Self::Tms9918(vdp), 0x98) => vdp.write_data(value),
+            (Self::Tms9918(vdp), 0x99) => vdp.write_control(value),
+            (Self::V9938(vdp), 0x98) => vdp.write_data(value),
+            (Self::V9938(vdp), 0x99) => vdp.write_control(value),
+            (Self::V9938(vdp), 0x9A) => vdp.write_palette(value),
+            (Self::V9938(vdp), 0x9B) => vdp.write_indirect(value),
+            _ => {}
+        }
+    }
+}
+
+/// The MSX2's additions: the SUB-ROM, the mapped RAM and its registers,
+/// and the clock.
+#[derive(Serialize, Deserialize)]
+struct Msx2Parts {
+    sub_rom: Vec<u8>,
+    mapper_ram: Vec<u8>,
+    /// The segment each page selects, as last written to `$FC-$FF`.
+    mapper_registers: [u8; 4],
+    rtc: Rp5c01,
+    /// The RP5C01 register port `$B4` last selected.
+    rtc_latch: u8,
+    /// The RP5C01's divider phase against the CPU clock.
+    rtc_phase: u32,
+}
+
 /// One captured I/O port access, for the debug trace.
 #[derive(Debug, Clone, Copy)]
 pub struct IoEvent {
@@ -366,7 +495,7 @@ pub struct IoEvent {
 #[derive(Serialize, Deserialize)]
 pub struct Msx {
     cpu: Z80,
-    vdp: Tms9918,
+    video: Video,
     psg: Ay3_8912,
     ppi: Ppi8255,
     bios_rom: Vec<u8>,
@@ -411,6 +540,8 @@ pub struct Msx {
     /// not part of the snapshot. Source: MSX PSG joystick standard (no entry
     /// in the in-tree reference library at time of writing).
     joystick: [u8; 2],
+    /// `None` on an MSX1.
+    msx2: Option<Msx2Parts>,
 }
 
 impl Msx {
@@ -436,7 +567,7 @@ impl Msx {
         };
         Self {
             cpu: Z80::new(),
-            vdp: Tms9918::new(vdp_region),
+            video: Video::Tms9918(Box::new(Tms9918::new(vdp_region))),
             psg: Ay3_8912::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
             ppi: Self::new_ppi(),
             bios_rom,
@@ -457,7 +588,60 @@ impl Msx {
             io_trace: None,
             ay_watch: None,
             joystick: [0xFF; 2],
+            msx2: None,
         }
+    }
+
+    /// Create an MSX2: a V9938, the SUB-ROM where `layout.sub_rom` says,
+    /// the memory mapper `layout.mapper` describes, and the RP5C01.
+    #[must_use]
+    pub fn msx2(bios_rom: Vec<u8>, sub_rom: Vec<u8>, region: MsxRegion, layout: MsxLayout) -> Self {
+        let mapper_bytes = layout
+            .mapper
+            .map_or(0, |mapper| usize::from(mapper.size_kb) * 1024);
+        let mut machine = Self::with_layout(bios_rom, region, layout);
+        machine.video = Video::V9938(Box::new(V9938::new(match region {
+            MsxRegion::Ntsc => emu198x_yamaha_v9938::VdpRegion::Ntsc,
+            MsxRegion::Pal => emu198x_yamaha_v9938::VdpRegion::Pal,
+        })));
+        machine.msx2 = Some(Msx2Parts {
+            sub_rom,
+            mapper_ram: vec![0; mapper_bytes],
+            mapper_registers: [0; 4],
+            rtc: Rp5c01::new(),
+            rtc_latch: 0,
+            rtc_phase: 0,
+        });
+        machine
+    }
+
+    /// Whether this is an MSX2.
+    #[must_use]
+    pub fn is_msx2(&self) -> bool {
+        self.msx2.is_some()
+    }
+
+    /// The SUB-ROM bytes, on an MSX2.
+    #[must_use]
+    pub fn sub_rom(&self) -> Option<&[u8]> {
+        self.msx2.as_ref().map(|parts| parts.sub_rom.as_slice())
+    }
+
+    /// The memory mapper's registers for pages 0-3, on an MSX2.
+    #[must_use]
+    pub fn mapper_registers(&self) -> Option<[u8; 4]> {
+        self.msx2.as_ref().map(|parts| parts.mapper_registers)
+    }
+
+    /// The real-time clock, on an MSX2.
+    #[must_use]
+    pub fn rtc(&self) -> Option<&Rp5c01> {
+        self.msx2.as_ref().map(|parts| &parts.rtc)
+    }
+
+    /// The real-time clock, on an MSX2, to set its time or restore its RAM.
+    pub fn rtc_mut(&mut self) -> Option<&mut Rp5c01> {
+        self.msx2.as_mut().map(|parts| &mut parts.rtc)
     }
 
     /// Set the digital joystick state for `port` (1 or 2). Composes the
@@ -614,8 +798,10 @@ impl Msx {
             return !self.subslots[primary];
         }
         let slot = self.resolve_slot(addr);
-        if slot == self.layout.bios && addr < 0x8000 {
+        if slot == self.layout.bios && usize::from(addr) < self.bios_rom.len().max(0x8000) {
             self.bios_rom.get(addr as usize).copied().unwrap_or(0xFF)
+        } else if let Some(value) = self.msx2_read(slot, addr) {
+            value
         } else if slot == self.layout.cartridge_ports[0] {
             self.cart1.read(addr)
         } else if slot == self.layout.cartridge_ports[1] {
@@ -633,6 +819,9 @@ impl Msx {
             return;
         }
         let slot = self.resolve_slot(addr);
+        if self.msx2_write(slot, addr, value) {
+            return;
+        }
         if slot == self.layout.cartridge_ports[0] {
             self.cart1.write(addr, value);
         } else if slot == self.layout.cartridge_ports[1] {
@@ -640,6 +829,51 @@ impl Msx {
         } else if self.in_ram(slot, addr) {
             self.ram[addr as usize] = value;
         }
+    }
+
+    /// The offset into the mapped RAM that `addr` reaches.
+    fn mapper_offset(parts: &Msx2Parts, addr: u16) -> usize {
+        let segments = (parts.mapper_ram.len() / 0x4000).max(1);
+        let segment = usize::from(parts.mapper_registers[usize::from(addr >> 14)]) % segments;
+        segment * 0x4000 + usize::from(addr & 0x3FFF)
+    }
+
+    /// A read from the SUB-ROM or the mapped RAM, if `slot` holds either.
+    fn msx2_read(&self, slot: SlotAddress, addr: u16) -> Option<u8> {
+        let parts = self.msx2.as_ref()?;
+        if self.layout.sub_rom == Some(slot) && addr < 0x4000 {
+            return Some(
+                parts
+                    .sub_rom
+                    .get(usize::from(addr))
+                    .copied()
+                    .unwrap_or(0xFF),
+            );
+        }
+        if self.layout.mapper.map(|mapper| mapper.slot) == Some(slot) {
+            let offset = Self::mapper_offset(parts, addr);
+            return Some(parts.mapper_ram.get(offset).copied().unwrap_or(0xFF));
+        }
+        None
+    }
+
+    /// A write to the mapped RAM, if `slot` holds it. A write to the
+    /// SUB-ROM goes nowhere.
+    fn msx2_write(&mut self, slot: SlotAddress, addr: u16, value: u8) -> bool {
+        let Some(parts) = self.msx2.as_mut() else {
+            return false;
+        };
+        if self.layout.sub_rom == Some(slot) && addr < 0x4000 {
+            return true;
+        }
+        if self.layout.mapper.map(|mapper| mapper.slot) == Some(slot) {
+            let offset = Self::mapper_offset(parts, addr);
+            if let Some(byte) = parts.mapper_ram.get_mut(offset) {
+                *byte = value;
+            }
+            return true;
+        }
+        false
     }
 
     /// Where the BIOS, RAM and cartridge ports sit.
@@ -651,8 +885,15 @@ impl Msx {
     fn io_read(&mut self, port: u16) -> u8 {
         let pc = self.cpu.regs.pc;
         let value = match port as u8 {
-            0x98 => self.vdp.read_data(),
-            0x99 => self.vdp.read_status(),
+            port @ 0x98..=0x9B => self.video.read(port),
+            0xB5 => self
+                .msx2
+                .as_ref()
+                .map_or(0xFF, |parts| parts.rtc.read(parts.rtc_latch) | 0xF0),
+            port @ 0xFC..=0xFF => match (&self.msx2, self.layout.mapper) {
+                (Some(parts), Some(_)) => parts.mapper_registers[usize::from(port & 3)],
+                _ => 0xFF,
+            },
             0xA2 => {
                 // Reading PSG register 14 is the joystick read. Present the
                 // selected port's active-low byte through the chip's port-A
@@ -699,8 +940,22 @@ impl Msx {
             });
         }
         match port as u8 {
-            0x98 => self.vdp.write_data(value),
-            0x99 => self.vdp.write_control(value),
+            port @ 0x98..=0x9B => self.video.write(port, value),
+            0xB4 => {
+                if let Some(parts) = &mut self.msx2 {
+                    parts.rtc_latch = value & 0x0F;
+                }
+            }
+            0xB5 => {
+                if let Some(parts) = &mut self.msx2 {
+                    parts.rtc.write(parts.rtc_latch, value);
+                }
+            }
+            port @ 0xFC..=0xFF => {
+                if let Some(parts) = &mut self.msx2 {
+                    parts.mapper_registers[usize::from(port & 3)] = value;
+                }
+            }
             0xA0 => self.psg.select_register(value),
             0xA1 => {
                 if let Some(w) = &mut self.ay_watch {
@@ -715,23 +970,24 @@ impl Msx {
         }
     }
 
-    /// Framebuffer (ARGB32) — active TMS9918 display plus canonical
-    /// TV-visible border. Exact dimensions reported by
+    /// Framebuffer (ARGB32) — the active display plus the canonical
+    /// TV-visible border. A V9938's columns are half a dot wide, so its
+    /// 256-wide modes fill two columns a pixel. Exact dimensions reported by
     /// [`framebuffer_width`](Self::framebuffer_width) and
     /// [`framebuffer_height`](Self::framebuffer_height).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
-        self.vdp.framebuffer()
+        self.video.framebuffer()
     }
 
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
-        self.vdp.framebuffer_width()
+        self.video.framebuffer_width()
     }
 
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        self.vdp.framebuffer_height()
+        self.video.framebuffer_height()
     }
 
     /// Press a key at the given (row, bit) matrix cell.
@@ -764,10 +1020,31 @@ impl Msx {
         &mut self.cpu
     }
 
-    /// VDP reference.
+    /// The MSX1's VDP; `None` on an MSX2.
     #[must_use]
-    pub fn vdp(&self) -> &Tms9918 {
-        &self.vdp
+    pub fn tms9918(&self) -> Option<&Tms9918> {
+        match &self.video {
+            Video::Tms9918(vdp) => Some(vdp),
+            Video::V9938(_) => None,
+        }
+    }
+
+    /// The MSX2's VDP; `None` on an MSX1.
+    #[must_use]
+    pub fn v9938(&self) -> Option<&V9938> {
+        match &self.video {
+            Video::Tms9918(_) => None,
+            Video::V9938(vdp) => Some(vdp),
+        }
+    }
+
+    /// The scanline the VDP is drawing.
+    #[must_use]
+    pub fn vdp_scanline(&self) -> u16 {
+        match &self.video {
+            Video::Tms9918(vdp) => vdp.scanline(),
+            Video::V9938(vdp) => vdp.line(),
+        }
     }
 
     /// PSG reference.
@@ -888,7 +1165,7 @@ impl Z80Machine for Msx {
     // source. See
     // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
     fn feed_interrupt_pins(&mut self) {
-        self.cpu.irq = self.vdp.interrupt;
+        self.cpu.irq = self.video.interrupt();
     }
 
     fn tick_cpu_and_bus(&mut self) {
@@ -922,7 +1199,7 @@ impl Z80Machine for Msx {
         // scanline relative to CPU execution.
         self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
         while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
+            self.video.tick();
             self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
     }
@@ -932,6 +1209,14 @@ impl Z80Machine for Msx {
         self.psg_phase ^= 1;
         if self.psg_phase == 0 {
             self.psg.tick();
+        }
+
+        if let Some(parts) = &mut self.msx2 {
+            parts.rtc_phase += emu198x_ricoh_rp5c01::TICK_HZ;
+            if parts.rtc_phase >= CPU_CLOCK_HZ {
+                parts.rtc_phase -= CPU_CLOCK_HZ;
+                parts.rtc.tick();
+            }
         }
 
         self.cpu_tstates += 1;
@@ -1199,11 +1484,11 @@ mod tests {
     #[test]
     fn vdp_dot_ratio_is_three_per_two_tstates() {
         let mut sys = booted(MsxRegion::Ntsc);
-        let start = sys.vdp.scanline();
+        let start = sys.vdp_scanline();
         for _ in 0..4 {
             sys.tick_tstate();
         }
-        assert_eq!(sys.vdp.scanline(), start);
+        assert_eq!(sys.vdp_scanline(), start);
         assert_eq!(sys.vdp_phase, 0);
     }
 
@@ -1254,5 +1539,162 @@ mod tests {
             detect_mapper(&mapped_rom_with_writes(&[0x6000, 0x7000, 0x77ff])),
             MapperType::Ascii16
         );
+    }
+
+    /// The C-BIOS MSX2 layout: the SUB-ROM in subslot 0 and a 128 KB mapper
+    /// in subslot 2 of an expanded slot 3.
+    fn msx2_layout() -> MsxLayout {
+        MsxLayout {
+            sub_rom: Some(SlotAddress::expanded(3, 0)),
+            ram: Vec::new(),
+            mapper: Some(MemoryMapper {
+                slot: SlotAddress::expanded(3, 2),
+                size_kb: 128,
+            }),
+            expanded: [false, false, false, true],
+            ..MsxLayout::default()
+        }
+    }
+
+    fn msx2() -> Msx {
+        let mut sub_rom = vec![0u8; 0x4000];
+        sub_rom[0] = b'C';
+        sub_rom[1] = b'D';
+        let mut sys = Msx::msx2(trap_bios(), sub_rom, MsxRegion::Pal, msx2_layout());
+        sys.ppi.write(3, 0x82);
+        sys
+    }
+
+    #[test]
+    fn an_msx1_has_no_msx2_parts() {
+        let mut sys = booted(MsxRegion::Ntsc);
+        assert!(!sys.is_msx2());
+        assert!(sys.tms9918().is_some() && sys.v9938().is_none());
+        assert!(sys.sub_rom().is_none() && sys.mapper_registers().is_none());
+        assert!(sys.rtc().is_none() && sys.rtc_mut().is_none());
+        sys.io_write(0xFE, 5);
+        sys.io_write(0xB4, 13);
+        sys.io_write(0xB5, 1);
+        assert_eq!(sys.io_read(0xFE), 0xFF);
+        assert_eq!(sys.io_read(0xB5), 0xFF);
+    }
+
+    #[test]
+    fn an_msx2_has_a_v9938_and_a_sub_rom() {
+        let mut sys = msx2();
+        assert!(sys.is_msx2());
+        assert!(sys.v9938().is_some() && sys.tms9918().is_none());
+        sys.ppi.write(0, 0b0000_0011); // page 0 -> slot 3
+        sys.poke(0xFFFF, 0); // every page of slot 3 -> subslot 0
+        assert_eq!((sys.peek(0x0000), sys.peek(0x0001)), (b'C', b'D'));
+        sys.poke(0x0000, 0x55);
+        assert_eq!(sys.peek(0x0000), b'C', "the SUB-ROM is read-only");
+        assert_eq!(sys.sub_rom().map(<[u8]>::len), Some(0x4000));
+        assert_eq!(sys.framebuffer_width(), 556, "the V9938's PAL framebuffer");
+    }
+
+    #[test]
+    fn the_mapper_selects_a_segment_a_page() {
+        let mut sys = msx2();
+        sys.ppi.write(0, 0xFF); // every page -> slot 3
+        sys.poke(0xFFFF, 0b1010_1010); // every page -> subslot 2
+        for (page, segment) in [3u8, 2, 1, 0].into_iter().enumerate() {
+            sys.io_write(0xFC + page as u16, segment);
+        }
+        sys.poke(0x0000, 0x33);
+        sys.poke(0xC000, 0x00);
+        assert_eq!(sys.mapper_registers(), Some([3, 2, 1, 0]));
+        // Segment 3 behind page 2 shows what page 0 wrote.
+        sys.io_write(0xFE, 3);
+        assert_eq!(sys.peek(0x8000), 0x33);
+        assert_eq!(sys.io_read(0xFE), 3, "all eight bits read back");
+        // 128 KB is eight segments, so segment 11 is segment 3.
+        sys.io_write(0xFE, 11);
+        assert_eq!(sys.peek(0x8000), 0x33);
+        // Plain RAM elsewhere is untouched; the old 64 KB store is not used.
+        assert_eq!(sys.ram[0], 0);
+    }
+
+    #[test]
+    fn mapper_ports_read_ff_without_a_mapper() {
+        let layout = MsxLayout {
+            sub_rom: Some(SlotAddress::expanded(3, 0)),
+            ram: vec![RamRegion {
+                slot: SlotAddress::expanded(3, 3),
+                start: 0x0000,
+                end: 0xFFFF,
+            }],
+            expanded: [false, false, false, true],
+            ..MsxLayout::default()
+        };
+        let mut sys = Msx::msx2(trap_bios(), vec![0; 0x4000], MsxRegion::Ntsc, layout);
+        sys.ppi.write(3, 0x82);
+        sys.io_write(0xFC, 2);
+        assert_eq!(sys.io_read(0xFC), 0xFF);
+        sys.ppi.write(0, 0xC0);
+        sys.poke(0xFFFF, 0xC0);
+        sys.poke(0xC000, 0x99);
+        assert_eq!(sys.peek(0xC000), 0x99, "plain RAM in subslot 3");
+    }
+
+    #[test]
+    fn the_rtc_answers_on_b4_and_b5() {
+        let mut sys = msx2();
+        sys.io_write(0xB4, 13);
+        sys.io_write(0xB5, 0x8 | 2); // timer on, block 2
+        sys.io_write(0xB4, 0);
+        sys.io_write(0xB5, 0xA);
+        assert_eq!(sys.io_read(0xB5), 0xFA, "a nibble with the high bits set");
+        assert_eq!(sys.rtc().map(|rtc| rtc.ram()[0]), Some(0xA));
+        if let Some(rtc) = sys.rtc_mut() {
+            rtc.write(13, 0x8);
+        }
+        assert_eq!(sys.rtc().map(|rtc| rtc.date_time().second), Some(0));
+        // Two seconds of CPU time move the clock on two seconds.
+        for _ in 0..2 * 50 {
+            sys.run_frame();
+        }
+        let seconds = sys.rtc().map_or(0, |rtc| rtc.date_time().second);
+        assert!((1..=2).contains(&seconds), "{seconds} seconds passed");
+    }
+
+    #[test]
+    fn the_v9938_takes_palette_and_indirect_writes() {
+        let mut sys = msx2();
+        // R#16 = 2, then entry 2 = red 7, blue 3, green 5.
+        sys.io_write(0x99, 2);
+        sys.io_write(0x99, 0x80 | 16);
+        sys.io_write(0x9A, 0x73);
+        sys.io_write(0x9A, 0x05);
+        assert_eq!(sys.v9938().map(|vdp| vdp.palette()[2]), Some(0x573));
+        // R#17 = 7, then R#7 through port $9B.
+        sys.io_write(0x99, 0x80 | 7);
+        sys.io_write(0x99, 0x80 | 17);
+        sys.io_write(0x9B, 0x4C);
+        assert_eq!(sys.v9938().map(|vdp| vdp.register(7)), Some(0x4C));
+        assert_eq!(sys.io_read(0x9A), 0xFF, "the palette port is write-only");
+    }
+
+    #[test]
+    fn a_long_bios_maps_its_logo_rom_at_8000() {
+        let mut bios = trap_bios();
+        bios.resize(0xC000, 0x77);
+        let mut sys = Msx::msx2(bios, vec![0; 0x4000], MsxRegion::Ntsc, msx2_layout());
+        sys.ppi.write(3, 0x82);
+        sys.ppi.write(0, 0);
+        assert_eq!(sys.peek(0x8000), 0x77);
+        assert_eq!(sys.peek(0xC000), 0xFF, "nothing above the logo");
+    }
+
+    #[test]
+    fn an_msx2_snapshot_round_trips() {
+        let mut sys = msx2();
+        sys.io_write(0xFD, 6);
+        sys.run_frame();
+        let bytes = postcard::to_allocvec(&sys).expect("encode");
+        let restored: Msx = postcard::from_bytes(&bytes).expect("decode");
+        assert_eq!(restored.mapper_registers(), Some([0, 6, 0, 0]));
+        assert_eq!(postcard::to_allocvec(&restored).expect("re-encode"), bytes);
+        assert_eq!(restored.vdp_scanline(), sys.vdp_scanline());
     }
 }
