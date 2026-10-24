@@ -92,7 +92,7 @@ fn falling_vdp_assertions_reach_im2_and_reti_rearms_the_next_frame() {
             // RETI has released channel 0. Repeated channel-0 service alone
             // does not prove this because a same-channel request can recur.
             let saved = postcard::to_allocvec(mtx.ctc()).expect("serialize live CTC");
-            let mut ctc: zilog_z80_ctc::Ctc =
+            let mut ctc: emu198x_zilog_z80_ctc::Ctc =
                 postcard::from_bytes(&saved).expect("restore live CTC");
             ctc.write(1, 0xD5);
             ctc.write(1, 1);

@@ -61,9 +61,9 @@ pub use keyboard::KeyboardState;
 pub use vdg::{FB_HEIGHT, FB_WIDTH, Mc6847};
 
 use common_acorn_cassette::{CassetteReceiver, TapePulse};
+use emu198x_intel_8255::Ppi8255;
 use emu198x_mos_6502::M6502;
-use intel_8255::Ppi8255;
-use mos_via_6522::Via6522;
+use emu198x_mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

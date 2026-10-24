@@ -32,8 +32,8 @@ use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{FrameTiming, TIMING_PLUS2A};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use common_sinclair_zx_spectrum::ula::Ula;
+use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_zilog_z80::{BusOp, Z80};
-use gi_ay_3_8912::Ay3_8912;
 use nec_upd765a::Upd765a;
 
 use crate::memory::MemoryPlus;

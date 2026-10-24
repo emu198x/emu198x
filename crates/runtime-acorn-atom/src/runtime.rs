@@ -404,8 +404,8 @@ impl MachineCore for AtomRuntime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
-            motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
+            emu198x_motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
+            emu198x_motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
         )
     }
 

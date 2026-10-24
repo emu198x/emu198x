@@ -75,12 +75,12 @@ mod saa5050;
 
 use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
 use emu198x_mos_6502::M6502;
-use mos_via_6522::Via6522;
-use motorola_6845::{Crtc6845, Crtc6845Variant};
+use emu198x_mos_via_6522::Via6522;
+use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
+use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use saa5050::Saa5050;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ti_sn76489::{NoiseLfsr, Sn76489};
 
 /// Nanoseconds per 2 MHz master tick — the cassette receiver's time base.
 const NS_PER_MASTER_TICK: u64 = 500;
@@ -1989,7 +1989,7 @@ mod tests {
         sys.mem_write(0xFE40, 0b0000_1000);
         // Drop latch bit 0 — should latch ORA into PSG.
         sys.mem_write(0xFE40, 0b0000_0000);
-        // PSG sweep / mute behaviour is verified inside ti-sn76489;
+        // PSG sweep / mute behaviour is verified inside emu198x-ti-sn76489;
         // here we just confirm the write path didn't panic.
     }
 

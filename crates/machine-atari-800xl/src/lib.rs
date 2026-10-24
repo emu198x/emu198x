@@ -53,7 +53,7 @@ use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use atari_sio::SioBus;
 use emu198x_mos_6502::M6502;
-use mos_pia_6520::Pia6520;
+use emu198x_mos_pia_6520::Pia6520;
 use serde::{Deserialize, Serialize};
 
 /// Atari 800XL region.

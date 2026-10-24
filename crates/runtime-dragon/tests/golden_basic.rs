@@ -1,11 +1,13 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use emu198x_motorola_vdg_6847::{
+    VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+};
 use emu198x_shell::{
     FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore, MediaImage, MediaKind,
     MediaSet, read_firmware_asset, read_media_asset,
 };
-use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 
 const DRAGON_CPU_HZ: u64 = 894_886;

@@ -15,7 +15,7 @@ emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.44.0" }
+emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
 
 [lints]
 workspace = true

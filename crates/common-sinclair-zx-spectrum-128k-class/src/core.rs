@@ -28,8 +28,8 @@ use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
+use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_zilog_z80::{BusOp, Z80};
-use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
 

@@ -452,8 +452,8 @@ impl MachineCore for MsxRuntime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            ti_tms9918::PAL_DOT_CLOCK_HZ,
-            ti_tms9918::NTSC_DOT_CLOCK_HZ,
+            emu198x_ti_tms9918::PAL_DOT_CLOCK_HZ,
+            emu198x_ti_tms9918::NTSC_DOT_CLOCK_HZ,
         )
     }
 

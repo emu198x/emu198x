@@ -19,7 +19,7 @@
 //! - **CPU:** Z80A @ 3.579545 MHz
 //! - **VDP:** TMS9918A (16 KB VRAM)
 //! - **PSG:** AY-3-8910 @ 1.789773 MHz (consumed via our
-//!   [`gi_ay_3_8912`] crate — the 8912 silicon is an 8910 with port
+//!   [`emu198x_gi_ay_3_8912`] crate — the 8912 silicon is an 8910 with port
 //!   B pins not bonded out; register 15 still exists in software and
 //!   our crate stores/returns it correctly)
 //! - **PPI:** Intel 8255 (Mode 0)
@@ -77,11 +77,11 @@
 //! it reaches 2. PSG ticks every other T-state (clock ÷ 2).
 
 use common_z80_machine::Z80Machine;
+use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
+use emu198x_intel_8255::Ppi8255;
+use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_zilog_z80::{BusOp, Z80};
-use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
-use intel_8255::Ppi8255;
 use serde::{Deserialize, Serialize};
-use ti_tms9918::{Tms9918, VdpRegion};
 
 /// VDP dot ticks per CPU T-state, numerator (TMS9918A on MSX).
 ///

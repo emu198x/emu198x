@@ -19,8 +19,8 @@ use common_sinclair_zx_spectrum::timing::{
     TIMING_PLUS2A, TIMING_SCORPION,
 };
 use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
+use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_shell::{QueryError, QueryResult};
-use gi_ay_3_8912::Ay3_8912;
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_16k::Spectrum16K;
