@@ -14,7 +14,7 @@ use crate::mapper::{Mapper, Mirroring};
 use crate::mappers::{
     action53::Action53, axrom::AxRom, bxrom::BxRom, camerica::Camerica, cnrom::CnRom,
     colordreams::ColorDreams, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001, nrom::Nrom,
-    sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a,
+    sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a, vrc4::Vrc4,
 };
 use crate::mappers::{fme7::Fme7, namco163::Namco163, vrc6::Vrc6, vrc7::Vrc7};
 
@@ -94,6 +94,14 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         )?;
     }
 
+    // NES 2.0 byte 8: submapper in the high nibble. Boards that share a
+    // mapper number but not a wiring (the VRC4s) need it.
+    let submapper = if image.header.is_nes_2_0 {
+        data[8] >> 4
+    } else {
+        0
+    };
+
     let prg_rom = image.prg_rom.to_vec();
     let chr_data = image.chr_rom.to_vec(); // empty for a CHR RAM cartridge
 
@@ -107,6 +115,12 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         7 => Box::new(AxRom::new(prg_rom)),
         11 => Box::new(ColorDreams::new(prg_rom, chr_data, mirroring)),
         22 => Box::new(Vrc2a::new(prg_rom, chr_data)),
+        21 | 23 | 25 => Box::new(Vrc4::new(
+            prg_rom,
+            chr_data,
+            header.mapper_number,
+            submapper,
+        )),
         28 => Box::new(Action53::new(prg_rom, chr_data)),
         34 if chr_data.is_empty() => Box::new(BxRom::new(prg_rom, mirroring)),
         34 => Box::new(Nina001::new(prg_rom, chr_data, mirroring)),
@@ -123,6 +137,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
                  (NROM), Mapper 1 (MMC1), Mapper 2 (UxROM), and Mapper 3 \
                  (CNROM), Mapper 4 (MMC3), Mapper 5 (MMC5), Mapper 7 \
                  (AxROM), Mapper 11 (Color Dreams), Mapper 22 (VRC2a), \
+                 Mappers 21, 23 and 25 (VRC2b/c and VRC4), \
                  Mapper 19 (Namco 163), Mapper 24 and 26 (VRC6), \
                  Mapper 28 (Action 53), Mapper 34 (BxROM/BNROM and NINA-001), Mapper 68 \
                  (Sunsoft-4), Mapper 69 (FME-7 / 5B), Mapper 71 (Camerica) and \
@@ -162,7 +177,7 @@ fn validate_nes2_mapper_extents(mapper: u16, prg: usize, chr: usize) -> Result<(
         1 => (16384, 1),
         2 => (16384, 8192),
         3 | 7 => (1, 1),
-        4 | 22 => (8192, 1),
+        4 | 21 | 22 | 23 | 25 => (8192, 1),
         5 => (8192, 8192),
         11 => (32768, 8192),
         28 => (16384, 8192),

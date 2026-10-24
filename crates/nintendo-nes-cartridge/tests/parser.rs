@@ -1323,6 +1323,27 @@ fn nes2_mapper_number_12bit() {
 }
 
 #[test]
+fn nes2_submapper_selects_the_vrc4_wiring() {
+    // Mapper 21 is VRC4a (A1/A2) or VRC4c (A6/A7). On VRC4c, $9080 is the
+    // PRG swap register; on VRC4a it decodes to $9000, mirroring.
+    let build = |submapper: u8| {
+        let mut data = make_nes2(4, 1, 21);
+        data[8] |= submapper << 4;
+        for bank in 0..8 {
+            data[16 + bank * 8192] = bank as u8;
+        }
+        parse_ines(&data).expect("VRC4 parse failed").mapper
+    };
+    let mut vrc4c = build(2);
+    vrc4c.cpu_write(0x9080, 0x02);
+    assert_eq!(vrc4c.cpu_read(0x8000), 6, "swapped: second-last bank");
+    let mut vrc4a = build(1);
+    vrc4a.cpu_write(0x9080, 0x02);
+    assert_eq!(vrc4a.cpu_read(0x8000), 0, "not swapped");
+    assert_eq!(vrc4a.mirroring(), Mirroring::SingleScreenLower);
+}
+
+#[test]
 fn ines1_still_works_after_nes2_support() {
     // An iNES 1.0 file must keep parsing correctly even though
     // the parser now has an NES 2.0 branch.
