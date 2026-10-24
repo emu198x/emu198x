@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 20: the 1571's and 1581's WD1770 carries its byte pacing, the
+/// cycles between data bytes and the countdown to the next.
+///
 /// Version 19 preserves the 1541/1571 VIA timer 2 load phase (#1677).
 ///
 /// Version 18 preserves the keyboard's mechanical SHIFT LOCK contact,
@@ -87,7 +90,7 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 19;
+const SNAPSHOT_VERSION: u32 = 20;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,
