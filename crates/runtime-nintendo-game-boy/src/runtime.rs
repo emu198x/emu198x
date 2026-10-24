@@ -1,4 +1,4 @@
-//! `MachineCore` wrapper for the DMG.
+//! `MachineCore` wrapper for the Game Boy family.
 
 use common_nintendo_game_boy::{DMG_GREYSCALE_RGBA, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
@@ -6,11 +6,12 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
+use machine_nintendo_game_boy::cgb::CGB_BOOT_ROM_SIZE;
 use machine_nintendo_game_boy::{ApuChannel, AudioControls, GameBoy};
 
 use crate::input::apply_input_event;
 use crate::snapshot;
-use crate::{Model, profile_for};
+use crate::{CGB_BOOT_ROM_ID, Model, profile_for};
 use emu198x_shell::display::Display;
 
 /// Audio sample rate produced by the APU. Matches
@@ -35,6 +36,20 @@ pub struct GameBoyRuntime {
     cartridge_bytes: Option<Vec<u8>>,
     time: MachineTime,
     audio_buffer: Vec<f32>,
+    /// The CGB boot ROM, when the user supplied one.
+    boot_rom: Option<Vec<u8>>,
+    /// The CGB picture converted to RGBA for the host.
+    rgba: Vec<u8>,
+}
+
+/// RGB555 to RGBA8888, each 5-bit channel widened by repeating its top
+/// bits. No LCD colour correction is applied.
+fn rgb555_to_rgba(colour: u16) -> [u8; 4] {
+    let scale = |c: u16| {
+        let c = (c & 0x1F) as u8;
+        (c << 3) | (c >> 2)
+    };
+    [scale(colour), scale(colour >> 5), scale(colour >> 10), 0xFF]
 }
 
 impl GameBoyRuntime {
@@ -48,6 +63,8 @@ impl GameBoyRuntime {
             cartridge_bytes: None,
             time: MachineTime::default(),
             audio_buffer: Vec::with_capacity(AUDIO_DRAIN_CHUNK),
+            boot_rom: None,
+            rgba: Vec::new(),
         }
     }
 
@@ -56,13 +73,41 @@ impl GameBoyRuntime {
         self.model
     }
 
-    /// These profiles start after the boot ROM; no firmware images are used.
+    /// The monochrome profiles start after the boot ROM and take no
+    /// firmware. The colour models run the CGB boot ROM when it is
+    /// supplied, and otherwise start after it too.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError::InvalidFirmware`] for a CGB boot ROM that
+    /// is not 2304 bytes, or the set's own validation error.
     pub fn from_firmware(
         model: Model,
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         firmware.validate_for_profile(&profile_for(model))?;
-        Ok(Self::blank(model))
+        let mut runtime = Self::blank(model);
+        if let Some(boot_rom) = firmware.bytes(CGB_BOOT_ROM_ID) {
+            if boot_rom.len() != CGB_BOOT_ROM_SIZE {
+                return Err(MachineError::InvalidFirmware {
+                    id: CGB_BOOT_ROM_ID.to_owned(),
+                    reason: format!(
+                        "expected {CGB_BOOT_ROM_SIZE} bytes, found {}",
+                        boot_rom.len()
+                    ),
+                });
+            }
+            runtime.boot_rom = Some(boot_rom.to_vec());
+        }
+        Ok(runtime)
+    }
+
+    /// Builds the machine for a cartridge image: through the boot ROM
+    /// when one is held, else from the post-boot state.
+    fn machine_from_rom(&self, rom: Vec<u8>) -> Result<GameBoy, String> {
+        GameBoy::from_rom_with_boot_rom(rom, self.model.boot_profile(), self.boot_rom.clone())
+            .map(|(_, machine)| machine)
+            .map_err(|reason| reason.to_string())
     }
 
     /// Returns the loaded machine, when a cartridge is inserted.
@@ -267,8 +312,8 @@ impl GameBoyRuntime {
             self.machine = None;
             return;
         };
-        match GameBoy::from_rom_with_boot_profile(bytes, self.model.boot_profile()) {
-            Ok((_, mut gb)) => {
+        match self.machine_from_rom(bytes) {
+            Ok(mut gb) => {
                 if let Some(machine) = &self.machine {
                     *gb.cartridge_mut() = machine.cartridge().cold_boot();
                     gb.set_audio_controls(machine.audio_controls());
@@ -319,13 +364,13 @@ impl emu198x_shell::FamilyRuntime for GameBoyRuntime {
     fn profile_for(model: Model) -> MachineProfile {
         profile_for(model)
     }
-    fn firmware_sources(_model: Model) -> Vec<emu198x_shell::FirmwareSource> {
-        Vec::new()
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
     }
     fn rom_convention() -> emu198x_shell::RomConvention {
         emu198x_shell::RomConvention {
-            env_var: None,
-            dirs: &[],
+            env_var: Some("EMU198X_GB_ROM_DIR"),
+            dirs: &["nintendo-game-boy"],
         }
     }
     fn from_firmware(
@@ -341,9 +386,10 @@ impl emu198x_shell::FamilyRuntime for GameBoyRuntime {
     ) -> Result<Self, MachineError> {
         let mut replacement = Self::from_firmware(model, firmware)?;
         if let Some(machine) = &self.machine {
-            let mut fresh = GameBoy::new_with_boot_profile(
+            let mut fresh = GameBoy::new_with_boot_rom(
                 machine.cartridge().cold_boot(),
                 model.boot_profile(),
+                replacement.boot_rom.clone(),
             );
             fresh.set_audio_controls(machine.audio_controls());
             replacement.cartridge_bytes = Some(machine.cartridge().rom().to_vec());
@@ -390,12 +436,12 @@ impl MachineCore for GameBoyRuntime {
             }
 
             let bytes = image.bytes.to_vec();
-            let (_, gb) =
-                GameBoy::from_rom_with_boot_profile(bytes.clone(), self.model.boot_profile())
-                    .map_err(|reason| MachineError::InvalidMedia {
-                        slot: image.slot.as_ref().to_owned(),
-                        reason: reason.to_string(),
-                    })?;
+            let gb = self.machine_from_rom(bytes.clone()).map_err(|reason| {
+                MachineError::InvalidMedia {
+                    slot: image.slot.as_ref().to_owned(),
+                    reason,
+                }
+            })?;
             self.machine = Some(gb);
             self.cartridge_bytes = Some(bytes);
             self.time = MachineTime::default();
@@ -418,27 +464,41 @@ impl MachineCore for GameBoyRuntime {
         }
 
         while self.time < target {
-            let m_cycles = self
+            // Time counts single-speed m-cycles (4 dots), so a CGB at
+            // double speed keeps real time.
+            let dots = self
                 .machine
                 .as_mut()
                 .expect("machine checked above")
-                .run_frame();
-            self.time = self.time.saturating_add(u64::from(m_cycles));
+                .run_frame_dots();
+            self.time = self.time.saturating_add(u64::from(dots.div_ceil(4)));
 
-            let frame = self
-                .machine
-                .as_ref()
-                .expect("machine still loaded")
-                .framebuffer();
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Indexed8,
-                width: SCREEN_WIDTH,
-                height: SCREEN_HEIGHT,
-                palette: Some(&DMG_GREYSCALE_RGBA),
-                pixels: frame,
-            })?;
+            let machine = self.machine.as_ref().expect("machine still loaded");
+            let packet = if let Some(picture) = machine.color_framebuffer() {
+                self.rgba.clear();
+                self.rgba
+                    .extend(picture.iter().flat_map(|&colour| rgb555_to_rgba(colour)));
+                FramePacket {
+                    signal: None,
+                    timestamp: self.time,
+                    format: PixelFormat::Rgba8888,
+                    width: SCREEN_WIDTH,
+                    height: SCREEN_HEIGHT,
+                    palette: None,
+                    pixels: &self.rgba,
+                }
+            } else {
+                FramePacket {
+                    signal: None,
+                    timestamp: self.time,
+                    format: PixelFormat::Indexed8,
+                    width: SCREEN_WIDTH,
+                    height: SCREEN_HEIGHT,
+                    palette: Some(&DMG_GREYSCALE_RGBA),
+                    pixels: machine.framebuffer(),
+                }
+            };
+            host.frame_sink.push_frame(packet)?;
 
             self.drain_audio();
             host.audio_sink.push_audio(AudioPacket {

@@ -244,7 +244,7 @@ mod catalogue_tests {
     use emu198x_shell::MediaKind;
 
     #[test]
-    fn native_startup_and_switching_cover_every_post_boot_profile() {
+    fn native_startup_and_switching_cover_every_profile() {
         let mut app = GameBoy::default();
         app.no_battery_save = true;
         app.media.push(crate::app::MediaArg {
@@ -255,7 +255,7 @@ mod catalogue_tests {
         });
         let mut runtime = app.build_ui_runtime().expect("native runtime");
         let mut system = app.ui_system();
-        assert_eq!(system.variants().len(), 5);
+        assert_eq!(system.variants().len(), 7);
         for model in Model::ALL {
             system
                 .switch_variant(&mut runtime, model.variant_id())
@@ -269,7 +269,7 @@ mod catalogue_tests {
             assert_eq!(system.framebuffer_size(&runtime), (160, 144));
             assert!(runtime.machine().is_some());
         }
-        assert!(system.switch_variant(&mut runtime, "cgb").is_err());
-        assert_eq!(runtime.model(), Model::Sgb2);
+        assert!(system.switch_variant(&mut runtime, "gba").is_err());
+        assert_eq!(runtime.model(), Model::Agb);
     }
 }

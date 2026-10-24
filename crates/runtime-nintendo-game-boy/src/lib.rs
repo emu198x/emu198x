@@ -5,7 +5,8 @@
 //! the `emu198x-shell` `MachineCore` trait. The runtime translates
 //! `MediaSet` cartridge inserts into `GameBoy::from_rom`, host input
 //! events into joypad button presses, and per-frame execution into
-//! `Indexed8` framebuffers + 48 kHz stereo audio packets.
+//! `Indexed8` framebuffers (`Rgba8888` on the Game Boy Color) + 48 kHz
+//! stereo audio packets.
 //!
 //! Per [within-family-layering](../../../knowledge/decisions/within-family-layering.md)
 //! this crate adds nothing chip-specific — it is the family's seat
@@ -18,6 +19,6 @@ mod runtime;
 mod snapshot;
 
 pub use machine_nintendo_game_boy::{ApuChannel, AudioControls};
-pub use profiles::{Model, profile_for, profiles};
+pub use profiles::{CGB_BOOT_ROM_ID, Model, profile_for, profiles};
 pub use queries::GameBoySessionQueryProvider;
 pub use runtime::GameBoyRuntime;
