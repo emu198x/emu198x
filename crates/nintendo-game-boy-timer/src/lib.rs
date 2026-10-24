@@ -113,7 +113,7 @@ impl Timer {
 
     /// Convenience: advance one CPU m-cycle (4 T-cycles). Use this
     /// when the machine drives the timer from the SM83's
-    /// [`tick`](https://docs.rs/sharp-lr35902) cadence.
+    /// [`tick`](https://docs.rs/emu198x-sharp-lr35902) cadence.
     pub fn tick_m(&mut self) {
         for _ in 0..4 {
             self.tick_t();

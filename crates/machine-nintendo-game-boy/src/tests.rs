@@ -1,7 +1,7 @@
 //! Machine-level smoke tests.
 //!
 //! These don't try to verify the CPU itself — that's the job of the
-//! `sharp-lr35902` Tom Harte corpus. They check that the
+//! `emu198x-sharp-lr35902` Tom Harte corpus. They check that the
 //! orchestration and I/O dispatch wire everything up correctly:
 //! reads / writes through the bus actually reach the right
 //! component, the per-T-cycle ticking advances the timer / PPU /

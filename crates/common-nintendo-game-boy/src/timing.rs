@@ -3,7 +3,7 @@
 //! All numbers verified against
 //! [`knowledge/systems/nintendo-game-boy/timing.md`](../../../knowledge/systems/nintendo-game-boy/timing.md).
 //! Everything derives from the 4.194304 MHz master clock; m-cycles
-//! are master/4 (the [`sharp-lr35902`](crate) tick rate per
+//! are master/4 (the `emu198x-sharp-lr35902` tick rate per
 //! [`sm83-abstraction-level.md`](../../../knowledge/decisions/sm83-abstraction-level.md)).
 //!
 //! CGB double-speed mode is not modelled here — it's a CPU-domain

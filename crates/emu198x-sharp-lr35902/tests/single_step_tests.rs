@@ -65,8 +65,8 @@ mod support;
 
 use std::path::Path;
 
+use emu198x_sharp_lr35902::Sm83;
 use serde::Deserialize;
-use sharp_lr35902::Sm83;
 use support::find_sm83_tennant_dir;
 
 const OPCODE_ENV: &str = "EMU198X_SM83_OPCODE";

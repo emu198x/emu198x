@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+### Added
+
+- First release under the `emu198x-sharp-lr35902` name. Until now the crate was
+  `sharp-lr35902`, versioned with the Emu198x suite and unpublished; the entries
+  below are from that name.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/sharp-lr35902-v0.2.0) - 2026-06-04
 
 ### Other

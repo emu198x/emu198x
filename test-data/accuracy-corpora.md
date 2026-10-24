@@ -18,7 +18,7 @@ locally; the workflow uses the same env-var contract.
 | Tom Harte 6502 | `mos-6502` · `single_step_tests` | `EMU198X_6502_TOM_HARTE_DIR` | github.com/SingleStepTests/ProcessorTests (`6502/v1`) | MIT-like (see repo) | no |
 | Tom Harte Z80 | `zilog-z80` · `single_step_tests` | `EMU198X_Z80_TOM_HARTE_DIR` | github.com/SingleStepTests/ProcessorTests (`z80/v1`) | MIT-like | no |
 | SingleStepTests 68000 | `motorola-68000` · `tom_harte` | `EMU198X_68000_TOM_HARTE_ROOT` | github.com/SingleStepTests/680x0 (`68000/v1`) | unknown; no tracked licence at `e0d5ece` | no |
-| SM83 (Tennant) | `sharp-lr35902` · `single_step_tests` | `EMU198X_SM83_TENNANT_DIR` | github.com/adtennant/sm83-test-data | see repo | no |
+| SM83 (Tennant) | `emu198x-sharp-lr35902` · `single_step_tests` | `EMU198X_SM83_TENNANT_DIR` | github.com/adtennant/sm83-test-data | see repo | no |
 | Klaus Dormann 6502 | `mos-6502` · `dormann_tests` | `EMU198X_6502_DORMANN_DIR` | github.com/Klaus2m5/6502_65C02_functional_tests | GPL-3.0 | no |
 | FUSE Z80 | `zilog-z80` · `z80_fuse` | `EMU198X_FUSE_Z80_TESTS_DIR` | FUSE emulator (`fuse-emulator-fuse/z80/tests`) | GPL-2.0-or-later | no |
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
