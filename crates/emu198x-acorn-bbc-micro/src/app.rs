@@ -1,4 +1,4 @@
-//! The BBC Micro Model B and B+ as a [`MachineApp`]: its flags, runtime, and report fields.
+//! The BBC Micro Model B and B+ and the BBC Master 128 as a [`MachineApp`]: its flags, runtime, and report fields.
 
 use std::path::PathBuf;
 
@@ -69,11 +69,17 @@ impl MachineApp for Bbc {
     const BIN_NAME: &'static str = "emu198x-acorn-bbc-micro";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
-        "    --model ID      acorn-bbc-micro-b | acorn-bbc-micro-b-plus; put it
-                    before --mos and --rom so they name the right firmware
+        "    --model ID      acorn-bbc-micro-b | acorn-bbc-micro-b-plus |
+                    acorn-bbc-master-128; put it before --mos and --rom so
+                    they name the right firmware
     --mos PATH      BBC MOS ROM (16 KB); default
                     ~/.emu198x/roms/acorn-bbc-micro/os.rom (or set EMU198X_BBC_MOS),
-                    or bplus-os.rom on a B+ (or set EMU198X_BBC_BPLUS_OS)
+                    or bplus-os.rom on a B+ (or set EMU198X_BBC_BPLUS_OS),
+                    or master-mos.rom on a Master (or set EMU198X_BBC_MASTER_MOS).
+                    The Master's MOS 3.20 set fills banks 9-15 from
+                    master-dfs.rom, master-viewsht.rom, master-edit.rom,
+                    master-basic4.rom, master-adfs.rom, master-view.rom and
+                    master-terminal.rom in the ROM directory
     --sideways BANK=PATH    install a sideways ROM into bank 0..=15 (repeatable);
                     headless runs boot the bare MOS unless one is given, the
                     window also installs a staged BASIC into bank 15
@@ -82,7 +88,7 @@ impl MachineApp for Bbc {
                     acorn-bbc-bplus-mos and acorn-bbc-1770-dfs (default
                     dfs-2.26.rom, or set EMU198X_BBC_DFS), fitted in bank 14
                     an explicit BASIC pin also selects bank 15 in headless modes
-    --disk PATH     .ssd or .dsd disc for drive 0 on a B+. With the DFS, type
+    --disk PATH     .ssd or .dsd disc for drive 0 on a B+ or Master. With the DFS, type
                     *CAT, or hold SHIFT and press BREAK to boot it
     --disk-1 PATH   .ssd or .dsd disc for drive 1
     --rom-dir DIR   firmware directory (or set EMU198X_BBC_ROM_DIR)";
@@ -169,7 +175,8 @@ impl MachineApp for Bbc {
             let Some(path) = path else { continue };
             if !self.model.has_disc() {
                 return Err(LaunchError::Usage(format!(
-                    "{} has no disc drive; choose acorn-bbc-micro-b-plus with --model",
+                    "{} has no disc drive; choose acorn-bbc-micro-b-plus or \
+                     acorn-bbc-master-128 with --model",
                     self.model.display_name()
                 )));
             }

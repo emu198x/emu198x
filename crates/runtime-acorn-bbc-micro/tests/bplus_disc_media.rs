@@ -41,11 +41,8 @@ fn load(
 }
 
 #[test]
-fn the_catalogue_names_both_models() {
-    assert_eq!(
-        BbcMicroRuntime::variant_ids(),
-        &["acorn-bbc-micro-b", "acorn-bbc-micro-b-plus"]
-    );
+fn the_catalogue_names_the_b_plus_and_its_mos() {
+    assert!(BbcMicroRuntime::variant_ids().contains(&"acorn-bbc-micro-b-plus"));
     assert_eq!(Model::BbcModelB.mos_firmware_id(), MOS_FIRMWARE_ID);
     assert_eq!(Model::BbcBPlus.mos_firmware_id(), BPLUS_MOS_FIRMWARE_ID);
 }

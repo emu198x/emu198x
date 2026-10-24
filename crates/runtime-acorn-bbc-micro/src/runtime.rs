@@ -84,10 +84,17 @@ impl BbcMicroRuntime {
         if let Some(font) = firmware.bytes(crate::FONT_FIRMWARE_ID) {
             runtime.set_teletext_font(font.to_vec());
         }
-        if model.has_disc()
+        if model == Model::BbcBPlus
             && let Some(dfs) = firmware.bytes(crate::DFS_FIRMWARE_ID)
         {
             runtime.insert_sideways_rom(DFS_BANK, dfs.to_vec());
+        }
+        if model == Model::Master128 {
+            for rom in &crate::MASTER_ROMS {
+                if let Some(bytes) = firmware.bytes(rom.id) {
+                    runtime.insert_sideways_rom(rom.bank, bytes.to_vec());
+                }
+            }
         }
         Ok(runtime)
     }
@@ -103,6 +110,11 @@ impl BbcMicroRuntime {
         firmware: &FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         let mut runtime = Self::from_firmware(model, firmware)?;
+        // The Master's BASIC 4 is part of its ROM set, in bank 12, and the
+        // CMOS clock names the language; bank 15 is its Terminal.
+        if model == Model::Master128 {
+            return Ok(runtime);
+        }
         if let Some(basic) = firmware.bytes(crate::BASIC_FIRMWARE_ID) {
             runtime.insert_sideways_rom(15, basic.to_vec());
         }
@@ -185,6 +197,7 @@ impl BbcMicroRuntime {
         let mut machine = match self.model {
             Model::BbcModelB => BbcMicro::new(mos),
             Model::BbcBPlus => BbcMicro::new_b_plus(mos),
+            Model::Master128 => BbcMicro::new_master_128(mos),
         };
         if !self.teletext_font.is_empty() {
             machine.set_teletext_font(self.teletext_font.clone());
