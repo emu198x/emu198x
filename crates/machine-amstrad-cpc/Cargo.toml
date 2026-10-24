@@ -1,6 +1,6 @@
 [package]
 name = "machine-amstrad-cpc"
-description = "Amstrad CPC464 machine — Z80, Gate Array, 6845 CRTC, AY-3-8912 and 8255 PPI"
+description = "Amstrad CPC464, 664 and 6128 — Z80, Gate Array, 6845 CRTC, AY-3-8912, 8255 PPI and µPD765A"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -14,6 +14,7 @@ common-z80-machine = { path = "../common-z80-machine", version = "0.44.0" }
 emu198x-gi-ay-3-8912 = { path = "../emu198x-gi-ay-3-8912", version = "0.1.0" }
 emu198x-intel-8255 = { path = "../emu198x-intel-8255", version = "0.1.0" }
 emu198x-motorola-6845 = { path = "../emu198x-motorola-6845", version = "0.1.0" }
+nec-upd765a = { path = "../nec-upd765a", version = "0.44.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 
@@ -22,7 +23,6 @@ format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.44.0
 # SHAKER ships as a DSK; the harness reads its AMSDOS catalogue directly
 # rather than waiting on an FDC (#951).
 format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.44.0" }
-nec-upd765a = { path = "../nec-upd765a", version = "0.44.0" }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 [lints]
