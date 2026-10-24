@@ -54,11 +54,11 @@
 //! and runtime clock currently differ; this is separate from port wiring.
 
 use common_z80_machine::Z80Machine;
+use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
+use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ti_sn76489::{NoiseLfsr, Sn76489};
-use ti_tms9918::{Tms9918, VdpRegion};
 
 /// VDP dot ticks per CPU T-state, numerator.
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;

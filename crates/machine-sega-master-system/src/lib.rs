@@ -73,7 +73,7 @@
 //! `sega-vdp` crate exposes only `tick_scanline()` (not per-dot tick)
 //! so the machine accumulates 342 dots' worth of phase before issuing
 //! one scanline tick. This is even more accuracy-relaxed than
-//! `ti-tms9918`'s per-dot tick — refining the VDP to a per-dot model
+//! `emu198x-ti-tms9918`'s per-dot tick — refining the VDP to a per-dot model
 //! is the obvious next accuracy step, tracked under
 //! `docs/status/outstanding-work.md` § Sega Master System.
 
@@ -84,12 +84,12 @@ pub use cartridge::{
 };
 
 use common_z80_machine::Z80Machine;
+use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_zilog_z80::{BusOp, Z80};
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use ti_sn76489::{NoiseLfsr, Sn76489};
 
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 // VDP dot clock vs CPU clock: master 10.738635 MHz, CPU ÷3, VDP dot ÷2, so

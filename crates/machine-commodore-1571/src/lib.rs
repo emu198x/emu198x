@@ -21,6 +21,8 @@ use common_commodore_drive_gcr::{
 use common_commodore_iec::IecBus;
 use common_commodore_iec_drive::{BoardState, IecDriveBoard};
 use emu198x_mos_6502::{M6502, registers::FLAG_V};
+use emu198x_mos_via_6522::Via6522;
+use emu198x_western_digital_wd1770::Wd1770;
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
@@ -30,10 +32,8 @@ use format_commodore_c64_d71::{
 };
 use format_commodore_c64_g64::G64ParseError;
 use mos_cia_6526::Cia6526;
-use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use western_digital_wd1770::Wd1770;
 
 const RAM_SIZE: usize = 0x0800;
 const ROM_SIZE: usize = 0x8000;

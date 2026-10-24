@@ -16,6 +16,11 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use emu198x_motorola_vdg_6847::{
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
+    VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
+    VDG_PAL_OVERSCAN_VISIBLE_X, VDG_PAL_OVERSCAN_VISIBLE_Y, VdgPalette,
+};
 use emu198x_shell::StopReason as RuntimeStopReason;
 use emu198x_shell::launch::{CommonCli, LaunchError};
 use emu198x_shell::{
@@ -36,11 +41,6 @@ use machine_dragon_32::{
     DeviceRegion, Dragon32, DragonCartridgeKind, DragonKey, DragonKeyboard, DragonVideoPhase,
     FetchTrace, MatrixKey, MemoryWriteTrace, PiaSignalTrace, ROM_SIZE, ReadonlyWrite, RunOptions,
     RunReport, StopReason, VdgModeWriteTrace, VdgSampleTrace, WatchedFetchTrace,
-};
-use motorola_vdg_6847::{
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
-    VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
-    VDG_PAL_OVERSCAN_VISIBLE_X, VDG_PAL_OVERSCAN_VISIBLE_Y, VdgPalette,
 };
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use serde::Serialize;
@@ -3717,7 +3717,7 @@ fn xroar_zoomed_png_bytes(frame: &CapturedFrame) -> Result<Vec<u8>, String> {
     let source = XroarZoomSource::from_frame(frame)?;
 
     let mut rgba = Vec::with_capacity((XROAR_ZOOMED_WIDTH * XROAR_ZOOMED_HEIGHT * 4) as usize);
-    for y in 0..motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT {
+    for y in 0..emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_HEIGHT {
         for _ in 0..2 {
             for x in 0..source.active_width {
                 let offset = source.pixel_offset(x, y);
@@ -3747,17 +3747,18 @@ impl XroarZoomSource {
         match (frame.width as usize, frame.height as usize) {
             (TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TEXT_VISIBLE_FRAMEBUFFER_HEIGHT) => Ok(Self {
                 frame_width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH,
-                active_x: motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS,
-                active_y: motorola_vdg_6847::TEXT_TOP_BORDER_LINES,
-                active_width: motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH,
+                active_x: emu198x_motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS,
+                active_y: emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES,
+                active_width: emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH,
                 duplicate_x: true,
             }),
             (VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH, VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT) => Ok(Self {
                 frame_width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
                 active_x: VDG_PAL_OVERSCAN_VISIBLE_X
-                    + motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS * 2,
-                active_y: VDG_PAL_OVERSCAN_VISIBLE_Y + motorola_vdg_6847::TEXT_TOP_BORDER_LINES,
-                active_width: motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH * 2,
+                    + emu198x_motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS * 2,
+                active_y: VDG_PAL_OVERSCAN_VISIBLE_Y
+                    + emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES,
+                active_width: emu198x_motorola_vdg_6847::TEXT_FRAMEBUFFER_WIDTH * 2,
                 duplicate_x: false,
             }),
             (width, height) => Err(format!(
@@ -7797,9 +7798,9 @@ mod tests {
     fn xroar_zoomed_screenshot_scales_active_area_without_downscaling() {
         let mut pixels =
             vec![0; TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT * 4];
-        let active_offset = (motorola_vdg_6847::TEXT_TOP_BORDER_LINES
+        let active_offset = (emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES
             * TEXT_VISIBLE_FRAMEBUFFER_WIDTH
-            + motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS)
+            + emu198x_motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS)
             * 4;
         pixels[active_offset..active_offset + 4].copy_from_slice(&[0x12, 0x34, 0x56, 0xFF]);
         let frame = CapturedFrame {
@@ -7838,10 +7839,10 @@ mod tests {
         let mut pixels =
             vec![0; VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH * VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT * 4];
         let active_offset = ((VDG_PAL_OVERSCAN_VISIBLE_Y
-            + motorola_vdg_6847::TEXT_TOP_BORDER_LINES)
+            + emu198x_motorola_vdg_6847::TEXT_TOP_BORDER_LINES)
             * VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH
             + VDG_PAL_OVERSCAN_VISIBLE_X
-            + motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS * 2)
+            + emu198x_motorola_vdg_6847::TEXT_LEFT_BORDER_PIXELS * 2)
             * 4;
         pixels[active_offset..active_offset + 4].copy_from_slice(&[0xAB, 0xCD, 0xEF, 0xFF]);
         let frame = CapturedFrame {

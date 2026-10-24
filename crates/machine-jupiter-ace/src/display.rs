@@ -18,7 +18,7 @@
 //! family machine exists), so this stays inline as part of the
 //! machine itself. Contrast with the VIC-20's MOS 6560/6561 (real IC,
 //! extracted to `mos-vic-i`) or the Atom's MC6847 (real IC, shared via
-//! `motorola-vdg-6847`).
+//! `emu198x-motorola-vdg-6847`).
 //!
 //! # Timing
 //!

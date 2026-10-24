@@ -8,7 +8,7 @@
 //! adjacent silicon — register I/O is mostly compatible at the
 //! TMS9918-mode level — but the new Mode 4 tile pipeline, dual 16-colour
 //! palettes, scroll registers, line-interrupt counter, and H/V counter
-//! readback make this a substantial step beyond `ti-tms9918`.
+//! readback make this a substantial step beyond `emu198x-ti-tms9918`.
 //!
 //! Extends the TMS9918A with Mode 4: 4bpp tiles with per-tile flip,
 //! priority, and palette select; two 16-color palettes from 64 colors
@@ -22,7 +22,7 @@
 //! active area as backdrop in all four. That is a deliberate limit, not an
 //! oversight, and it is cheap to hold because nothing reaches it: the
 //! machines built around those modes — SG-1000, MSX, ColecoVision, Sord M5,
-//! SVI-328, MTX, Einstein — all drive [`ti-tms9918`](../ti_tms9918/index.html)
+//! SVI-328, MTX, Einstein — all drive [`emu198x-ti-tms9918`](../emu198x_ti_tms9918/index.html)
 //! instead. The only exposure is a Master System cartridge that switches the
 //! VDP into a legacy mode, which commercial software does not do.
 //!
@@ -33,7 +33,7 @@
 //! the Sega VDP's own output levels rather than emitting the TMS9918A's.
 //! Medium green is (33, 200, 66) on a TMS9918A and lands two levels down the
 //! Sega's green scale with no red or blue at all. The two chips' revisions
-//! use different level tables again. So `ti-tms9918`'s pipeline cannot be
+//! use different level tables again. So `emu198x-ti-tms9918`'s pipeline cannot be
 //! reused as-is: it would render the right shapes in the wrong colours, which
 //! is worse than rendering nothing, because it would look plausible.
 //!
@@ -282,7 +282,7 @@ const GG_ORIGIN_Y: u32 = (ACTIVE_HEIGHT - GG_HEIGHT) / 2;
 // when its slot comes it stores whatever the one-byte buffer then holds — the
 // latest write's byte (PoorAussie's model, topic 11689, 2009). So a late
 // write lands at the earlier write's address, and its own address is
-// skipped. openMSX's TMS9918 model, used by `ti-tms9918`, instead advances
+// skipped. openMSX's TMS9918 model, used by `emu198x-ti-tms9918`, instead advances
 // the address once for the pair; that would make fast reads useless for
 // skipping.
 //

@@ -5,8 +5,8 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
+use emu198x_ti_tms9918::VdpRegion;
 use machine_spectravideo_svi_328::{Svi328, SviRegion};
-use ti_tms9918::VdpRegion;
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
@@ -400,8 +400,8 @@ impl MachineCore for Svi328Runtime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            ti_tms9918::PAL_DOT_CLOCK_HZ,
-            ti_tms9918::NTSC_DOT_CLOCK_HZ,
+            emu198x_ti_tms9918::PAL_DOT_CLOCK_HZ,
+            emu198x_ti_tms9918::NTSC_DOT_CLOCK_HZ,
         )
     }
 
