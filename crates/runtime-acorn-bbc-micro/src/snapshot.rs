@@ -21,7 +21,9 @@ use crate::runtime::BbcMicroRuntime;
 // postcard is not self-describing, so added fields shift every byte after
 // them.
 // Version 8 preserves the VIA timer 2 load phase (#1677).
-const SNAPSHOT_VERSION: u16 = 8;
+// Version 9 carries the model and the B+'s paged RAM, shadow screen, WD1770
+// and drive latch.
+const SNAPSHOT_VERSION: u16 = 9;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
