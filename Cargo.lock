@@ -1653,6 +1653,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-wdc-65c816"
+version = "0.1.0"
+dependencies = [
+ "emu198x-test-skip",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-web"
 version = "0.44.2"
 dependencies = [
