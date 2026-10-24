@@ -1,10 +1,10 @@
 //! Amstrad CPC — Z80, Gate Array, 6845 CRTC, AY-3-8912 and 8255 PPI.
 //!
-//! Two models: the CPC464 with 64 KB, and a CPC6128 with 128 KB and the
-//! HAL16L8 PAL's eight RAM configurations ([`CpcModel`]). The 6128's disc —
-//! its µPD765 and AMSDOS — is not modelled, so a `Cpc6128` here is a 128 KB
-//! machine without a drive. Banked RAM arrived for SHAKER, whose interrupt
-//! page saves the screen into the second bank and is unreadable without it.
+//! Three models ([`CpcModel`]): the CPC464 with 64 KB and a cassette deck,
+//! the CPC664 with 64 KB and a 3" disc drive, and the CPC6128 with the drive,
+//! 128 KB and the HAL16L8 PAL's eight RAM configurations. Banked RAM arrived
+//! for SHAKER, whose interrupt page saves the screen into the second bank and
+//! is unreadable without it.
 //!
 //! Scoped in `Emu198x/docs/plans/2026-08-13-amstrad-cpc-plan.md`. Every chip but
 //! the Gate Array was already in the workspace and proven in a shipping machine,
@@ -45,10 +45,13 @@
 //! one, and also narrows which T-state is free; see
 //! [`amstrad_gate_array::WAIT_FREE_TSTATE`].
 //!
-//! # What is not modelled yet
+//! # The disc
 //!
-//! **The disc.** No µPD765 and no AMSDOS, so a [`CpcModel::Cpc6128`] is a
-//! 128 KB machine without a drive.
+//! The 664 and 6128 carry a µPD765A, ticked once per 4 MHz T-state, with its
+//! registers at `&FB7E`/`&FB7F` and the drive-motor latch at `&FA7E`. Its
+//! interrupt line is not connected: AMSDOS polls the main status register.
+//! Discs go in with [`AmstradCpc::insert_disk`]. AMSDOS itself, upper ROM 7,
+//! is not fitted yet, so the firmware does not know the drive is there.
 //!
 //! # Video
 //!
@@ -79,7 +82,7 @@
 //! | A13 = 0 | ROM select |
 //! | A12 = 0 | printer |
 //! | A11 = 0 | 8255 PPI, port in A9-A8 |
-//! | A10 = 0 | expansion / FDC — absent on a 464 |
+//! | A10 = 0 | expansion; with A7 = 0, the FDC on a 664 or 6128 |
 
 pub mod screen_text;
 
@@ -90,6 +93,7 @@ use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_intel_8255::Ppi8255;
 use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
 use emu198x_zilog_z80::{BusOp, Z80};
+use nec_upd765a::{DiskImage, Upd765a};
 use serde::{Deserialize, Serialize};
 
 /// T-states per CRTC character clock: 4 MHz CPU against a 1 MHz CRTC.
@@ -102,6 +106,8 @@ const TSTATES_PER_FRAME: u64 = 64 * 312 * TSTATES_PER_CRTC_TICK as u64;
 
 /// AY-3-8912 clock, 1 MHz — the same divider as the CRTC.
 const AY_CLOCK_HZ: u32 = 1_000_000;
+/// The Z80's clock, 16 MHz / 4. The FDC is ticked once per T-state.
+const CPU_HZ: u64 = 4_000_000;
 const AY_SAMPLE_RATE: u32 = 48_000;
 const AY_SAMPLES_PER_FRAME: usize = 1024;
 
@@ -301,20 +307,29 @@ pub struct IoEvent {
     pub write: bool,
 }
 
+/// What a disc-port access reaches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FdcRegister {
+    /// The drive-motor latch, `&FA7E`. Write-only.
+    Motor,
+    /// The FDC's main status register, `&FB7E`. Read-only.
+    Status,
+    /// The FDC's data register, `&FB7F`.
+    Data,
+}
+
 /// Which CPC this is.
-///
-/// The models differ in more than this enum captures — the 664 and 6128 carry
-/// a µPD765 and AMSDOS, which are not modelled — so this names only what the
-/// machine can actually be. A `Cpc6128` here is a 128 KB machine with banked
-/// RAM and no disc.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CpcModel {
     /// 64 KB, no banking. The Gate Array ignores a `11`-prefixed write and
     /// there is no PAL to catch it.
     #[default]
     Cpc464,
-    /// 128 KB with the HAL16L8 PAL's eight RAM configurations.
+    /// 128 KB with the HAL16L8 PAL's eight RAM configurations, and a disc
+    /// drive.
     Cpc6128,
+    /// 64 KB, no banking, and a disc drive in place of the cassette deck.
+    Cpc664,
 }
 
 impl CpcModel {
@@ -322,7 +337,7 @@ impl CpcModel {
     #[must_use]
     pub const fn ram_bytes(self) -> usize {
         match self {
-            Self::Cpc464 => 0x1_0000,
+            Self::Cpc464 | Self::Cpc664 => 0x1_0000,
             Self::Cpc6128 => 0x2_0000,
         }
     }
@@ -332,6 +347,12 @@ impl CpcModel {
     #[must_use]
     pub const fn has_banked_ram(self) -> bool {
         matches!(self, Self::Cpc6128)
+    }
+
+    /// Whether the machine has a built-in disc drive and its µPD765A.
+    #[must_use]
+    pub const fn has_disc(self) -> bool {
+        matches!(self, Self::Cpc664 | Self::Cpc6128)
     }
 }
 
@@ -395,6 +416,11 @@ pub struct AmstradCpc {
     tape: TapePlayer,
     /// Whether the machine has the cassette motor running.
     tape_motor: bool,
+    /// The µPD765A. Present on every model so the shape is fixed, but wired
+    /// to the ports and the clock only on a model with a disc.
+    fdc: Upd765a,
+    /// The drive-motor latch at `&FA7E`, bit 0.
+    fdc_motor: bool,
     cpu_tstates: u64,
     /// The cadence driver's half-cycle phase; a restore lands on a T-state
     /// boundary, so it is not part of the snapshot.
@@ -469,6 +495,16 @@ impl AmstradCpc {
             psg_control: 0,
             tape: TapePlayer::new(),
             tape_motor: false,
+            fdc: {
+                let mut fdc = Upd765a::new(CPU_HZ);
+                // Only US0 reaches the drive selector, so units 2 and 3 alias
+                // 0 and 1. That is the +3's wiring, which Amstrad carried
+                // over from these machines, and the firmware only uses A
+                // and B.
+                fdc.set_drive_select_mask(0x01);
+                fdc
+            },
+            fdc_motor: false,
             cpu_tstates: 0,
             cadence_hc: 0,
             frame_count: 0,
@@ -705,6 +741,44 @@ impl AmstradCpc {
         if self.tape_motor {
             self.tape.play();
         }
+    }
+
+    /// Whether the drive-motor latch at `&FA7E` is set.
+    #[must_use]
+    pub fn disk_motor_on(&self) -> bool {
+        self.fdc_motor
+    }
+
+    /// Put a disc in drive `drive`, 0 for A or 1 for B, write-protected
+    /// unless `writable`. Does nothing on a model without a drive, or for
+    /// any other drive number.
+    pub fn insert_disk(&mut self, drive: usize, image: DiskImage, writable: bool) {
+        if self.model.has_disc() && drive < 2 {
+            self.fdc.insert_disk_with_writable(drive, image, writable);
+        }
+    }
+
+    /// Take the disc out of drive `drive`.
+    pub fn eject_disk(&mut self, drive: usize) {
+        if drive < 2 {
+            self.fdc.eject_disk(drive);
+        }
+    }
+
+    /// The disc in drive `drive`, with any sectors the machine has written.
+    #[must_use]
+    pub fn disk(&self, drive: usize) -> Option<&DiskImage> {
+        if drive < 2 {
+            self.fdc.disk_for_export(drive).ok()
+        } else {
+            None
+        }
+    }
+
+    /// The µPD765A, for inspecting controller state.
+    #[must_use]
+    pub fn fdc(&self) -> &Upd765a {
+        &self.fdc
     }
 
     /// Whether the firmware currently has the cassette motor running.
@@ -998,7 +1072,50 @@ impl AmstradCpc {
             }
             return self.ppi.read(ppi_port);
         }
-        0xFF
+        match self.fdc_register(port) {
+            Some(FdcRegister::Status) => self.fdc.read_status(),
+            Some(FdcRegister::Data) => self.fdc.read_data(),
+            Some(FdcRegister::Motor) | None => 0xFF,
+        }
+    }
+
+    /// Which disc register `port` reaches, if any. Expansion devices decode on
+    /// A10 = 0, and the FDC on A7 = 0 among them; A8 and A0 then pick the
+    /// register (MAME `amstrad_cpc_io_r`/`_w`). `&FB7E`, `&FB7F` and `&FA7E`
+    /// are the addresses the firmware uses. A machine without a drive has no
+    /// FDC on the bus.
+    fn fdc_register(&self, port: u16) -> Option<FdcRegister> {
+        if !self.model.has_disc() || port & 0x0480 != 0 {
+            return None;
+        }
+        match (port & 0x0100 != 0, port & 0x0001 != 0) {
+            (false, _) => Some(FdcRegister::Motor),
+            (true, false) => Some(FdcRegister::Status),
+            (true, true) => Some(FdcRegister::Data),
+        }
+    }
+
+    /// Present the drive lines to the FDC.
+    ///
+    /// READY needs the motor running and a disc in the drive, as on the +3,
+    /// whose drive interface Amstrad carried over from these machines. Write
+    /// protect is a property of the mounted disc, and track zero is sensed
+    /// wherever there is a mechanism: drive A always, drive B only with a disc
+    /// in it. Nothing in the reference library says how the CPC wires the
+    /// drive's two-side line, so the FDC keeps its fallback, the disc's own
+    /// geometry, and no fault is ever raised.
+    fn update_fdc_inputs(&mut self) {
+        for unit in 0..4 {
+            let drive = unit & 1;
+            let has_disk = self.fdc.has_disk(drive);
+            self.fdc.set_ready(unit, self.fdc_motor && has_disk);
+            self.fdc
+                .set_write_protect(unit, self.fdc.is_write_protected(drive));
+            let mechanism = drive == 0 || has_disk;
+            let track_zero = mechanism && self.fdc.head_at_track_zero(drive);
+            self.fdc.set_track_zero(unit, track_zero);
+            self.fdc.set_fault(unit, false);
+        }
     }
 
     /// PPI port B, which is wired to the outside world rather than driven by
@@ -1035,6 +1152,16 @@ impl AmstradCpc {
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
+        // A10 = 0, A7 = 0: the disc. The motor latch, or the FDC's data
+        // register; its main status register is read-only.
+        match self.fdc_register(port) {
+            Some(FdcRegister::Motor) => self.fdc_motor = value & 0x01 != 0,
+            Some(FdcRegister::Data) => {
+                self.update_fdc_inputs();
+                self.fdc.write_data(value);
+            }
+            Some(FdcRegister::Status) | None => {}
+        }
         // A15 = 0 and A14 = 1: the Gate Array. Write-only.
         if port & 0x8000 == 0 && port & 0x4000 != 0 {
             self.gate_array.write(value);
@@ -1119,6 +1246,11 @@ impl Z80Machine for AmstradCpc {
             self.gate_array.set_hsync(self.crtc.hsync);
             self.gate_array.set_vsync(self.crtc.vsync);
             self.psg.tick();
+        }
+
+        if self.model.has_disc() {
+            self.update_fdc_inputs();
+            self.fdc.tick();
         }
 
         // The tape runs on wall-clock time, not on anything the CPU asks for,
@@ -1679,5 +1811,179 @@ mod tests {
         }
         assert_eq!(cpc.frame_count(), 3);
         assert!(cpc.cpu_tstates() > 0);
+    }
+
+    fn disc_machine(model: CpcModel) -> AmstradCpc {
+        let mut cpc = AmstradCpc::with_model(&test_firmware(), model).expect("build");
+        cpc.io_write(0xF782, 0x82);
+        cpc
+    }
+
+    /// A DATA-format disc: 40 tracks of nine 512-byte sectors, IDs `&C1`-`&C9`,
+    /// each byte naming its track, sector and offset.
+    fn data_disc() -> DiskImage {
+        use nec_upd765a::{DiskSector, DiskTrack};
+        let tracks = (0..40u8)
+            .map(|c| DiskTrack {
+                sectors: (0xC1..=0xC9u8)
+                    .map(|id| DiskSector {
+                        c,
+                        h: 0,
+                        id,
+                        n: 2,
+                        st1: 0,
+                        st2: 0,
+                        data: (0..512usize)
+                            .map(|i| c.wrapping_mul(7) ^ id ^ (i as u8))
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        DiskImage {
+            sides: 1,
+            tracks_per_side: 40,
+            tracks: vec![tracks],
+        }
+    }
+
+    const FDC_STATUS: u16 = 0xFB7E;
+    const FDC_DATA: u16 = 0xFB7F;
+    const FDC_MOTOR: u16 = 0xFA7E;
+
+    /// Write a command, waiting on RQM with DIO clear before each byte, as
+    /// AMSDOS does.
+    fn fdc_command(cpc: &mut AmstradCpc, bytes: &[u8]) {
+        for &byte in bytes {
+            let mut spins = 0;
+            while cpc.io_read(FDC_STATUS) & 0xC0 != 0x80 {
+                cpc.advance_tstates(1);
+                spins += 1;
+                assert!(spins < 100_000, "FDC never asked for a command byte");
+            }
+            cpc.io_write(FDC_DATA, byte);
+        }
+    }
+
+    /// Poll out an execution phase's data and then the result bytes.
+    fn fdc_read_phase(cpc: &mut AmstradCpc) -> (Vec<u8>, Vec<u8>) {
+        let (mut data, mut result) = (Vec::new(), Vec::new());
+        for _ in 0..2_000_000 {
+            let msr = cpc.io_read(FDC_STATUS);
+            if msr & 0xE0 == 0xE0 {
+                data.push(cpc.io_read(FDC_DATA));
+            } else if msr & 0xE0 == 0xC0 {
+                result.push(cpc.io_read(FDC_DATA));
+            } else if msr & 0x10 == 0 && !result.is_empty() {
+                return (data, result);
+            } else {
+                cpc.advance_tstates(1);
+            }
+        }
+        panic!("FDC never finished its read");
+    }
+
+    #[test]
+    fn only_the_disc_models_have_an_fdc() {
+        assert!(!CpcModel::Cpc464.has_disc());
+        assert!(CpcModel::Cpc664.has_disc());
+        assert!(CpcModel::Cpc6128.has_disc());
+        assert_eq!(CpcModel::Cpc664.ram_bytes(), 0x1_0000);
+        assert!(!CpcModel::Cpc664.has_banked_ram());
+
+        let mut cpc464 = disc_machine(CpcModel::Cpc464);
+        assert_eq!(cpc464.io_read(FDC_STATUS), 0xFF, "nothing answers on a 464");
+        cpc464.insert_disk(0, data_disc(), false);
+        assert!(cpc464.disk(0).is_none(), "a 464 has no drive to put it in");
+
+        let mut cpc6128 = disc_machine(CpcModel::Cpc6128);
+        assert_eq!(
+            cpc6128.io_read(FDC_STATUS),
+            0x80,
+            "an idle FDC wants a command"
+        );
+    }
+
+    #[test]
+    fn the_fdc_decodes_on_a10_and_a7_with_a8_and_a0_picking_the_register() {
+        let mut cpc = disc_machine(CpcModel::Cpc6128);
+        cpc.io_write(FDC_MOTOR, 1);
+        assert!(cpc.disk_motor_on());
+        cpc.io_write(0xFA7F, 0); // A0 is ignored for the motor latch
+        assert!(!cpc.disk_motor_on());
+        cpc.io_write(0xFAFE, 1); // A7 = 1: not the FDC
+        assert!(!cpc.disk_motor_on());
+        assert_eq!(cpc.io_read(0xFBFE), 0xFF, "A7 = 1 reaches no FDC register");
+        assert_eq!(cpc.io_read(0x7B7E) & 0xC0, 0x80, "A15 is not decoded");
+    }
+
+    #[test]
+    fn ready_needs_the_motor_and_a_disc() {
+        let mut cpc = disc_machine(CpcModel::Cpc6128);
+        let sense_drive = |cpc: &mut AmstradCpc| {
+            fdc_command(cpc, &[0x04, 0x00]);
+            let (_, result) = fdc_read_phase(cpc);
+            result[0]
+        };
+        assert_eq!(sense_drive(&mut cpc) & 0x20, 0, "no disc, no motor");
+        cpc.insert_disk(0, data_disc(), false);
+        assert_eq!(sense_drive(&mut cpc) & 0x20, 0, "a disc but no motor");
+        cpc.io_write(FDC_MOTOR, 1);
+        let st3 = sense_drive(&mut cpc);
+        assert_eq!(st3 & 0x20, 0x20, "motor and disc: READY");
+        assert_eq!(st3 & 0x40, 0x40, "the disc went in write-protected");
+        assert_eq!(st3 & 0x10, 0x10, "the head starts on track zero");
+    }
+
+    #[test]
+    fn a_polled_read_returns_the_sector_and_a_clean_result() {
+        let mut cpc = disc_machine(CpcModel::Cpc664);
+        cpc.insert_disk(0, data_disc(), false);
+        cpc.io_write(FDC_MOTOR, 1);
+        fdc_command(&mut cpc, &[0x03, 0xA1, 0x03]); // Specify: SRT 10, non-DMA
+        // Read Data, MFM, drive 0, C0 H0 R&C3 N2, EOT &C3, GPL &2A, DTL &FF.
+        fdc_command(
+            &mut cpc,
+            &[0x46, 0x00, 0x00, 0x00, 0xC3, 0x02, 0xC3, 0x2A, 0xFF],
+        );
+        let (data, result) = fdc_read_phase(&mut cpc);
+        let expected = data_disc().sector(0, 0, 0xC3).expect("sector").data.clone();
+        assert_eq!(data, expected);
+        assert_eq!(result.len(), 7);
+        assert_eq!(
+            result[0] & 0xC0,
+            0x40,
+            "ST0 abnormal end: no TC, EOT reached"
+        );
+        assert_eq!(result[1], 0x80, "ST1 end of cylinder, nothing else");
+        assert_eq!(&result[3..7], &[0x00, 0x00, 0xC3, 0x02]);
+    }
+
+    #[test]
+    fn a_programmed_step_takes_real_time_at_4_mhz() {
+        let mut cpc = disc_machine(CpcModel::Cpc6128);
+        cpc.insert_disk(0, data_disc(), false);
+        cpc.io_write(FDC_MOTOR, 1);
+        // The drive coming ready raises attention on the next READY poll;
+        // acknowledge it with Sense Interrupt Status until none is left.
+        cpc.advance_tstates(10_000);
+        loop {
+            fdc_command(&mut cpc, &[0x08]);
+            let (_, result) = fdc_read_phase(&mut cpc);
+            if result[0] == 0x80 {
+                break;
+            }
+        }
+        assert!(!cpc.fdc().interrupt);
+        fdc_command(&mut cpc, &[0x03, 0xC1, 0x03]); // Specify: SRT 12
+        fdc_command(&mut cpc, &[0x0F, 0x00, 0x02]); // Seek drive 0 to track 2
+        let mut tstates = 0u64;
+        while !cpc.fdc().interrupt {
+            cpc.advance_tstates(1);
+            tstates += 1;
+            assert!(tstates < 1_000_000, "the seek never finished");
+        }
+        // Two steps of (16 - SRT) * 2 ms at a 4 MHz FDC, in 4 MHz T-states.
+        assert_eq!(tstates, 2 * u64::from(16 - 12_u8) * 2 * 4_000);
     }
 }
