@@ -31,6 +31,8 @@ pub(super) fn create(
         "atari-7800" => build::<runtime_atari_7800::Atari7800Runtime>(variant, firmware),
         #[cfg(feature = "atari-800xl")]
         "atari-800xl" => build::<runtime_atari_800xl::Atari800xlRuntime>(variant, firmware),
+        #[cfg(feature = "atari-st")]
+        "atari-st" => build::<runtime_atari_st::AtariStRuntime>(variant, firmware),
         #[cfg(feature = "coleco-colecovision")]
         "coleco-colecovision" => build::<runtime_coleco_colecovision::CvRuntime>(variant, firmware),
         #[cfg(feature = "commodore-amiga")]
@@ -135,6 +137,8 @@ pub(super) fn catalogue() -> Vec<Value> {
     result.extend(profiles::<runtime_atari_800xl::Atari800xlRuntime>(
         "atari-800xl",
     ));
+    #[cfg(feature = "atari-st")]
+    result.extend(profiles::<runtime_atari_st::AtariStRuntime>("atari-st"));
     #[cfg(feature = "coleco-colecovision")]
     result.extend(profiles::<runtime_coleco_colecovision::CvRuntime>(
         "coleco-colecovision",
