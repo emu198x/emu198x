@@ -124,3 +124,52 @@ fn basic_7_reads_the_keyboard_and_the_vic_draws_it() {
     let ink = window.clone().filter(|&&pixel| pixel != paper).count();
     assert!(ink > 500, "only {ink} text pixels in the display window");
 }
+
+#[test]
+#[ignore = "FIXTURE: needs the C128 ROMs — run with --ignored"]
+fn with_40_80_down_basic_7_comes_up_on_the_vdc() {
+    let mut c128 = c128();
+    c128.set_80_column_key(true);
+    for _ in 0..200 {
+        c128.run_frame();
+    }
+    // The KERNAL's 80-column screen starts at VDC address 0, a row of 80
+    // screen codes at a time.
+    let vram = c128.vdc_ram();
+    let rows: Vec<String> = (0..25)
+        .map(|row| {
+            (0..80)
+                .map(|col| screen_code(vram[row * 80 + col]))
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect();
+    println!("{}", rows.join("\n"));
+    assert!(
+        rows.iter().any(|row| row.contains("BASIC V7.0")),
+        "the banner is in VDC RAM"
+    );
+    assert!(rows.iter().any(|row| row.trim() == "READY."));
+    // And the VDC draws it: the text colour inside the display.
+    let frame = c128.vdc_framebuffer();
+    let paper = frame[0];
+    let ink = frame.iter().filter(|&&pixel| pixel != paper).count();
+    assert!(ink > 1000, "only {ink} text pixels on the VDC");
+    assert!(
+        !c128
+            .screen_text()
+            .iter()
+            .any(|line| line.contains("READY.")),
+        "the 40-column screen is not where BASIC went"
+    );
+}
+
+fn screen_code(code: u8) -> char {
+    match code & 0x7F {
+        0 => '@',
+        c @ 1..=26 => char::from(b'A' + c - 1),
+        c @ 32..=63 => char::from(c),
+        _ => ' ',
+    }
+}
