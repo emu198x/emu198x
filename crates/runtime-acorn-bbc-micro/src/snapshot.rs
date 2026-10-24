@@ -23,7 +23,8 @@ use crate::runtime::BbcMicroRuntime;
 // Version 8 preserves the VIA timer 2 load phase (#1677).
 // Version 9 carries the model and the B+'s paged RAM, shadow screen, WD1770
 // and drive latch.
-const SNAPSHOT_VERSION: u16 = 9;
+// Version 10 carries the Master's ACCCON, sideways RAM banks and CMOS clock.
+const SNAPSHOT_VERSION: u16 = 10;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
