@@ -4,8 +4,8 @@ The Sega 315-5313, the Mega Drive's video display processor, stepped slot by
 slot from the master clock.
 
 **Status: being built in stages** (emu198x/emu198x#2033). This release has
-the chip's bus side and clock, and the whole Mode 5 picture: planes,
-window and sprites. Mode 4 (Master System compatibility) is still to come.
+the chip's bus side and clock, the whole Mode 5 picture (planes, window and
+sprites), and Mode 4, the Master System mode a Power Base Converter uses.
 
 - VRAM, CRAM and VSRAM, with the odd-address byte swap and the 128 KB mode wiring.
 - The control port's two-word command latch and the 24 registers.
@@ -36,6 +36,18 @@ window and sprites. Mode 4 (Master System compatibility) is still to come.
 - Each tile is fetched in its own slot. Output goes to an ARGB framebuffer
   through CRAM as it is at that moment, so mid-line palette changes and CRAM
   dots appear where they land.
+- Mode 4, through the Master System's 8-bit ports (`$BE`/`$BF`, the
+  counters, status):
+  - 256 wide, 192 lines, and the 224 and 240 line modes;
+  - Master System tiles, scrolling and its locks, the left-column blank;
+  - the 64-entry sprite table, 8 sprites a line with overflow, collision,
+    the `$D0` end marker in the 192-line mode, tall sprites and the shift;
+  - the line interrupt, the frame interrupt and the counters' jumps;
+  - 6-bit CRAM.
+
+  The 315-5313 is not a Master System VDP. It has no TMS9918 modes (with
+  neither Mode 4 nor Mode 5 set the picture is black), no sprite zoom, and
+  none of the first Master System VDP's quirks. See `src/mode4.rs`.
 
 ## How it is modelled
 
