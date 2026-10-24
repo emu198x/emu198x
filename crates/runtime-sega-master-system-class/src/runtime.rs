@@ -14,7 +14,7 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_sega_master_system::{Sms, SmsVariant};
+use machine_sega_master_system::{FmUnit, Sms, SmsVariant};
 
 use crate::input::{ControllerCache, apply_input_event};
 use crate::snapshot;
@@ -43,6 +43,10 @@ pub struct SmsRuntime<M: SmsModel> {
     rgba_width: u32,
     rgba_height: u32,
     controller_cache: ControllerCache,
+    /// FM hardware fitted in place of the model's own, kept across machine
+    /// rebuilds. `None` leaves the model's default: the Japanese Master
+    /// System's built-in YM2413, or nothing.
+    fm_unit: Option<FmUnit>,
 }
 
 impl<M: SmsModel> SmsRuntime<M> {
@@ -58,6 +62,7 @@ impl<M: SmsModel> SmsRuntime<M> {
             rgba_width: 0,
             rgba_height: 0,
             controller_cache: ControllerCache::default(),
+            fm_unit: None,
         }
     }
 
@@ -114,6 +119,24 @@ impl<M: SmsModel> SmsRuntime<M> {
         Ok(())
     }
 
+    /// Fit FM hardware in place of the model's own: an FM Sound Unit on a
+    /// machine that has none, or none on a Japanese Master System. The
+    /// choice outlives cartridge changes and resets.
+    pub fn set_fm_unit(&mut self, unit: FmUnit) {
+        self.fm_unit = Some(unit);
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_fm_unit(unit);
+        }
+    }
+
+    /// The FM hardware the machine carries.
+    #[must_use]
+    pub fn fm_unit(&self) -> FmUnit {
+        self.machine
+            .as_ref()
+            .map_or_else(|| self.fm_unit.unwrap_or(FmUnit::None), Sms::fm_unit)
+    }
+
     /// The hardware variant this runtime drives.
     #[must_use]
     pub fn variant(&self) -> SmsVariant {
@@ -162,6 +185,9 @@ impl<M: SmsModel> SmsRuntime<M> {
             return;
         };
         let mut machine = Sms::new(rom, self.variant());
+        if let Some(unit) = self.fm_unit {
+            machine.set_fm_unit(unit);
+        }
         if let Some((ram, dirty)) = preserved_ram {
             let restored = machine.restore_cartridge_ram(&ram, dirty);
             debug_assert!(restored);
@@ -226,6 +252,7 @@ impl<M: SmsModel> emu198x_shell::FamilyRuntime for SmsRuntime<M> {
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         let mut replacement = Self::from_firmware(model, firmware)?;
+        replacement.fm_unit = self.fm_unit;
         if let Some(cart) = &self.cart_bytes {
             replacement.insert_cartridge(cart.clone());
         }

@@ -78,10 +78,15 @@
 //! `docs/status/outstanding-work.md` § Sega Master System.
 
 mod cartridge;
+mod fm;
 
 pub use cartridge::{
     CartridgeHeader, CartridgeMapper, CartridgeTerritory, detect_mapper, normalize_cartridge,
 };
+pub use emu198x_yamaha_ym2413::Ym2413;
+pub use fm::FmUnit;
+
+use fm::FmSound;
 
 use common_z80_machine::Z80Machine;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
@@ -160,6 +165,16 @@ impl SmsVariant {
 
     fn is_japan(self) -> bool {
         matches!(self, Self::SmsJapanNtsc | Self::MarkIII)
+    }
+
+    /// The FM hardware this model ships with: the Japanese Master System
+    /// has a YM2413 on the board, and nothing else does.
+    fn default_fm_unit(self) -> FmUnit {
+        if self.is_japan() {
+            FmUnit::BuiltIn
+        } else {
+            FmUnit::None
+        }
     }
 
     /// Which revision of the VDP this machine carries.
@@ -255,6 +270,9 @@ pub struct Sms {
     cpu: Z80,
     vdp: SegaVdp,
     psg: Sn76489,
+    /// The YM2413 and its audio control register, when the machine has one:
+    /// built into the Japanese Master System, or a Mark III's FM Sound Unit.
+    fm: Option<FmSound>,
     cart_rom: Vec<u8>,
     cart_header: Option<CartridgeHeader>,
     /// The cartridge's bank-switching scheme, read from the image at load.
@@ -340,6 +358,10 @@ impl Sms {
             cpu: Z80::new(),
             vdp,
             psg: Sn76489::new(variant.psg_clock_hz(), NoiseLfsr::Sega16),
+            fm: match variant.default_fm_unit() {
+                FmUnit::None => None,
+                unit => Some(FmSound::new(unit, variant.psg_clock_hz())),
+            },
             cart_rom,
             cart_header,
             mapper,
@@ -382,6 +404,29 @@ impl Sms {
         self.virtual_uart_tx = Some(tx);
         self.virtual_uart_rx = Some(rx);
         self.virtual_uart_pending = None;
+    }
+
+    /// Fit or remove FM hardware, which starts in its power-on state. The
+    /// Japanese Master System has [`FmUnit::BuiltIn`] from the start; any
+    /// other Master System can be given an [`FmUnit::SoundUnit`], as a Mark
+    /// III could.
+    pub fn set_fm_unit(&mut self, unit: FmUnit) {
+        self.fm = match unit {
+            FmUnit::None => None,
+            unit => Some(FmSound::new(unit, self.variant.psg_clock_hz())),
+        };
+    }
+
+    /// The FM hardware fitted.
+    #[must_use]
+    pub fn fm_unit(&self) -> FmUnit {
+        self.fm.as_ref().map_or(FmUnit::None, |fm| fm.unit)
+    }
+
+    /// The YM2413, when one is fitted.
+    #[must_use]
+    pub fn ym2413(&self) -> Option<&Ym2413> {
+        self.fm.as_ref().map(|fm| &fm.ym)
     }
 
     /// Run one frame and return T-states consumed.
@@ -550,6 +595,9 @@ impl Sms {
                 _ => {}
             }
         }
+        if let Some(value) = self.fm.as_ref().and_then(|fm| fm.read(p)) {
+            return value;
+        }
         // Game Gear-specific I/O at the low end.
         if self.variant.is_game_gear() && p == 0x00 {
             return self.gg_start;
@@ -576,6 +624,9 @@ impl Sms {
                 0xF1 | 0xF2 => return,
                 _ => {}
             }
+        }
+        if self.fm.as_mut().is_some_and(|fm| fm.write(p, value)) {
+            return;
         }
         if self.variant.is_game_gear() && p == 0x06 {
             self.psg.write_stereo(value);
@@ -823,9 +874,14 @@ impl Sms {
         self.vdp.framebuffer_height()
     }
 
-    /// Take the accumulated mono PSG audio buffer.
+    /// Take the accumulated mono audio buffer: the PSG, and the FM chip when
+    /// one is fitted, mixed as the audio control register sets.
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
-        self.psg.take_buffer()
+        let psg = self.psg.take_buffer();
+        match &mut self.fm {
+            Some(fm) => fm.mix(psg),
+            None => psg,
+        }
     }
 
     /// Set controller port 1 (active-low byte).
@@ -973,8 +1029,11 @@ impl Z80Machine for Sms {
     }
 
     fn tick_chips(&mut self) {
-        // PSG ticks at the Z80 clock on SMS.
+        // PSG ticks at the Z80 clock on SMS, and so does the YM2413.
         self.psg.tick();
+        if let Some(fm) = &mut self.fm {
+            fm.tick();
+        }
 
         self.cpu_tstates += 1;
     }
