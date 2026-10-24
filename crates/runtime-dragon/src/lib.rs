@@ -8,5 +8,7 @@
 mod profiles;
 mod runtime;
 
-pub use profiles::{Model, profile_for, profiles};
-pub use runtime::{DragonRuntime, DragonSessionQueryProvider};
+pub use profiles::{
+    COCO_COLOR_BASIC_ROM_ID, COCO_EXTENDED_BASIC_ROM_ID, Model, profile_for, profiles,
+};
+pub use runtime::{DragonRuntime, DragonSessionQueryProvider, coco_rom_image};

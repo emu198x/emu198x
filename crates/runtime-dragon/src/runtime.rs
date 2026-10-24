@@ -16,9 +16,9 @@ use format_dragon_pak::{
     parse_dragon_pak, parse_pcdragon_snapshot,
 };
 use machine_dragon_32::{
-    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_FRAME_CYCLES, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX,
-    DRAGON_JOYSTICK_MIN, Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis,
-    DragonKey, DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
+    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
+    Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis, DragonKey,
+    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
 use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH};
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,8 @@ use serde_json::json;
 use crate::{Model, profile_for};
 use emu198x_shell::display::Display;
 
-const SNAPSHOT_VERSION: u32 = 1;
+/// Version 2 records the board's video standard, for the NTSC CoCo.
+const SNAPSHOT_VERSION: u32 = 2;
 const DRAGON64_COMPATIBLE_ROM_ID: &str = "dragon64-compatible-rom";
 const DRAGON64_MODE_ROM_ID: &str = "dragon64-basic-rom";
 const DRAGON64_COMPATIBLE_ROM_CRC32S: &[u32] = &[0x60A4_634C, 0x84F6_8BF9];
@@ -220,6 +221,22 @@ impl DragonRuntime {
             .ok_or_else(|| MachineError::MissingFirmware {
                 id: rom_id.to_owned(),
             })?;
+        if model.is_coco() {
+            let image = coco_rom_image(
+                rom,
+                firmware.bytes(crate::profiles::COCO_EXTENDED_BASIC_ROM_ID),
+            )
+            .map_err(|reason| MachineError::InvalidFirmware {
+                id: rom_id.to_owned(),
+                reason,
+            })?;
+            return Self::with_roms(model, &image, None).map_err(|reason| {
+                MachineError::InvalidFirmware {
+                    id: rom_id.to_owned(),
+                    reason,
+                }
+            });
+        }
         let dragon64_mode_rom = dragon64_mode_rom_from_firmware(model, firmware)?;
         validate_dragon64_rom_pair(model, rom, dragon64_mode_rom.as_ref())?;
         Self::with_roms(model, rom, dragon64_mode_rom).map_err(|reason| {
@@ -295,6 +312,12 @@ impl DragonRuntime {
             program: None,
             snapshot: None,
         }
+    }
+
+    /// Returns the model this runtime emulates.
+    #[must_use]
+    pub const fn model(&self) -> Model {
+        self.model
     }
 
     /// Returns the current machine.
@@ -500,7 +523,11 @@ impl DragonRuntime {
         let Some(key) = DragonKey::from_label(name) else {
             return Ok(());
         };
-        let key = MatrixKey::from_dragon_key(key);
+        let key = if self.model.is_coco() {
+            MatrixKey::from_coco_key(key)
+        } else {
+            MatrixKey::from_dragon_key(key)
+        };
         let result = if pressed {
             self.machine.keyboard_mut().press(key)
         } else {
@@ -670,7 +697,44 @@ const fn hardware_model_label(model: DragonHardwareModel) -> &'static str {
         DragonHardwareModel::Dragon32 => "dragon32",
         DragonHardwareModel::Dragon64Compat => "dragon64-compatible",
         DragonHardwareModel::Dragon64Mode => "dragon64-mode",
+        DragonHardwareModel::CoCo => "coco",
+        DragonHardwareModel::CoCo64k => "coco-64k",
     }
+}
+
+/// The 16 KiB internal ROM image a CoCo presents at `$8000-$BFFF`:
+/// Extended Color BASIC (8 KiB) below Color BASIC (8 KiB).
+///
+/// Without Extended Color BASIC the lower half reads `$FF`, so Color
+/// BASIC's check for the `EX` signature at `$8000` fails and it starts on
+/// its own, as on a machine with the socket empty.
+///
+/// # Errors
+///
+/// Returns a message if either ROM is not 8 KiB.
+pub fn coco_rom_image(
+    color_basic: &[u8],
+    extended: Option<&[u8]>,
+) -> Result<[u8; ROM_SIZE], String> {
+    const HALF: usize = ROM_SIZE / 2;
+    if color_basic.len() != HALF {
+        return Err(format!(
+            "Color BASIC ROM is {} bytes, expected {HALF}",
+            color_basic.len()
+        ));
+    }
+    let mut image = [0xFF; ROM_SIZE];
+    if let Some(extended) = extended {
+        if extended.len() != HALF {
+            return Err(format!(
+                "Extended Color BASIC ROM is {} bytes, expected {HALF}",
+                extended.len()
+            ));
+        }
+        image[..HALF].copy_from_slice(extended);
+    }
+    image[HALF..].copy_from_slice(color_basic);
+    Ok(image)
 }
 
 const fn dragon_joystick_port(port: u8) -> Option<u8> {
@@ -803,12 +867,15 @@ fn machine_for_model(
     let hardware = match model {
         Model::Dragon32Pal => DragonHardwareModel::Dragon32,
         Model::Dragon64Pal => DragonHardwareModel::Dragon64Compat,
+        Model::CoCo1Ntsc => DragonHardwareModel::CoCo,
+        Model::CoCo2Ntsc => DragonHardwareModel::CoCo64k,
     };
     let mut machine = Dragon32::new_with_keyboard_and_model(
         rom,
         machine_dragon_32::DragonKeyboard::new(),
         hardware,
-    );
+    )
+    .with_video_standard(model.video_standard());
     if let Some(rom) = dragon64_mode_rom {
         machine.install_dragon64_mode_rom(rom);
     }
@@ -1432,7 +1499,7 @@ impl DragonRuntime {
         }
 
         for _ in 0..PROGRAM_BOOT_FRAME_BUDGET {
-            let report = self.machine.run_cycles(DRAGON_FRAME_CYCLES, 0);
+            let report = self.machine.run_cycles(self.model.frame_ticks(), 0);
             self.time = self.time.saturating_add(report.cycles);
             if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
                 return Err(MachineError::InvalidMedia {
@@ -1441,7 +1508,10 @@ impl DragonRuntime {
                 });
             }
             if screen_has_basic_prompt(&self.machine) {
-                let settle_cycles = DRAGON_FRAME_CYCLES.saturating_mul(PROGRAM_BOOT_SETTLE_FRAMES);
+                let settle_cycles = self
+                    .model
+                    .frame_ticks()
+                    .saturating_mul(PROGRAM_BOOT_SETTLE_FRAMES);
                 let settle = self.machine.run_cycles(settle_cycles, 0);
                 self.time = self.time.saturating_add(settle.cycles);
                 return Ok(());
