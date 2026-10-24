@@ -34,7 +34,7 @@ fn regional_replacement_retains_restored_cartridges_and_cold_boots() {
             let machine = replacement.machine().expect("machine");
             assert_eq!(
                 machine.region(),
-                if model == Model::Msx1Pal {
+                if model.region() == emu198x_shell::Region::Pal {
                     MsxRegion::Pal
                 } else {
                     MsxRegion::Ntsc
