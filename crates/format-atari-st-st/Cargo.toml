@@ -1,0 +1,13 @@
+[package]
+name = "format-atari-st-st"
+description = "Atari ST .st raw floppy images: geometry from the boot sector's BIOS parameter block or the image size"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
