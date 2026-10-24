@@ -165,6 +165,28 @@ fn cgb_flag_shortens_title_to_eleven_bytes() {
 }
 
 #[test]
+fn cgb_flag_decodes_to_cgb_support() {
+    for (flag, expected) in [
+        (0x00, CgbSupport::None),
+        (0x80, CgbSupport::Enhanced),
+        (0xC0, CgbSupport::Only),
+        // Bits 2 or 3 select a non-CGB mode through KEY0.
+        (0x84, CgbSupport::None),
+        (0x88, CgbSupport::None),
+        // A title byte below $80 is never a CGB flag.
+        (0x41, CgbSupport::None),
+    ] {
+        let rom = make_rom(0x8000, |r| r[offset::CGB_FLAG] = flag);
+        let header = CartridgeHeader::parse(&rom).unwrap();
+        assert_eq!(header.cgb_support(), expected, "flag {flag:#04X}");
+        assert_eq!(
+            header.cgb_support().uses_cgb_mode(),
+            expected != CgbSupport::None
+        );
+    }
+}
+
+#[test]
 fn the_ram_size_code_gives_external_ram_bytes() {
     let rom = make_rom(0x10000, |r| {
         r[offset::ROM_SIZE] = 0x01;
