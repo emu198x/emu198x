@@ -16,13 +16,32 @@
 //!   itself is paced and OAM access is blocked, but full CPU bus gating
 //!   is still deferred.
 
+/// The memory bank controller a header's cartridge type names.
+fn board(kind: CartridgeType) -> CartType {
+    match kind {
+        CartridgeType::RomOnly { battery } => CartType::RomOnly { battery },
+        CartridgeType::Mbc1 { ram, battery } => CartType::Mbc1 { ram, battery },
+        CartridgeType::Mbc2 { battery } => CartType::Mbc2 { battery },
+        CartridgeType::Mbc3 { ram, battery, rtc } => CartType::Mbc3 { ram, battery, rtc },
+        CartridgeType::Mbc5 {
+            ram,
+            battery,
+            rumble,
+        } => CartType::Mbc5 {
+            ram,
+            battery,
+            rumble,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
 use common_nintendo_game_boy::{JoypadButton, JoypadMatrix, MemoryBus};
-use format_nintendo_game_boy_cartridge::{CartridgeHeader, HeaderError, load};
+use format_nintendo_game_boy_cartridge::{CartridgeHeader, CartridgeType, HeaderError};
 use nintendo_game_boy_apu::Apu;
-use nintendo_game_boy_mbc::Cartridge;
+use nintendo_game_boy_mbc::{CartType, Cartridge};
 use nintendo_game_boy_ppu::Ppu;
 use nintendo_game_boy_timer::Timer;
 use serde::{Deserialize, Serialize};
@@ -313,7 +332,8 @@ impl GameBoy {
         rom: Vec<u8>,
         boot_profile: BootProfile,
     ) -> Result<(CartridgeHeader, Self), HeaderError> {
-        let (header, cart) = load(rom)?;
+        let header = CartridgeHeader::parse(&rom)?;
+        let cart = Cartridge::new(rom, board(header.cart_type), header.ram_size);
         Ok((header, Self::new_with_boot_profile(cart, boot_profile)))
     }
 
