@@ -13,6 +13,7 @@ emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 emu198x-mos-via-6522 = { path = "../emu198x-mos-via-6522", version = "0.1.0" }
 emu198x-motorola-6845 = { path = "../emu198x-motorola-6845", version = "0.1.0" }
 emu198x-ti-sn76489 = { path = "../emu198x-ti-sn76489", version = "0.1.0" }
+emu198x-western-digital-wd1770 = { path = "../emu198x-western-digital-wd1770", version = "0.1.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
