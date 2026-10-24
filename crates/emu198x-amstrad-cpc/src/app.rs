@@ -1,4 +1,4 @@
-//! The Amstrad CPC464 as a [`MachineApp`]: its flags, runtime, and report fields.
+//! The Amstrad CPC464, 664 and 6128 as a [`MachineApp`]: its flags, runtime, and report fields.
 
 use std::path::PathBuf;
 
@@ -18,9 +18,14 @@ pub const FRAME_TICKS_PAL: u64 = Model::Cpc464.frame_ticks();
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Cpc {
+    /// `--model ID`: which CPC to build. The 464 unless told otherwise.
+    pub model: Model,
     pub firmware: FirmwareOverrides,
     /// `--tape PATH`: a .cdt cassette put in the deck before the machine runs.
     pub tape: Option<PathBuf>,
+    /// `--disk PATH` and `--disk-b PATH`: .dsk discs for drives A and B on a
+    /// 664 or 6128.
+    pub disks: [Option<PathBuf>; 2],
 }
 
 impl Cpc {
@@ -49,11 +54,19 @@ impl MachineApp for Cpc {
     const BIN_NAME: &'static str = "emu198x-amstrad-cpc";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
-        "    --rom PATH      CPC464 firmware (32 KB: 16 KB OS + 16 KB BASIC); default
-                    ~/.emu198x/roms/amstrad-cpc/cpc464.rom
-                    (or set EMU198X_CPC464_ROM)
+        "    --model ID      amstrad-cpc464 | amstrad-cpc664 | amstrad-cpc6128;
+                    put it before --rom so the ROM names the right firmware
+    --rom PATH      CPC firmware (32 KB: 16 KB OS + 16 KB BASIC); default
+                    ~/.emu198x/roms/amstrad-cpc/cpc464.rom, cpc664.rom or
+                    cpc6128.rom (or set EMU198X_CPC464_ROM and so on)
     --rom-dir DIR   firmware directory (or set EMU198X_CPC_ROM_DIR)
-                    --rom also accepts amstrad-cpc464-firmware=PATH
+                    --rom also accepts ID=PATH. The 664 and 6128 boot two
+                    ROMs, so name each: amstrad-cpc6128-firmware=PATH (or
+                    amstrad-cpc664-firmware) and amstrad-cpc-amsdos=PATH
+                    (default amsdos.rom; or set EMU198X_CPC_AMSDOS_ROM)
+    --disk PATH     .dsk disc for drive A on a 664 or 6128. In BASIC,
+                    type CAT or RUN\"name
+    --disk-b PATH   .dsk disc for drive B
     --tape PATH     .cdt cassette image to insert at start. In BASIC, type
                     RUN\" and press RETURN twice. The CPC drives the cassette
                     motor itself, so playback follows the firmware rather
@@ -71,10 +84,21 @@ impl MachineApp for Cpc {
                 .firmware
                 .add_spec(
                     &args.value(flag)?,
-                    Model::Cpc464.profile_id(),
-                    &Model::Cpc464.firmware_sources(),
+                    self.model.profile_id(),
+                    &self.model.firmware_sources(),
                 )
                 .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown CPC model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
+            "--disk" => self.disks[0] = Some(args.path(flag)?),
+            "--disk-b" => self.disks[1] = Some(args.path(flag)?),
             "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
             "--tape" => self.tape = Some(args.path(flag)?),
             _ => return Ok(false),
@@ -94,7 +118,7 @@ impl MachineApp for Cpc {
     /// the cassette in the deck, so it is inserted here rather than as
     /// startup media.
     fn build_runtime(&self) -> Result<AmstradCpcRuntime, LaunchError> {
-        let mut runtime = build_variant::<AmstradCpcRuntime>(Model::Cpc464, &self.firmware)
+        let mut runtime = build_variant::<AmstradCpcRuntime>(self.model, &self.firmware)
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         self.load_startup_tape(&mut runtime)?;
         Ok(runtime)
@@ -102,10 +126,29 @@ impl MachineApp for Cpc {
 
     fn build_mcp_runtime(&self) -> Result<AmstradCpcRuntime, LaunchError> {
         let mut runtime =
-            build_variant_or_blank(Model::Cpc464, &self.firmware, AmstradCpcRuntime::blank)
+            build_variant_or_blank(self.model, &self.firmware, AmstradCpcRuntime::blank)
                 .map_err(|err| LaunchError::Run(err.to_string()))?;
         self.load_startup_tape(&mut runtime)?;
         Ok(runtime)
+    }
+
+    /// The discs named by `--disk` and `--disk-b`.
+    fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        let mut media = Vec::new();
+        for (path, slot) in self.disks.iter().zip(["disk-a", "disk-b"]) {
+            let Some(path) = path else { continue };
+            if !self.model.has_disc() {
+                return Err(LaunchError::Usage(format!(
+                    "{} has no disc drive; choose amstrad-cpc664 or amstrad-cpc6128 with --model",
+                    self.model.display_name()
+                )));
+            }
+            let loaded = read_media_asset(path, MediaKind::Disk).map_err(|err| {
+                LaunchError::Run(format!("failed to load disc {}: {err}", path.display()))
+            })?;
+            media.push((slot.to_owned(), MediaKind::Disk, loaded.bytes));
+        }
+        Ok(media)
     }
 
     fn mcp_startup_media(
@@ -118,7 +161,15 @@ impl MachineApp for Cpc {
 
     fn report(&self, runtime: &AmstradCpcRuntime, report: &mut Map<String, Value>) {
         let machine = runtime.machine();
+        report.insert("model".to_owned(), runtime.model().profile_id().into());
         report.insert("rom_loaded".to_owned(), machine.is_some().into());
+        report.insert(
+            "discs_loaded".to_owned(),
+            (0..2)
+                .filter(|&drive| machine.is_some_and(|m| m.disk(drive).is_some()))
+                .count()
+                .into(),
+        );
         report.insert(
             "tape_loaded".to_owned(),
             machine.is_some_and(|m| m.tape().has_tape()).into(),
@@ -212,6 +263,62 @@ mod tests {
     }
 
     #[test]
+    fn parse_cli_picks_a_disc_model_and_its_discs() {
+        let parsed = parse::<Cpc>(&args(&[
+            "--model",
+            "amstrad-cpc6128",
+            "--rom",
+            "amstrad-cpc6128-firmware=cpc6128.rom",
+            "--rom",
+            "amstrad-cpc-amsdos=amsdos.rom",
+            "--disk",
+            "a.dsk",
+            "--disk-b",
+            "b.dsk",
+        ]))
+        .expect("parses");
+        let Parsed::Run { app, .. } = parsed else {
+            panic!("expected a run");
+        };
+        assert_eq!(app.model, Model::Cpc6128);
+        assert_eq!(
+            app.firmware.by_id.get(Model::Cpc6128.firmware_id()),
+            Some(&PathBuf::from("cpc6128.rom"))
+        );
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_amstrad_cpc::AMSDOS_FIRMWARE_ID),
+            Some(&PathBuf::from("amsdos.rom"))
+        );
+        assert_eq!(
+            app.disks,
+            [Some(PathBuf::from("a.dsk")), Some(PathBuf::from("b.dsk"))]
+        );
+    }
+
+    #[test]
+    fn an_unknown_model_is_named() {
+        let err = parse::<Cpc>(&args(&["--model", "amstrad-cpc999"]))
+            .expect_err("refused")
+            .to_string();
+        assert!(err.contains("amstrad-cpc6128"), "{err}");
+    }
+
+    #[test]
+    fn a_disc_on_a_464_is_refused() {
+        let app = Cpc {
+            disks: [Some(PathBuf::from("a.dsk")), None],
+            ..Cpc::default()
+        };
+        let err = app
+            .startup_media()
+            .expect_err("a 464 has no drive")
+            .to_string();
+        assert!(err.contains("no disc drive"), "{err}");
+    }
+
+    #[test]
     fn a_frame_is_the_machines_own_frame_budget() {
         // Exceeding `AmstradCpc::run_frame` runs two machine frames per
         // displayed one, which plays everything at double speed with no error.
@@ -224,7 +331,7 @@ mod tests {
         // launcher refuses before it reads the firmware, so no ROM is needed.
         let app = Cpc {
             firmware: FirmwareOverrides::none(),
-            tape: None,
+            ..Cpc::default()
         };
         let common = CommonCli {
             screenshot: Some(PathBuf::from("out.png")),

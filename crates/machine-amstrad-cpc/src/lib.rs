@@ -93,7 +93,8 @@ use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_intel_8255::Ppi8255;
 use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
 use emu198x_zilog_z80::{BusOp, Z80};
-use nec_upd765a::{DiskImage, Upd765a};
+pub use nec_upd765a::DiskImage;
+use nec_upd765a::Upd765a;
 use serde::{Deserialize, Serialize};
 
 /// T-states per CRTC character clock: 4 MHz CPU against a 1 MHz CRTC.
@@ -406,6 +407,9 @@ pub struct AmstradCpc {
     /// Selected upper ROM number, from the ROM-select port. Only 0 (BASIC) is
     /// populated on a 464 without expansions.
     selected_upper_rom: u8,
+    /// Upper ROMs fitted beside BASIC, by number: AMSDOS as ROM 7 on a 664 or
+    /// 6128, and any expansion ROMs.
+    upper_roms: std::collections::BTreeMap<u8, Vec<u8>>,
 
     /// T-states remaining before the next CRTC character clock.
     crtc_phase: u32,
@@ -491,6 +495,7 @@ impl AmstradCpc {
             os_rom: firmware[..0x4000].to_vec(),
             basic_rom: firmware[0x4000..].to_vec(),
             selected_upper_rom: 0,
+            upper_roms: std::collections::BTreeMap::new(),
             crtc_phase: 0,
             psg_control: 0,
             tape: TapePlayer::new(),
@@ -741,6 +746,27 @@ impl AmstradCpc {
         if self.tape_motor {
             self.tape.play();
         }
+    }
+
+    /// Fit a 16 KB upper ROM as number `number`: AMSDOS as 7 on a 664 or
+    /// 6128, or an expansion ROM. Number 0 is BASIC, which comes with the
+    /// firmware.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for number 0, or unless the image is exactly 16 KB.
+    pub fn fit_upper_rom(&mut self, number: u8, image: &[u8]) -> Result<(), String> {
+        if number == 0 {
+            return Err("upper ROM 0 is BASIC, part of the firmware".to_owned());
+        }
+        if image.len() != 0x4000 {
+            return Err(format!(
+                "an upper ROM must be 16 KB, got {} bytes",
+                image.len()
+            ));
+        }
+        self.upper_roms.insert(number, image.to_vec());
+        Ok(())
     }
 
     /// Whether the drive-motor latch at `&FA7E` is set.
@@ -1016,12 +1042,14 @@ impl AmstradCpc {
             0x0000..=0x3FFF if self.gate_array.lower_rom_enabled() => self.os_rom[addr as usize],
             0xC000..=0xFFFF if self.gate_array.upper_rom_enabled() => {
                 let offset = (addr - 0xC000) as usize;
-                // Only ROM 0 (BASIC) exists on an unexpanded 464; any other
-                // selection reads the open bus, which is $FF.
+                // ROM 0 is BASIC. Any other number reads its fitted ROM, or
+                // the open bus, $FF, when nothing answers to it.
                 if self.selected_upper_rom == 0 {
                     self.basic_rom[offset]
                 } else {
-                    0xFF
+                    self.upper_roms
+                        .get(&self.selected_upper_rom)
+                        .map_or(0xFF, |rom| rom[offset])
                 }
             }
             _ => self.ram[self.ram_offset(addr)],
@@ -1407,6 +1435,21 @@ mod tests {
         assert_eq!(cpc.peek(0xC000), 0xFF);
         cpc.io_write(0xDF00, 0);
         assert_eq!(cpc.peek(0xC000), 0xC9);
+    }
+
+    #[test]
+    fn a_fitted_upper_rom_answers_to_its_number() {
+        let mut cpc = disc_machine(CpcModel::Cpc6128);
+        let mut amsdos = vec![0u8; 0x4000];
+        amsdos[0] = 0x01; // a background ROM's type byte
+        amsdos[0x3FFF] = 0xA5;
+        cpc.fit_upper_rom(7, &amsdos).expect("AMSDOS fits as ROM 7");
+        cpc.io_write(0xDF00, 7);
+        assert_eq!([cpc.peek(0xC000), cpc.peek(0xFFFF)], [0x01, 0xA5]);
+        cpc.io_write(0xDF00, 6);
+        assert_eq!(cpc.peek(0xC000), 0xFF, "nothing fitted as ROM 6");
+        assert!(cpc.fit_upper_rom(0, &amsdos).is_err(), "ROM 0 is BASIC");
+        assert!(cpc.fit_upper_rom(7, &amsdos[..0x2000]).is_err());
     }
 
     #[test]
