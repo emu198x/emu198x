@@ -34,7 +34,7 @@ If Phase 2 or a later phase genuinely needs dynamic registration, wrapping the e
 
 ## What the trait does *not* cover
 
-- **Memory-bus intercepts.** Beta disk's TR-DOS ROM read-override, Interface 1's shadow ROM, Multiface's banked RAM / ROM. These are memory-bus hooks, not I/O hooks, and the trait deliberately doesn't model them. Pentagon and Scorpion keep their existing `beta.trdos_paged` / `memory.read_trdos_rom` checks machine-side. A second peripheral that wants the same hook will justify adding `read_memory` to the trait.
+- **Memory-bus intercepts.** Beta disk's TR-DOS ROM read-override, Interface 1's shadow ROM, Multiface's banked RAM / ROM. These are memory-bus hooks, not I/O hooks, and the trait deliberately doesn't model them. Pentagon and Scorpion keep their existing `beta.trdos_paged` / `memory.read_trdos_rom` checks machine-side. Once the Multiface, Interface 1 and DivMMC all needed the same hook (October 2026), it became a second trait beside this one, `MemoryIntercept` (`read_memory`, `write_memory`, `after_m1`), with the same rules: typed fields, static dispatch, defaults that leave the machine unchanged. `on_m1` stays on `Peripheral`; `after_m1` exists because Fuse traps some addresses before the opcode fetch and some after it.
 - **Core machine chips.** The ULA (port `$FE`), the AY-3-8912 (`$FFFD` / `$BFFD` on stock 128K, `$F5` / `$F6` on Timex), and the `$7FFD` / `$1FFD` memory-paging ports are not peripherals — they're integral to each machine and stay hand-decoded inside `io_read` / `io_write`.
 - **The Kempston joystick.** A `u8` field with a one-line port read. Making it a `Peripheral` would be over-engineering the simplest possible case. It stays as-is.
 
