@@ -18,7 +18,7 @@ use std::marker::PhantomData;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
+use common_sinclair_zx_spectrum::peripheral::{MemoryIntercept, Peripheral};
 use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
@@ -31,6 +31,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
+use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
 use sinclair_ula_7k010e::SinclairUla;
 
 use crate::memory::Memory128K;
@@ -64,6 +65,9 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     /// Kempston Interface joystick. Defaults to unattached; user code
     /// flips `attached = true` when the host plugs the interface in.
     pub kempston: KempstonJoystick,
+    /// Multiface 128. Unplugged until [`Self::attach_multiface`] supplies
+    /// its ROM; while paged in it overlays the bottom 16 KB.
+    pub multiface: Multiface,
     pub tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -120,6 +124,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
+            multiface: Multiface::default(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -260,6 +265,25 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         &mut self.kempston
     }
 
+    /// Plugs in a Multiface 128 with its 8 KB ROM image.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), MultifaceRomError> {
+        self.multiface.attach(MultifaceModel::M128, rom)
+    }
+
+    /// Presses the Multiface's red button. Returns whether it pulled
+    /// `/NMI`: it does nothing when unplugged or disarmed.
+    pub fn press_nmi_button(&mut self) -> bool {
+        let pulled = self.multiface.press_button();
+        if pulled {
+            self.z80.nmi = true;
+        }
+        pulled
+    }
+
     /// Returns the current half-cycle counter within the frame.
     #[must_use]
     pub const fn hc_value(&self) -> u32 {
@@ -304,6 +328,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
         self.memory.reset_paging();
+        self.multiface.reset();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
@@ -340,13 +365,27 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         // them into one transaction per M-cycle.
         match self.z80.bus_request() {
             Some(BusOp::MemRead) => {
-                self.z80.data_in = self.memory.read(self.z80.addr);
+                let addr = self.z80.addr;
+                if self.z80.m1 {
+                    // Paging in at $0066 releases the Multiface's /NMI.
+                    let held = self.multiface.nmi_asserted();
+                    self.multiface.on_m1(addr);
+                    if held && !self.multiface.nmi_asserted() {
+                        self.z80.nmi = false;
+                    }
+                }
+                self.z80.data_in = match self.multiface.read_memory(addr) {
+                    Some(value) => value,
+                    None => self.memory.read(addr),
+                };
             }
             Some(BusOp::MemWrite) => {
                 if let Some(w) = &mut self.write_watch {
                     w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
                 }
-                self.memory.write(self.z80.addr, self.z80.data);
+                if !self.multiface.write_memory(self.z80.addr, self.z80.data) {
+                    self.memory.write(self.z80.addr, self.z80.data);
+                }
             }
             Some(BusOp::IoRead) => {
                 self.z80.data_in = if self.is_floating_bus_port(self.z80.addr) {
@@ -378,11 +417,15 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     fn is_floating_bus_port(&self, port: u16) -> bool {
         port & 1 != 0
             && !self.kempston.claims_port(port)
+            && !self.multiface.claims_port(port)
             && port & 0xc002 != 0xc000
             && port != 0x001f
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.multiface.claims_port(port) {
+            return self.multiface.read(port);
+        }
         if self.kempston.claims_port(port) {
             return self.kempston.read(port);
         }
@@ -418,6 +461,10 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     }
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
+        self.multiface.observe_io_write(port, data);
+        if self.multiface.claims_port(port) {
+            self.multiface.write(port, data);
+        }
         if port & 0x0001 == 0 {
             self.ula.write_fe(data);
             let beeper = data & 0x10 != 0;
@@ -918,5 +965,49 @@ mod tests {
         restored.advance_halfcycles(9);
         assert_eq!(machine.frame_position(), restored.frame_position());
         assert_eq!(machine.frame_position().halfcycles(), 5);
+    }
+}
+
+#[cfg(test)]
+mod multiface_tests {
+    use super::*;
+    use crate::variant::Sinclair128KMarker;
+
+    type Spectrum128K = Spectrum128kClassCore<Sinclair128KMarker>;
+
+    /// Both 128K ROMs disable interrupts and spin; neither has an NMI
+    /// handler worth running.
+    fn machine() -> Spectrum128K {
+        let mut rom = vec![0; 16 * 1024];
+        rom[..3].copy_from_slice(&[0xF3, 0x18, 0xFE]); // DI; JR $
+        let mut mf_rom = vec![0; 0x2000];
+        // LD A,$5A; LD ($8000),A; JR $
+        mf_rom[0x66..0x6D].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+        let mut m = Spectrum128K::new();
+        m.memory.load_roms(&rom, &rom);
+        m.attach_multiface(&mf_rom).expect("an 8 KB ROM attaches");
+        m.run_frame();
+        m
+    }
+
+    #[test]
+    fn the_red_button_pages_the_multiface_over_the_128k_rom() {
+        let mut m = machine();
+        assert!(m.press_nmi_button());
+        m.run_frame();
+        assert!(m.multiface.is_paged());
+        assert_eq!(m.memory.read(0x8000), 0x5A);
+    }
+
+    #[test]
+    fn the_page_in_read_reports_the_shown_screen() {
+        let mut m = machine();
+        m.press_nmi_button();
+        m.run_frame();
+        m.io_write(0x7FFD, 0x08);
+        assert_eq!(m.port_read(0x00BF), 0xFF);
+        m.io_write(0x7FFD, 0x00);
+        assert_eq!(m.port_read(0x00BF), 0x7F);
+        assert!(m.multiface.claims_port(0x00BF));
     }
 }

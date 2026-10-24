@@ -397,6 +397,12 @@ impl SpectrumMachine for Spectrum48k {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum48k::attach_multiface(self, rom).map_err(|err| err.to_string())
+    }
+    fn press_nmi_button(&mut self) -> bool {
+        Spectrum48k::press_nmi_button(self)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum48k::load_tape_blocks(self, blocks);
     }
@@ -571,6 +577,12 @@ impl SpectrumMachine for Spectrum16K {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum16K::attach_multiface(self, rom).map_err(|err| err.to_string())
+    }
+    fn press_nmi_button(&mut self) -> bool {
+        Spectrum16K::press_nmi_button(self)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum16K::load_tape_blocks(self, blocks);
     }
@@ -743,6 +755,12 @@ impl SpectrumMachine for SpectrumPlus {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumPlus::attach_multiface(self, rom).map_err(|err| err.to_string())
+    }
+    fn press_nmi_button(&mut self) -> bool {
+        SpectrumPlus::press_nmi_button(self)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus::load_tape_blocks(self, blocks);
     }
@@ -909,6 +927,12 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        Spectrum128K::attach_multiface(self, rom).map_err(|err| err.to_string())
+    }
+    fn press_nmi_button(&mut self) -> bool {
+        Spectrum128K::press_nmi_button(self)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum128K::load_tape_blocks(self, blocks);
@@ -1098,6 +1122,12 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumPlus2::attach_multiface(self, rom).map_err(|err| err.to_string())
+    }
+    fn press_nmi_button(&mut self) -> bool {
+        SpectrumPlus2::press_nmi_button(self)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus2::load_tape_blocks(self, blocks);
     }
@@ -1285,6 +1315,12 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
+    }
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        SpectrumAmstradClassCore::<V>::attach_multiface(self, rom).map_err(|err| err.to_string())
+    }
+    fn press_nmi_button(&mut self) -> bool {
+        SpectrumAmstradClassCore::<V>::press_nmi_button(self)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumAmstradClassCore::<V>::load_tape_blocks(self, blocks);

@@ -46,6 +46,7 @@ pub use basic_loader::{
 pub use common_sinclair_zx_spectrum::BlockSeek;
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use family_runtime::{SpectrumLiveAccess, SpectrumRuntimeKind};
+pub use input::NMI_KEY;
 pub use profiles::{Model, profile_for, profiles};
 pub use queries::{SpectrumBootStatus, SpectrumSessionQueryProvider};
 pub use runtime::{SpectrumMachine, SpectrumRuntime};

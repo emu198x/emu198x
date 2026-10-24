@@ -56,10 +56,16 @@ use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 /// because it's host-tuning, not silicon behaviour.
 const AXIS_THRESHOLD: i16 = 8192;
 
+/// The key name for an interface's NMI button, such as the Multiface's
+/// red button. It is not on the Spectrum's keyboard.
+pub const NMI_KEY: &str = "nmi";
+
 /// Apply one host input event to the runtime's input state.
 ///
 /// - `InputEvent::Key { name, pressed }` → recognised key names update
 ///   the matching cell in the keyboard cache.
+/// - `InputEvent::Key { name: "nmi", pressed: true }` presses the NMI
+///   button of an attached interface.
 /// - `InputEvent::Button { port: 0, name, pressed }` → recognised
 ///   Kempston button names update the joystick state on the machine.
 /// - `InputEvent::Axis { port: 0, name, value }` → recognised axis
@@ -83,6 +89,11 @@ pub(crate) fn apply_input_event<M: SpectrumMachine>(
     event: &InputEvent,
 ) {
     match event {
+        InputEvent::Key { name, pressed } if name.as_ref() == NMI_KEY => {
+            if *pressed {
+                runtime.machine_mut().press_nmi_button();
+            }
+        }
         InputEvent::Key { name, pressed } => {
             if let Some(key) = SpectrumKey::from_name(name.as_ref()) {
                 runtime.keyboard_mut().set_key(key, *pressed);

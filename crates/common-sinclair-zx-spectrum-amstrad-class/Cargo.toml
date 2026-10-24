@@ -14,6 +14,7 @@ gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.44.0" }
 nec-upd765a = { path = "../nec-upd765a", version = "0.44.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+peripheral-multiface = { path = "../peripheral-multiface", version = "0.44.0" }
 
 [lints]
 workspace = true

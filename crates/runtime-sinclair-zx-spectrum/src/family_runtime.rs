@@ -505,6 +505,16 @@ impl SpectrumRuntimeKind {
     pub fn clear_tape_recording(&mut self) {
         match_kind!(self, |rt| rt.clear_tape_recording());
     }
+
+    /// Plugs a Multiface into the active variant with its 8 KB ROM image.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// Multiface.
+    pub fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        match_kind!(self, |rt| rt.attach_multiface(rom))
+    }
 }
 
 impl MachineCore for SpectrumRuntimeKind {

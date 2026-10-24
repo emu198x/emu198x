@@ -103,6 +103,26 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         false
     }
 
+    /// Plugs in the variant's Multiface with its 8 KB ROM image: a
+    /// Multiface 128 on the 48K- and 128K-class machines, a Multiface 3
+    /// on the +2A, +2B and +3. The ROM is Romantic Robot's firmware,
+    /// supplied by the user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB, or if the variant
+    /// hosts no Multiface (the default).
+    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        let _ = rom;
+        Err("this machine does not host a Multiface".to_owned())
+    }
+
+    /// Presses the NMI button of an attached interface: the Multiface's
+    /// red button. Returns whether `/NMI` was pulled. Default `false`.
+    fn press_nmi_button(&mut self) -> bool {
+        false
+    }
+
     /// Loads tape blocks parsed from a `.tap` container.
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>);
 
@@ -553,6 +573,17 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     #[must_use]
     pub fn machine_mut(&mut self) -> &mut M {
         &mut self.machine
+    }
+
+    /// Plugs in the variant's Multiface; see
+    /// [`SpectrumMachine::attach_multiface`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// Multiface.
+    pub fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
+        self.machine.attach_multiface(rom)
     }
 
     /// Flushes any captured tape `SAVE` to a `.tap` image.
