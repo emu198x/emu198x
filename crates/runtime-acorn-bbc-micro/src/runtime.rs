@@ -162,7 +162,10 @@ impl BbcMicroRuntime {
     /// restore path so the resumed machine keeps its 6502/CRTC/VIA/PSG/RAM
     /// state. Mirrors `rebuild_machine`'s rgba-buffer sizing exactly so
     /// `update_rgba_framebuffer` cannot index out of bounds.
-    pub(crate) fn set_machine(&mut self, machine: Option<BbcMicro>) {
+    pub(crate) fn set_machine(&mut self, mut machine: Option<BbcMicro>) {
+        if let Some(machine) = machine.as_mut() {
+            machine.finish_restore();
+        }
         if let Some(machine) = &machine {
             let width = machine.framebuffer_width();
             let height = machine.framebuffer_height();
