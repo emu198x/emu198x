@@ -9,7 +9,7 @@ use emu198x_shell::{
 use machine_amstrad_cpc::AmstradCpc;
 
 use crate::input::apply_input_event;
-use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
+use crate::profiles::{AMSDOS_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
@@ -18,6 +18,12 @@ const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 /// 16 KB of OS plus 16 KB of BASIC, the layout of MAME's `cpc464.rom`.
 const FIRMWARE_SIZE: usize = 32 * 1024;
+/// AMSDOS: one 16 KB upper ROM.
+const AMSDOS_SIZE: usize = 16 * 1024;
+/// The upper ROM number AMSDOS answers to.
+const AMSDOS_ROM_NUMBER: u8 = 7;
+/// The disc slots, by drive.
+const DISK_SLOTS: [&str; 2] = ["disk-a", "disk-b"];
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 pub struct AmstradCpcRuntime {
@@ -25,6 +31,8 @@ pub struct AmstradCpcRuntime {
     model: Model,
     pub(crate) machine: Option<AmstradCpc>,
     firmware_bytes: Option<Vec<u8>>,
+    /// AMSDOS, fitted as upper ROM 7 on a model with a disc.
+    amsdos_bytes: Option<Vec<u8>>,
     /// Kept so a reset re-inserts the tape rather than ejecting it — a reset
     /// on the real machine does not empty the cassette deck.
     tape_spans: Option<Vec<TapeSpan>>,
@@ -42,6 +50,7 @@ impl AmstradCpcRuntime {
             model,
             machine: None,
             firmware_bytes: None,
+            amsdos_bytes: None,
             tape_spans: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
@@ -69,13 +78,40 @@ impl AmstradCpcRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes =
+        let required = |id: &str| {
             firmware
-                .bytes(ROM_FIRMWARE_ID)
-                .ok_or_else(|| MachineError::MissingFirmware {
-                    id: ROM_FIRMWARE_ID.to_owned(),
-                })?;
-        Self::new(model, bytes.to_vec())
+                .bytes(id)
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| MachineError::MissingFirmware { id: id.to_owned() })
+        };
+        let mut runtime = Self::blank(model);
+        if model.has_disc() {
+            runtime.amsdos_bytes = Some(Self::checked_amsdos(required(AMSDOS_FIRMWARE_ID)?)?);
+        }
+        runtime.set_firmware(required(model.firmware_id())?)?;
+        Ok(runtime)
+    }
+
+    fn checked_amsdos(amsdos: Vec<u8>) -> Result<Vec<u8>, MachineError> {
+        if amsdos.len() == AMSDOS_SIZE {
+            Ok(amsdos)
+        } else {
+            Err(MachineError::InvalidFirmware {
+                id: AMSDOS_FIRMWARE_ID.to_owned(),
+                reason: format!("AMSDOS is {} bytes; expected {AMSDOS_SIZE}", amsdos.len()),
+            })
+        }
+    }
+
+    /// Fit AMSDOS, upper ROM 7, and rebuild. A model without a disc ignores
+    /// it, as a 464 has nothing for it to drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidFirmware` unless the image is 16 KB.
+    pub fn set_amsdos(&mut self, amsdos: Vec<u8>) -> Result<(), MachineError> {
+        self.amsdos_bytes = Some(Self::checked_amsdos(amsdos)?);
+        self.rebuild_machine()
     }
 
     /// Replace the firmware and rebuild.
@@ -86,9 +122,9 @@ impl AmstradCpcRuntime {
     pub fn set_firmware(&mut self, firmware: Vec<u8>) -> Result<(), MachineError> {
         if firmware.len() != FIRMWARE_SIZE {
             return Err(MachineError::InvalidFirmware {
-                id: ROM_FIRMWARE_ID.to_owned(),
+                id: self.model.firmware_id().to_owned(),
                 reason: format!(
-                    "CPC464 firmware is {} bytes; expected {FIRMWARE_SIZE} (16 KB OS + 16 KB BASIC)",
+                    "CPC firmware is {} bytes; expected {FIRMWARE_SIZE} (16 KB OS + 16 KB BASIC)",
                     firmware.len()
                 ),
             });
@@ -140,18 +176,48 @@ impl AmstradCpcRuntime {
             return Ok(());
         };
         let mut machine =
-            AmstradCpc::new(&firmware).map_err(|reason| MachineError::InvalidFirmware {
-                id: ROM_FIRMWARE_ID.to_owned(),
-                reason,
+            AmstradCpc::with_model(&firmware, self.model.machine_model()).map_err(|reason| {
+                MachineError::InvalidFirmware {
+                    id: self.model.firmware_id().to_owned(),
+                    reason,
+                }
             })?;
-        // A reset does not eject the cassette.
+        if let (true, Some(amsdos)) = (self.model.has_disc(), self.amsdos_bytes.as_ref()) {
+            machine
+                .fit_upper_rom(AMSDOS_ROM_NUMBER, amsdos)
+                .map_err(|reason| MachineError::InvalidFirmware {
+                    id: AMSDOS_FIRMWARE_ID.to_owned(),
+                    reason,
+                })?;
+        }
+        // A reset does not eject the cassette, or the discs, which keep
+        // whatever the machine wrote to them.
         if let Some(spans) = self.tape_spans.clone() {
             machine.insert_tape(spans);
+        }
+        if let Some(old) = self.machine.as_ref() {
+            for drive in 0..DISK_SLOTS.len() {
+                if let Some(disk) = old.disk(drive) {
+                    let writable = !old.fdc().is_write_protected(drive);
+                    machine.insert_disk(drive, disk.clone(), writable);
+                }
+            }
         }
         self.size_framebuffer_for(&machine);
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
         Ok(())
+    }
+
+    /// The drive a disc slot names, on a model that has a drive.
+    fn disk_drive(&self, slot: &str) -> Result<usize, MachineError> {
+        DISK_SLOTS
+            .iter()
+            .position(|&name| name == slot)
+            .filter(|_| self.model.has_disc())
+            .ok_or_else(|| MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            })
     }
 
     pub(crate) fn update_rgba_framebuffer(&mut self) {
@@ -244,6 +310,18 @@ impl MachineCore for AmstradCpcRuntime {
                     }
                     self.tape_spans = Some(spans);
                 }
+                MediaKind::Disk => {
+                    let drive = self.disk_drive(slot)?;
+                    let disk = format_amstrad_dsk::parse(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason,
+                        }
+                    })?;
+                    if let Some(machine) = self.machine.as_mut() {
+                        machine.insert_disk(drive, disk, image.writable);
+                    }
+                }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
@@ -252,6 +330,31 @@ impl MachineCore for AmstradCpcRuntime {
             }
         }
         Ok(())
+    }
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        let drive = self.disk_drive(slot)?;
+        if let Some(machine) = self.machine.as_mut() {
+            machine.eject_disk(drive);
+        }
+        Ok(())
+    }
+    fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        let drive = self.disk_drive(slot)?;
+        let invalid = |reason: String| MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason,
+        };
+        if !matches!(format, "dsk" | "edsk") {
+            return Err(invalid(format!(
+                "cannot export a disc as {format}; use edsk"
+            )));
+        }
+        let disk = self
+            .machine
+            .as_ref()
+            .and_then(|machine| machine.disk(drive))
+            .ok_or_else(|| invalid("no disc in the drive".to_owned()))?;
+        format_amstrad_dsk::encode_extended(disk).map_err(invalid)
     }
     fn run_until(
         &mut self,
