@@ -1,0 +1,22 @@
+[package]
+name = "runtime-atari-st"
+description = "Atari ST machine profiles, runtime, snapshot, input and query surface"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+machine-atari-st = { path = "../machine-atari-st", version = "0.44.0" }
+motorola-68000 = { path = "../motorola-68000", version = "0.44.0" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
+
+[lints]
+workspace = true

@@ -71,6 +71,12 @@ label = "system:atari-800xl"
 milestone = "Atari 800XL 100%"
 
 [[system]]
+machine_id = "atari-st"
+crate = "emu198x-atari-st"
+label = "system:atari-st"
+milestone = "Atari ST 100%"
+
+[[system]]
 machine_id = "coleco-colecovision"
 crate = "emu198x-colecovision"
 label = "system:colecovision"
