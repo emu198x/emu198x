@@ -134,6 +134,9 @@ pub enum SmsVariant {
     Sms1Pal,
     /// Sega Game Gear (NTSC).
     GameGear,
+    /// Sega Mark III (Japan, NTSC): the Master System's predecessor, with
+    /// the earlier 315-5124 VDP and the Japanese I/O chip.
+    MarkIII,
 }
 
 impl SmsVariant {
@@ -156,7 +159,7 @@ impl SmsVariant {
     }
 
     fn is_japan(self) -> bool {
-        matches!(self, Self::SmsJapanNtsc)
+        matches!(self, Self::SmsJapanNtsc | Self::MarkIII)
     }
 
     /// Which revision of the VDP this machine carries.
@@ -167,7 +170,7 @@ impl SmsVariant {
     /// sprite-magnification quirk — see `sega-vdp`.
     fn vdp_variant(self) -> VdpVariant {
         match self {
-            Self::Sms1Ntsc | Self::Sms1Pal => VdpVariant::Sms1,
+            Self::Sms1Ntsc | Self::Sms1Pal | Self::MarkIII => VdpVariant::Sms1,
             _ => VdpVariant::Sms2,
         }
     }
@@ -1170,6 +1173,7 @@ mod tests {
             (SmsVariant::SmsNtsc, 0xC0),
             (SmsVariant::SmsPal, 0xC0),
             (SmsVariant::SmsJapanNtsc, 0x00),
+            (SmsVariant::MarkIII, 0x00),
         ] {
             let mut sys = Sms::new(trap_cart_64k(), variant);
             sys.set_port_dd(0xFF);
@@ -1186,7 +1190,11 @@ mod tests {
 
     #[test]
     fn input_configured_th_pins_report_the_external_level_in_every_region() {
-        for variant in [SmsVariant::SmsNtsc, SmsVariant::SmsJapanNtsc] {
+        for variant in [
+            SmsVariant::SmsNtsc,
+            SmsVariant::SmsJapanNtsc,
+            SmsVariant::MarkIII,
+        ] {
             let mut sys = Sms::new(trap_cart_64k(), variant);
             sys.set_port_dd(0xFF);
             sys.io_write(0x3F, 0x0A); // both TH pins inputs
