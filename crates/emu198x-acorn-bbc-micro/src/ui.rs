@@ -202,7 +202,7 @@ mod tests {
                 dir: Some(dir.clone()),
                 ..FirmwareOverrides::none()
             },
-            sideways: Vec::new(),
+            ..Bbc::default()
         };
         let mut runtime = app.build_ui_runtime().expect("window runtime");
         assert!(app.ui_system().variants().is_empty());
