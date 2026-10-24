@@ -89,6 +89,12 @@ label = "system:c64"
 milestone = "C64 100%"
 
 [[system]]
+machine_id = "commodore-c128"
+crate = "emu198x-c64"
+label = "system:c128"
+milestone = "C128 100%"
+
+[[system]]
 machine_id = "commodore-pet"
 crate = "emu198x-commodore-pet"
 label = "system:pet"
