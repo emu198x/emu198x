@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
 
+use emu198x_motorola_6809::{Mc6809, Mc6809ClockPhase};
 use format_dragon_disk::DragonDiskImage;
 use mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ as ACIA_XTAL_HZ};
-use motorola_6809::{Mc6809, Mc6809ClockPhase};
 use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
 use motorola_sam_6883::Sam6883;
 use motorola_vdg_6847::{

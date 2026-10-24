@@ -20,6 +20,7 @@
 mod tests;
 
 use common_nintendo_game_boy::{JoypadButton, JoypadMatrix, MemoryBus};
+use emu198x_sharp_lr35902::{PostBootCpuState, Sm83};
 use format_nintendo_game_boy_cartridge::{CartridgeHeader, HeaderError, load};
 use nintendo_game_boy_apu::Apu;
 use nintendo_game_boy_mbc::Cartridge;
@@ -27,7 +28,6 @@ use nintendo_game_boy_ppu::Ppu;
 use nintendo_game_boy_timer::Timer;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use sharp_lr35902::{PostBootCpuState, Sm83};
 
 pub use nintendo_game_boy_apu::{ApuChannel, AudioControls};
 

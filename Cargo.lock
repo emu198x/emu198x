@@ -1379,6 +1379,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-motorola-6809"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "emu198x-msx"
 version = "0.44.2"
 dependencies = [
@@ -1496,6 +1503,15 @@ dependencies = [
  "runtime-sega-sg-1000",
  "serde_json",
  "ti-tms9918",
+]
+
+[[package]]
+name = "emu198x-sharp-lr35902"
+version = "0.1.0"
+dependencies = [
+ "isa198x-disasm",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2793,9 +2809,9 @@ dependencies = [
 name = "machine-dragon-32"
 version = "0.44.2"
 dependencies = [
+ "emu198x-motorola-6809",
  "format-dragon-disk",
  "mos-acia-6551",
- "motorola-6809",
  "motorola-pia-6821",
  "motorola-sam-6883",
  "motorola-vdg-6847",
@@ -2856,6 +2872,7 @@ name = "machine-nintendo-game-boy"
 version = "0.44.2"
 dependencies = [
  "common-nintendo-game-boy",
+ "emu198x-sharp-lr35902",
  "format-nintendo-game-boy-cartridge",
  "nintendo-game-boy-apu",
  "nintendo-game-boy-mbc",
@@ -2864,7 +2881,6 @@ dependencies = [
  "png",
  "serde",
  "serde-big-array",
- "sharp-lr35902",
 ]
 
 [[package]]
@@ -3301,13 +3317,6 @@ dependencies = [
  "motorola-68030",
  "motorola-68k-common",
  "rmp-serde",
- "serde",
-]
-
-[[package]]
-name = "motorola-6809"
-version = "0.44.2"
-dependencies = [
  "serde",
 ]
 
@@ -4578,13 +4587,13 @@ name = "runtime-nintendo-game-boy"
 version = "0.44.2"
 dependencies = [
  "common-nintendo-game-boy",
+ "emu198x-sharp-lr35902",
  "emu198x-shell",
  "emu198x-test-skip",
  "machine-nintendo-game-boy",
  "postcard",
  "serde",
  "serde_json",
- "sharp-lr35902",
 ]
 
 [[package]]
@@ -4944,15 +4953,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "sharp-lr35902"
-version = "0.44.2"
-dependencies = [
- "isa198x-disasm",
- "serde",
- "serde_json",
 ]
 
 [[package]]
