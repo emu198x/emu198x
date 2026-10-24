@@ -34,6 +34,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_zilog_z80::{BusOp, Z80};
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
+use peripheral_kempston_mouse::KempstonMouse;
 
 use crate::tape_input::TapeInput;
 use crate::variant::Variant48kClass;
@@ -73,6 +74,8 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     /// user plugs in the interface (matching real hardware, where a
     /// disconnected port reads floating bus, not zero).
     pub kempston: KempstonJoystick,
+    /// Kempston mouse interface. Unattached until mouse input arrives.
+    pub kempston_mouse: KempstonMouse,
     tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -115,6 +118,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             memory,
             keyboard: KeyboardMatrix::new(),
             kempston: KempstonJoystick::new(),
+            kempston_mouse: KempstonMouse::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -209,6 +213,11 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     #[must_use]
     pub fn kempston_mut(&mut self) -> &mut KempstonJoystick {
         &mut self.kempston
+    }
+
+    /// Returns mutable access to the Kempston mouse peripheral.
+    pub fn kempston_mouse_mut(&mut self) -> &mut KempstonMouse {
+        &mut self.kempston_mouse
     }
 
     /// Returns the configured ULA revision (5C vs 6C family).
@@ -560,10 +569,15 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Whether no peripheral drives this port, leaving the ULA display bus visible.
     fn is_floating_bus_port(&self, port: u16) -> bool {
-        port & 1 != 0 && !self.kempston.claims_port(port)
+        port & 1 != 0 && !self.kempston_mouse.claims_port(port) && !self.kempston.claims_port(port)
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        // The mouse's ports fall inside the joystick's partial decode, so
+        // the mouse answers first.
+        if self.kempston_mouse.claims_port(port) {
+            return self.kempston_mouse.read(port);
+        }
         if self.kempston.claims_port(port) {
             return self.kempston.read(port);
         }
@@ -1216,6 +1230,28 @@ mod tests {
         // Any port with A5=0 and A0=1 mirrors the read.
         assert_eq!(machine.io_read(0x001F), 0b0001_0001);
         assert_eq!(machine.io_read(0xFF1F), 0b0001_0001);
+    }
+
+    #[test]
+    fn the_kempston_mouse_answers_its_ports_before_the_joystick() {
+        let mut machine = Spectrum48k::new();
+        machine.kempston.attached = true;
+        machine.kempston.state = 0b0001_0000;
+        let mouse = machine.kempston_mouse_mut();
+        mouse.attached = true;
+        mouse.x = 0x40;
+        mouse.y = 0x80;
+        assert_eq!(machine.io_read(0xFBDF), 0x40);
+        assert_eq!(machine.io_read(0xFFDF), 0x80);
+        assert_eq!(machine.io_read(0xFADF), 0xFF, "no buttons held");
+        // The joystick still answers its own port.
+        assert_eq!(machine.io_read(0x001F), 0b0001_0000);
+    }
+
+    #[test]
+    fn an_unplugged_kempston_mouse_leaves_its_ports_floating() {
+        let machine = Spectrum48k::new();
+        assert!(machine.is_floating_bus_port(0xFBDF));
     }
 
     #[test]

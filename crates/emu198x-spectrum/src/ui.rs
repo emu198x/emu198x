@@ -78,6 +78,19 @@ const IF2_AXES: AxisInputMap = AxisInputMap::new(&[
 ]);
 
 /// `true` for the Amstrad-class machines that route the gamepad through IF2.
+/// Whether a model's machine hosts the Kempston mouse: the 48K- and
+/// 128K-class machines.
+fn hosts_kempston_mouse(model: Model) -> bool {
+    matches!(
+        model,
+        Model::Spectrum16KPal
+            | Model::Spectrum48KPal
+            | Model::SpectrumPlus
+            | Model::Spectrum128KPal
+            | Model::SpectrumPlus2
+    )
+}
+
 fn uses_if2(model: Model) -> bool {
     matches!(
         model,
@@ -148,6 +161,9 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 /// routing, title, and Machine-menu radio follow live switches.
 pub struct SpectrumSystem {
     current: Model,
+    /// `--kempston-mouse`: capture the host mouse for machines that host a
+    /// Kempston mouse.
+    kempston_mouse: bool,
 }
 
 impl UiApp for Spectrum {
@@ -163,6 +179,7 @@ impl UiApp for Spectrum {
                 .as_deref()
                 .and_then(Model::from_variant_id)
                 .unwrap_or(Model::Spectrum48KPal),
+            kempston_mouse: self.kempston_mouse,
         }
     }
 }
@@ -192,6 +209,10 @@ impl UiSystem for SpectrumSystem {
         let rate = &runtime.profile().clock.rate;
         let master_hz = rate.numerator_hz as f64 / rate.denominator_hz as f64;
         Duration::from_secs_f64(halfcycles / master_hz)
+    }
+
+    fn mouse_device(&self) -> Option<&'static str> {
+        (self.kempston_mouse && hosts_kempston_mouse(self.current)).then_some("mouse-1")
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -371,10 +392,24 @@ mod tests {
             .expect("host character entry");
     }
 
+    #[test]
+    fn the_mouse_is_captured_only_when_asked_and_hosted() {
+        let mut system = SpectrumSystem {
+            current: Model::Spectrum48KPal,
+            kempston_mouse: false,
+        };
+        assert_eq!(system.mouse_device(), None);
+        system.kempston_mouse = true;
+        assert_eq!(system.mouse_device(), Some("mouse-1"));
+        system.current = Model::SpectrumPlus3;
+        assert_eq!(system.mouse_device(), None, "the +3 hosts no Kempston");
+    }
+
     fn check_host_characters() {
         use emu198x_shell::InputEvent;
         let system = SpectrumSystem {
             current: Model::Spectrum48KPal,
+            kempston_mouse: false,
         };
         let runtime = Spectrum::default().build_runtime().expect("configured ROM");
         assert!(system.host_character_keys(&runtime, '€').is_none());
@@ -434,6 +469,7 @@ mod tests {
     fn host_keyword_modifier_is_left_alt_and_shift_left_alt() {
         let system = SpectrumSystem {
             current: Model::Spectrum48KPal,
+            kempston_mouse: false,
         };
         let keyword = system
             .host_keyword_modifier()
@@ -500,6 +536,7 @@ mod tests {
         }
         let system = SpectrumSystem {
             current: Model::Spectrum48KPal,
+            kempston_mouse: false,
         };
         let runtime = Spectrum::default().build_runtime().expect("configured ROM");
         let ticks = u64::from(runtime.frame_halfcycles());
@@ -554,6 +591,7 @@ mod tests {
         use runtime_sinclair_zx_spectrum::{tap_key, tap_symbol_combo};
         let system = SpectrumSystem {
             current: Model::Spectrum48KPal,
+            kempston_mouse: false,
         };
         let app = Spectrum::default();
         let runtime = app.build_runtime().expect("configured 48K ROM");

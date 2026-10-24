@@ -131,6 +131,9 @@ pub struct Spectrum {
     /// `--turbo-tape`: accepted for compatibility; fast-load is armed in
     /// the window with F11.
     pub turbo_tape: bool,
+    /// `--kempston-mouse`: capture the host mouse as a Kempston mouse on
+    /// the machines that host one (16K, 48K, +, 128K, +2).
+    pub kempston_mouse: bool,
 }
 
 impl Spectrum {
@@ -202,7 +205,9 @@ impl MachineApp for Spectrum {
                     the same)
     --play-tape     start tape transport on tape-1 immediately
     --autoload-tape wait for boot, type LOAD \"\", and start tape-1
-    --turbo-tape    (accepted; arm fast-load in the UI with F11)";
+    --turbo-tape    (accepted; arm fast-load in the UI with F11)
+    --kempston-mouse  capture the host mouse as a Kempston mouse
+                    (16K, 48K, +, 128K and +2)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
@@ -227,6 +232,7 @@ impl MachineApp for Spectrum {
             "--play-tape" => self.play_tape = true,
             "--autoload-tape" => self.autoload_tape = true,
             "--turbo-tape" => self.turbo_tape = true,
+            "--kempston-mouse" => self.kempston_mouse = true,
             positional if !positional.starts_with('-') => {
                 if self.tape.is_some() {
                     return Err(LaunchError::Usage(
