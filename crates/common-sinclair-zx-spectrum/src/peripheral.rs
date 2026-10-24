@@ -24,12 +24,12 @@
 //!
 //! ## What's NOT here
 //!
-//! - **Memory bus intercepts.** Beta disk's TR-DOS ROM read-override,
-//!   Interface 1's shadow ROM, Multiface's banked RAM/ROM. These need
-//!   a distinct hook that doesn't fit the port-oriented trait. Phase
-//!   0.7 defers them; Pentagon / Scorpion keep their current machine-
-//!   side `read_trdos_rom` checks until a second peripheral forces
-//!   the abstraction.
+//! - **Memory bus intercepts.** Interface 1's shadow ROM, the
+//!   Multiface's ROM and RAM and the DivMMC's banks are memory-bus
+//!   hooks, not I/O hooks, so they are a separate trait,
+//!   [`MemoryIntercept`]. Beta disk's TR-DOS overlay predates it:
+//!   Pentagon / Scorpion keep their machine-side `read_trdos_rom`
+//!   checks.
 //!
 //! - **Core machine chips.** The ULA (port `$FE`), the AY-3-8912
 //!   (ports `$FFFD`/`$BFFD` on stock 128K, `$F5`/`$F6` on Timex), and
@@ -78,7 +78,7 @@ pub trait Peripheral {
     /// peripherals that only read.
     fn write(&mut self, _port: u16, _val: u8) {}
 
-    /// Observe an M1 opcode fetch.
+    /// Observe an M1 opcode fetch, before the opcode is read.
     ///
     /// Called on every M1 cycle of the Z80 (once per executed
     /// instruction), regardless of `claims_port`. Used by peripherals
@@ -109,4 +109,44 @@ pub trait Peripheral {
     /// within the frame, useful for deriving a T-state number.
     /// Default no-op.
     fn tick(&mut self, _hc: u32) {}
+}
+
+/// Memory-bus hooks for a peripheral that pages memory over the
+/// machine's own.
+///
+/// Interface 1's shadow ROM, the Multiface's ROM and RAM and the
+/// DivMMC's banks all sit over the bottom 16 KB while they are paged
+/// in. Like [`Peripheral`], this is a vocabulary: each machine calls
+/// the hooks of the typed fields it owns, from its own bus handler.
+///
+/// Paging traps come in two kinds. Fuse (`z80/z80_ops.c`, GPL-2, facts
+/// only) checks some before the opcode fetch and some after it, and
+/// the difference is visible: a trap before the fetch supplies the
+/// opcode itself from the peripheral, one after it supplies only what
+/// follows. [`Peripheral::on_m1`] is the first and
+/// [`MemoryIntercept::after_m1`] the second.
+pub trait MemoryIntercept {
+    /// Supply a memory read in place of the machine's own memory.
+    ///
+    /// `Some` drives the data bus; `None` leaves the cycle to the
+    /// machine. Called on every memory read, so it must be cheap.
+    fn read_memory(&self, _addr: u16) -> Option<u8> {
+        None
+    }
+
+    /// Take a memory write from the machine's own memory.
+    ///
+    /// Returns `true` when the peripheral owns the address, whether it
+    /// stored the byte or dropped it as ROM; the machine's memory then
+    /// sees nothing. Default `false`.
+    fn write_memory(&mut self, _addr: u16, _val: u8) -> bool {
+        false
+    }
+
+    /// Observe an M1 opcode fetch after the opcode has been read.
+    ///
+    /// A peripheral that pages on a trap address here leaves that
+    /// opcode to the memory that was paged in before, and supplies
+    /// every read after it. Default no-op.
+    fn after_m1(&mut self, _addr: u16) {}
 }
