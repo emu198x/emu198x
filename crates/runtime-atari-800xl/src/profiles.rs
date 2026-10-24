@@ -9,12 +9,33 @@ use emu198x_shell::{
 pub enum Model {
     A800xlNtsc,
     A800xlPal,
+    /// The 130XE: an 800XL board with 64 KB more RAM banked behind PORTB.
+    A130xeNtsc,
+    A130xePal,
 }
 
 impl Model {
-    pub const ALL: [Self; 2] = [Self::A800xlNtsc, Self::A800xlPal];
-    pub const VARIANT_IDS: [&'static str; 2] =
-        [Self::A800xlNtsc.variant_id(), Self::A800xlPal.variant_id()];
+    pub const ALL: [Self; 4] = [
+        Self::A800xlNtsc,
+        Self::A800xlPal,
+        Self::A130xeNtsc,
+        Self::A130xePal,
+    ];
+    pub const VARIANT_IDS: [&'static str; 4] = [
+        Self::A800xlNtsc.variant_id(),
+        Self::A800xlPal.variant_id(),
+        Self::A130xeNtsc.variant_id(),
+        Self::A130xePal.variant_id(),
+    ];
+
+    /// The board's RAM fit.
+    #[must_use]
+    pub const fn memory(self) -> machine_atari_800xl::MemoryModel {
+        match self {
+            Self::A800xlNtsc | Self::A800xlPal => machine_atari_800xl::MemoryModel::Xl64k,
+            Self::A130xeNtsc | Self::A130xePal => machine_atari_800xl::MemoryModel::Xe128k,
+        }
+    }
 
     #[must_use]
     pub const fn variant_id(self) -> &'static str {
@@ -26,6 +47,7 @@ impl Model {
         match id {
             "ntsc" => Some(Self::A800xlNtsc),
             "pal" => Some(Self::A800xlPal),
+            "130xe" => Some(Self::A130xePal),
             _ => Self::ALL.into_iter().find(|model| model.variant_id() == id),
         }
     }
@@ -44,8 +66,8 @@ impl Model {
     #[must_use]
     pub const fn frame_ticks(self) -> u64 {
         match self {
-            Self::A800xlNtsc => 262 * 228,
-            Self::A800xlPal => 312 * 228,
+            Self::A800xlNtsc | Self::A130xeNtsc => 262 * 228,
+            Self::A800xlPal | Self::A130xePal => 312 * 228,
         }
     }
 
@@ -54,6 +76,8 @@ impl Model {
         match self {
             Self::A800xlNtsc => "atari-800xl-ntsc",
             Self::A800xlPal => "atari-800xl-pal",
+            Self::A130xeNtsc => "atari-130xe-ntsc",
+            Self::A130xePal => "atari-130xe-pal",
         }
     }
     #[must_use]
@@ -65,13 +89,15 @@ impl Model {
         match self {
             Self::A800xlNtsc => "Atari 800XL (NTSC)",
             Self::A800xlPal => "Atari 800XL (PAL)",
+            Self::A130xeNtsc => "Atari 130XE (NTSC)",
+            Self::A130xePal => "Atari 130XE (PAL)",
         }
     }
     #[must_use]
     pub const fn region(self) -> Region {
         match self {
-            Self::A800xlNtsc => Region::Ntsc,
-            Self::A800xlPal => Region::Pal,
+            Self::A800xlNtsc | Self::A130xeNtsc => Region::Ntsc,
+            Self::A800xlPal | Self::A130xePal => Region::Pal,
         }
     }
 }
@@ -92,15 +118,22 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        release_year: 1983,
-        summary: "Atari 800XL — 6502C + ANTIC + GTIA + POKEY + PIA, 64 KB RAM, optional 16 KB OS ROM + 8 KB BASIC ROM, optional cartridge.".into(),
+        release_year: match model {
+            Model::A800xlNtsc | Model::A800xlPal => 1983,
+            Model::A130xeNtsc | Model::A130xePal => 1985,
+        },
+        summary: match model.memory() {
+            machine_atari_800xl::MemoryModel::Xl64k => "Atari 800XL — 6502C + ANTIC + GTIA + POKEY + PIA, 64 KB RAM, optional 16 KB OS ROM + 8 KB BASIC ROM, optional cartridge.",
+            machine_atari_800xl::MemoryModel::Xe128k => "Atari 130XE — the 800XL's chips with 128 KB RAM: four 16 KB banks behind PORTB, separately for the CPU and ANTIC. Same OS and BASIC ROMs.",
+        }
+        .into(),
         // Runtime time and frame_ticks count colour clocks, two per CPU
         // cycle (Atari 400/800 Hardware Manual, 1982, section II; vendored
         // Atari800 src/antic.c uses 114 CPU cycles per 228-clock line).
         // Keep the regional rates aligned with machine::Region::cpu_hz.
-        clock: ClockDesc::new("colour-clock", ClockRate::from_hz(match model {
-            Model::A800xlNtsc => 2 * 1_789_772,
-            Model::A800xlPal => 2 * 1_773_447,
+        clock: ClockDesc::new("colour-clock", ClockRate::from_hz(match model.region() {
+            Region::Pal => 2 * 1_773_447,
+            _ => 2 * 1_789_772,
         })),
         firmware: vec![
             FirmwareRequirement::new(OS_FIRMWARE_ID, "Atari 800XL OS ROM (16 KB) — optional", true),
@@ -147,6 +180,21 @@ mod tests {
         let p = profile_for(Model::A800xlNtsc);
         assert_eq!(p.firmware.len(), 2);
         assert!(p.firmware.iter().all(|f| f.optional));
+    }
+
+    #[test]
+    fn the_130xe_is_a_variant_of_the_same_machine_with_more_ram() {
+        for model in [Model::A130xeNtsc, Model::A130xePal] {
+            let p = profile_for(model);
+            assert_eq!(p.machine_id.as_str(), "atari-800xl");
+            assert_eq!(model.memory(), machine_atari_800xl::MemoryModel::Xe128k);
+            assert_eq!(Model::from_variant_id(model.variant_id()), Some(model));
+        }
+        assert_eq!(Model::from_variant_id("130xe"), Some(Model::A130xePal));
+        assert_eq!(
+            Model::A800xlPal.memory(),
+            machine_atari_800xl::MemoryModel::Xl64k
+        );
     }
 
     #[test]
