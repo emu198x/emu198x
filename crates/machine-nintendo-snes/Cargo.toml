@@ -1,0 +1,22 @@
+[package]
+name = "machine-nintendo-snes"
+description = "Super NES / Super Famicom: the 5A22's 65C816, DMA/HDMA and I/O, the S-PPU pair, the S-SMP sound module and the cartridge boards, on the master clock"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-wdc-65c816 = { path = "../emu198x-wdc-65c816", version = "0.1.0" }
+emu198x-sony-spc700 = { path = "../emu198x-sony-spc700", version = "0.1.0" }
+emu198x-sony-s-dsp = { path = "../emu198x-sony-s-dsp", version = "0.1.0" }
+emu198x-nintendo-s-ppu = { path = "../emu198x-nintendo-s-ppu", version = "0.44.0" }
+format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.44.0" }
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true
