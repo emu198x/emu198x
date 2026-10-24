@@ -1,6 +1,6 @@
 [package]
 name = "machine-nintendo-game-boy"
-description = "Nintendo Game Boy (DMG) machine — composes the CPU, PPU, APU, timer, MBC and DMG-side I/O"
+description = "Nintendo Game Boy and Game Boy Color machine — composes the CPU, PPU, APU, timer, MBC and I/O"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -19,7 +19,9 @@ serde-big-array = { workspace = true }
 sharp-lr35902 = { path = "../sharp-lr35902", version = "0.44.0" }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
 png = { workspace = true }
+postcard = { workspace = true }
 
 [lints]
 workspace = true

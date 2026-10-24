@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::GameBoyRuntime;
 
-const SNAPSHOT_VERSION: u32 = 2;
+/// Version 3: the Game Boy Color — 16 KiB VRAM, 32 KiB WRAM and the
+/// CGB machine and PPU state.
+const SNAPSHOT_VERSION: u32 = 3;
 
 /// Borrowing snapshot envelope used during encode. Avoids a clone of
 /// the cartridge bytes and the live `GameBoy` machine.

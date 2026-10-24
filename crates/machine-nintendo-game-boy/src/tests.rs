@@ -1116,6 +1116,10 @@ fn joypad_press_with_action_group_selected_latches_joypad_irq() {
 #[test]
 fn oam_dma_copies_160_bytes_from_source_page() {
     let mut gb = boot_machine(jr_loop_rom());
+    // Park the CPU: its opcode fetches conflict with the DMA and would
+    // run the copied bytes, which include a STOP at $10.
+    gb.cpu.halt_mode = true;
+    gb.ie_reg = 0;
     // Fill WRAM source page.
     for i in 0..0xA0u16 {
         gb.bus_write(0xC000 + i, (i & 0xFF) as u8);
