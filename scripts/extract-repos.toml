@@ -232,6 +232,14 @@ consumers = "Built for the MSX2 (#2062)."
 coverage_floor = 95
 
 [[repo]]
+name = "ricoh-rp5c01"
+crates = ["emu198x-ricoh-rp5c01"]
+summary = "The Ricoh RP5C01 real-time clock, the MSX2's clock chip."
+consumers = "Built for the MSX2 (#2062)."
+# 100.00% line coverage on 2026-10-24.
+coverage_floor = 95
+
+[[repo]]
 name = "yamaha-ym2612"
 crates = ["emu198x-yamaha-ym2612"]
 summary = "The Yamaha YM2612 (OPN2) FM synthesis chip and its CMOS twin, the YM3438."
