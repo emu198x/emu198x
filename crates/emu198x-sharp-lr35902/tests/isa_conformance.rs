@@ -4,7 +4,7 @@
 //! Zero operand bytes make the comparison deterministic while still checking
 //! instruction length and rendered operands.
 
-use sharp_lr35902::disassemble;
+use emu198x_sharp_lr35902::disassemble;
 
 fn emu_one(buf: &[u8]) -> (String, usize) {
     let (text, len) = disassemble(0, |addr| buf.get(addr as usize).copied().unwrap_or(0));
