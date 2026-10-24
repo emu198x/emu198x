@@ -11,14 +11,13 @@
 
 use std::path::PathBuf;
 
-use format_atari_8bit_atr::AtrImage;
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Disk};
 
 const LOAD_ADDRESS: u16 = 0x0700;
 
 /// A single-density disk whose boot sectors hold a program that writes a
 /// signature into memory and then loops.
-fn bootable_disk() -> AtrImage {
+fn bootable_disk() -> Disk {
     let mut sectors = vec![0u8; 720 * 128];
 
     // The OS reads sector 1, loads `count` sectors to the load address, JSRs
@@ -41,12 +40,7 @@ fn bootable_disk() -> AtrImage {
     sectors[6..6 + code.len()].copy_from_slice(&code);
     sectors[usize::from(INIT_OFFSET)] = 0x60; // RTS
 
-    let mut image = vec![0u8; 16];
-    image[0..2].copy_from_slice(&0x0296u16.to_le_bytes());
-    image[2..4].copy_from_slice(&((sectors.len() / 16) as u16).to_le_bytes());
-    image[4..6].copy_from_slice(&128u16.to_le_bytes());
-    image.extend(sectors);
-    AtrImage::parse(&image).expect("the built disk parses")
+    Disk::new(128, sectors, false).expect("the built disk is whole")
 }
 
 fn os_rom() -> Option<Vec<u8>> {

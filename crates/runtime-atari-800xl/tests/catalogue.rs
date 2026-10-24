@@ -28,7 +28,7 @@ fn mount_disk(runtime: &mut Atari800xlRuntime) {
     runtime.load_media(&media).expect("disk");
     let bus = runtime.machine_mut().expect("machine").sio_mut();
     let mut disk = bus.eject_disk(1).expect("disk");
-    disk.write_sector(1, &[0x5a; 128]).expect("modified sector");
+    assert!(disk.write_sector(1, &[0x5a; 128]), "modified sector");
     bus.insert_disk(1, disk);
 }
 

@@ -32,7 +32,9 @@
 //! Every frame ends in an eight-bit sum with the carry folded back in, which
 //! is why [`checksum`] adds into a `u16` and folds rather than wrapping.
 
-use format_atari_8bit_atr::AtrImage;
+mod disk;
+
+pub use disk::Disk;
 use serde::{Deserialize, Serialize};
 
 /// The bytes the protocol spells out.
@@ -106,7 +108,7 @@ enum State {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DiskDrive {
     device_id: u8,
-    disk: Option<AtrImage>,
+    disk: Option<Disk>,
     state: State,
     frame: Vec<u8>,
     /// Bytes waiting to go out on DATA IN, and the cycles left before the
@@ -138,7 +140,7 @@ impl DiskDrive {
     }
 
     /// Put a disk in, or take one out with `None`.
-    pub fn insert(&mut self, disk: Option<AtrImage>) {
+    pub fn insert(&mut self, disk: Option<Disk>) {
         self.disk = disk;
         self.state = State::Idle;
         self.frame.clear();
@@ -147,7 +149,7 @@ impl DiskDrive {
     }
 
     /// Take the disk out, with whatever was written to it while it was in.
-    pub fn eject(&mut self) -> Option<AtrImage> {
+    pub fn eject(&mut self) -> Option<Disk> {
         let disk = self.disk.take();
         self.insert(None);
         disk
@@ -161,7 +163,7 @@ impl DiskDrive {
 
     /// The disk currently in the drive, for writing it back out.
     #[must_use]
-    pub fn disk(&self) -> Option<&AtrImage> {
+    pub fn disk(&self) -> Option<&Disk> {
         self.disk.as_ref()
     }
 
@@ -284,7 +286,7 @@ impl DiskDrive {
             self.reply(&[NAK]);
             return;
         };
-        let Some(data) = disk.sector_as_read(sector) else {
+        let Some(data) = disk.sector(sector) else {
             // A sector number the disk does not have is a fault the drive can
             // see in the command itself, so it NAKs rather than accepting and
             // reporting an error later.
@@ -304,7 +306,7 @@ impl DiskDrive {
             self.reply(&[NAK]);
             return;
         };
-        let Some(expected) = disk.sector_as_read(sector).map(<[u8]>::len) else {
+        let Some(expected) = disk.sector(sector).map(<[u8]>::len) else {
             self.reply(&[NAK]);
             return;
         };
@@ -336,7 +338,7 @@ impl DiskDrive {
             return;
         }
 
-        let write_protected = self.disk.as_ref().is_some_and(AtrImage::write_protected);
+        let write_protected = self.disk.as_ref().is_some_and(Disk::write_protected);
         if write_protected {
             self.write_failed = true;
             self.reply_with_result(vec![ACK], ERROR);
@@ -346,8 +348,8 @@ impl DiskDrive {
         let written = self
             .disk
             .as_mut()
-            .map(|disk| disk.write_sector(sector, data));
-        self.write_failed = !matches!(written, Some(Ok(())));
+            .is_some_and(|disk| disk.write_sector(sector, data));
+        self.write_failed = !written;
         let result = if self.write_failed { ERROR } else { COMPLETE };
         self.reply_with_result(vec![ACK], result);
     }
@@ -436,7 +438,7 @@ impl SioBus {
     }
 
     /// Put a disk in drive `n`, plugging the drive in if it is not there.
-    pub fn insert_disk(&mut self, drive: u8, disk: AtrImage) {
+    pub fn insert_disk(&mut self, drive: u8, disk: Disk) {
         self.attach_drive(drive);
         if let Some(Some(d)) = self.drives.get_mut(usize::from(drive.saturating_sub(1))) {
             d.insert(Some(disk));
@@ -445,7 +447,7 @@ impl SioBus {
 
     /// Take the disk out of drive `n`, leaving the drive on the bus. `None`
     /// when the drive is not there or is empty.
-    pub fn eject_disk(&mut self, drive: u8) -> Option<AtrImage> {
+    pub fn eject_disk(&mut self, drive: u8) -> Option<Disk> {
         self.drive_mut(drive)?.eject()
     }
 
@@ -505,16 +507,11 @@ impl SioBus {
 mod tests {
     use super::*;
 
-    fn disk(sectors: u16) -> AtrImage {
-        let data_len = usize::from(sectors) * 128;
-        let mut image = vec![0u8; 16];
-        image[0..2].copy_from_slice(&0x0296u16.to_le_bytes());
-        image[2..4].copy_from_slice(&((data_len / 16) as u16).to_le_bytes());
-        image[4..6].copy_from_slice(&128u16.to_le_bytes());
-        for sector in 0..sectors {
-            image.extend(std::iter::repeat_n((sector % 251) as u8, 128));
-        }
-        AtrImage::parse(&image).expect("test disk parses")
+    fn disk(sectors: u16) -> Disk {
+        let data = (0..sectors)
+            .flat_map(|sector| std::iter::repeat_n((sector % 251) as u8, 128))
+            .collect();
+        Disk::new(128, data, false).expect("test disk is whole")
     }
 
     fn bus_with_disk() -> SioBus {
