@@ -68,7 +68,7 @@ static VOLUME: [f32; 16] = [
     0.5765, 0.7258, 0.8819, 1.0000,
 ];
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Ay3_8910 {
     /// The 16 registers (directly readable/writable).
     regs: [u8; 16],
@@ -417,6 +417,16 @@ impl Ay3_8910 {
             *s = 0.0;
         }
         self.samples_written = 0;
+    }
+
+    /// The mixed output of the three channels right now, 0.0 to 1.0.
+    ///
+    /// For hosts that mix the chip at their own clock rather than taking
+    /// the resampled buffer from [`Ay3_8910::end_frame`], such as an NES
+    /// cartridge feeding its audio pin every CPU cycle.
+    #[must_use]
+    pub fn output(&self) -> f32 {
+        self.compute_output()
     }
 
     /// Number of samples generated this frame so far.
