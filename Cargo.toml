@@ -107,6 +107,7 @@ members = [
     "crates/emu198x-mos-6502",
     "crates/emu198x-mos-pia-6520",
     "crates/emu198x-wdc-65c816",
+    "crates/emu198x-sony-spc700",
     "crates/mos-cia-6526",
     "crates/mos-cia-8520",
     "crates/motorola-pia-6821",

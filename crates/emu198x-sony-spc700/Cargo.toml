@@ -1,0 +1,24 @@
+[package]
+name = "emu198x-sony-spc700"
+description = "Sony SPC700 (S-SMP) CPU with a cycle-accurate pin-level bus interface"
+edition.workspace = true
+# Independently versioned, like the other published CPU crates: the version
+# communicates this crate's changes, not the Emu198x suite's releases.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["spc700", "snes", "cpu", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+# Path-only on purpose: a dev-dependency carrying a version must resolve on
+# the registry at publish time, and the test helper stays unpublished.
+emu198x-test-skip = { path = "../emu198x-test-skip" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
