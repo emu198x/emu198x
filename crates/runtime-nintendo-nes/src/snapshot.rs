@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::NesRuntime;
 
-const SNAPSHOT_VERSION: u16 = 1;
+/// Version 2 added the Zapper and Four Score state to the machine.
+const SNAPSHOT_VERSION: u16 = 2;
 
 /// Persistable NES runtime envelope. Wraps the machine's chip
 /// snapshot (when present) with the surrounding runtime context

@@ -4,7 +4,7 @@ use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason,
 };
-use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
+use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, InputDevices, Nes};
 use nintendo_nes_cartridge::{Fds, Mapper, parse_ines};
 
 use crate::input::apply_input_event;
@@ -49,6 +49,7 @@ pub struct NesRuntime {
     cartridge_mapper: Option<u16>,
     has_battery: bool,
     fds_bios: Option<Vec<u8>>,
+    input_devices: InputDevices,
     rgba_framebuffer: Vec<u8>,
 }
 
@@ -65,6 +66,7 @@ impl NesRuntime {
             cartridge_mapper: None,
             has_battery: false,
             fds_bios: None,
+            input_devices: InputDevices::Controllers,
             rgba_framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT * 4) as usize],
         }
     }
@@ -151,6 +153,21 @@ impl NesRuntime {
             .as_ref()
             .and_then(|machine| machine.mapper.disk_drive())
             .map(|drive| drive.image())
+    }
+
+    /// What is plugged into the controller ports.
+    #[must_use]
+    pub fn input_devices(&self) -> InputDevices {
+        self.input_devices
+    }
+
+    /// Plug in two pads, a pad and a Zapper (port 2), or a Four Score.
+    /// The choice survives cartridge changes and resets.
+    pub fn set_input_devices(&mut self, devices: InputDevices) {
+        self.input_devices = devices;
+        if let Some(machine) = self.machine.as_mut() {
+            machine.set_input_devices(devices);
+        }
     }
 
     /// Whether the loaded cartridge has battery-backed PRG-RAM — i.e. a
@@ -255,6 +272,9 @@ impl NesRuntime {
                 .as_deref()
                 .and_then(|bytes| parse_ines(bytes).ok())
                 .is_some_and(|parsed| parsed.header.has_battery);
+        if let Some(machine) = &machine {
+            self.input_devices = machine.input_devices();
+        }
         self.machine = machine;
     }
 
@@ -272,10 +292,9 @@ impl NesRuntime {
         })?;
 
         self.has_battery = parsed.header.has_battery;
-        self.machine = Some(Nes::new_with_region(
-            parsed.mapper,
-            self.model.machine_region(),
-        ));
+        let mut machine = Nes::new_with_region(parsed.mapper, self.model.machine_region());
+        machine.set_input_devices(self.input_devices);
+        self.machine = Some(machine);
         self.cartridge_bytes = Some(bytes.to_vec());
         self.cartridge_mapper = Some(parsed.header.mapper_number);
         self.time = MachineTime::default();
@@ -301,7 +320,9 @@ impl NesRuntime {
     fn load_disk_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
         let board = self.disk_board(slot, bytes)?;
         self.has_battery = false;
-        self.machine = Some(Nes::new_with_region(board, self.model.machine_region()));
+        let mut machine = Nes::new_with_region(board, self.model.machine_region());
+        machine.set_input_devices(self.input_devices);
+        self.machine = Some(machine);
         self.cartridge_bytes = Some(bytes.to_vec());
         self.cartridge_mapper = Some(FDS_MAPPER_NUMBER);
         self.time = MachineTime::default();
@@ -319,6 +340,7 @@ impl NesRuntime {
         match self.disk_board(FDS_DISK_SLOT, &image) {
             Ok(board) => {
                 let mut machine = Nes::new_with_region(board, self.model.machine_region());
+                machine.set_input_devices(self.input_devices);
                 if let Some(previous) = &self.machine {
                     machine.set_audio_controls(previous.audio_controls());
                 }
@@ -345,6 +367,7 @@ impl NesRuntime {
             Ok(parsed) => {
                 self.has_battery = parsed.header.has_battery;
                 let mut machine = Nes::new_with_region(parsed.mapper, self.model.machine_region());
+                machine.set_input_devices(self.input_devices);
                 if let Some(previous) = &self.machine {
                     machine.mapper.restore_save_ram(previous.mapper.save_ram());
                     machine.set_audio_controls(previous.audio_controls());
@@ -413,6 +436,7 @@ impl emu198x_shell::FamilyRuntime for NesRuntime {
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         let mut replacement = Self::from_firmware(model, firmware)?;
+        replacement.input_devices = self.input_devices;
         if self.has_disk() {
             let image = self.disk_image().unwrap_or_default();
             replacement.load_disk_bytes(FDS_DISK_SLOT, &image)?;

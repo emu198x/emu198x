@@ -8,6 +8,10 @@
 //! Runtime-side port convention (mirrors Spectrum / C64 Seam 2):
 //! - `InputEvent::Button { port: 1, … }` → controller 1.
 //! - `InputEvent::Button { port: 2, … }` → controller 2.
+//! - `InputEvent::Button { port: 3 | 4, … }` → controllers 3 and 4,
+//!   read through a Four Score.
+//! - `InputEvent::Button { port: 2, name: "trigger", … }` and
+//!   `InputEvent::Aim { port: 2, … }` → the Zapper's trigger and aim.
 //! - `InputEvent::Key { … }` → controller 1 (keyboard-as-pad). A
 //!   future `InputEvent::Key { port: 2, … }` extension would land
 //!   here once we add port-specific keyboard mapping; for now plain
@@ -24,7 +28,7 @@
 //! Matches `emu198x-nes`'s `ButtonTarget` table — South-on-gamepad =
 //! A-on-NES is the canonical "primary action" mapping.
 
-use emu198x_shell::InputEvent;
+use emu198x_shell::{InputEvent, aim_to_pixels};
 use machine_nintendo_nes::Nes;
 
 /// Apply one host input event to the machine. `Button` events route
@@ -37,11 +41,19 @@ pub(crate) fn apply_input_event(machine: &mut Nes, event: &InputEvent) {
             port,
             name,
             pressed,
-        } => match *port {
-            1 => apply_named_button(machine, 1, name.as_ref(), *pressed),
-            2 => apply_named_button(machine, 2, name.as_ref(), *pressed),
-            _ => {}
-        },
+        } => {
+            if *port == 2 && name.eq_ignore_ascii_case("trigger") {
+                machine.set_zapper_trigger(*pressed);
+            } else if (1..=4).contains(port) {
+                apply_named_button(machine, *port, name.as_ref(), *pressed);
+            }
+        }
+        // The Zapper reports where it is aimed, normalized across the
+        // 256x240 picture, or `None` when aimed off it.
+        InputEvent::Aim { port: 2, at } => {
+            let (width, height) = (machine.framebuffer_width(), machine.framebuffer_height());
+            machine.set_zapper_aim(at.map(|at| aim_to_pixels(at, width, height)));
+        }
         InputEvent::Key { name, pressed } => {
             apply_named_button(machine, 1, name.as_ref(), *pressed);
         }
@@ -54,20 +66,22 @@ fn apply_named_button(machine: &mut Nes, port: u8, name: &str, pressed: bool) {
         return;
     };
     let mask = 1u8 << bit;
-    let current = if port == 2 {
-        machine.controller2_state
-    } else {
-        machine.controller1_state
+    let current = match port {
+        2 => machine.controller2_state,
+        3 => machine.controller3_state(),
+        4 => machine.controller4_state(),
+        _ => machine.controller1_state,
     };
     let next = if pressed {
         current | mask
     } else {
         current & !mask
     };
-    if port == 2 {
-        machine.set_controller2(next);
-    } else {
-        machine.set_controller1(next);
+    match port {
+        2 => machine.set_controller2(next),
+        3 => machine.set_controller3(next),
+        4 => machine.set_controller4(next),
+        _ => machine.set_controller1(next),
     }
 }
 
@@ -146,11 +160,28 @@ mod tests {
     }
 
     #[test]
-    fn port_3_button_is_dropped() {
+    fn ports_3_and_4_land_on_the_four_score_pads() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(3, "a", true));
+        apply_input_event(&mut nes, &button(4, "right", true));
         assert_eq!(nes.controller1_state, 0);
         assert_eq!(nes.controller2_state, 0);
+        assert_eq!(nes.controller3_state(), 0x01);
+        assert_eq!(nes.controller4_state(), 0x80);
+        apply_input_event(&mut nes, &button(5, "a", true));
+        assert_eq!(nes.controller1_state, 0);
+    }
+
+    #[test]
+    fn the_zapper_takes_its_trigger_and_aim_on_port_2() {
+        let mut nes = make_nes();
+        apply_input_event(&mut nes, &button(2, "trigger", true));
+        assert_eq!(nes.controller2_state, 0, "not a pad button");
+        let at = emu198x_shell::aim_from_pixels(100, 50, 256, 240);
+        apply_input_event(&mut nes, &InputEvent::Aim { port: 2, at });
+        assert_eq!(nes.zapper_aim(), Some((100, 50)));
+        apply_input_event(&mut nes, &InputEvent::Aim { port: 2, at: None });
+        assert_eq!(nes.zapper_aim(), None);
     }
 
     #[test]
