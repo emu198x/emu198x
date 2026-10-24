@@ -298,8 +298,8 @@ impl AcornAtom {
     /// Present the keyboard rows for the column the MOS has driven on 8255
     /// port A (PA0-3, a binary 0-9 column index) on port B, active low.
     fn update_keyboard(&mut self) {
-        let column = (self.ppi.port_a & 0x0F) as usize;
-        self.ppi.port_b = !self.keyboard.read_row(column);
+        let column = usize::from(self.ppi.port_a() & 0x0F);
+        self.ppi.input_b = !self.keyboard.read_row(column);
     }
 
     fn tick(&mut self) {
@@ -360,8 +360,9 @@ impl AcornAtom {
     /// next into one [`TapePulse::Cycles`] (a long low run becomes a gap).
     fn capture_tape_output(&mut self) {
         let hz2400 = (self.master_clock % TONE_PERIOD_TICKS) < TONE_PERIOD_TICKS / 2;
-        let pc0 = self.ppi.port_c & 0x01 != 0;
-        let pc1 = self.ppi.port_c & 0x02 != 0;
+        let port_c = self.ppi.port_c();
+        let pc0 = port_c & 0x01 != 0;
+        let pc1 = port_c & 0x02 != 0;
         // `pc0 && !(pc1 && !hz2400)` (MAME), De Morgan'd to satisfy clippy.
         let level = pc0 && (!pc1 || hz2400);
 
@@ -417,7 +418,7 @@ impl AcornAtom {
         self.audio_accum += AUDIO_SAMPLE_RATE;
         if self.audio_accum >= ATOM_CLOCK_HZ {
             self.audio_accum -= ATOM_CLOCK_HZ;
-            let sample = if self.ppi.port_c & SPEAKER_BIT != 0 {
+            let sample = if self.ppi.port_c() & SPEAKER_BIT != 0 {
                 0.5
             } else {
                 -0.5
@@ -466,7 +467,7 @@ impl AcornAtom {
                     | (u8::from(rept_high) << 6)
                     | (u8::from(cassette) << 5)
                     | (u8::from(tone_2400) << 4);
-                self.ppi.port_c = (self.ppi.port_c & 0x0F) | inputs;
+                self.ppi.input_c = inputs;
                 self.ppi.read((addr - 0xB000) as u8)
             }
             // 6522 VIA (Centronics printer), 16 registers mirrored across the page
@@ -498,16 +499,18 @@ impl AcornAtom {
             0x9800..=0x9FFF => {} // unmapped — writes ignored
             0xB000 => {
                 // Port A: low nibble selects the keyboard column, high nibble
-                // carries the MC6847 mode bits — latch both.
+                // carries the MC6847 mode bits. The VDG sees port A's lines.
                 self.ppi.write(0, value);
-                self.vdg.control = value;
+                self.vdg.control = self.ppi.port_a();
             }
             0xB001..=0xB003 => {
                 self.ppi.write((addr - 0xB000) as u8, value);
                 // CSS (MC6847 colour-set select) is on 8255 PC3, set by a port-C
                 // write or a BSR control-word write ($B003) — refresh the VDG
                 // from port C after either path (#369).
-                self.vdg.css = self.ppi.port_c & 0x08 != 0;
+                self.vdg.css = self.ppi.port_c() & 0x08 != 0;
+                // A mode word also moves port A.
+                self.vdg.control = self.ppi.port_a();
             }
             // 6522 VIA (Centronics printer) — see `mem_read` (MAME `atom.cpp`).
             0xB800..=0xBBFF => self.via.write((addr & 0x0F) as u8, value),
@@ -640,6 +643,17 @@ impl AcornAtom {
 mod tests {
     use super::*;
 
+    /// The 8255 mode word the MOS writes at reset: port A out, port B in,
+    /// port C upper in, port C lower out. Test ROMs that never run the MOS
+    /// get it here instead.
+    const MOS_PPI_MODE: u8 = 0x8A;
+
+    fn atom(rom: Vec<u8>, ram_size: usize) -> AcornAtom {
+        let mut sys = AcornAtom::new(rom, ram_size);
+        sys.mem_write(0xB003, MOS_PPI_MODE);
+        sys
+    }
+
     #[test]
     fn cpu_port_a_reads_and_writes_each_strobe_the_printer_for_one_clock() {
         let mut rom = vec![0xEA; 0x6000];
@@ -655,7 +669,7 @@ mod tests {
         ];
         rom[0x3000..0x3000 + program.len()].copy_from_slice(&program);
         rom[0x5FFC..0x5FFE].copy_from_slice(&0xD000u16.to_le_bytes());
-        let mut sys = AcornAtom::new(rom, 0x0A00);
+        let mut sys = atom(rom, 0x0A00);
         let mut low_clocks = Vec::new();
         let mut pulse_accesses = Vec::new();
         for _ in 0..120 {
@@ -685,7 +699,7 @@ mod tests {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
         let rom = std::fs::read(&path).expect("real Atom ROM");
-        let mut sys = AcornAtom::new(rom, 0x0A00);
+        let mut sys = atom(rom, 0x0A00);
         for _ in 0..120 {
             sys.run_frame();
         }
@@ -715,7 +729,7 @@ mod tests {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
         let rom = std::fs::read(&path).expect("real Atom ROM");
-        let mut sys = AcornAtom::new(rom, 0x0A00);
+        let mut sys = atom(rom, 0x0A00);
         for _ in 0..120 {
             sys.run_frame();
         }
@@ -768,7 +782,7 @@ mod tests {
         // Press a key (optionally with SHIFT) from a fresh prompt with "123"
         // typed, returning the cursor delta (drow, dcol).
         let delta = |key: AtomKey, shift: bool| -> (i32, i32) {
-            let mut sys = AcornAtom::new(rom.clone(), 0x0A00);
+            let mut sys = atom(rom.clone(), 0x0A00);
             for _ in 0..120 {
                 sys.run_frame();
             }
@@ -820,7 +834,7 @@ mod tests {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
         let rom = std::fs::read(&path).expect("real Atom ROM");
-        let mut sys = AcornAtom::new(rom, 0x0A00);
+        let mut sys = atom(rom, 0x0A00);
         for _ in 0..120 {
             sys.run_frame();
         }
@@ -870,7 +884,7 @@ mod tests {
                 sys.run_frame();
             }
         };
-        let mut sys = AcornAtom::new(rom, 0x0A00);
+        let mut sys = atom(rom, 0x0A00);
         for _ in 0..120 {
             sys.run_frame();
         }
@@ -913,7 +927,7 @@ mod tests {
 
     #[test]
     fn load_program_injects_into_ram_and_autoruns() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // LDA #$42 ; STA $80 ; JMP * (loop) — at $0200.
         let program = [0xA9, 0x42, 0x85, 0x80, 0x4C, 0x04, 0x02];
         assert!(sys.load_program(0x0200, &program, 0x0200, true));
@@ -926,7 +940,7 @@ mod tests {
 
     #[test]
     fn load_program_into_video_ram() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // A screen image (e.g. a 6 KB graphics dump) loads into video RAM.
         assert!(sys.load_program(0x8000, &[0x11, 0x22, 0x33], 0x8000, false));
         assert_eq!(sys.peek(0x8000), 0x11);
@@ -939,7 +953,7 @@ mod tests {
 
     #[test]
     fn load_program_rejects_an_image_past_ram() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // load $0900 + 0x200 bytes runs past ram_size 0x0A00.
         assert!(!sys.load_program(0x0900, &[0u8; 0x200], 0x0900, false));
         // ROM/I-O space is not loadable either.
@@ -948,14 +962,16 @@ mod tests {
 
     #[test]
     fn toggling_the_speaker_produces_a_waveform() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // LDA $B002 ; EOR #$04 ; STA $B002 ; JMP $0200 — the canonical Atom beeper
         // loop (XOR PC2 with 4), at $0200.
         let toggler = [
-            0xAD, 0x02, 0xB0, // LDA $B002
+            0xA9, 0x8A, // LDA #$8A  8255 mode, as the MOS sets it
+            0x8D, 0x03, 0xB0, // STA $B003
+            0xAD, 0x02, 0xB0, // LDA $B002 (loop, $0205)
             0x49, 0x04, // EOR #$04
             0x8D, 0x02, 0xB0, // STA $B002
-            0x4C, 0x00, 0x02, // JMP $0200
+            0x4C, 0x05, 0x02, // JMP $0205
         ];
         sys.load_program(0x0200, &toggler, 0x0200, true);
         sys.run_frame();
@@ -974,7 +990,7 @@ mod tests {
 
     #[test]
     fn a_silent_machine_emits_a_constant_level() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         sys.run_frame();
         let audio = sys.take_audio_buffer();
         assert!(!audio.is_empty(), "samples are emitted even when silent");
@@ -987,7 +1003,7 @@ mod tests {
 
     #[test]
     fn cassette_output_captures_the_carrier_tone() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // PC0 + PC1 high: the hardware gates the free-running 2.4 kHz reference
         // onto the cassette line (a continuous carrier).
         sys.mem_write(0xB002, 0x03);
@@ -1029,7 +1045,7 @@ mod tests {
 
     #[test]
     fn cassette_output_idle_is_silent() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // PC0 low: the line stays low — no carrier, nothing meaningful captured.
         sys.run_frame();
         let pulses = sys.take_tape_output();
@@ -1041,7 +1057,7 @@ mod tests {
 
     #[test]
     fn take_audio_buffer_drains() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         sys.run_frame();
         assert!(!sys.take_audio_buffer().is_empty());
         assert!(
@@ -1068,7 +1084,7 @@ mod tests {
     /// 1 KB video RAM and the VDG's last-scanned buffer.
     #[test]
     fn snapshot_round_trips_live_state() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         sys.run_frame();
         sys.poke(0x0100, 0xA5); // a low-RAM byte to carry across the snapshot
         sys.run_frame();
@@ -1089,21 +1105,21 @@ mod tests {
 
     #[test]
     fn frame_advances_count() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         let _ = sys.run_frame();
         assert_eq!(sys.frame_count(), 1);
     }
 
     #[test]
     fn ram_round_trips() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         sys.mem_write(0x0100, 0x42);
         assert_eq!(sys.mem_read(0x0100), 0x42);
     }
 
     #[test]
     fn video_ram_is_6k_linear() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // $8000-$97FF is 6 KB of linear RAM (graphics modes need it) — distinct
         // locations, not the old 1 KB mirror.
         sys.mem_write(0x8000, 0xAB);
@@ -1118,7 +1134,7 @@ mod tests {
     /// Render a frame with the given port-A control byte and video-RAM fill, and
     /// return the resulting framebuffer.
     fn render_with(control: u8, fill: impl Fn(u16) -> u8) -> Vec<u32> {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         for addr in 0x8000u16..0x9800 {
             sys.mem_write(addr, fill(addr));
         }
@@ -1164,7 +1180,7 @@ mod tests {
 
     #[test]
     fn utility_rom_pages_into_the_a000_slot() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // The combined trap ROM leaves $A000 empty (reads its NOP fill).
         assert!(!sys.utility_rom_present());
         let empty = sys.mem_read(0xA000);
@@ -1192,21 +1208,21 @@ mod tests {
 
     #[test]
     fn vdg_control_register_round_trips() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         sys.mem_write(0xB000, 0x80);
         assert_eq!(sys.mem_read(0xB000), 0x80);
     }
 
     #[test]
     fn rom_writes_ignored() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         sys.mem_write(0xF000, 0xFF);
         assert_eq!(sys.mem_read(0xF000), 0xEA);
     }
 
     #[test]
     fn shift_and_ctrl_register_on_port_b() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // Drive a column and read port B ($B001). Idle = all rows high (active-low).
         sys.mem_write(0xB000, 0x01); // select column 1 (also clears the gfx nibble)
         let idle = sys.mem_read(0xB001);
@@ -1239,7 +1255,7 @@ mod tests {
 
     #[test]
     fn field_sync_is_high_during_active_video_low_in_flyback() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // Sample PC7 across one full field (FS̄ depends only on master_clock).
         let mut high = 0u64;
         for _ in 0..FIELD_TICKS {
@@ -1260,7 +1276,7 @@ mod tests {
 
     #[test]
     fn rept_drives_port_c_bit_6_active_low() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // REPT is on port C bit 6, active-low: high when not held.
         assert_eq!(sys.mem_read(0xB002) & 0x40, 0x40, "REPT idle high");
         sys.press_key(AtomKey::Rept);
@@ -1271,7 +1287,7 @@ mod tests {
 
     #[test]
     fn css_comes_from_port_c_not_the_keyboard_column() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // Driving keyboard column 0x0F (PA3 high) must NOT enable CSS — PA3 is a
         // keyboard scan line, not the MC6847 colour-set select (#369).
         sys.mem_write(0xB000, 0x0F);
@@ -1292,7 +1308,7 @@ mod tests {
 
     #[test]
     fn cassette_level_drives_pc5() {
-        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        let mut sys = atom(trap_rom(), 0x0A00);
         // One long cycle: the line is low for 1 ms, then high for 1 ms. The tape
         // advances one 1 µs tick per cycle, so 1500 ticks lands in the high half.
         sys.insert_tape(vec![TapePulse::Cycles {

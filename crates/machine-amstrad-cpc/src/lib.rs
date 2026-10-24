@@ -986,7 +986,11 @@ impl AmstradCpc {
                         let bits = self.keyboard.get(row).copied().unwrap_or(0xFF);
                         self.psg.set_port_a_input_mask(bits);
                     }
-                    return self.psg.read_data();
+                    // The AY drives the shared bus onto PPI port A's lines.
+                    // The CPU sees them only while the firmware has made
+                    // port A an input (mode `$92`); as an output it reads
+                    // back its own latch.
+                    self.ppi.input_a = self.psg.read_data();
                 }
             }
             if ppi_port == 1 {
@@ -1057,13 +1061,15 @@ impl AmstradCpc {
         if port & 0x0800 == 0 {
             let ppi_port = ((port >> 8) & 0x03) as u8;
             self.ppi.write(ppi_port, value);
-            if ppi_port == 2 {
+            // A port C write, a bit set/reset or a mode word all move port C.
+            if ppi_port >= 2 {
                 // Port C carries the AY's bus control in bits 7-6, the
                 // cassette write line in bit 5, the motor in bit 4, and the
-                // keyboard row in bits 3-0.
-                self.psg_control = value;
-                self.set_tape_motor(value & 0x10 != 0);
-                match value & 0xC0 {
+                // keyboard row in bits 3-0. Read the lines, not the byte.
+                let lines = self.ppi.port_c();
+                self.psg_control = lines;
+                self.set_tape_motor(lines & 0x10 != 0);
+                match lines & 0xC0 {
                     0x80 => self.psg.write_data(self.ppi.read(0)),
                     0xC0 => self.psg.select_register(self.ppi.read(0)),
                     _ => {}
@@ -1140,6 +1146,14 @@ impl emu198x_zilog_z80::Z80Stepper for AmstradCpc {
 mod tests {
     use super::*;
 
+    /// A CPC whose 8255 has the mode the firmware sets at reset: port A
+    /// out, port B in, port C out. The test firmware never runs it.
+    fn booted(firmware: &[u8]) -> AmstradCpc {
+        let mut cpc = AmstradCpc::new(firmware).expect("build");
+        cpc.io_write(0xF782, 0x82);
+        cpc
+    }
+
     /// 32 KB of firmware: `NOP`s in the OS half, `$C9` (RET) in the BASIC half
     /// so the two are distinguishable through the memory map.
     fn test_firmware() -> Vec<u8> {
@@ -1157,14 +1171,14 @@ mod tests {
     #[test]
     fn both_roms_are_paged_in_at_reset() {
         // Without the OS at $0000 the Z80 has nothing to boot from.
-        let cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let cpc = booted(&test_firmware());
         assert_eq!(cpc.peek(0x0000), 0x00, "OS ROM");
         assert_eq!(cpc.peek(0xC000), 0xC9, "BASIC ROM");
     }
 
     #[test]
     fn the_gate_array_can_page_either_rom_out() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.ram[0x0000] = 0x11;
         cpc.ram[0xC000] = 0x22;
 
@@ -1179,7 +1193,7 @@ mod tests {
     #[test]
     fn writes_reach_ram_under_a_paged_in_rom() {
         // The CPC has no write-protect: ROM covers reads only.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.cpu.addr = 0x0100;
         cpc.cpu.data = 0xAB;
         cpc.ram[0x0100] = 0xAB;
@@ -1194,7 +1208,7 @@ mod tests {
         // OS paged in gets the hardware's answer rather than a special case:
         // the byte is there, and the ROM goes on answering reads until it is
         // paged out.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.poke(0x0100, 0xAB);
         assert_eq!(cpc.peek(0x0100), 0x00, "the OS ROM still answers");
         assert_eq!(cpc.ram()[0x0100], 0xAB, "but the byte landed");
@@ -1212,7 +1226,7 @@ mod tests {
         // the video one. Returning an empty buffer here made a capture of
         // a quiet machine write a WAV with no samples and an MP4 with no
         // streams (#934).
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.run_frame();
         let audio = cpc.take_audio_buffer();
         assert_eq!(audio.len(), AY_SAMPLES_PER_FRAME);
@@ -1224,7 +1238,7 @@ mod tests {
         // The property that matters for a capture: N frames of machine
         // time produce N frames of audio, so the two timelines stay in
         // step regardless of when the machine happens to make a noise.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.run_frame();
         let silent = cpc.take_audio_buffer().len();
 
@@ -1242,7 +1256,7 @@ mod tests {
     fn an_audible_machine_hands_back_samples() {
         // Channel A at a mid tone, full volume, tone enabled: the mixer's
         // enable bits are active low, so $FE leaves only tone A through.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         for (reg, val) in [(0u8, 0x00u8), (1, 0x01), (7, 0xFE), (8, 0x0F)] {
             cpc.psg.select_register(reg);
             cpc.psg.write_data(val);
@@ -1256,7 +1270,7 @@ mod tests {
     #[test]
     fn an_unselected_upper_rom_reads_as_open_bus() {
         // An unexpanded 464 has only ROM 0.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.io_write(0xDF00, 7);
         assert_eq!(cpc.peek(0xC000), 0xFF);
         cpc.io_write(0xDF00, 0);
@@ -1265,7 +1279,7 @@ mod tests {
 
     #[test]
     fn the_crtc_has_no_readable_status_on_a_type_0() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         assert_eq!(cpc.io_read(0xBE00), 0xFF);
     }
 
@@ -1273,7 +1287,7 @@ mod tests {
     fn crtc_registers_round_trip_through_their_ports() {
         // R14 is one of the few a 6845 lets you read back; R0-R13 are
         // write-only, which is the chip's behaviour and not a gap here.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.io_write(0xBC00, 14);
         cpc.io_write(0xBD00, 0x2A);
         assert_eq!(cpc.io_read(0xBF00), 0x2A);
@@ -1281,7 +1295,7 @@ mod tests {
 
     #[test]
     fn the_gate_array_only_answers_when_a15_is_low_and_a14_high() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.io_write(0x7F00, 0b1000_0010); // mode 2
         assert_eq!(
             cpc.gate_array().mode(),
@@ -1299,7 +1313,7 @@ mod tests {
     fn the_crtc_advances_once_every_four_tstates() {
         // 4 MHz CPU, 1 MHz CRTC. If this ratio is wrong every raster timing
         // downstream of it is wrong too.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         // The address output only advances while the display is enabled, so
         // give the CRTC a displayed area to walk: R1 = 40 characters across,
         // R6 = 25 rows down, which is roughly the CPC's own setup.
@@ -1354,7 +1368,7 @@ mod tests {
         // the pixels-per-byte of the mode fixes how wide a pixel is. Getting
         // this wrong stretches or squashes the whole picture.
         for (mode_bits, pixels_per_char) in [(0u8, 4), (1, 8), (2, 16)] {
-            let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+            let mut cpc = booted(&test_firmware());
             cpc.io_write(0x7F00, 0b1000_0000 | mode_bits);
             let dots_per_pixel = DOTS_PER_CHAR / pixels_per_char;
             assert_eq!(
@@ -1390,7 +1404,7 @@ mod tests {
         // Note this needs the sync pulses. A CRTC with all registers zeroed
         // produces no sync at all, and a monitor handed no sync shows no
         // picture rather than a border — which is what the framebuffer does.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         program_standard_screen(&mut cpc);
         for (reg, value) in [(1u8, 0u8), (6, 0)] {
             cpc.io_write(0xBC00, reg); // nothing displayed, sync unchanged
@@ -1412,7 +1426,7 @@ mod tests {
         // The real shape of a CPC frame: a block of display with border around
         // it. Pen 1 is set to a colour the border is not, and the screen filled
         // with a byte that selects pen 1 everywhere, so the two are separable.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         program_standard_screen(&mut cpc);
         cpc.io_write(0x7F00, 0b1000_0001); // RMR: mode 1, both ROMs in
         cpc.io_write(0x7F00, 0b0000_0011); // pen 3
@@ -1456,13 +1470,16 @@ mod tests {
     fn read_keyboard_row(cpc: &mut AmstradCpc, row: u8) -> u8 {
         cpc.io_write(0xF400, 14); // PPI port A = AY register number
         cpc.io_write(0xF600, 0xC0 | row); // port C: select register, row in low nibble
+        cpc.io_write(0xF782, 0x92); // port A in, so the AY can drive it
         cpc.io_write(0xF600, 0x40 | row); // port C: read, same row
-        cpc.io_read(0xF400)
+        let bits = cpc.io_read(0xF400);
+        cpc.io_write(0xF782, 0x82); // port A back out
+        bits
     }
 
     #[test]
     fn a_pressed_key_pulls_its_matrix_bit_low() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         // Space is row 5, bit 7.
         assert_eq!(read_keyboard_row(&mut cpc, 5), 0xFF, "nothing pressed");
         cpc.press_key(5, 7);
@@ -1480,7 +1497,7 @@ mod tests {
 
     #[test]
     fn shifted_characters_press_shift_too() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         // '&' is Shift + 6; 6 is row 6 bit 0, Shift is row 2 bit 5.
         assert!(cpc.press_char('&'));
         assert_eq!(read_keyboard_row(&mut cpc, 6) & 0x01, 0, "the 6 key");
@@ -1501,7 +1518,7 @@ mod tests {
 
     #[test]
     fn unmappable_characters_report_themselves() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         assert!(!cpc.press_char('\u{20AC}'), "no euro sign on a CPC464");
         assert!(cpc.press_char('a'));
     }
@@ -1538,7 +1555,7 @@ mod tests {
     fn port_b_reports_vsync_and_the_pcb_links() {
         // How a CPC program waits for the frame. A bit that never moves is a
         // loader that never finishes.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         program_standard_screen(&mut cpc);
 
         let mut seen_high = false;
@@ -1569,7 +1586,7 @@ mod tests {
         // A CPC drives its own motor. A tape that ran free would advance
         // through its pilot tone while BASIC sat at the prompt, and be
         // somewhere in the middle of a block by the time a loader looked.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.insert_tape(vec![TapeSpan::Pulse(100); 8]);
         assert!(!cpc.tape_motor_on(), "motor off at reset");
 
@@ -1609,7 +1626,7 @@ mod tests {
         // tape stops (common-tape's `StopRelease`, after FUSE). The CPC does
         // not opt in until someone checks the hardware, so a tape that ends
         // high stays high on port B bit 7.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         cpc.insert_tape(vec![TapeSpan::Pulse(100)]);
         cpc.io_write(0xF600, 0x10);
         for _ in 0..200 {
@@ -1633,7 +1650,7 @@ mod tests {
     fn the_cassette_line_reaches_port_b_bit_7() {
         // Bit 7 is the only way a CPC hears its tape. A machine that never
         // presents the level boots and types perfectly and loads nothing.
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         // One long pulse, so the level is stable either side of the edge.
         cpc.insert_tape(vec![TapeSpan::Pulse(200), TapeSpan::Pulse(200)]);
         cpc.io_write(0xF600, 0x10); // motor on
@@ -1656,7 +1673,7 @@ mod tests {
 
     #[test]
     fn the_machine_runs_frames_without_panicking() {
-        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        let mut cpc = booted(&test_firmware());
         for _ in 0..3 {
             cpc.run_frame();
         }
