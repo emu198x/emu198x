@@ -1,0 +1,129 @@
+# Repositories scripts/extract-repo.py can stand up, one entry each.
+#
+# Layers 1 (CPUs, #1997) and 2 (shared chips, #1998) of
+# knowledge/decisions/workspace-shape.md § Amendment. A crate is listed once it
+# can move: published, `emu198x-` prefixed and independently versioned. The
+# rest of those checklists need a rename-and-publish change here first, the way
+# fad8cc4de did it for these six.
+#
+# `corpus` entries become the repository's nightly workflow. They are the jobs
+# for these crates in .github/workflows/nightly-accuracy.yml, which leave it
+# when the crates do.
+
+[[repo]]
+name = "mos-6502"
+crates = ["emu198x-mos-6502"]
+summary = "The MOS 6502 CPU, cycle-stepped, with a pin-level bus interface."
+consumers = "Used by its Commodore, Atari, Acorn, Nintendo and Oric machines, and by Play198x for `.sid` playback."
+# 74.60% line coverage on 2026-10-24, with the corpus tests ignored.
+coverage_floor = 73
+
+[[repo.corpus]]
+artifact = "harte-6502"
+crate = "emu198x-mos-6502"
+test = "single_step_tests"
+env_var = "EMU198X_6502_TOM_HARTE_DIR"
+filter = "run_all"
+
+[[repo.corpus]]
+artifact = "dormann-6502"
+crate = "emu198x-mos-6502"
+test = "dormann_tests"
+env_var = "EMU198X_6502_DORMANN_DIR"
+
+# The tarball carries the project's synthetic free KERNAL beside the cases,
+# never a commercial ROM; see test-data/commodore/c64/synthetic-kernal/.
+[[repo.corpus]]
+artifact = "lorenz-6502"
+crate = "emu198x-mos-6502"
+test = "lorenz_tests"
+env_var = "EMU198X_6502_LORENZ_DIR"
+filter = "run_lorenz_6502_cpu_suite"
+timeout = 120
+extra_env = { EMU198X_C64_KERNAL_ROM = "kernal.rom" }
+
+[[repo]]
+name = "zilog-z80"
+crates = ["emu198x-zilog-z80"]
+summary = "The Zilog Z80 CPU as a half-cycle signal-level state machine."
+consumers = "Used by its Sinclair, Amstrad, MSX, Sega and other Z80 machines, and by Play198x for `.ay` playback."
+# 90.85% line coverage on 2026-10-24, with the corpus tests ignored.
+coverage_floor = 90
+
+[[repo.corpus]]
+artifact = "harte-z80"
+crate = "emu198x-zilog-z80"
+test = "single_step_tests"
+env_var = "EMU198X_Z80_TOM_HARTE_DIR"
+filter = "run_all"
+
+[[repo.corpus]]
+artifact = "fuse-z80"
+crate = "emu198x-zilog-z80"
+test = "z80_fuse"
+env_var = "EMU198X_FUSE_Z80_TESTS_DIR"
+
+# --skip checkpoint drops the checkpoint tests, which need
+# EMU198X_ZEX_CHECKPOINT and panic without it.
+[[repo.corpus]]
+artifact = "zex"
+crate = "emu198x-zilog-z80"
+test = "zex_tests"
+env_var = "EMU198X_ZEX_DIR"
+extra_args = "--skip checkpoint"
+timeout = 120
+
+[[repo]]
+name = "gi-ay-3-8910"
+crates = ["emu198x-gi-ay-3-8910"]
+summary = "The General Instrument AY-3-8910 programmable sound generator."
+consumers = "Used by the Spectrum 128, Amstrad CPC, MSX and other machines, and by Play198x. The `gi-ay-3-8912` facade joins it once it is published."
+# 97.13% line coverage on 2026-10-24, with the corpus tests ignored.
+coverage_floor = 96
+
+[[repo]]
+name = "mos-sid-6581"
+crates = ["emu198x-mos-sid-6581"]
+summary = "The MOS 6581 and 8580 SID sound chips."
+consumers = "Used by the Commodore 64 and by Play198x for `.sid` playback."
+# 95.73% line coverage on 2026-10-24, with the corpus tests ignored.
+coverage_floor = 95
+# Carried from this workspace's profile: the filter's lookup tables cost the
+# best part of a minute per unoptimised test process, and about a second here.
+cargo_extra = """
+[profile.dev.package.emu198x-mos-sid-6581]
+opt-level = 3
+"""
+
+[[repo]]
+name = "commodore-paula-8364"
+crates = ["emu198x-commodore-paula-8364"]
+summary = "Commodore's Paula (8364): Amiga audio, disk and interrupt control."
+consumers = "Used by the Amiga machines and by Play198x for tracker music."
+# 95.53% line coverage on 2026-10-24, with the corpus tests ignored.
+coverage_floor = 95
+# The WinUAE and hardware reference observations its tests compile in. The
+# corpus is CC0; its README and LICENSE go with them.
+data = [
+  "test-data/commodore/amiga/paula-audio/LICENSE",
+  "test-data/commodore/amiga/paula-audio/README.md",
+  "test-data/commodore/amiga/paula-audio/active-target-probe/winuae.csv",
+  "test-data/commodore/amiga/paula-audio/amplitude-probe/winuae.csv",
+  "test-data/commodore/amiga/paula-audio/cancelled-startup-probe/winuae.csv",
+  "test-data/commodore/amiga/paula-audio/handover-probe/winuae.csv",
+  "test-data/commodore/amiga/paula-audio/interrupt-probe/reference.csv",
+  "test-data/commodore/amiga/paula-audio/live-attachment-probe/winuae.csv",
+  "test-data/commodore/amiga/paula-audio/manual-probe/attachments.csv",
+  "test-data/commodore/amiga/paula-audio/manual-probe/winuae.csv",
+  "test-data/commodore/amiga/paula-audio/modulation-probe/reference.csv",
+  "test-data/commodore/amiga/paula-audio/period-probe/reference.csv",
+  "test-data/commodore/amiga/paula-audio/startup-length-probe/reference.csv",
+]
+
+[[repo]]
+name = "ricoh-apu-2a03"
+crates = ["emu198x-ricoh-apu-2a03"]
+summary = "The audio unit of the Ricoh 2A03, the NES CPU."
+consumers = "Used by the NES and by Play198x for NSF playback."
+# 99.27% line coverage on 2026-10-24, with the corpus tests ignored.
+coverage_floor = 98
