@@ -5,9 +5,10 @@
 //! - `HALT` — suspend CPU clock until an interrupt becomes pending,
 //!   with the documented "HALT bug" when `IME=0` and an interrupt is
 //!   already pending.
-//! - `STOP` — halt the entire SoC (CPU + LCD) until a button-press
-//!   wakes it. Modelled as a sticky flag here; the machine layer
-//!   resets it when the joypad pin transitions.
+//! - `STOP` — hand the SoC to the machine, which decides what the
+//!   instruction means: stop mode until a button wakes it, a HALT when
+//!   a button is already held, or a CGB speed switch when KEY1 is armed.
+//!   The CPU raises `stopped` and the machine clears it.
 
 use crate::Sm83;
 
@@ -44,15 +45,18 @@ impl Sm83 {
         self.finish_instruction();
     }
 
-    /// `STOP` — set the sticky `stopped` flag and skip the second
-    /// instruction byte.
+    /// `STOP` — raise `stopped` for the machine, which decides what
+    /// the instruction does, and skip the second byte unless an
+    /// interrupt is already pending.
     pub(super) fn op_stop(&mut self) {
-        // STOP is a two-byte instruction that skips the second byte
-        // (documented as "usually $00"). On real hardware it halts
-        // the entire SoC until a button press; here we stash the
-        // condition and let the machine clear it when the joypad
-        // transitions.
-        self.pc = self.pc.wrapping_add(1);
+        // STOP is two bytes, the second "usually $00". With `IF & IE`
+        // non-zero on entry the second byte is not skipped: it runs as
+        // the next instruction (SameBoy `Core/sm83_cpu.c`, `stop`,
+        // "When entering with IF&IE, the 2nd byte of STOP is actually
+        // executed").
+        if self.irq_pending == 0 {
+            self.pc = self.pc.wrapping_add(1);
+        }
         self.stopped = true;
         self.finish_instruction();
     }
@@ -91,6 +95,15 @@ mod tests {
         bus.step(&mut cpu);
         assert!(cpu.stopped);
         assert_eq!(cpu.pc, 2);
+    }
+
+    #[test]
+    fn stop_with_an_interrupt_pending_keeps_the_second_byte() {
+        let (mut cpu, mut bus) = boot(&[0x10, 0x00]);
+        cpu.irq_pending = 0x01;
+        bus.step(&mut cpu);
+        assert!(cpu.stopped);
+        assert_eq!(cpu.pc, 1, "the second byte runs as the next opcode");
     }
 
     #[test]

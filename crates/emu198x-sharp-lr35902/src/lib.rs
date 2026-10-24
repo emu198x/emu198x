@@ -66,9 +66,9 @@ pub struct Sm83 {
     /// keeps ticking but performs no bus operations and the PC stays
     /// put.
     pub halt_mode: bool,
-    /// `STOP` halts the entire SoC (CPU + LCD) until a button-press
-    /// wakes it. Modelled as a sticky flag for now; the machine layer
-    /// resets it when the joypad pin transitions.
+    /// Raised by `STOP`. While it is set the CPU does nothing; the
+    /// machine decides what STOP means (stop mode, a HALT, or a CGB
+    /// speed switch) and clears it.
     pub stopped: bool,
     /// Set when the CPU executes an opcode we haven't implemented yet
     /// (originally a Zig-side diagnostic). Real hardware has no
@@ -197,6 +197,68 @@ impl PostBootCpuState {
         e: 0x00,
         h: 0xC0,
         l: 0x60,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Game Boy Color boot ROM exit state for a CGB cartridge (Pan Docs,
+    /// "Power Up Sequence": `A=$11` identifies CGB hardware).
+    pub const CGB: Self = Self {
+        a: 0x11,
+        f: 0x80,
+        b: 0x00,
+        c: 0x00,
+        d: 0xFF,
+        e: 0x56,
+        h: 0x00,
+        l: 0x0D,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Game Boy Color boot ROM exit state for a monochrome cartridge.
+    /// `B` and `HL` depend on the title checksum the boot ROM computes
+    /// for Nintendo-licensed games; these are the values for any other
+    /// cartridge (Pan Docs, "Power Up Sequence").
+    pub const CGB_DMG: Self = Self {
+        a: 0x11,
+        f: 0x80,
+        b: 0x00,
+        c: 0x00,
+        d: 0x00,
+        e: 0x08,
+        h: 0x00,
+        l: 0x7C,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Game Boy Advance boot ROM exit state for a CGB cartridge. The
+    /// AGB boot ROM ends with `INC B`, which software uses to tell it
+    /// from a CGB: `B=$01` and Z clear.
+    pub const AGB: Self = Self {
+        a: 0x11,
+        f: 0x00,
+        b: 0x01,
+        c: 0x00,
+        d: 0xFF,
+        e: 0x56,
+        h: 0x00,
+        l: 0x0D,
+        sp: 0xFFFE,
+        pc: 0x0100,
+    };
+
+    /// Game Boy Advance boot ROM exit state for a monochrome cartridge.
+    pub const AGB_DMG: Self = Self {
+        a: 0x11,
+        f: 0x00,
+        b: 0x01,
+        c: 0x00,
+        d: 0x00,
+        e: 0x08,
+        h: 0x00,
+        l: 0x7C,
         sp: 0xFFFE,
         pc: 0x0100,
     };
