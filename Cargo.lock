@@ -4402,6 +4402,7 @@ name = "runtime-acorn-bbc-micro"
 version = "0.44.2"
 dependencies = [
  "common-acorn-cassette",
+ "emu198x-mos-6502",
  "emu198x-shell",
  "format-acorn-uef",
  "machine-acorn-bbc-micro",
