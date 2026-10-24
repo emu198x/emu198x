@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `MsxLayout`, `SlotAddress` and `RamRegion`, and `Msx::with_layout`: the BIOS, RAM and cartridge ports can sit in any slot or subslot, as they do across real MSX1 machines. An expanded slot has its subslot register at `$FFFF`, read back complemented. `Msx::new` keeps the old layout.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-msx-v0.2.0) - 2026-06-04
 
 ### Added
