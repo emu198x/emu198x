@@ -11,12 +11,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::AmstradCpcRuntime;
 
+// Bumped to 4: the machine carries the 664 and 6128's µPD765A and drive-motor
+// latch.
+//
 // Bumped to 3: the 8255 began modelling its port directions and input lines, which changes its serialised fields.
 //
 // Bumped to 2: the 6845 now carries its interlace field (#163). postcard is
 // not self-describing, so a field added to the CRTC shifts every byte after
 // it.
-const SNAPSHOT_VERSION: u16 = 3;
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
