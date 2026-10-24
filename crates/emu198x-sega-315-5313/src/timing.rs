@@ -198,6 +198,38 @@ impl VTiming {
         }
     }
 
+    /// The timing in Mode 4, the Master System mode, for a picture
+    /// `height` lines tall: 192, 224 or 240.
+    ///
+    /// The counter's jump points are where Genesis Plus GX puts them for
+    /// the 315-5313 in Mode 4 (`vc_table` in its `vdp_ctrl.c`): a 192-line
+    /// picture counts `$00-$DA` then `$D5-$FF` on NTSC and `$00-$F2` then
+    /// `$BA-$FF` on PAL, as a Master System does. A 240-line picture on
+    /// NTSC never jumps: the counter runs straight through 262 lines.
+    #[must_use]
+    pub const fn mode4(pal_machine: bool, height: u16) -> Self {
+        match (pal_machine, height) {
+            (false, 224) => Self::new(false, false),
+            (false, 240) => Self {
+                jump_from: 0x105,
+                jump_to: 0,
+                blank_start: 240,
+            },
+            (true, 224) => Self::new(true, false),
+            (true, 240) => Self::new(true, true),
+            (false, _) => Self {
+                jump_from: 0xDA,
+                jump_to: 0x1D5,
+                blank_start: 192,
+            },
+            (true, _) => Self {
+                jump_from: 0xF2,
+                jump_to: 0x1BA,
+                blank_start: 192,
+            },
+        }
+    }
+
     /// The V counter after `vcounter`.
     #[must_use]
     pub const fn next(self, vcounter: u16) -> u16 {
@@ -211,7 +243,12 @@ impl VTiming {
     /// Lines in a frame.
     #[must_use]
     pub const fn lines(self) -> u32 {
-        (self.jump_from as u32 + 1) + (0x200 - self.jump_to as u32)
+        if self.jump_to <= self.jump_from {
+            // A jump back to the top: no run through the high values.
+            self.jump_from as u32 + 1 - self.jump_to as u32
+        } else {
+            (self.jump_from as u32 + 1) + (0x200 - self.jump_to as u32)
+        }
     }
 }
 
@@ -283,5 +320,21 @@ mod tests {
         assert_eq!(VTiming::new(true, false).lines(), 313);
         assert_eq!(VTiming::new(true, true).lines(), 313);
         assert_eq!(VTiming::new(false, true).lines(), 262);
+    }
+
+    #[test]
+    fn mode_4_frames_have_262_and_313_lines_at_every_height() {
+        for height in [192, 224, 240] {
+            assert_eq!(VTiming::mode4(false, height).lines(), 262, "NTSC {height}");
+            assert_eq!(VTiming::mode4(true, height).lines(), 313, "PAL {height}");
+            assert_eq!(VTiming::mode4(false, height).blank_start, height);
+        }
+        // The NTSC 192-line counter reads $DA then $D5, as a Master System's.
+        let v = VTiming::mode4(false, 192);
+        assert_eq!(v.next(0xDA) & 0xFF, 0xD5);
+        let v = VTiming::mode4(true, 192);
+        assert_eq!(v.next(0xF2) & 0xFF, 0xBA);
+        let v = VTiming::mode4(false, 240);
+        assert_eq!(v.next(0x105), 0);
     }
 }

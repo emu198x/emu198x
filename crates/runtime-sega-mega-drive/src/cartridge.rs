@@ -8,6 +8,13 @@
 //!
 //! The header at `$100` holds a region field at `$1F0`. [`header_model`]
 //! reads it, so a cartridge can choose its console when the user has not.
+//!
+//! A Master System cartridge (`.sms`) runs through the Power Base
+//! Converter. [`is_master_system`] tells one from a Mega Drive image by its
+//! headers, and [`normalise_master_system`] drops the 512-byte header some
+//! copiers put in front of it.
+
+use machine_sega_mega_drive::is_master_system_image;
 
 use crate::Model;
 
@@ -16,6 +23,30 @@ const SMD_BLOCK: usize = 0x4000;
 /// The SMD header's format bytes, at offsets 8 and 9.
 const SMD_MAGIC: [u8; 2] = [0xAA, 0xBB];
 const REGION_FIELD: usize = 0x1F0;
+/// Where a Mega Drive cartridge's header says `SEGA`.
+const SYSTEM_FIELD: usize = 0x100;
+/// A Master System bank, which a copier's header leaves the size off by.
+const SMS_BANK: usize = 0x4000;
+
+/// Whether `rom`, normalised, is a Master System cartridge: it carries the
+/// Master System's `TMR SEGA` header and not the Mega Drive's `SEGA` at
+/// `$100`.
+#[must_use]
+pub fn is_master_system(rom: &[u8]) -> bool {
+    let mega_drive = rom
+        .get(SYSTEM_FIELD..SYSTEM_FIELD + 16)
+        .is_some_and(|field| field.windows(4).any(|w| w == b"SEGA"));
+    !mega_drive && is_master_system_image(rom)
+}
+
+/// A Master System image without the 512-byte copier header some carry.
+#[must_use]
+pub fn normalise_master_system(mut bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.len() % SMS_BANK == SMD_HEADER {
+        bytes.drain(..SMD_HEADER);
+    }
+    bytes
+}
 
 /// Whether `bytes` is an `.smd` image: a 512-byte header carrying the
 /// format bytes, then whole 16 KB blocks.
@@ -54,6 +85,9 @@ pub fn normalise(bytes: Vec<u8>) -> Vec<u8> {
 /// of the Genesis, the European Mega Drive and the Japanese one it names.
 #[must_use]
 pub fn header_model(rom: &[u8]) -> Option<Model> {
+    if is_master_system(rom) {
+        return None;
+    }
     let field = rom.get(REGION_FIELD..REGION_FIELD + 3)?;
     let has = |c: u8| field.contains(&c);
     let (japan, americas, europe) = if has(b'J') || has(b'U') || has(b'E') {
@@ -142,6 +176,32 @@ mod tests {
                 String::from_utf8_lossy(field)
             );
         }
+    }
+
+    fn master_system(len: usize) -> Vec<u8> {
+        let mut rom = vec![0; len];
+        rom[0x7FF0..0x7FF8].copy_from_slice(b"TMR SEGA");
+        rom
+    }
+
+    #[test]
+    fn a_master_system_image_is_told_by_its_headers() {
+        let rom = master_system(0x8000);
+        assert!(is_master_system(&rom));
+        assert_eq!(header_model(&rom), None, "no Mega Drive region field");
+        let mut both = rom.clone();
+        both[0x100..0x104].copy_from_slice(b"SEGA");
+        assert!(!is_master_system(&both), "the Mega Drive header wins");
+        assert!(!is_master_system(&raw(0x8000)));
+    }
+
+    #[test]
+    fn a_copier_header_comes_off_a_master_system_image() {
+        let rom = master_system(0x8000);
+        let mut copied = vec![0xAA; SMD_HEADER];
+        copied.extend(&rom);
+        assert_eq!(normalise_master_system(copied), rom);
+        assert_eq!(normalise_master_system(rom.clone()), rom);
     }
 
     #[test]

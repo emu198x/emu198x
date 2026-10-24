@@ -52,6 +52,18 @@
 //! 48 kHz, in the way the PSG's own resampler does. The PSG is mono and goes
 //! to both channels.
 //!
+//! # Master System mode
+//!
+//! [`MegaDrive::new_power_base`] puts a Master System cartridge in through
+//! a Power Base Converter: the 68000 and YM2612 stay idle, and the Z80 runs
+//! the cartridge with the VDP in Mode 4. See [`power_base`].
+//!
+//! The Master System mapper is written again here rather than shared with
+//! `machine-sega-master-system`: it lives inside that machine's own struct,
+//! and one machine crate depending on another would pull the Master
+//! System's VDP and machine scaffolding into the Mega Drive. Moving the
+//! mapper to a crate both can use is follow-up work.
+//!
 //! # Not yet modelled
 //!
 //! Cartridge SRAM, TMSS, the extra wait a Z80 access to the 68000 window
@@ -59,6 +71,7 @@
 //! runs, are follow-up work under emu198x/emu198x#2034.
 
 pub mod io;
+pub mod power_base;
 
 use emu198x_sega_315_5313::Vdp;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
@@ -71,6 +84,7 @@ use motorola_68000::cpu::State;
 use serde::{Deserialize, Serialize};
 
 pub use io::{Buttons, Device};
+pub use power_base::{PowerBase, is_master_system_image};
 
 /// The NTSC master clock: fifteen times the colour subcarrier.
 pub const NTSC_MASTER_HZ: u64 = 53_693_175;
@@ -171,6 +185,9 @@ pub struct MegaDrive {
     /// streams end a frame a sample or so apart.
     ym_pending: Vec<[f32; 2]>,
     psg_pending: Vec<f32>,
+
+    /// The Power Base Converter, when a Master System cartridge is in.
+    power_base: Option<PowerBase>,
 }
 
 impl MegaDrive {
@@ -214,9 +231,28 @@ impl MegaDrive {
             ym_count: 0,
             ym_pending: Vec::new(),
             psg_pending: Vec::new(),
+            power_base: None,
         };
         machine.reset_68000();
         machine
+    }
+
+    /// A console of `region`'s with a Master System cartridge in through a
+    /// Power Base Converter: the 68000 is held off and the Z80 runs `rom`
+    /// from its first byte.
+    #[must_use]
+    pub fn new_power_base(rom: Vec<u8>, region: Region) -> Self {
+        let mut machine = Self::new(Vec::new(), region);
+        machine.power_base = Some(PowerBase::new(&rom));
+        machine.rom = rom;
+        machine.z80_reset = false;
+        machine
+    }
+
+    /// Whether the console is in Master System mode.
+    #[must_use]
+    pub fn master_system_mode(&self) -> bool {
+        self.power_base.is_some()
     }
 
     /// Start the 68000 from the cartridge's reset vectors.
@@ -229,6 +265,11 @@ impl MegaDrive {
     /// Press the reset button: the 68000 restarts; the Z80 and YM2612 go back
     /// into reset; the VDP keeps running.
     pub fn reset(&mut self) {
+        if self.power_base.is_some() {
+            // Only the Z80 runs, and the reset line restarts it.
+            self.z80 = Z80::new();
+            return;
+        }
         self.reset_68000();
         self.z80_reset = true;
         self.z80_busreq = false;
@@ -256,7 +297,7 @@ impl MegaDrive {
         }
         self.vint_seen = vint;
 
-        if self.phase_68k == 0 {
+        if self.phase_68k == 0 && self.power_base.is_none() {
             self.tick_68000();
             self.ym2612.tick();
             for port in &mut self.ports {
@@ -342,6 +383,14 @@ impl MegaDrive {
             }
         }
         self.psg_pending.extend(self.psg.take_buffer());
+        if self.power_base.is_some() {
+            // The YM2612 is silent and makes nothing to wait for.
+            return self
+                .psg_pending
+                .drain(..)
+                .flat_map(|psg| [psg * PSG_GAIN; 2])
+                .collect();
+        }
 
         let n = self.ym_pending.len().min(self.psg_pending.len());
         let mut out = Vec::with_capacity(n * 2);
@@ -622,6 +671,10 @@ impl MegaDrive {
             self.z80_released = true;
             return;
         }
+        if self.power_base.is_some() {
+            self.tick_z80_master_system();
+            return;
+        }
         if self.z80_at_last_t_rise() {
             self.z80_busreq_sampled = self.z80_busreq;
         }
@@ -633,6 +686,59 @@ impl MegaDrive {
             // The Z80's I/O space is not connected.
             Some(BusOp::IoRead | BusOp::IntAck) => self.z80.data_in = 0xFF,
             Some(BusOp::IoWrite) | None => {}
+        }
+    }
+
+    /// A Z80 half-cycle in Master System mode: the Master System's map and
+    /// ports, the VDP's interrupt on /INT and Pause on /NMI.
+    fn tick_z80_master_system(&mut self) {
+        self.z80.irq = self.vdp.z80_interrupt();
+        self.z80.nmi = self.ports[0].buttons.start;
+        self.z80.tick();
+        let Some(pb) = self.power_base.as_mut() else {
+            return;
+        };
+        let address = self.z80.addr;
+        match self.z80.bus_request() {
+            Some(BusOp::MemRead) => self.z80.data_in = pb.read(&self.rom, &self.z80_ram, address),
+            Some(BusOp::MemWrite) => pb.write(&mut self.z80_ram, address, self.z80.data),
+            Some(BusOp::IoRead) => self.z80.data_in = self.read_master_system_port(address as u8),
+            Some(BusOp::IoWrite) => self.write_master_system_port(address as u8, self.z80.data),
+            // The VDP's interrupt is answered in mode 1: the bus floats.
+            Some(BusOp::IntAck) => self.z80.data_in = 0xFF,
+            None => {}
+        }
+    }
+
+    /// A Master System port read, decoded by A7, A6 and A0.
+    fn read_master_system_port(&mut self, port: u8) -> u8 {
+        match port & 0xC1 {
+            0x40 => self.vdp.read_v_counter(),
+            0x41 => self.vdp.read_h_counter(),
+            0x80 => self.vdp.read_data_byte(),
+            0x81 => self.vdp.read_status_byte(),
+            0xC0 => PowerBase::port_dc(&self.ports[0].buttons, &self.ports[1].buttons),
+            0xC1 => self.power_base.as_ref().map_or(0xFF, |pb| {
+                pb.port_dd(&self.ports[1].buttons, !self.region.overseas())
+            }),
+            _ => 0xFF,
+        }
+    }
+
+    /// A Master System port write.
+    fn write_master_system_port(&mut self, port: u8, value: u8) {
+        match port & 0xC1 {
+            // Memory control: there is no BIOS or card slot to switch.
+            0x00 => {}
+            0x01 => {
+                if let Some(pb) = self.power_base.as_mut() {
+                    pb.io_control = value;
+                }
+            }
+            0x40 | 0x41 => self.psg.write(value),
+            0x80 => self.vdp.write_data_byte(value),
+            0x81 => self.vdp.write_control_byte(value),
+            _ => {}
         }
     }
 
@@ -765,5 +871,7 @@ impl MegaDrive {
     }
 }
 
+#[cfg(test)]
+mod power_base_tests;
 #[cfg(test)]
 mod tests;
