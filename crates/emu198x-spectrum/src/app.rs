@@ -134,6 +134,11 @@ pub struct Spectrum {
     /// `--kempston-mouse`: capture the host mouse as a Kempston mouse on
     /// the machines that host one (16K, 48K, +, 128K, +2).
     pub kempston_mouse: bool,
+    /// `--multiface PATH`: the 8 KB Multiface ROM to plug in. A Multiface
+    /// 128 on the 48K- and 128K-class variants, a Multiface 3 on the
+    /// +2A, +2B and +3. The ROM is Romantic Robot's, so it is never
+    /// bundled.
+    pub multiface: Option<PathBuf>,
 }
 
 impl Spectrum {
@@ -207,7 +212,11 @@ impl MachineApp for Spectrum {
     --autoload-tape wait for boot, type LOAD \"\", and start tape-1
     --turbo-tape    (accepted; arm fast-load in the UI with F11)
     --kempston-mouse  capture the host mouse as a Kempston mouse
-                    (16K, 48K, +, 128K and +2)";
+                    (16K, 48K, +, 128K and +2)
+    --multiface PATH
+                    plug in a Multiface with this 8 KB ROM image: a
+                    Multiface 128, or a Multiface 3 on the +2A/+2B/+3.
+                    F5 is its red button";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
@@ -215,6 +224,7 @@ impl MachineApp for Spectrum {
     Home / Pause      EDIT / BREAK in Host keyboard mode
     F12                hard reset
     Cmd/Ctrl+S / +L    quick save / load state
+    F5                 Multiface red button (NMI), with --multiface
     Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)
     Alt                Symbol Shift
     Gamepad            Kempston on 16K/48K/+/128K/+2; IF2 on +2A/+2B/+3
@@ -233,6 +243,7 @@ impl MachineApp for Spectrum {
             "--autoload-tape" => self.autoload_tape = true,
             "--turbo-tape" => self.turbo_tape = true,
             "--kempston-mouse" => self.kempston_mouse = true,
+            "--multiface" => self.multiface = Some(args.path(flag)?),
             positional if !positional.starts_with('-') => {
                 if self.tape.is_some() {
                     return Err(LaunchError::Usage(
@@ -270,8 +281,15 @@ impl MachineApp for Spectrum {
         }
         let model = self.boot_model()?;
         let overrides = firmware_overrides(&self.rom, model)?;
-        let runtime =
+        let mut runtime =
             build_variant::<SpectrumRuntimeKind>(model, &overrides).map_err(|e| e.to_string())?;
+        if let Some(path) = &self.multiface {
+            let rom =
+                std::fs::read(path).map_err(|e| format!("--multiface {}: {e}", path.display()))?;
+            runtime
+                .attach_multiface(&rom)
+                .map_err(|e| format!("--multiface {}: {e}", path.display()))?;
+        }
 
         let frame_ticks = u64::from(runtime.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(

@@ -15,6 +15,7 @@ peripheral-kempston-mouse = { path = "../peripheral-kempston-mouse", version = "
 serde = { workspace = true }
 sinclair-ula-7k010e = { path = "../sinclair-ula-7k010e", version = "0.44.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+peripheral-multiface = { path = "../peripheral-multiface", version = "0.44.0" }
 
 [lints]
 workspace = true

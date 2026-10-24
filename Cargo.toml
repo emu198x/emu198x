@@ -207,6 +207,7 @@ members = [
     "crates/nintendo-game-boy-ppu",
     "crates/nintendo-game-boy-timer",
     "crates/pentagon-ula",
+    "crates/peripheral-multiface",
     "crates/scorpion-ula",
     "crates/sega-vdp",
     "crates/sinclair-zx81-ula",

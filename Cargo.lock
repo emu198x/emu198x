@@ -656,6 +656,7 @@ dependencies = [
  "emu198x-zilog-z80",
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
+ "peripheral-multiface",
  "serde",
  "serde_json",
  "sinclair-ula-7k010e",
@@ -670,6 +671,7 @@ dependencies = [
  "ferranti-ula-6c001e",
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
+ "peripheral-multiface",
  "serde",
  "serde_json",
 ]
@@ -683,6 +685,7 @@ dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-zilog-z80",
  "nec-upd765a",
+ "peripheral-multiface",
  "serde",
  "serde_json",
 ]
@@ -4213,6 +4216,14 @@ dependencies = [
 
 [[package]]
 name = "peripheral-kempston-mouse"
+version = "0.44.2"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "peripheral-multiface"
 version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
