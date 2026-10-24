@@ -16,7 +16,9 @@ use crate::runtime::OricRuntime;
 // lines. postcard is not self-describing, so added fields shift every byte
 // after them.
 // Version 7 preserves the VIA timer 2 load phase (#1677).
-const SNAPSHOT_VERSION: u16 = 7;
+// Version 8 adds the optional 6551 serial card and its crystal remainder
+// (#1303).
+const SNAPSHOT_VERSION: u16 = 8;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -121,5 +123,39 @@ mod tests {
             if reason == format!("unsupported snapshot version {}; expected {}",
                 super::SNAPSHOT_VERSION - 1, super::SNAPSHOT_VERSION)));
         assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
+    }
+
+    /// The serial card and its registers come back with the machine, and the
+    /// runtime's fitting follows the restored machine.
+    ///
+    /// The live machine holds 64 KB of RAM inline, and a debug build keeps
+    /// several copies on the stack across encode and decode, so this runs on
+    /// a thread with room for them.
+    #[test]
+    fn the_serial_card_round_trips() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(serial_card_round_trip)
+            .expect("spawn")
+            .join()
+            .expect("round trip");
+    }
+
+    fn serial_card_round_trip() {
+        let mut rom = vec![0xEA; 0x4000];
+        rom[0x3FFD] = 0xC0;
+        let mut runtime = OricRuntime::new(Model::Atmos, rom.clone()).expect("runtime");
+        runtime.set_serial_card(true);
+        runtime.machine_mut().expect("machine").poke(0x031E, 0x0B);
+        let bytes = super::encode(&runtime).expect("snapshot");
+
+        let mut restored = OricRuntime::new(Model::Atmos, rom).expect("runtime");
+        decode(&mut restored, &bytes).expect("restore");
+        assert!(restored.serial_card());
+        let command = restored
+            .machine()
+            .and_then(machine_oric_atmos::OricAtmos::acia_registers)
+            .map(|registers| registers.command);
+        assert_eq!(command, Some(0x0B));
     }
 }
