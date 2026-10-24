@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Six real MSX1 machines beside the two regional presets: Sony HB-10P, Toshiba HX-10, Mitsubishi ML-F80, Yamaha CX5M, Mitsubishi ML-FX1 and Sony HB-10. Each carries its slot layout, region and year from openMSX's machine configuration, and looks for its own BIOS dump before `msx.rom`.
+- MSX2: two regional presets on C-BIOS's layout (`microsoft-msx2-ntsc`, `microsoft-msx2-pal`) and the Philips VG-8235, Sony HB-F1 and Panasonic FS-A1. An MSX2 takes a second firmware image, the 16 KB SUB-ROM (`msx2-sub-rom`, `msx2ext.rom`), and the main ROM falls back to `msx2.rom`. New queries: `vdp.screen_mode`, `mapper.registers` and `rtc`; `vdp` names its chip. The snapshot version is now 9.
 
 ### Changed
 

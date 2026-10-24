@@ -1,15 +1,27 @@
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, ResetKind};
-use runtime_msx::{BIOS_FIRMWARE_ID, MapperType, Model, MsxRegion, MsxRuntime};
+use runtime_msx::{
+    BIOS_FIRMWARE_ID, MapperType, Model, MsxRegion, MsxRuntime, SUB_ROM_FIRMWARE_ID,
+};
 
 #[test]
 fn regional_replacement_retains_restored_cartridges_and_cold_boots() {
     let bios = vec![0x76; 32768];
     let cart1 = vec![0x5a; 65536];
     let cart2 = vec![0x42; 65536];
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(BIOS_FIRMWARE_ID, &bios));
+    let sub_rom = vec![0; 16384];
+    // Each model takes exactly the firmware it declares: an MSX2 adds its
+    // SUB-ROM.
+    let firmware_for = |model: Model| {
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(BIOS_FIRMWARE_ID, &bios));
+        if model.is_msx2() {
+            firmware.push(FirmwareImage::new(SUB_ROM_FIRMWARE_ID, &sub_rom));
+        }
+        firmware
+    };
     for source_model in Model::ALL {
-        let mut source = MsxRuntime::from_firmware(source_model, &firmware).expect("firmware");
+        let mut source =
+            MsxRuntime::from_firmware(source_model, &firmware_for(source_model)).expect("firmware");
         source.insert_cartridge1(cart1.clone(), MapperType::KonamiScc);
         source.insert_cartridge2(cart2.clone(), MapperType::Ascii16);
         source.machine_mut().expect("machine").cpu_mut().regs.pc = 1234;
@@ -23,7 +35,9 @@ fn regional_replacement_retains_restored_cartridges_and_cold_boots() {
         restored.reset(ResetKind::Hard);
         assert_eq!(restored.machine().expect("machine").bios_rom(), bios);
         for model in Model::ALL {
-            let replacement = restored.replacement(model, &firmware).expect("replacement");
+            let replacement = restored
+                .replacement(model, &firmware_for(model))
+                .expect("replacement");
             assert_eq!(replacement.model(), model);
             assert_eq!(
                 replacement.profile().profile_id.as_str(),
