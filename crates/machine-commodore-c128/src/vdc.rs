@@ -42,8 +42,10 @@ const REGISTER_MASK: [u8; 38] = [
 /// The revision in the status register's low bits: an 8563 R9.
 const REVISION: u8 = 2;
 
-/// The dot clock, and the phi2 clock it is measured against (PAL).
+/// The dot clock. The VDC has its own crystal, so it is the same on PAL
+/// and NTSC machines; only the phi2 clock it is measured against differs.
 const DOT_HZ: u64 = 16_000_000;
+#[cfg(test)]
 const PHI2_HZ: u64 = 985_248;
 
 /// The framebuffer: 80 columns of 8 pixels with a 32-pixel border either
@@ -100,21 +102,24 @@ pub(crate) struct Vdc {
     /// The beam's raster line from the top of the frame.
     line: u16,
     /// Dot-clock time banked towards the end of the line, in units of
-    /// 1/PHI2_HZ dots.
+    /// 1/`phi2_hz` dots.
     dot_time: u64,
+    /// The machine's phi2 clock, which the dot clock is counted against.
+    phi2_hz: u64,
     /// Frames drawn, for blinking.
     frame_counter: u64,
     framebuffer: Vec<u32>,
 }
 
 impl Vdc {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(phi2_hz: u64) -> Self {
         Self {
             regs: [0; 38],
             selected: 0,
             vram: [0; VRAM_SIZE],
             line: 0,
             dot_time: 0,
+            phi2_hz,
             frame_counter: 0,
             framebuffer: vec![PALETTE[0]; VDC_FB_WIDTH * VDC_FB_HEIGHT],
         }
@@ -129,7 +134,7 @@ impl Vdc {
     /// the beam leaves it.
     pub(crate) fn tick(&mut self) {
         self.dot_time += DOT_HZ;
-        let line_time = u64::from(self.line_dots()) * PHI2_HZ;
+        let line_time = u64::from(self.line_dots()) * self.phi2_hz;
         while self.dot_time >= line_time {
             self.dot_time -= line_time;
             self.end_line();
@@ -406,7 +411,7 @@ mod tests {
 
     #[test]
     fn data_goes_through_the_update_address_and_advances_it() {
-        let mut vdc = Vdc::new();
+        let mut vdc = Vdc::new(PHI2_HZ);
         set(&mut vdc, 18, 0x10);
         set(&mut vdc, 19, 0x00);
         set(&mut vdc, 31, 0x41);
@@ -420,7 +425,7 @@ mod tests {
 
     #[test]
     fn r30_fills_and_copies_blocks() {
-        let mut vdc = Vdc::new();
+        let mut vdc = Vdc::new(PHI2_HZ);
         set(&mut vdc, 18, 0x00);
         set(&mut vdc, 19, 0x00);
         set(&mut vdc, 31, 0x20); // writes one byte, then...
@@ -444,7 +449,7 @@ mod tests {
 
     #[test]
     fn the_status_register_is_ready_and_reports_blanking() {
-        let mut vdc = Vdc::new();
+        let mut vdc = Vdc::new(PHI2_HZ);
         set(&mut vdc, 6, 25);
         set(&mut vdc, 9, 7);
         assert_eq!(vdc.read(0xD600), 0x82, "line 0 is displayed");
@@ -458,7 +463,7 @@ mod tests {
     /// within 8 by 16 bytes, screen at 0, attributes at $0800, characters at
     /// $2000, white on black, attributes on.
     fn kernal_like() -> Vdc {
-        let mut vdc = Vdc::new();
+        let mut vdc = Vdc::new(PHI2_HZ);
         for (reg, value) in [
             (0, 126),
             (1, 80),
