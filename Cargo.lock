@@ -1524,6 +1524,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sega-315-5313"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "emu198x-sega-game-gear"
 version = "0.44.2"
 dependencies = [
