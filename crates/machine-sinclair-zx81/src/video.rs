@@ -263,6 +263,11 @@ pub struct Zx81Video {
     /// so without this the latch's stale contents would be shifted out during
     /// ordinary code and smear the last character across the picture.
     pending: bool,
+    /// Eight pixels a hi-res board put on the shift register at the last
+    /// display fetch, painted as they stand at the refresh cycle after it in
+    /// place of a character-set lookup. See [`crate::hires`].
+    #[serde(default)]
+    pending_pixels: Option<u8>,
     /// Whether the NMI generator is running — SLOW mode. FAST mode turns it
     /// off and with it the display.
     nmi_enabled: bool,
@@ -295,6 +300,7 @@ impl Zx81Video {
             char_latch: 0,
             line_counter: 0,
             pending: false,
+            pending_pixels: None,
             nmi_enabled: false,
             vsync: false,
             vsync_start_tstate: 0,
@@ -472,6 +478,23 @@ impl Zx81Video {
         self.framebuffer.fill(PAPER);
         self.painted = 0;
         self.pending = false;
+        self.pending_pixels = None;
+    }
+
+    /// Whether the software vertical sync is asserted -- the video output
+    /// held at sync level rather than white.
+    #[must_use]
+    pub const fn vsync_active(&self) -> bool {
+        self.vsync
+    }
+
+    /// A display fetch a hi-res board answers: the CPU is given a `NOP`
+    /// and `pixels` go straight to the shift register, to be painted at the
+    /// refresh cycle that follows as an ordinary character would be.
+    pub fn board_fetch(&mut self, pixels: u8) -> u8 {
+        self.pending_pixels = Some(pixels);
+        self.pending = true;
+        0x00
     }
 
     /// An opcode fetch as the ULA sees it. `Some(0x00)` when it forces a
@@ -498,6 +521,10 @@ impl Zx81Video {
     /// is why the firmware's `$1E` selects `$1E00`-`$1FFF` in the top of ROM.
     pub fn refresh(&mut self, refresh_addr: u16, read_mem: impl Fn(u16) -> u8) {
         if !std::mem::take(&mut self.pending) {
+            return;
+        }
+        if let Some(pixels) = self.pending_pixels.take() {
+            self.paint(pixels);
             return;
         }
         // `I*256 + CODE*8 + COUNT` -- the ULA forms the pattern address from

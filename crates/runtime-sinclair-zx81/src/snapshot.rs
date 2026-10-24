@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::runtime::Zx81Runtime;
 
 /// Bumped to 4 when the live framebuffer widened to the full 384-pixel line.
-const SNAPSHOT_VERSION: u16 = 4;
+/// Bumped to 5 when the machine gained its hi-res board (#1140).
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

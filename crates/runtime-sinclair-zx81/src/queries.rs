@@ -9,6 +9,7 @@ use crate::runtime::Zx81Runtime;
 pub(crate) const ZX81_QUERY_PATHS: &[&str] = &[
     "cpu.pc",
     "firmware.loaded",
+    "hires.board",
     "machine.frame_count",
     "ram.bytes",
 ];
@@ -32,6 +33,7 @@ impl SessionQueryProvider<Zx81Runtime> for Zx81SessionQueryProvider {
         let value = match path {
             "firmware.loaded" => json!(machine.machine().is_some()),
             "ram.bytes" => json!(machine.ram_bytes()),
+            "hires.board" => json!(machine.hires_board().id()),
             "machine.frame_count" => json!(machine.machine().map_or(0, Zx81::frame_count)),
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),

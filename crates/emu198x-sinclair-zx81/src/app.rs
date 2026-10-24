@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp};
 use emu198x_shell::{FirmwareOverrides, build_variant};
-use runtime_sinclair_zx81::{Model, ROM_FIRMWARE_ID, Zx81Runtime, Zx81SessionQueryProvider};
+use runtime_sinclair_zx81::{
+    HiResBoard, Model, ROM_FIRMWARE_ID, Zx81Runtime, Zx81SessionQueryProvider,
+};
 use serde_json::{Map, Value};
 
 /// Frame budget for the board the runtime is configured as. The 60 Hz strap
@@ -19,6 +21,10 @@ pub struct Zx81 {
     pub rom: Option<PathBuf>,
     pub ram_bytes: Option<usize>,
     pub model: Model,
+    /// The hi-res board on the expansion edge.
+    pub hires: HiResBoard,
+    /// The board's 2 KB EPROM image, if one is supplied.
+    pub hires_rom: Option<PathBuf>,
 }
 
 impl Default for Zx81 {
@@ -27,6 +33,8 @@ impl Default for Zx81 {
             rom: None,
             ram_bytes: None,
             model: Model::Zx81,
+            hires: HiResBoard::None,
+            hires_rom: None,
         }
     }
 }
@@ -54,6 +62,24 @@ impl Zx81 {
         Ok(())
     }
 
+    fn apply_hires(&self, runtime: &mut Zx81Runtime) -> Result<(), LaunchError> {
+        runtime.set_hires_board(self.hires);
+        if let Some(path) = &self.hires_rom {
+            if self.hires == HiResBoard::None {
+                return Err(LaunchError::Usage(
+                    "--hires-rom needs a board chosen with --hires".to_owned(),
+                ));
+            }
+            let image = std::fs::read(path).map_err(|err| {
+                LaunchError::Run(format!("cannot read {}: {err}", path.display()))
+            })?;
+            runtime
+                .set_hires_rom(image)
+                .map_err(|err| LaunchError::Run(format!("invalid --hires-rom: {err}")))?;
+        }
+        Ok(())
+    }
+
     /// The model selected at launch.
     pub const fn model(&self) -> Model {
         self.model
@@ -70,7 +96,9 @@ impl MachineApp for Zx81 {
                     ~/.emu198x/roms/sinclair-zx81/zx81.rom (or set EMU198X_ZX81_ROM)
     --model ID      sinclair-zx81, sinclair-zx81-16k, or timex-ts1000
                     [default: sinclair-zx81]
-    --ram-bytes N   RAM size (power-of-two ≤ 16384) [default: model RAM]";
+    --ram-bytes N   RAM size (power-of-two ≤ 16384) [default: model RAM]
+    --hires BOARD   memotech, quicksilva, g007 or none [default: none]
+    --hires-rom PATH  the board's 2 KB EPROM image";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 . Space the ZX81 membrane keyboard
@@ -81,6 +109,15 @@ impl MachineApp for Zx81 {
         match flag {
             "--rom" => self.rom = Some(args.path(flag)?),
             "--ram-bytes" => self.ram_bytes = Some(args.parse(flag, "a positive integer")?),
+            "--hires" => {
+                let id = args.value(flag)?;
+                self.hires = HiResBoard::from_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown hi-res board `{id}`; expected memotech, quicksilva, g007 or none"
+                    ))
+                })?;
+            }
+            "--hires-rom" => self.hires_rom = Some(args.path(flag)?),
             "--model" => {
                 let id = args.value(flag)?;
                 self.model = Model::from_variant_id(&id).ok_or_else(|| {
@@ -107,6 +144,7 @@ impl MachineApp for Zx81 {
         let mut runtime = build_variant::<Zx81Runtime>(self.model(), &self.firmware_overrides())
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         self.apply_ram_override(&mut runtime)?;
+        self.apply_hires(&mut runtime)?;
         Ok(runtime)
     }
 
@@ -121,6 +159,7 @@ impl MachineApp for Zx81 {
                 }
             };
         self.apply_ram_override(&mut runtime)?;
+        self.apply_hires(&mut runtime)?;
         Ok(runtime)
     }
 
@@ -137,6 +176,7 @@ impl MachineApp for Zx81 {
         report.insert("rom_loaded".to_owned(), runtime.machine().is_some().into());
         report.insert("frames_run".to_owned(), frames_run.into());
         report.insert("ram_bytes".to_owned(), runtime.ram_bytes().into());
+        report.insert("hires".to_owned(), runtime.hires_board().id().into());
     }
 }
 
@@ -156,6 +196,38 @@ mod tests {
         };
         assert_eq!(app.ram_bytes, None);
         assert_eq!(app.model(), Model::Zx81);
+        assert_eq!(app.hires, HiResBoard::None);
+    }
+
+    #[test]
+    fn hires_selects_a_board() {
+        for board in HiResBoard::ALL {
+            let Parsed::Run { app, .. } =
+                parse::<Zx81>(&args(&["--hires", board.id()])).expect("parses")
+            else {
+                panic!("expected a run");
+            };
+            assert_eq!(app.hires, board);
+            let runtime = app.build_mcp_runtime().expect("runtime");
+            assert_eq!(runtime.hires_board(), board);
+        }
+        assert!(matches!(
+            parse::<Zx81>(&args(&["--hires", "wrx"])),
+            Err(LaunchError::Usage(_))
+        ));
+    }
+
+    #[test]
+    fn a_hires_rom_needs_a_board() {
+        let Parsed::Run { app, .. } =
+            parse::<Zx81>(&args(&["--hires-rom", "board.rom"])).expect("parses")
+        else {
+            panic!("expected a run");
+        };
+        assert!(matches!(
+            app.build_mcp_runtime(),
+            Err(LaunchError::Usage(_))
+        ));
     }
 
     #[test]

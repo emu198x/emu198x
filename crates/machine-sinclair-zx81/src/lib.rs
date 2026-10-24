@@ -34,10 +34,12 @@
 //! generator; OUT to a port with bit 1 clear (e.g. `$FD`) disables it.
 //! ROM uses OUT($FD)/OUT($FE).
 
+pub mod hires;
 pub mod input;
 mod keyboard;
 pub mod video;
 
+pub use hires::{BOARD_ROM_SIZE, HiResBoard};
 pub use input::Zx81Key;
 pub use keyboard::KeyboardState;
 pub use video::{FB_WIDTH, Zx81Video};
@@ -190,6 +192,9 @@ pub struct Zx81 {
     audio_buffer: Vec<f32>,
     #[serde(default)]
     audio_accum: u64,
+    /// The hi-res board on the expansion edge, if any. See [`hires`].
+    #[serde(default)]
+    hires: hires::HiRes,
 }
 
 impl Zx81 {
@@ -226,6 +231,7 @@ impl Zx81 {
             io_trace: None,
             audio_buffer: Vec::with_capacity(1024),
             audio_accum: 0,
+            hires: hires::HiRes::default(),
         })
     }
 
@@ -392,6 +398,7 @@ impl Zx81 {
         match self.cpu.bus_request() {
             Some(BusOp::MemRead) => {
                 let byte = self.mem_read(self.cpu.addr);
+                self.hires.note_read(self.cpu.addr);
                 // A display fetch is answered with `$00` on the CPU side
                 // while the real byte goes to the character latch. One read,
                 // two results — which is the whole trick.
@@ -402,7 +409,7 @@ impl Zx81 {
                 // the byte after it — display file, A15 set, and as often as
                 // not a character code.
                 self.cpu.data_in = if self.cpu.m1 && !self.cpu.halt {
-                    self.video.opcode_fetch(self.cpu.addr, byte).unwrap_or(byte)
+                    self.display_fetch(self.cpu.addr, byte)
                 } else {
                     byte
                 };
@@ -442,15 +449,33 @@ impl Zx81 {
         }
     }
 
-    fn mem_read(&self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x3FFF | 0x8000..=0xBFFF => self.rom[(addr & 0x1FFF) as usize],
-            0x4000..=0x7FFF => self.ram[((addr - 0x4000) & self.ram_mask) as usize],
-            0xC000..=0xFFFF => self.ram[((addr - 0xC000) & self.ram_mask) as usize],
+    /// An opcode fetch the ULA and any hi-res board see. A board that
+    /// answers puts its own pixels on the shift register; otherwise the ULA
+    /// decides, as on a stock machine.
+    fn display_fetch(&mut self, addr: u16, byte: u8) -> u8 {
+        self.hires.note_opcode_fetch(self.video.nmi_enabled());
+        if addr & 0x8000 != 0 {
+            let regs = &self.cpu.regs;
+            if let Some(pixels) =
+                self.hires
+                    .display_fetch(byte, regs.i, regs.r, self.video.vsync_active())
+            {
+                return self.video.board_fetch(pixels);
+            }
         }
+        self.video.opcode_fetch(addr, byte).unwrap_or(byte)
+    }
+
+    fn mem_read(&self, addr: u16) -> u8 {
+        self.hires
+            .read(addr, self.cpu.regs.i)
+            .unwrap_or_else(|| stock_read(&self.rom, &self.ram, self.ram_mask, addr))
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if self.hires.write(addr, value) {
+            return;
+        }
         match addr {
             0x0000..=0x3FFF | 0x8000..=0xBFFF => {}
             0x4000..=0x7FFF => {
@@ -466,6 +491,9 @@ impl Zx81 {
         // Reading the bus is also how the ROM drives the cassette output one
         // way: `SAVE` emits each pulse as an `OUT` followed by an `IN`.
         self.record_tape_edge();
+        if let Some(value) = self.hires.io_read(port) {
+            return value;
+        }
         if port & 0x01 == 0 {
             // The same read that scans the keyboard starts the vertical sync:
             // one port, two jobs, which is why the ROM's vertical interval is
@@ -484,6 +512,7 @@ impl Zx81 {
         // goes — which is what FAST mode is.
         // Any OUT releases the vertical sync, and the frame ends there.
         self.video.vsync_stop();
+        self.hires.io_write();
         if port & 0x01 == 0 {
             self.video.set_nmi_enabled(true);
         }
@@ -628,11 +657,12 @@ impl Z80Machine for Zx81 {
             let rom = &self.rom;
             let ram = &self.ram;
             let mask = self.ram_mask;
-            self.video.refresh(self.cpu.addr, |addr| match addr {
-                0x0000..=0x3FFF => rom[(addr & 0x1FFF) as usize],
-                0x4000..=0x7FFF => ram[((addr - 0x4000) & mask) as usize],
-                0x8000..=0xBFFF => rom[(addr & 0x1FFF) as usize],
-                0xC000..=0xFFFF => ram[((addr - 0xC000) & mask) as usize],
+            let hires = &self.hires;
+            let i = self.cpu.regs.i;
+            self.video.refresh(self.cpu.addr, |addr| {
+                hires
+                    .read(addr, i)
+                    .unwrap_or_else(|| stock_read(rom, ram, mask, addr))
             });
         }
         self.prev_rfsh = rfsh;
@@ -644,6 +674,43 @@ impl Z80Machine for Zx81 {
         if !self.cpu_held {
             self.nmi_pending = false;
         }
+    }
+}
+
+/// The stock board's read decode: the ROM mirrored through the low half of
+/// each 32 KB, RAM mirrored through the high half.
+fn stock_read(rom: &[u8], ram: &[u8], mask: u16, addr: u16) -> u8 {
+    match addr {
+        0x0000..=0x3FFF | 0x8000..=0xBFFF => rom[(addr & 0x1FFF) as usize],
+        0x4000..=0x7FFF => ram[((addr - 0x4000) & mask) as usize],
+        0xC000..=0xFFFF => ram[((addr - 0xC000) & mask) as usize],
+    }
+}
+
+impl Zx81 {
+    /// Fit a hi-res board, or remove one with [`HiResBoard::None`]. A new
+    /// board arrives with its memory cleared and no EPROM image; fitting the
+    /// board already fitted changes nothing.
+    pub fn set_hires_board(&mut self, board: HiResBoard) {
+        if self.hires.board() != board {
+            self.hires = hires::HiRes::new(board);
+        }
+    }
+
+    /// The fitted hi-res board.
+    #[must_use]
+    pub fn hires_board(&self) -> HiResBoard {
+        self.hires.board()
+    }
+
+    /// Load the fitted board's EPROM: a 2 KB image the user supplies.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no board is fitted or the image is not
+    /// [`BOARD_ROM_SIZE`] bytes.
+    pub fn load_hires_rom(&mut self, image: &[u8]) -> Result<(), String> {
+        self.hires.load_rom(image)
     }
 }
 

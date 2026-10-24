@@ -6,7 +6,7 @@ use emu198x_shell::{
     PixelFormat, ResetKind, RunResult, StopReason,
 };
 use format_sinclair_zx81_p::Zx81Image;
-use machine_sinclair_zx81::Zx81;
+use machine_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard, Zx81};
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
@@ -17,6 +17,10 @@ use emu198x_shell::display::Display;
 const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
 
 const ROM_SIZE: usize = 8 * 1024;
+
+/// The id a hi-res board's EPROM image is reported under.
+pub const HIRES_FIRMWARE_ID: &str = "sinclair-zx81-hires-rom";
+
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// The tape slot this runtime answers for, matching the profile.
 const TAPE_SLOT: &str = "tape-1";
@@ -95,6 +99,10 @@ pub struct Zx81Runtime {
     rgba_height: u32,
     /// The threaded tape's waveform, waiting for PLAY.
     tape: Option<Vec<u64>>,
+    /// The hi-res board on the expansion edge; survives a rebuild.
+    hires_board: HiResBoard,
+    /// The board's EPROM image, if the user supplied one.
+    hires_rom: Option<Vec<u8>>,
 }
 
 impl Zx81Runtime {
@@ -111,6 +119,8 @@ impl Zx81Runtime {
             rgba_width: 0,
             rgba_height: 0,
             tape: None,
+            hires_board: HiResBoard::None,
+            hires_rom: None,
         }
     }
 
@@ -190,6 +200,53 @@ impl Zx81Runtime {
         self.model
     }
 
+    /// Fit a hi-res board, or remove one with [`HiResBoard::None`]. Changing
+    /// the board drops any EPROM image loaded for the old one. The choice
+    /// outlives a hard reset or a new ROM.
+    pub fn set_hires_board(&mut self, board: HiResBoard) {
+        if board != self.hires_board {
+            self.hires_rom = None;
+        }
+        self.hires_board = board;
+        if let Some(machine) = &mut self.machine {
+            machine.set_hires_board(board);
+        }
+    }
+
+    /// The fitted hi-res board.
+    #[must_use]
+    pub fn hires_board(&self) -> HiResBoard {
+        self.hires_board
+    }
+
+    /// Load the fitted board's 2 KB EPROM, a firmware image the user
+    /// supplies.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidFirmware` when no board is fitted or the
+    /// image is the wrong size.
+    pub fn set_hires_rom(&mut self, image: Vec<u8>) -> Result<(), MachineError> {
+        let invalid = |reason: String| MachineError::InvalidFirmware {
+            id: HIRES_FIRMWARE_ID.to_owned(),
+            reason,
+        };
+        if self.hires_board == HiResBoard::None {
+            return Err(invalid("no hi-res board is fitted".to_owned()));
+        }
+        if image.len() != BOARD_ROM_SIZE {
+            return Err(invalid(format!(
+                "EPROM is {} bytes; expected {BOARD_ROM_SIZE}",
+                image.len()
+            )));
+        }
+        if let Some(machine) = &mut self.machine {
+            machine.load_hires_rom(&image).map_err(invalid)?;
+        }
+        self.hires_rom = Some(image);
+        Ok(())
+    }
+
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
@@ -208,6 +265,7 @@ impl Zx81Runtime {
     /// sized from the machine's width/height getters, so do the same here.
     pub(crate) fn set_machine(&mut self, machine: Option<Zx81>) {
         if let Some(machine) = &machine {
+            self.hires_board = machine.hires_board();
             let width = machine.framebuffer_width();
             let height = machine.framebuffer_height();
             self.rgba_width = width;
@@ -231,6 +289,15 @@ impl Zx81Runtime {
         // The board strap is the whole of the region difference: the ROM reads
         // it on port bit 6 and lays out a shorter field for 60 Hz.
         machine.set_television_standard(self.model.television_standard());
+        machine.set_hires_board(self.hires_board);
+        if let Some(image) = &self.hires_rom {
+            machine
+                .load_hires_rom(image)
+                .map_err(|reason| MachineError::InvalidFirmware {
+                    id: HIRES_FIRMWARE_ID.to_owned(),
+                    reason,
+                })?;
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -568,5 +635,52 @@ mod tests {
         assert_eq!(at('*'), Some("b"));
         assert_eq!(at('/'), Some("v"));
         assert_eq!(at('"'), Some("p"));
+    }
+}
+
+#[cfg(test)]
+mod hires_tests {
+    use super::Zx81Runtime;
+    use crate::profiles::Model;
+    use emu198x_shell::{MachineCore, MachineError};
+    use machine_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard};
+
+    fn fresh() -> Zx81Runtime {
+        Zx81Runtime::new(Model::Zx81Ram16k, vec![0; 0x2000]).expect("runtime")
+    }
+
+    #[test]
+    fn the_board_and_its_eprom_outlive_a_new_rom() {
+        let mut runtime = fresh();
+        runtime.set_hires_board(HiResBoard::G007);
+        let mut image = vec![0; BOARD_ROM_SIZE];
+        image[0] = 0x42;
+        runtime.set_hires_rom(image).expect("EPROM");
+        runtime.set_rom(vec![0; 0x2000]).expect("new ROM");
+        let machine = runtime.machine().expect("machine");
+        assert_eq!(machine.hires_board(), HiResBoard::G007);
+        assert_eq!(machine.peek(0x2800), 0x42);
+    }
+
+    #[test]
+    fn an_eprom_needs_a_board_and_the_right_size() {
+        let mut runtime = fresh();
+        assert!(matches!(
+            runtime.set_hires_rom(vec![0; BOARD_ROM_SIZE]),
+            Err(MachineError::InvalidFirmware { .. })
+        ));
+        runtime.set_hires_board(HiResBoard::Memotech);
+        assert!(runtime.set_hires_rom(vec![0; 100]).is_err());
+        assert!(runtime.set_hires_rom(vec![0; BOARD_ROM_SIZE]).is_ok());
+    }
+
+    #[test]
+    fn a_restore_brings_the_board_back() {
+        let mut runtime = fresh();
+        runtime.set_hires_board(HiResBoard::Quicksilva);
+        let bytes = runtime.snapshot().expect("snapshot");
+        let mut restored = fresh();
+        restored.restore(&bytes).expect("restore");
+        assert_eq!(restored.hires_board(), HiResBoard::Quicksilva);
     }
 }
