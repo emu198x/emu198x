@@ -23,7 +23,7 @@ format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.44.0
 # rather than waiting on an FDC (#951).
 format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.44.0" }
 nec-upd765a = { path = "../nec-upd765a", version = "0.44.0" }
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 [lints]
 workspace = true
