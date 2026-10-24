@@ -1908,7 +1908,6 @@ version = "0.44.2"
 name = "format-nintendo-game-boy-cartridge"
 version = "0.44.2"
 dependencies = [
- "nintendo-game-boy-mbc",
  "serde",
  "thiserror 2.0.21",
 ]
