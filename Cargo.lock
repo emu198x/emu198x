@@ -229,6 +229,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "atari-st-glue-mmu"
+version = "0.44.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "atari-st-shifter"
+version = "0.44.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "atari-tia"
 version = "0.44.2"
 dependencies = [
@@ -1318,6 +1334,7 @@ name = "emu198x-gi-ay-3-8910"
 version = "0.6.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3327,6 +3344,22 @@ name = "motorola-68k-common"
 version = "0.44.2"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "motorola-acia-6850"
+version = "0.44.2"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "motorola-mfp-68901"
+version = "0.44.2"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

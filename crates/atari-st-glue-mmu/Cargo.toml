@@ -1,0 +1,17 @@
+[package]
+name = "atari-st-glue-mmu"
+description = "Atari ST GLUE and MMU: video timing, the video counter and fetch, memory configuration and DRAM address mapping, and the DMA address counter"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
