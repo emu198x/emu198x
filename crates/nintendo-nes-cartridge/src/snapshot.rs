@@ -13,7 +13,7 @@ use crate::mappers::{
     colordreams::ColorDreams, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001, nrom::Nrom,
     sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a,
 };
-use crate::mappers::{fme7::Fme7, namco163::Namco163, vrc6::Vrc6, vrc7::Vrc7};
+use crate::mappers::{fme7::Fme7, namco163::Namco163, vrc4::Vrc4, vrc6::Vrc6, vrc7::Vrc7};
 
 /// Serializable state for every mapper currently supported by this crate.
 #[derive(Clone, Serialize, Deserialize)]
@@ -54,6 +54,8 @@ pub enum MapperSnapshot {
     Namco163(Box<Namco163>),
     /// Mapper 85.
     Vrc7(Box<Vrc7>),
+    /// Mappers 21, 23 and 25.
+    Vrc4(Box<Vrc4>),
 }
 
 /// Rebuild a boxed mapper from a previously exported mapper snapshot.
@@ -78,5 +80,6 @@ pub fn mapper_from_snapshot(snapshot: MapperSnapshot) -> Box<dyn Mapper> {
         MapperSnapshot::Fme7(mapper) => mapper,
         MapperSnapshot::Namco163(mapper) => mapper,
         MapperSnapshot::Vrc7(mapper) => mapper,
+        MapperSnapshot::Vrc4(mapper) => mapper,
     }
 }

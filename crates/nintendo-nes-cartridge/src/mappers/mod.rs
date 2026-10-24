@@ -20,6 +20,7 @@ pub mod nrom;
 pub mod sunsoft4;
 pub mod uxrom;
 pub mod vrc2a;
+pub mod vrc4;
 pub mod vrc6;
 pub mod vrc7;
 pub mod vrc_irq;
