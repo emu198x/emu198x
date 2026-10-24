@@ -1542,6 +1542,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sony-s-dsp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-sony-spc700"
 version = "0.1.0"
 dependencies = [
