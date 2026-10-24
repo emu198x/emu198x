@@ -103,6 +103,30 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         false
     }
 
+    /// Plugs in a DivMMC with its 8 KB EEPROM image, on the 48K-,
+    /// 128K- and Amstrad-class machines. The EEPROM, usually esxDOS, is
+    /// supplied by the user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB, or if the variant
+    /// hosts no DivMMC (the default).
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        let _ = eeprom;
+        Err("this machine does not host a DivMMC".to_owned())
+    }
+
+    /// The DivMMC, if the variant hosts one. Default `None`.
+    fn divmmc(&self) -> Option<&peripheral_divmmc::DivMmc> {
+        None
+    }
+
+    /// Mutable access to the DivMMC, if the variant hosts one. Default
+    /// `None`.
+    fn divmmc_mut(&mut self) -> Option<&mut peripheral_divmmc::DivMmc> {
+        None
+    }
+
     /// Loads tape blocks parsed from a `.tap` container.
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>);
 
@@ -555,6 +579,29 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         &mut self.machine
     }
 
+    /// Plugs a DivMMC into the machine; see
+    /// [`SpectrumMachine::attach_divmmc`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// DivMMC.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        self.machine.attach_divmmc(eeprom)
+    }
+
+    fn attached_divmmc_mut(
+        &mut self,
+        slot: &str,
+    ) -> Result<&mut peripheral_divmmc::DivMmc, MachineError> {
+        match self.machine.divmmc_mut() {
+            Some(divmmc) if divmmc.is_attached() => Ok(divmmc),
+            _ => Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            }),
+        }
+    }
+
     /// Flushes any captured tape `SAVE` to a `.tap` image.
     ///
     /// Unlike a disk `SAVE`, a tape `SAVE` never mutates a mounted (playback)
@@ -795,6 +842,15 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                         bytes: image.bytes.to_vec(),
                     });
                 }
+                MediaKind::Disk if slot == SD_CARD_SLOT => {
+                    let card = self.attached_divmmc_mut(slot)?;
+                    card.card.insert(image.bytes.to_vec()).map_err(|err| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: err.to_string(),
+                        }
+                    })?;
+                }
                 MediaKind::Tape | MediaKind::Disk => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
@@ -809,6 +865,10 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        if slot == SD_CARD_SLOT {
+            self.attached_divmmc_mut(slot)?.card.eject();
+            return Ok(());
+        }
         // Disk eject on a disk-capable variant. On a tape-only variant the
         // machine reports no disk interface, surfaced here as Unsupported so
         // the harness handles it gracefully rather than panicking.
@@ -832,6 +892,23 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        if slot == SD_CARD_SLOT {
+            if format != "img" {
+                return Err(MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: format!("an SD card exports as img, not {format}"),
+                });
+            }
+            return self
+                .machine
+                .divmmc()
+                .and_then(|divmmc| divmmc.card.image())
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: "no SD card in the DivMMC".to_owned(),
+                });
+        }
         self.machine
             .export_disk_image(slot, format)
             .map_err(|reason| MachineError::InvalidMedia {
@@ -955,6 +1032,9 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         self.profile.capabilities.clone()
     }
 }
+
+/// The DivMMC's SD card slot.
+pub const SD_CARD_SLOT: &str = "sd-card-1";
 
 fn is_tzx(bytes: &[u8]) -> bool {
     bytes.len() >= 8 && &bytes[..7] == b"ZXTape!" && bytes[7] == 0x1A

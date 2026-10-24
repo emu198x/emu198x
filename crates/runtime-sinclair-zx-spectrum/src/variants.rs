@@ -33,6 +33,7 @@ use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
+use peripheral_divmmc::DivMmc;
 use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};
 use serde_json::{Value, json};
 
@@ -397,6 +398,15 @@ impl SpectrumMachine for Spectrum48k {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        Spectrum48k::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
+    }
+    fn divmmc(&self) -> Option<&DivMmc> {
+        Some(&self.divmmc)
+    }
+    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
+        Some(&mut self.divmmc)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum48k::load_tape_blocks(self, blocks);
     }
@@ -571,6 +581,15 @@ impl SpectrumMachine for Spectrum16K {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        Spectrum16K::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
+    }
+    fn divmmc(&self) -> Option<&DivMmc> {
+        Some(&self.divmmc)
+    }
+    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
+        Some(&mut self.divmmc)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum16K::load_tape_blocks(self, blocks);
     }
@@ -743,6 +762,15 @@ impl SpectrumMachine for SpectrumPlus {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        SpectrumPlus::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
+    }
+    fn divmmc(&self) -> Option<&DivMmc> {
+        Some(&self.divmmc)
+    }
+    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
+        Some(&mut self.divmmc)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus::load_tape_blocks(self, blocks);
     }
@@ -909,6 +937,15 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
+    }
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        Spectrum128K::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
+    }
+    fn divmmc(&self) -> Option<&DivMmc> {
+        Some(&self.divmmc)
+    }
+    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
+        Some(&mut self.divmmc)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         Spectrum128K::load_tape_blocks(self, blocks);
@@ -1098,6 +1135,15 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
         apply_kempston_button_index(self.kempston_mut(), button, pressed)
     }
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        SpectrumPlus2::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
+    }
+    fn divmmc(&self) -> Option<&DivMmc> {
+        Some(&self.divmmc)
+    }
+    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
+        Some(&mut self.divmmc)
+    }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumPlus2::load_tape_blocks(self, blocks);
     }
@@ -1285,6 +1331,15 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
+    }
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        SpectrumAmstradClassCore::<V>::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
+    }
+    fn divmmc(&self) -> Option<&DivMmc> {
+        Some(&self.divmmc)
+    }
+    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
+        Some(&mut self.divmmc)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         SpectrumAmstradClassCore::<V>::load_tape_blocks(self, blocks);

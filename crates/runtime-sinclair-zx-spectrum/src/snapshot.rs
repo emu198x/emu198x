@@ -59,7 +59,11 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 11** (approved2026-10-22): preserves programmed FDC SRT and
 /// independent paced Seek/Recalibrate motion, including fractional phase.
 /// Version10 lacks that positional state and is rejected before decoding.
-const SNAPSHOT_VERSION: u32 = 11;
+/// **Version 15**: the 48K-, 128K- and Amstrad-class machines carry a
+/// DivMMC: its EEPROM, RAM, paging and SPI state. The SD card's contents
+/// are host media and stay out of the snapshot; a restore keeps the card
+/// that is inserted.
+const SNAPSHOT_VERSION: u32 = 15;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -146,7 +150,14 @@ pub(crate) fn decode<M: SpectrumMachine>(
         });
     }
 
+    let card = runtime
+        .machine_mut()
+        .divmmc_mut()
+        .and_then(|divmmc| divmmc.card.eject());
     runtime.set_machine(snapshot.machine);
+    if let (Some(card), Some(divmmc)) = (card, runtime.machine_mut().divmmc_mut()) {
+        divmmc.card.restore_contents(card);
+    }
     runtime.set_time(snapshot.time);
     runtime.set_keyboard_rows(snapshot.keyboard_rows);
     let rows = *runtime.keyboard_rows();
@@ -238,7 +249,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 11")
+                .contains("unsupported snapshot version 4; expected 15")
         );
     }
 
@@ -255,7 +266,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 11")
+                .contains("unsupported snapshot version 5; expected 15")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -1902,7 +1913,7 @@ mod tests {
             .restore(&old)
             .expect_err("v9 lacks programmed ND state");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 9; expected 11"));
+            if reason == "unsupported snapshot version 9; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1915,7 +1926,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 11"));
+            if reason == "unsupported snapshot version 8; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1926,7 +1937,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 11"));
+            if reason == "unsupported snapshot version 7; expected 15"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1939,7 +1950,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 11")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 15")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2088,7 +2099,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 11");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 15");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }

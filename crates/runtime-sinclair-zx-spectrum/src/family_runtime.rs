@@ -505,6 +505,18 @@ impl SpectrumRuntimeKind {
     pub fn clear_tape_recording(&mut self) {
         match_kind!(self, |rt| rt.clear_tape_recording());
     }
+
+    /// Plugs a DivMMC into the active variant with its 8 KB EEPROM image.
+    /// An SD card image then loads into the `sd-card-1` slot as
+    /// [`emu198x_shell::MediaKind::Disk`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// DivMMC.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        match_kind!(self, |rt| rt.attach_divmmc(eeprom))
+    }
 }
 
 impl MachineCore for SpectrumRuntimeKind {

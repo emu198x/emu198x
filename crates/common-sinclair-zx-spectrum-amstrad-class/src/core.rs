@@ -23,7 +23,7 @@ use amstrad_ula_40077::AmstradGateArray;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
-use common_sinclair_zx_spectrum::peripheral::Peripheral;
+use common_sinclair_zx_spectrum::peripheral::{MemoryIntercept, Peripheral};
 use common_sinclair_zx_spectrum::snapshot::{
     Snapshot, apply_128k_bank_pages, apply_ay_registers, apply_z80_registers,
 };
@@ -35,6 +35,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use nec_upd765a::Upd765a;
+use peripheral_divmmc::{DivMmc, DivMmcEepromError};
 
 use crate::memory::MemoryPlus;
 use crate::variant::{AmstradVariant, Plus3Marker};
@@ -64,6 +65,9 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     pub memory: MemoryPlus,
     pub framebuffer: Vec<u8>,
     pub keyboard: [u8; 8],
+    /// DivMMC and its SD card. Unplugged until [`Self::attach_divmmc`]
+    /// supplies its EEPROM; while paged in it overlays the bottom 16 KB.
+    pub divmmc: DivMmc,
     pub tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -124,6 +128,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             memory: MemoryPlus::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
+            divmmc: DivMmc::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -146,6 +151,16 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             ay_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// Plugs in a DivMMC with its 8 KB EEPROM image, such as esxDOS. Its
+    /// SD card slot starts empty; [`Self::divmmc`] holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), DivMmcEepromError> {
+        self.divmmc.attach(eeprom)
     }
 
     /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
@@ -295,6 +310,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
         self.memory.reset_paging();
+        self.divmmc.reset();
         self.fdc.reset();
         self.fdc_motor_on = false;
         self.update_fdc_inputs();
@@ -336,13 +352,25 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         // multi-byte status replies and stuck the +3 disk Loader.
         match self.z80.bus_request() {
             Some(BusOp::MemRead) => {
-                self.z80.data_in = self.memory.read(self.z80.addr);
+                let addr = self.z80.addr;
+                if self.z80.m1 {
+                    self.divmmc.on_m1(addr);
+                }
+                self.z80.data_in = match self.divmmc.read_memory(addr) {
+                    Some(value) => value,
+                    None => self.memory.read(addr),
+                };
+                if self.z80.m1 {
+                    self.divmmc.after_m1(addr);
+                }
             }
             Some(BusOp::MemWrite) => {
                 if let Some(w) = &mut self.write_watch {
                     w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
                 }
-                self.memory.write(self.z80.addr, self.z80.data);
+                if !self.divmmc.write_memory(self.z80.addr, self.z80.data) {
+                    self.memory.write(self.z80.addr, self.z80.data);
+                }
             }
             Some(BusOp::IoRead) => {
                 self.z80.data_in = self.io_read(self.z80.addr);
@@ -394,6 +422,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.divmmc.claims_read(port) {
+            return self.divmmc.read(port);
+        }
         // The FDC claims its own ports first — `claims_port` honours
         // the `enabled` flag, so +2A / +2B fall through here.
         if self.fdc.claims_port(port) {
@@ -433,6 +464,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
+        if self.divmmc.claims_port(port) {
+            self.divmmc.write(port, data);
+        }
         if self.fdc.claims_port(port) {
             self.update_fdc_inputs();
             if std::env::var("EMU198X_FDC_TRACE").is_ok() {
@@ -1101,5 +1135,28 @@ mod tests {
         restored.advance_halfcycles(9);
         assert_eq!(machine.frame_position(), restored.frame_position());
         assert_eq!(machine.frame_position().halfcycles(), 5);
+    }
+}
+
+#[cfg(test)]
+mod divmmc_tests {
+    use super::*;
+    use crate::variant::Plus2AMarker;
+
+    type Machine = SpectrumAmstradClassCore<Plus2AMarker>;
+
+    #[test]
+    fn the_fetch_from_0000_automaps_the_eeprom() {
+        // DI in every ROM; the EEPROM, from $0001, stores $5A at $8000.
+        let mut rom = vec![0; 16 * 1024];
+        rom[0] = 0xF3;
+        let mut eeprom = vec![0xFF; 0x2000];
+        eeprom[1..8].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+        let mut m = Machine::new();
+        m.memory.load_roms(&rom, &rom, &rom, &rom);
+        m.attach_divmmc(&eeprom).expect("an 8 KB EEPROM attaches");
+        m.run_frame();
+        assert!(m.divmmc.is_paged());
+        assert_eq!(m.memory.read(0x8000), 0x5A);
     }
 }

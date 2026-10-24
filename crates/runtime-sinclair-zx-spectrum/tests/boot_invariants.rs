@@ -332,7 +332,39 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-/// **Seam 5 waypoint #5:** Snapshot version is locked at v11.
+/// A DivMMC takes an SD card image in `sd-card-1` and gives it back.
+/// The card is host media: a state load keeps the inserted card rather
+/// than carrying it in the snapshot. The EEPROM is a synthetic stand-in.
+#[test]
+fn the_sd_card_loads_exports_and_stays_across_a_state_load_48k() -> Result<(), Box<dyn Error>> {
+    use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+    use runtime_sinclair_zx_spectrum::SD_CARD_SLOT;
+
+    let card: Vec<u8> = (0..512 * 1024).map(|i| (i / 512) as u8).collect();
+    let load = |runtime: &mut Spectrum48kRuntime| {
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(SD_CARD_SLOT, MediaKind::Disk, &card));
+        runtime.load_media(&media)
+    };
+
+    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    assert!(load(&mut runtime).is_err(), "no DivMMC, no card slot");
+    runtime.attach_divmmc(&[0xFF; 0x2000])?;
+    load(&mut runtime)?;
+    assert_eq!(runtime.export_media(SD_CARD_SLOT, "img")?, card);
+
+    let state = runtime.snapshot()?;
+    assert!(state.len() < card.len(), "the card is not in the snapshot");
+    runtime.restore(&state)?;
+    assert_eq!(runtime.export_media(SD_CARD_SLOT, "img")?, card);
+    assert!(runtime.machine().divmmc.is_attached());
+
+    runtime.eject_media(SD_CARD_SLOT)?;
+    assert!(runtime.export_media(SD_CARD_SLOT, "img").is_err());
+    Ok(())
+}
+
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v15.
 ///
 /// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
 /// disk-image cache, 2 → 3 when accepted Z80 interrupt responses
@@ -347,17 +379,17 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v11() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v15() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 11.
+    // and matches the value, so byte 0 of the snapshot bytes == 15.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 11,
-        "snapshot envelope must be at version 11 (paced FDC motion and programmed SRT); \
+        bytes[0], 15,
+        "snapshot envelope must be at version 15 (the DivMMC); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())

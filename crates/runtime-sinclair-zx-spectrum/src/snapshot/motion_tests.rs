@@ -111,7 +111,7 @@ fn version_ten_without_motion_state_is_rejected_before_payload_decode() {
     let mut runtime = SpectrumPlus3Runtime::blank();
     let bytes = postcard::to_allocvec(&10_u32).expect("old version prefix");
     assert!(
-        matches!(runtime.restore(&bytes),Err(MachineError::InvalidSnapshot {reason}) if reason=="unsupported snapshot version 10; expected 11")
+        matches!(runtime.restore(&bytes),Err(MachineError::InvalidSnapshot {reason}) if reason=="unsupported snapshot version 10; expected 15")
     );
 }
 
