@@ -262,7 +262,8 @@ impl Atari800xlRuntime {
             self.cartridge.clone(),
             region,
             self.basic_enabled,
-        );
+        )
+        .with_memory(self.model.memory());
         if let Some(disk) = disk {
             machine.sio_mut().insert_disk(1, disk);
         }

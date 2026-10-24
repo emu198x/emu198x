@@ -119,7 +119,11 @@ impl MachineApp for Atari800xl {
             "--disk" => self.disk = Some(args.path(flag)?),
             "--no-basic" => self.basic_enabled = false,
             "--region" => {
+                // The region keeps the board already chosen: an XE stays an XE.
+                let xe = matches!(self.model, Model::A130xeNtsc | Model::A130xePal);
                 self.model = match args.value(flag)?.as_str() {
+                    "ntsc" if xe => Model::A130xeNtsc,
+                    "pal" if xe => Model::A130xePal,
                     "ntsc" => Model::A800xlNtsc,
                     "pal" => Model::A800xlPal,
                     other => {
@@ -270,6 +274,17 @@ mod tests {
             err,
             LaunchError::Usage("--region expects ntsc|pal, got secam".to_owned())
         );
+    }
+
+    #[test]
+    fn the_region_keeps_a_130xe_a_130xe() {
+        let parsed =
+            parse::<Atari800xl>(&args(&["--model", "atari-130xe-ntsc", "--region", "pal"]))
+                .expect("parses");
+        let Parsed::Run { app, .. } = parsed else {
+            panic!("expected a run");
+        };
+        assert_eq!(app.model, Model::A130xePal);
     }
 
     #[test]

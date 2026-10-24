@@ -7,10 +7,11 @@
 //! 800XL-specific PORTB-controlled ROM overlay, while the wiring is
 //! written against [`emu198x_mos_6502::M6502`]'s public pin fields.
 //!
-//! Scope of this initial port: the **800XL** model — 64 KB RAM with
-//! XL-style PORTB ROM banking (OS ROM, BASIC ROM, self-test). The 400 /
-//! 800 (no XL banking) and 130XE (extended bank-switched RAM) variants
-//! are deliberately deferred to follow-ups so this slice stays atomic.
+//! Models: the **800XL** — 64 KB RAM with XL-style PORTB ROM banking
+//! (OS ROM, BASIC ROM, self-test) — and the **130XE**, which adds 64 KB
+//! of extended RAM banked into `$4000-$7FFF` (see [`MemoryModel`]). The
+//! 400 / 800 (no XL banking, a different OS and no PIA-driven ROM
+//! overlays) are a different board and are not modelled.
 //!
 //! # The Atari 800XL
 //!
@@ -36,6 +37,21 @@
 //! Bit 1: BASIC ROM enabled (0 = ROM, 1 = RAM).
 //! Bit 7: Self-test ROM at `$5000-$57FF` (0 = ROM, 1 = RAM).
 //!
+//! # 130XE extended RAM
+//!
+//! The 130XE uses three more PORTB bits to bank its extra 64 KB into the
+//! 16 KB window at `$4000-$7FFF`:
+//!
+//! - Bits 2-3: which of the four 16 KB banks.
+//! - Bit 4: CPU access (0 = the CPU sees the bank, 1 = main RAM).
+//! - Bit 5: ANTIC access (0 = ANTIC fetches from the bank, 1 = main RAM).
+//!
+//! The two access bits are independent, so a program can show one bank
+//! while the CPU works in another, or in main RAM. The self-test ROM at
+//! `$5000-$57FF` still takes precedence when it is mapped in. (Atari
+//! 130XE Owner's Manual, 1985, Appendix; Altirra Hardware Reference
+//! Manual §4.5.)
+//!
 //! # Clock model
 //!
 //! Master clock = colour clock (3.58 MHz NTSC / 3.55 MHz PAL). CPU +
@@ -56,6 +72,36 @@ use atari_sio::SioBus;
 use emu198x_mos_6502::M6502;
 use mos_pia_6520::Pia6520;
 use serde::{Deserialize, Serialize};
+
+/// How much RAM the board carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MemoryModel {
+    /// The 800XL: 64 KB.
+    #[default]
+    Xl64k,
+    /// The 130XE: 64 KB plus four 16 KB banks behind PORTB.
+    Xe128k,
+}
+
+/// First byte of the extended banks in the RAM vector, after main RAM.
+const EXTENDED_BASE: usize = 0x1_0000;
+
+/// Where `addr` lands in the RAM vector for the given PORTB value. Only
+/// `$4000-$7FFF` on a 130XE can move: to the selected extended bank when
+/// this access path — the CPU's (bit 4) or ANTIC's (bit 5) — is enabled.
+const fn ram_index(memory: MemoryModel, portb: u8, addr: u16, antic: bool) -> usize {
+    if let MemoryModel::Xe128k = memory
+        && addr >= 0x4000
+        && addr < 0x8000
+    {
+        let enable_bit = if antic { 0x20 } else { 0x10 };
+        if portb & enable_bit == 0 {
+            let bank = ((portb >> 2) & 0x03) as usize;
+            return EXTENDED_BASE + bank * 0x4000 + (addr as usize - 0x4000);
+        }
+    }
+    addr as usize
+}
 
 /// Atari 800XL region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +160,7 @@ struct AnticView<'a> {
     basic_rom: Option<&'a [u8]>,
     cart: Option<&'a Cartridge>,
     portb: u8,
+    memory: MemoryModel,
 }
 
 impl atari_antic::AnticMemory for AnticView<'_> {
@@ -147,7 +194,7 @@ impl atari_antic::AnticMemory for AnticView<'_> {
             }
             0xC000..=0xCFFF if os_on && self.os_rom.is_some() => os_byte((addr - 0xC000) as usize),
             0xD800..=0xFFFF if os_on && self.os_rom.is_some() => os_byte((addr - 0xC000) as usize),
-            _ => self.ram[addr as usize],
+            _ => self.ram[ram_index(self.memory, self.portb, addr, true)],
         }
     }
 }
@@ -161,6 +208,8 @@ pub struct Atari800xl {
     pokey: Pokey,
     pia: Pia6520,
     ram: Vec<u8>,
+    /// 64 KB, or 128 KB on a 130XE.
+    memory: MemoryModel,
     os_rom: Option<Vec<u8>>,
     basic_rom: Option<Vec<u8>>,
     cart: Option<Cartridge>,
@@ -274,6 +323,7 @@ impl Atari800xl {
             pokey,
             pia,
             ram,
+            memory: MemoryModel::Xl64k,
             os_rom,
             basic_rom,
             cart,
@@ -293,6 +343,37 @@ impl Atari800xl {
         sys.cpu.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
 
         sys
+    }
+
+    /// Fit the board's RAM: 64 KB for an 800XL, 128 KB for a 130XE. Call
+    /// before running; the extended banks start zeroed.
+    #[must_use]
+    pub fn with_memory(mut self, memory: MemoryModel) -> Self {
+        self.memory = memory;
+        let size = match memory {
+            MemoryModel::Xl64k => EXTENDED_BASE,
+            MemoryModel::Xe128k => EXTENDED_BASE + 4 * 0x4000,
+        };
+        self.ram.resize(size, 0);
+        self
+    }
+
+    /// The board's RAM fit.
+    #[must_use]
+    pub fn memory(&self) -> MemoryModel {
+        self.memory
+    }
+
+    /// One byte of a 130XE extended bank, `offset` from its start, without
+    /// going through PORTB. `None` on an 800XL or out of range.
+    #[must_use]
+    pub fn extended_ram(&self, bank: usize, offset: usize) -> Option<u8> {
+        if bank >= 4 || offset >= 0x4000 {
+            return None;
+        }
+        self.ram
+            .get(EXTENDED_BASE + bank * 0x4000 + offset)
+            .copied()
     }
 
     #[must_use]
@@ -464,6 +545,7 @@ impl Atari800xl {
             basic_rom: self.basic_rom.as_deref(),
             cart: self.cart.as_ref(),
             portb: self.pia.port_b_output() | !self.pia.ddr_b(),
+            memory: self.memory,
         };
         let (taken, sample) = self.antic.clock_dma(self.line_cycle, &view);
         if let Some((mode, width)) = self.antic.live_playfield_window() {
@@ -521,6 +603,7 @@ impl Atari800xl {
             basic_rom: self.basic_rom.as_deref(),
             cart: self.cart.as_ref(),
             portb: self.pia.port_b_output() | !self.pia.ddr_b(),
+            memory: self.memory,
         };
         let result = self.antic.begin_live_line(&view);
         if result.pm_dma {
@@ -569,7 +652,7 @@ impl Atari800xl {
 
         match addr {
             0x0000..=0x3FFF => self.ram[addr as usize],
-            0x4000..=0x4FFF => self.ram[addr as usize],
+            0x4000..=0x4FFF => self.ram[ram_index(self.memory, portb, addr, false)],
             0x5000..=0x57FF => {
                 if self_test
                     && os_on
@@ -578,9 +661,9 @@ impl Atari800xl {
                     let offset = (addr - 0x5000 + 0x1000) as usize;
                     return os.get(offset).copied().unwrap_or(0xFF);
                 }
-                self.ram[addr as usize]
+                self.ram[ram_index(self.memory, portb, addr, false)]
             }
-            0x5800..=0x7FFF => self.ram[addr as usize],
+            0x5800..=0x7FFF => self.ram[ram_index(self.memory, portb, addr, false)],
             0x8000..=0x9FFF => {
                 if let Some(ref cart) = self.cart
                     && cart.covers(addr)
@@ -643,7 +726,10 @@ impl Atari800xl {
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000..=0xCFFF => self.ram[addr as usize] = value,
+            0x0000..=0xCFFF => {
+                let index = ram_index(self.memory, self.effective_portb(), addr, false);
+                self.ram[index] = value;
+            }
             0xD000..=0xD0FF => self.gtia.write_from_cpu(addr as u8, value),
             0xD100..=0xD1FF => {}
             0xD200..=0xD2FF => self.pokey.write(addr as u8, value),
@@ -700,7 +786,7 @@ impl Atari800xl {
                 .and_then(|os| os.get((addr - 0xC000) as usize).copied())
                 .unwrap_or(0xFF),
             0xD000..=0xD7FF => 0xFF,
-            _ => self.ram[addr as usize],
+            _ => self.ram[ram_index(self.memory, portb, addr, false)],
         }
     }
 
@@ -711,7 +797,8 @@ impl Atari800xl {
     /// register page are ignored here — drive chips through their own tools.
     pub fn poke(&mut self, addr: u16, value: u8) {
         if !(0xD000..=0xD7FF).contains(&addr) {
-            self.ram[addr as usize] = value;
+            let index = ram_index(self.memory, self.effective_portb(), addr, false);
+            self.ram[index] = value;
         }
     }
 
@@ -864,7 +951,8 @@ impl Atari800xl {
     pub fn pia(&self) -> &Pia6520 {
         &self.pia
     }
-    /// Raw RAM, for diagnostics. The 64KB array is fully resident; OS/ROM
+    /// Raw RAM, for diagnostics: main RAM, then on a 130XE the four 16 KB
+    /// extended banks in order. The array is fully resident; OS/ROM
     /// banking shadows portions of it through `mem_read`, but this view
     /// returns the underlying bytes regardless of which bank is selected.
     #[must_use]
@@ -909,6 +997,107 @@ impl Atari800xl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PORTB with the bank-select and access bits set as given, the OS
+    /// and BASIC both off and the self-test ROM out.
+    fn portb(bank: u8, cpu: bool, antic: bool) -> u8 {
+        let mut value: u8 = 0x82; // OS off, BASIC off, self-test out
+        value |= (bank & 3) << 2;
+        if !cpu {
+            value |= 0x10;
+        }
+        if !antic {
+            value |= 0x20;
+        }
+        value
+    }
+
+    fn xe() -> Atari800xl {
+        Atari800xl::new(None, None, None, Atari800xlRegion::Pal, false)
+            .expect("machine")
+            .with_memory(MemoryModel::Xe128k)
+    }
+
+    fn antic_reads(sys: &Atari800xl, addr: u16) -> u8 {
+        let view = AnticView {
+            ram: &sys.ram,
+            os_rom: sys.os_rom.as_deref(),
+            basic_rom: sys.basic_rom.as_deref(),
+            cart: sys.cart.as_ref(),
+            portb: sys.effective_portb(),
+            memory: sys.memory,
+        };
+        atari_antic::AnticMemory::read(&view, addr)
+    }
+
+    #[test]
+    fn the_cpu_banks_each_extended_bank_into_4000_through_7fff() {
+        let mut sys = xe();
+        sys.load_program_byte(0x4000, 0x11); // main RAM, before any banking
+        for bank in 0..4u8 {
+            sys.load_program_byte(0xD301, portb(bank, true, false));
+            sys.load_program_byte(0x4000, 0xA0 | bank);
+            sys.load_program_byte(0x7FFF, 0xB0 | bank);
+        }
+        for bank in 0..4u8 {
+            sys.load_program_byte(0xD301, portb(bank, true, false));
+            assert_eq!(sys.peek(0x4000), 0xA0 | bank);
+            assert_eq!(sys.peek(0x7FFF), 0xB0 | bank);
+            assert_eq!(sys.mem_read(0x4000), 0xA0 | bank);
+            assert_eq!(sys.extended_ram(usize::from(bank), 0), Some(0xA0 | bank));
+        }
+        // Outside the window nothing moves, and CPU access off is main RAM.
+        sys.load_program_byte(0x8000, 0x22);
+        assert_eq!(sys.peek(0x8000), 0x22);
+        sys.load_program_byte(0xD301, portb(2, false, false));
+        assert_eq!(sys.peek(0x4000), 0x11);
+        assert_eq!(sys.ram()[0x4000], 0x11);
+    }
+
+    #[test]
+    fn antic_and_the_cpu_choose_independently() {
+        let mut sys = xe();
+        sys.load_program_byte(0x4100, 0x5A); // main RAM
+        sys.load_program_byte(0xD301, portb(3, true, false));
+        sys.load_program_byte(0x4100, 0xC3); // bank 3
+        // ANTIC in the bank, the CPU in main RAM.
+        sys.load_program_byte(0xD301, portb(3, false, true));
+        assert_eq!(sys.peek(0x4100), 0x5A);
+        assert_eq!(antic_reads(&sys, 0x4100), 0xC3);
+        // And the other way round.
+        sys.load_program_byte(0xD301, portb(3, true, false));
+        assert_eq!(sys.peek(0x4100), 0xC3);
+        assert_eq!(antic_reads(&sys, 0x4100), 0x5A);
+        // Below the window ANTIC always sees main RAM.
+        sys.load_program_byte(0x3FFF, 0x77);
+        sys.load_program_byte(0xD301, portb(3, true, true));
+        assert_eq!(antic_reads(&sys, 0x3FFF), 0x77);
+    }
+
+    #[test]
+    fn an_800xl_ignores_the_bank_bits() {
+        let mut sys =
+            Atari800xl::new(None, None, None, Atari800xlRegion::Pal, false).expect("machine");
+        assert_eq!(sys.memory(), MemoryModel::Xl64k);
+        sys.load_program_byte(0x4000, 0x33);
+        sys.load_program_byte(0xD301, portb(1, true, true));
+        assert_eq!(sys.peek(0x4000), 0x33);
+        assert_eq!(antic_reads(&sys, 0x4000), 0x33);
+        assert_eq!(sys.extended_ram(0, 0), None);
+        assert_eq!(sys.ram().len(), 0x1_0000);
+    }
+
+    #[test]
+    fn the_extended_banks_survive_a_snapshot() {
+        let mut sys = xe();
+        sys.load_program_byte(0xD301, portb(2, true, false));
+        sys.load_program_byte(0x6000, 0x9C);
+        let bytes = postcard::to_allocvec(&sys).expect("serialise");
+        let restored: Atari800xl = postcard::from_bytes(&bytes).expect("deserialise");
+        assert_eq!(restored.memory(), MemoryModel::Xe128k);
+        assert_eq!(restored.peek(0x6000), 0x9C);
+        assert_eq!(restored.extended_ram(2, 0x2000), Some(0x9C));
+    }
 
     /// A cart that changes COLBK twice per scan line: colour A from the line
     /// start, colour B from mid-line. With beam compositing this paints a
