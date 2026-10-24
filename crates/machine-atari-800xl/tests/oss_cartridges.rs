@@ -296,9 +296,7 @@ fn writers_tool_runs_its_editor_from_the_oss_8k_board() {
         system.cartridge().map(Cartridge::kind),
         Some(CartridgeKind::OssEightK)
     );
-    system
-        .sio_mut()
-        .insert_disk(1, AtrImage::parse(disk).expect("ATR parses"));
+    system.sio_mut().insert_disk(1, disk_from_atr(disk));
 
     run(&mut system, 500, None);
     let text = screen_text(&system);
@@ -321,4 +319,16 @@ fn writers_tool_runs_its_editor_from_the_oss_8k_board() {
         "the editor never drew its status line (PC ${:04X})",
         system.cpu().regs.pc
     );
+}
+
+/// The sectors of an ATR image, as a disk for the drive.
+fn disk_from_atr(bytes: &[u8]) -> machine_atari_800xl::Disk {
+    let atr = AtrImage::parse(bytes).expect("ATR parses");
+    let data = (1..=atr.sector_count())
+        .filter_map(|sector| atr.sector(sector))
+        .flatten()
+        .copied()
+        .collect();
+    machine_atari_800xl::Disk::new(atr.sector_size(), data, atr.write_protected())
+        .expect("a parsed ATR is a whole disk")
 }
