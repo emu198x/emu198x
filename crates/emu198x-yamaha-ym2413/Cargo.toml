@@ -1,0 +1,22 @@
+[package]
+name = "emu198x-yamaha-ym2413"
+description = "Yamaha YM2413 (OPLL) FM synthesis chip and the Konami VRC7 core, cycle-stepped — Master System FM, MSX-MUSIC, VRC7"
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release.
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["ym2413", "opll", "vrc7", "fm", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true
