@@ -3100,6 +3100,7 @@ dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-mos-6502",
  "emu198x-mos-via-6522",
+ "mos-acia-6551",
  "postcard",
  "serde",
  "serde-big-array",

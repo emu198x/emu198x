@@ -114,10 +114,12 @@
 use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use emu198x_mos_6502::M6502;
 use emu198x_mos_via_6522::Via6522;
+use mos_acia_6551::Acia6551;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 mod expansion_port;
+mod serial;
 mod tape;
 use expansion_port::{BusTarget, ExpansionLines};
 use tape::TapeDeck;
@@ -282,6 +284,11 @@ pub struct OricAtmos {
     #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
     tape: Option<TapeDeck>,
+    /// An optional 6551 ACIA serial card at `$031C-$031F`. See [`serial`].
+    acia: Option<Acia6551>,
+    /// Crystal ticks owed to the ACIA, carried between CPU cycles: its
+    /// 1.8432 MHz crystal does not divide the 1 MHz CPU clock.
+    acia_xtal_remainder: u64,
 }
 
 impl OricAtmos {
@@ -315,6 +322,8 @@ impl OricAtmos {
             expansion: ExpansionLines::default(),
             ay_watch: None,
             tape: None,
+            acia: None,
+            acia_xtal_remainder: 0,
         }
     }
 
@@ -422,7 +431,9 @@ impl OricAtmos {
         self.via.tick();
         self.process_ay_control_change(previous_controls);
         self.psg.tick();
-        self.cpu.irq = self.via.irq;
+        self.advance_acia();
+        // The card's IRQ and the VIA's share the 6502's open-drain IRQ line.
+        self.cpu.irq = self.via.irq || self.acia_irq();
         self.cpu_cycles += 1;
         while self.cpu_cycles >= self.frame_start + u64::from((self.raster + 1) * CYCLES_PER_LINE) {
             self.finish_scanline();
@@ -430,6 +441,9 @@ impl OricAtmos {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
+        if let Some(acia) = self.acia_at(addr) {
+            return acia.read((addr & 0x03) as u8);
+        }
         match self.expansion.decode(addr) {
             BusTarget::Via => {
                 // The IJK joystick drives the VIA port-A input lines; refresh
@@ -468,6 +482,10 @@ impl OricAtmos {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if let Some(acia) = self.acia_at(addr) {
+            acia.write((addr & 0x03) as u8, value);
+            return;
+        }
         match self.expansion.decode(addr) {
             BusTarget::Via => {
                 let reg = (addr & 0x0F) as u8;
@@ -825,6 +843,9 @@ impl OricAtmos {
     /// for an access nothing on the board answers.
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
+        if let Some(acia) = self.acia.as_ref().filter(|_| serial::is_acia_address(addr)) {
+            return acia.peek((addr & 0x03) as u8);
+        }
         self.peek_target(self.expansion.decode(addr), addr)
     }
 

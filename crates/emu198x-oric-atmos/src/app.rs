@@ -13,6 +13,8 @@ use serde_json::{Map, Value};
 pub struct Oric {
     pub firmware: FirmwareOverrides,
     pub model: Model,
+    /// Fit the 6551 serial card at `$031C-$031F`.
+    pub serial_card: bool,
 }
 
 impl Default for Oric {
@@ -20,6 +22,7 @@ impl Default for Oric {
         Self {
             firmware: FirmwareOverrides::none(),
             model: Model::Atmos,
+            serial_card: false,
         }
     }
 }
@@ -34,7 +37,8 @@ impl MachineApp for Oric {
                     ~/.emu198x/roms/oric/oric.rom (or set EMU198X_ORIC_ROM)
     --rom-dir DIR   firmware directory (or set EMU198X_ORIC_ROM_DIR)
                     firmware ID: oric-rom; tries oric-1.rom / atmos.rom before oric.rom
-    --model NAME    oric-1 | atmos [default: atmos]";
+    --model NAME    oric-1 | atmos [default: atmos]
+    --serial        fit a 6551 ACIA serial card at $031C-$031F";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the Oric keyboard (cursor keys are real Oric keys)
@@ -58,6 +62,7 @@ impl MachineApp for Oric {
                     LaunchError::Usage(format!("--model expects oric-1|atmos, got {id}"))
                 })?;
             }
+            "--serial" => self.serial_card = true,
             _ => return Ok(false),
         }
         Ok(true)
@@ -72,13 +77,17 @@ impl MachineApp for Oric {
     }
 
     fn build_runtime(&self) -> Result<OricRuntime, LaunchError> {
-        build_variant::<OricRuntime>(self.model, &self.firmware)
-            .map_err(|err| LaunchError::Run(err.to_string()))
+        let mut runtime = build_variant::<OricRuntime>(self.model, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        runtime.set_serial_card(self.serial_card);
+        Ok(runtime)
     }
 
     fn build_mcp_runtime(&self) -> Result<OricRuntime, LaunchError> {
-        build_variant_or_blank(self.model, &self.firmware, OricRuntime::blank)
-            .map_err(|err| LaunchError::Run(err.to_string()))
+        let mut runtime = build_variant_or_blank(self.model, &self.firmware, OricRuntime::blank)
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        runtime.set_serial_card(self.serial_card);
+        Ok(runtime)
     }
 
     fn mcp_startup_media(
@@ -94,6 +103,7 @@ impl MachineApp for Oric {
         report.insert("rom_loaded".to_owned(), runtime.machine().is_some().into());
         report.insert("frames_run".to_owned(), frames_run.into());
         report.insert("model".to_owned(), runtime.model().variant_id().into());
+        report.insert("serial_card".to_owned(), runtime.serial_card().into());
     }
 }
 
@@ -112,6 +122,17 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.model, Model::Atmos);
+        assert!(!app.serial_card);
+    }
+
+    #[test]
+    fn serial_fits_the_acia_card() {
+        let Parsed::Run { app, .. } = parse::<Oric>(&args(&["--serial"])).expect("parses") else {
+            panic!("expected a run");
+        };
+        assert!(app.serial_card);
+        let runtime = app.build_mcp_runtime().expect("runtime");
+        assert!(runtime.serial_card());
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub struct OricRuntime {
     rgba_framebuffer: Vec<u8>,
     controller_cache: crate::input::ControllerCache,
     tape_bytes: Option<Vec<u8>>,
+    /// Whether the 6551 serial card is fitted; survives a rebuild.
+    serial_card: bool,
 }
 
 impl OricRuntime {
@@ -82,6 +84,7 @@ impl OricRuntime {
             rgba_framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT * 4) as usize],
             controller_cache: crate::input::ControllerCache::default(),
             tape_bytes: None,
+            serial_card: false,
         }
     }
 
@@ -144,6 +147,46 @@ impl OricRuntime {
         self.model
     }
 
+    /// Fit or remove the 6551 serial card at `$031C-$031F`. The choice
+    /// outlives a hard reset or a new ROM; a card already fitted keeps its
+    /// state.
+    pub fn set_serial_card(&mut self, fitted: bool) {
+        self.serial_card = fitted;
+        if let Some(machine) = &mut self.machine {
+            machine.set_serial_card(fitted);
+        }
+    }
+
+    /// Whether the serial card is fitted.
+    #[must_use]
+    pub fn serial_card(&self) -> bool {
+        self.serial_card
+    }
+
+    /// Queue bytes for the serial card to receive. Returns `false` when no
+    /// card is fitted or no ROM is loaded.
+    pub fn queue_serial_input(&mut self, bytes: &[u8]) -> bool {
+        self.machine
+            .as_mut()
+            .is_some_and(|machine| machine.queue_serial_input(bytes))
+    }
+
+    /// Drain the bytes the Oric has sent through the serial card.
+    pub fn drain_serial_output(&mut self) -> Vec<u8> {
+        self.machine
+            .as_mut()
+            .map(OricAtmos::drain_serial_output)
+            .unwrap_or_default()
+    }
+
+    /// Drive the serial card's modem-status inputs, `true` meaning asserted.
+    /// Returns `false` when no card is fitted or no ROM is loaded.
+    pub fn set_serial_modem_inputs(&mut self, cts: bool, dsr: bool, dcd: bool) -> bool {
+        self.machine
+            .as_mut()
+            .is_some_and(|machine| machine.set_serial_modem_inputs(cts, dsr, dcd))
+    }
+
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
@@ -156,6 +199,9 @@ impl OricRuntime {
     /// in `blank`; `rebuild_machine` never resizes it, so neither does this —
     /// it only refills the RGBA buffer from the restored machine's pixels.
     pub(crate) fn set_machine(&mut self, machine: Option<OricAtmos>) {
+        if let Some(machine) = &machine {
+            self.serial_card = machine.has_serial_port();
+        }
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
@@ -173,6 +219,7 @@ impl OricRuntime {
         if let Some(bytes) = &self.tape_bytes {
             machine.insert_tape(bytes.clone());
         }
+        machine.set_serial_card(self.serial_card);
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
     }
