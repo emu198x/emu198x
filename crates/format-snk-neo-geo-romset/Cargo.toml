@@ -1,0 +1,15 @@
+[package]
+name = "format-snk-neo-geo-romset"
+description = "Neo Geo cartridge ROM sets: MAME-named P/S/M/V/C files or a zip of them, assembled into per-bus regions"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+zip = { workspace = true }
+
+[lints]
+workspace = true

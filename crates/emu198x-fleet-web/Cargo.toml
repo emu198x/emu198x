@@ -10,7 +10,7 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 [features]
 default = ["nintendo-game-boy"]
-all-families = ["acorn-atom", "acorn-bbc-micro", "acorn-electron", "amstrad-cpc", "atari-2600", "atari-5200", "atari-7800", "atari-800xl", "atari-st", "coleco-colecovision", "commodore-amiga", "commodore-c64", "commodore-c128", "commodore-pet", "commodore-vic-20", "dragon", "jupiter-ace", "mattel-aquarius", "memotech-mtx", "msx", "nintendo-game-boy", "nintendo-nes", "oric-atmos", "sega-game-gear", "sega-master-system", "sega-mega-drive", "sega-sg-1000", "sinclair-zx-spectrum", "sinclair-zx80", "sinclair-zx81", "sord-m5", "spectravideo-svi-328", "tatung-einstein"]
+all-families = ["acorn-atom", "acorn-bbc-micro", "acorn-electron", "amstrad-cpc", "atari-2600", "atari-5200", "atari-7800", "atari-800xl", "atari-st", "coleco-colecovision", "commodore-amiga", "commodore-c64", "commodore-c128", "commodore-pet", "commodore-vic-20", "dragon", "jupiter-ace", "mattel-aquarius", "memotech-mtx", "msx", "nintendo-game-boy", "nintendo-nes", "oric-atmos", "sega-game-gear", "sega-master-system", "sega-mega-drive", "sega-sg-1000", "sinclair-zx-spectrum", "sinclair-zx80", "sinclair-zx81", "snk-neo-geo", "sord-m5", "spectravideo-svi-328", "tatung-einstein"]
 acorn-atom = ["dep:runtime-acorn-atom"]
 acorn-bbc-micro = ["dep:runtime-acorn-bbc-micro"]
 acorn-electron = ["dep:runtime-acorn-electron"]
@@ -42,6 +42,7 @@ sega-sg-1000 = ["dep:runtime-sega-sg-1000"]
 sinclair-zx-spectrum = ["dep:runtime-sinclair-zx-spectrum", "dep:emu198x-spectrum-web"]
 sinclair-zx80 = ["dep:runtime-sinclair-zx80"]
 sinclair-zx81 = ["dep:runtime-sinclair-zx81"]
+snk-neo-geo = ["dep:runtime-snk-neo-geo"]
 sord-m5 = ["dep:runtime-sord-m5"]
 spectravideo-svi-328 = ["dep:runtime-spectravideo-svi-328"]
 tatung-einstein = ["dep:runtime-tatung-einstein"]
@@ -79,6 +80,7 @@ runtime-sega-sg-1000 = { path = "../runtime-sega-sg-1000", version = "0.44.0", o
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.44.0", optional = true }
 runtime-sinclair-zx80 = { path = "../runtime-sinclair-zx80", version = "0.44.0", optional = true }
 runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81", version = "0.44.0", optional = true }
+runtime-snk-neo-geo = { path = "../runtime-snk-neo-geo", version = "0.44.0", optional = true }
 runtime-sord-m5 = { path = "../runtime-sord-m5", version = "0.44.0", optional = true }
 runtime-spectravideo-svi-328 = { path = "../runtime-spectravideo-svi-328", version = "0.44.0", optional = true }
 runtime-tatung-einstein = { path = "../runtime-tatung-einstein", version = "0.44.0", optional = true }

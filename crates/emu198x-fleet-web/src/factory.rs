@@ -94,6 +94,12 @@ pub(super) fn create(
         "sinclair-zx80" => build::<runtime_sinclair_zx80::Zx80Runtime>(variant, firmware),
         #[cfg(feature = "sinclair-zx81")]
         "sinclair-zx81" => build::<runtime_sinclair_zx81::Zx81Runtime>(variant, firmware),
+        #[cfg(feature = "snk-neo-geo")]
+        "snk-neo-geo" => build_with_queries::<runtime_snk_neo_geo::NeoGeoRuntime, _>(
+            variant,
+            firmware,
+            runtime_snk_neo_geo::NeoGeoSessionQueryProvider,
+        ),
         #[cfg(feature = "sord-m5")]
         "sord-m5" => build::<runtime_sord_m5::M5Runtime>(variant, firmware),
         #[cfg(feature = "spectravideo-svi-328")]
@@ -212,6 +218,10 @@ pub(super) fn catalogue() -> Vec<Value> {
     #[cfg(feature = "sinclair-zx81")]
     result.extend(profiles::<runtime_sinclair_zx81::Zx81Runtime>(
         "sinclair-zx81",
+    ));
+    #[cfg(feature = "snk-neo-geo")]
+    result.extend(profiles::<runtime_snk_neo_geo::NeoGeoRuntime>(
+        "snk-neo-geo",
     ));
     #[cfg(feature = "sord-m5")]
     result.extend(profiles::<runtime_sord_m5::M5Runtime>("sord-m5"));
