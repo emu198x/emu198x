@@ -4,7 +4,7 @@
 //! `include/emu198x.h`. Each one forwards to the matching [`Fleet`] method,
 //! so a native host runs exactly the emulation the browser player runs.
 //!
-//! The workspace forbids unsafe code. This crate is the one exception, and
+//! The workspace forbids unsafe code. This crate is one of two exceptions, and
 //! only its `ffi` module may use it. See
 //! `knowledge/decisions/apple-bridge-unsafe-exception.md`.
 

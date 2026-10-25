@@ -38,6 +38,7 @@ members = [
     "crates/emu198x-spectrum",
     "crates/emu198x-shell",
     "crates/emu198x-ui",
+    "crates/emu198x-win-menu",
     "crates/ferranti-ula-6c001e",
     "crates/atari-sio",
     "crates/format-acorn-adfs",

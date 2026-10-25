@@ -11,11 +11,12 @@ UI feature by default. Twenty-three expose a Machine-menu selector, covering
 every binary with multiple runtime profiles. The remaining seven have a single
 runtime profile.
 
-The shared native menu is currently attached on **macOS only**. Windows menu
-attachment remains unwired (the code still references the closed #549), and
-Linux uses a stub. Therefore the selector
-counts below describe the macOS menu surface, not equivalent controls on every
-host. See [shared menu construction and attachment](../../crates/emu198x-ui/src/menu.rs).
+The shared native menu is attached on **macOS and Windows**. On Windows the
+one unsafe call it needs lives in `emu198x-win-menu`
+([decision](../../knowledge/decisions/windows-menu-unsafe-exception.md)).
+Linux uses a stub until the GTK4 frontend lands. Therefore the selector counts
+below describe the macOS and Windows menu surface, not equivalent controls on
+every host. See [shared menu construction and attachment](../../crates/emu198x-ui/src/menu.rs).
 
 The inventory comes from the [system registry](systems.toml), each binary's
 `Cargo.toml`, `src/main.rs`, `src/app.rs` and `src/ui.rs`, and its runtime's

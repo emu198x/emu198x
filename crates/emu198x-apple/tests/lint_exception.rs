@@ -1,4 +1,4 @@
-//! This crate is the workspace's only exception to `unsafe_code = "forbid"`
+//! This crate is an exception to the workspace's `unsafe_code = "forbid"`
 //! (knowledge/decisions/apple-bridge-unsafe-exception.md). These checks keep
 //! the exception as narrow as the decision allows: the crate's lint table is
 //! the workspace's with `unsafe_code` lowered to `deny` and nothing else

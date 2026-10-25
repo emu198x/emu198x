@@ -1936,6 +1936,7 @@ version = "0.44.2"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-win-menu",
  "muda",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -1970,6 +1971,14 @@ name = "emu198x-western-digital-wd1770"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-win-menu"
+version = "0.44.2"
+dependencies = [
+ "muda",
+ "winit",
 ]
 
 [[package]]

@@ -25,6 +25,12 @@ rfd = { workspace = true }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 muda = { workspace = true }
 
+# Attaching the menu bar to a Win32 window takes one unsafe call, which lives
+# in its own crate so this one keeps the workspace's `forbid`
+# (knowledge/decisions/windows-menu-unsafe-exception.md).
+[target.'cfg(target_os = "windows")'.dependencies]
+emu198x-win-menu = { path = "../emu198x-win-menu", version = "0.44.0" }
+
 # The Dock icon (src/icon.rs): winit ignores window icons on macOS.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { workspace = true }
