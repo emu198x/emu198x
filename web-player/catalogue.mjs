@@ -7,7 +7,7 @@ const legacy=read('./src/catalog.json');
 const families=read('./families.json');
 const defaults={'commodore-amiga':'a500-a501','commodore-c64':'pal','nintendo-game-boy':'dmg','nintendo-nes':'nintendo-nes-ntsc','sinclair-zx-spectrum':'spectrum_48k'};
 const formats={
- 'acorn-atom':{Tape:'.uef',Program:'.atm'},'acorn-bbc-micro':{Tape:'.uef'},'acorn-electron':{Tape:'.uef'},
+ 'acorn-atom':{Tape:'.uef',Program:'.atm'},'acorn-bbc-micro':{Tape:'.uef'},'acorn-electron':{Tape:'.uef',Disk:'.adf,.adl'},
  'amstrad-cpc':{Tape:'.cdt,.tzx'},'atari-2600':{Cartridge:'.a26,.bin'},'atari-5200':{Cartridge:'.a52,.bin'},'atari-7800':{Cartridge:'.a78,.bin'},
  'atari-800xl':{Cartridge:'.car,.rom,.bin',Program:'.xex',Disk:'.atr'},'coleco-colecovision':{Cartridge:'.col,.rom,.bin'},
  'commodore-amiga':{Disk:'.adf'},'commodore-c64':{Tape:'.tap',Disk:'.d64,.g64,.d71,.d81',Cartridge:'.crt'},

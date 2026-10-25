@@ -4347,6 +4347,7 @@ version = "0.44.2"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-shell",
+ "format-acorn-adfs",
  "format-acorn-uef",
  "machine-acorn-electron",
  "postcard",
