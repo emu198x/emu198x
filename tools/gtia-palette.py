@@ -19,7 +19,7 @@ a dump of atari800's own output is how that was established.
 
 Run from the repo root:
 
-    python3 tools/gtia-palette.py --out crates/atari-gtia/src/palette.rs
+    python3 tools/gtia-palette.py --out crates/emu198x-atari-gtia/src/palette.rs
     python3 tools/gtia-palette.py --check   # CI: the committed file matches
 """
 
@@ -30,7 +30,7 @@ import math
 import sys
 from pathlib import Path
 
-OUT = Path("crates/atari-gtia/src/palette.rs")
+OUT = Path("crates/emu198x-atari-gtia/src/palette.rs")
 
 # NTSC luma multipliers from the CGIA datasheet, as atari800 carries them.
 LUMA_MULT = [

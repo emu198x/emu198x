@@ -15,7 +15,7 @@
 //! home console** that defined the medium. Famously hard to program:
 //! the TIA has no framebuffer, so the CPU must "race the beam" and
 //! update video registers between scanlines. The chip-level
-//! complexity is in `atari-tia`; this crate wires the 6507 to it.
+//! complexity is in `emu198x-atari-tia`; this crate wires the 6507 to it.
 //!
 //! - **CPU:** MOS 6507 (a 6502 pin-limited to 13 address lines, so
 //!   the effective address space is 8 KB mirrored across the 16-bit
@@ -50,7 +50,7 @@ pub use cartridge::{BankingScheme, Cartridge};
 use keypad::Keypad;
 use supercharger::ArEffect;
 
-use atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
+use emu198x_atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
 use emu198x_mos_6502::M6502;
 use emu198x_mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};

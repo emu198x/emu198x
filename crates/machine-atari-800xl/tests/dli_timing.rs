@@ -33,7 +33,7 @@ use std::path::PathBuf;
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
 
 /// Map chip colour clocks into the full GTIA picture's pixel coordinates.
-const FIRST_HALF_CLOCK: usize = atari_gtia::GtiaRegion::Ntsc.first_half_clock() as usize;
+const FIRST_HALF_CLOCK: usize = emu198x_atari_gtia::GtiaRegion::Ntsc.first_half_clock() as usize;
 
 /// The display starts on scan line 8, which is framebuffer row 0; after 24
 /// blank lines the six text lines cover framebuffer rows 24-71, eight each.

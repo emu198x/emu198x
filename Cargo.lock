@@ -189,39 +189,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atari-antic"
-version = "0.44.2"
-dependencies = [
- "atari-gtia",
- "serde",
- "serde-big-array",
-]
-
-[[package]]
-name = "atari-gtia"
-version = "0.44.2"
-dependencies = [
- "postcard",
- "serde",
-]
-
-[[package]]
-name = "atari-maria"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
-
-[[package]]
-name = "atari-pokey"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
-
-[[package]]
 name = "atari-sio"
 version = "0.44.2"
 dependencies = [
@@ -242,15 +209,6 @@ version = "0.44.2"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "atari-tia"
-version = "0.44.2"
-dependencies = [
- "png",
- "serde",
- "serde-big-array",
 ]
 
 [[package]]
@@ -1089,8 +1047,8 @@ dependencies = [
 name = "emu198x-atari-2600"
 version = "0.44.2"
 dependencies = [
- "atari-tia",
  "emu198x-app-icon",
+ "emu198x-atari-tia",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-2600",
@@ -1103,8 +1061,8 @@ dependencies = [
 name = "emu198x-atari-5200"
 version = "0.44.2"
 dependencies = [
- "atari-gtia",
  "emu198x-app-icon",
+ "emu198x-atari-gtia",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-5200",
@@ -1117,8 +1075,8 @@ dependencies = [
 name = "emu198x-atari-7800"
 version = "0.44.2"
 dependencies = [
- "atari-maria",
  "emu198x-app-icon",
+ "emu198x-atari-maria",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-7800",
@@ -1131,8 +1089,8 @@ dependencies = [
 name = "emu198x-atari-800xl"
 version = "0.44.2"
 dependencies = [
- "atari-gtia",
  "emu198x-app-icon",
+ "emu198x-atari-gtia",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
@@ -1140,6 +1098,39 @@ dependencies = [
  "png",
  "runtime-atari-800xl",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-atari-antic"
+version = "0.1.0"
+dependencies = [
+ "emu198x-atari-gtia",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
+name = "emu198x-atari-gtia"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-atari-maria"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
+name = "emu198x-atari-pokey"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -1151,6 +1142,15 @@ dependencies = [
  "emu198x-ui",
  "runtime-atari-st",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-atari-tia"
+version = "0.1.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -2889,7 +2889,7 @@ dependencies = [
 name = "machine-atari-2600"
 version = "0.44.2"
 dependencies = [
- "atari-tia",
+ "emu198x-atari-tia",
  "emu198x-mos-6502",
  "emu198x-mos-riot-6532",
  "emu198x-test-skip",
@@ -2902,9 +2902,9 @@ dependencies = [
 name = "machine-atari-5200"
 version = "0.44.2"
 dependencies = [
- "atari-antic",
- "atari-gtia",
- "atari-pokey",
+ "emu198x-atari-antic",
+ "emu198x-atari-gtia",
+ "emu198x-atari-pokey",
  "emu198x-mos-6502",
  "postcard",
  "serde",
@@ -2915,9 +2915,9 @@ dependencies = [
 name = "machine-atari-7800"
 version = "0.44.2"
 dependencies = [
- "atari-maria",
- "atari-pokey",
- "atari-tia",
+ "emu198x-atari-maria",
+ "emu198x-atari-pokey",
+ "emu198x-atari-tia",
  "emu198x-mos-6502",
  "emu198x-mos-riot-6532",
  "postcard",
@@ -2929,10 +2929,10 @@ dependencies = [
 name = "machine-atari-800xl"
 version = "0.44.2"
 dependencies = [
- "atari-antic",
- "atari-gtia",
- "atari-pokey",
  "atari-sio",
+ "emu198x-atari-antic",
+ "emu198x-atari-gtia",
+ "emu198x-atari-pokey",
  "emu198x-mos-6502",
  "emu198x-mos-pia-6520",
  "emu198x-test-skip",
@@ -4759,7 +4759,7 @@ dependencies = [
 name = "runtime-atari-2600"
 version = "0.44.2"
 dependencies = [
- "atari-tia",
+ "emu198x-atari-tia",
  "emu198x-shell",
  "machine-atari-2600",
  "postcard",
@@ -4771,7 +4771,7 @@ dependencies = [
 name = "runtime-atari-5200"
 version = "0.44.2"
 dependencies = [
- "atari-gtia",
+ "emu198x-atari-gtia",
  "emu198x-shell",
  "machine-atari-5200",
  "postcard",
@@ -4783,7 +4783,7 @@ dependencies = [
 name = "runtime-atari-7800"
 version = "0.44.2"
 dependencies = [
- "atari-maria",
+ "emu198x-atari-maria",
  "emu198x-shell",
  "machine-atari-7800",
  "postcard",
@@ -4795,7 +4795,7 @@ dependencies = [
 name = "runtime-atari-800xl"
 version = "0.44.2"
 dependencies = [
- "atari-gtia",
+ "emu198x-atari-gtia",
  "emu198x-shell",
  "format-atari-8bit-atr",
  "format198x-atari-8bit-xex",

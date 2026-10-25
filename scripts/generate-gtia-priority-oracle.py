@@ -12,7 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / '../../emulators/atari/altirra/src/Altirra/source/gtiatables.cpp'
 SOURCE_SHA256 = '7a890f1e55c9a83d5836140670a6d3d9af2f99b6b5290646463f3f4db1d07306'
-OUTPUT = ROOT / 'crates/atari-gtia/tests/data/priority-signals.txt'
+OUTPUT = ROOT / 'crates/emu198x-atari-gtia/tests/data/priority-signals.txt'
 
 
 def main():

@@ -11,17 +11,17 @@
 //! differ and where (the "score"), and dumps the actual frame for inspection.
 //!
 //! ## Workflow
-//! - Run normally: `cargo test -p atari-tia --test tia_oracle` — fails on any
+//! - Run normally: `cargo test -p emu198x-atari-tia --test tia_oracle` — fails on any
 //!   pixel that drifts from the golden.
 //! - Re-bless after an *intentional* change (verify the new frame against
-//!   Stella first): `BLESS_TIA_GOLDENS=1 cargo test -p atari-tia --test
+//!   Stella first): `BLESS_TIA_GOLDENS=1 cargo test -p emu198x-atari-tia --test
 //!   tia_oracle`, then commit the regenerated `tests/goldens/*.png`.
 //! - On failure the actual frame is written to `target/tia-oracle/<name>.png`
 //!   so it can be diffed against a Stella capture by eye.
 
 use std::path::{Path, PathBuf};
 
-use atari_tia::{CLOCKS_PER_LINE, Tia, TiaRegion};
+use emu198x_atari_tia::{CLOCKS_PER_LINE, Tia, TiaRegion};
 
 /// Tick one full scanline (228 colour clocks).
 fn line(tia: &mut Tia) {

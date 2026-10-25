@@ -3,7 +3,7 @@
 //! Check those relationships at the public audio output, independent of the
 //! counters' starting phase. This does not qualify active-filter pulse timing.
 
-use atari_pokey::Pokey;
+use emu198x_atari_pokey::Pokey;
 
 const CLOCKS: [u32; 2] = [1_789_772, 1_773_447];
 const TICKS: u32 = 16_384;

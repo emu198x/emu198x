@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+### Added
+
+- First release under the `emu198x-atari-pokey` name. Until now the crate was
+  `atari-pokey`, versioned with the Emu198x suite and unpublished; the entries below are from that name.
+
 ### Fixed
 
 - Match the documented extra six clocks for 1.79 MHz linked-channel dividers

@@ -64,11 +64,11 @@ mod oss_carts;
 
 pub use cartridge::{Cartridge, CartridgeKind};
 
-use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
-use atari_gtia::Gtia;
-use atari_pokey::Pokey;
 pub use atari_sio::Disk;
 use atari_sio::SioBus;
+use emu198x_atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
+use emu198x_atari_gtia::Gtia;
+use emu198x_atari_pokey::Pokey;
 use emu198x_mos_6502::M6502;
 use emu198x_mos_pia_6520::Pia6520;
 use serde::{Deserialize, Serialize};
@@ -111,10 +111,10 @@ pub enum Atari800xlRegion {
 }
 
 impl Atari800xlRegion {
-    fn gtia_region(self) -> atari_gtia::GtiaRegion {
+    fn gtia_region(self) -> emu198x_atari_gtia::GtiaRegion {
         match self {
-            Self::Ntsc => atari_gtia::GtiaRegion::Ntsc,
-            Self::Pal => atari_gtia::GtiaRegion::Pal,
+            Self::Ntsc => emu198x_atari_gtia::GtiaRegion::Ntsc,
+            Self::Pal => emu198x_atari_gtia::GtiaRegion::Pal,
         }
     }
 
@@ -163,7 +163,7 @@ struct AnticView<'a> {
     memory: MemoryModel,
 }
 
-impl atari_antic::AnticMemory for AnticView<'_> {
+impl emu198x_atari_antic::AnticMemory for AnticView<'_> {
     fn read(&self, addr: u16) -> u8 {
         let os_on = self.portb & 0x01 != 0;
         let basic_on = self.portb & 0x02 == 0;
@@ -532,7 +532,7 @@ impl Atari800xl {
     fn update_vertical_blank(&mut self) {
         if let Some(output) = self.antic.vertical_blank_playfield() {
             self.gtia
-                .set_vertical_blank(output.mode == atari_gtia::AnticMode::Blank);
+                .set_vertical_blank(output.mode == emu198x_atari_gtia::AnticMode::Blank);
             self.gtia
                 .set_playfield(&output.playfield, output.playfield_width, output.mode);
         }
@@ -1027,7 +1027,7 @@ mod tests {
             portb: sys.effective_portb(),
             memory: sys.memory,
         };
-        atari_antic::AnticMemory::read(&view, addr)
+        emu198x_atari_antic::AnticMemory::read(&view, addr)
     }
 
     #[test]
@@ -1440,9 +1440,10 @@ mod tests {
         let w = sys.framebuffer_width() as usize;
         // A visible line well inside the active region (active starts at
         // BORDER_TOP; pick row 100 of the 240 active lines).
-        let row = atari_gtia::GtiaRegion::Pal.border_top() as usize + 100;
-        let base = row * w + atari_gtia::GtiaRegion::Pal.border_left() as usize;
-        let active: std::collections::BTreeSet<u32> = (0..atari_gtia::ACTIVE_WIDTH as usize)
+        let row = emu198x_atari_gtia::GtiaRegion::Pal.border_top() as usize + 100;
+        let base = row * w + emu198x_atari_gtia::GtiaRegion::Pal.border_left() as usize;
+        let active: std::collections::BTreeSet<u32> = (0..emu198x_atari_gtia::ACTIVE_WIDTH
+            as usize)
             .map(|x| fb[base + x])
             .collect();
         assert!(
@@ -1454,7 +1455,7 @@ mod tests {
         // clearly-right one.
         assert_ne!(
             fb[base + 10],
-            fb[base + atari_gtia::ACTIVE_WIDTH as usize - 10],
+            fb[base + emu198x_atari_gtia::ACTIVE_WIDTH as usize - 10],
             "left and right of the line should be different COLBK colours"
         );
     }
@@ -1719,19 +1720,19 @@ mod tests {
         playfield[12] = 1;
 
         sys.gtia
-            .render_line(0, &playfield, 160, atari_gtia::AnticMode::ModeD);
+            .render_line(0, &playfield, 160, emu198x_atari_gtia::AnticMode::ModeD);
         sys.mem_write(0xD01B, 0x04); // PRIOR: all playfields over all players
         sys.gtia
-            .render_line(1, &playfield, 160, atari_gtia::AnticMode::ModeD);
+            .render_line(1, &playfield, 160, emu198x_atari_gtia::AnticMode::ModeD);
 
         sys.mem_write(0xD01B, 0x00); // PRIOR: mix P0 and PF0
         sys.gtia
-            .render_line(2, &playfield, 160, atari_gtia::AnticMode::ModeD);
+            .render_line(2, &playfield, 160, emu198x_atari_gtia::AnticMode::ModeD);
 
         let x = sys.gtia.border_left() as usize + ((60 - 48) * 2) as usize;
         let width = sys.framebuffer_width() as usize;
-        let player_colour = atari_gtia::palette::NTSC_PALETTE[0x38];
-        let playfield_colour = atari_gtia::palette::NTSC_PALETTE[0x94];
+        let player_colour = emu198x_atari_gtia::palette::NTSC_PALETTE[0x38];
+        let playfield_colour = emu198x_atari_gtia::palette::NTSC_PALETTE[0x94];
         assert_eq!(sys.framebuffer()[x], player_colour, "PRIOR=$01");
         assert_eq!(
             sys.framebuffer()[width + x],
@@ -1740,7 +1741,7 @@ mod tests {
         );
         assert_eq!(
             sys.framebuffer()[2 * width + x],
-            atari_gtia::palette::NTSC_PALETTE[0x38 | 0x94],
+            emu198x_atari_gtia::palette::NTSC_PALETTE[0x38 | 0x94],
             "PRIOR=$00 mixes P0 and PF0 through the machine bus"
         );
     }
@@ -1876,7 +1877,7 @@ mod tests {
         // linked divider as AUDF2*256 + AUDF1 + 7.  For $010A that is 273
         // source clocks per toggle, or about 3.278 kHz for the full wave.
         // AUDCTL $50: channel 1+2 link (D4) plus channel 1's fast clock (D6).
-        // This read $12 while `atari-pokey` had six of the eight AUDCTL bits
+        // This read $12 while `emu198x-atari-pokey` had six of the eight AUDCTL bits
         // transposed — a value that asks the real chip for the link and
         // channel 2's high-pass filter, and never reaches 1.79 MHz at all.
         let samples = captured_pokey_tone(10, 1, 0x03, 0xAF, 0x50);

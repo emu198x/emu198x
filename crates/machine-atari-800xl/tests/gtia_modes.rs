@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
 
 /// Map chip colour clocks into the full GTIA picture's pixel coordinates.
-const FIRST_HALF_CLOCK: i32 = atari_gtia::GtiaRegion::Ntsc.first_half_clock() as i32;
+const FIRST_HALF_CLOCK: i32 = emu198x_atari_gtia::GtiaRegion::Ntsc.first_half_clock() as i32;
 
 /// A normal playfield is displayed from colour clock 48 to 207.
 const PF_FIRST_CC: i32 = 48;
