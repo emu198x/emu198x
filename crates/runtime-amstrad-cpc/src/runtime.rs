@@ -1,11 +1,11 @@
 //! Runtime wrapper for the Amstrad CPC.
 
-use common_tape::TapeSpan;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
+use emu198x_tape_playback::TapeSpan;
 use machine_amstrad_cpc::AmstradCpc;
 
 use crate::input::apply_input_event;

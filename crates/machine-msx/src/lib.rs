@@ -112,7 +112,6 @@
 //! SCC cartridges are described in the `sound` module. Their output is mixed
 //! with the PSG's by [`Msx::end_audio_frame`].
 
-use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use emu198x_intel_8255::Ppi8255;
 pub use emu198x_konami_scc::Scc;
@@ -120,6 +119,7 @@ pub use emu198x_ricoh_rp5c01::{DateTime, Rp5c01};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 pub use emu198x_yamaha_v9938::{Mode as V9938Mode, V9938};
 pub use emu198x_yamaha_ym2413::Ym2413;
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -847,7 +847,7 @@ impl Msx {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pin fed before each — is `common-z80-machine`'s; the M1
+    /// interrupt pin fed before each — is `emu198x-z80-cadence`'s; the M1
     /// wait stretch wraps the CPU tick, the VDP accumulates per half-cycle
     /// after it, and the PSG ticks once per T-state, as the hand-rolled
     /// loop always had them.

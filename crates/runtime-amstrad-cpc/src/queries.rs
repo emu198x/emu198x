@@ -23,7 +23,7 @@ pub(crate) const CPC_QUERY_PATHS: &[&str] = &[
     "tape.motor_on",
     // Position, so "did the tape drain" is observable rather than inferred.
     // Same names as every other machine with a deck; see
-    // `common_tape::POSITION_QUERY_PATHS`. Kept in sorted order, which
+    // `emu198x_tape_playback::POSITION_QUERY_PATHS`. Kept in sorted order, which
     // `the_path_list_is_sorted_and_unique` enforces.
     "tape.progress",
     "tape.span_count",

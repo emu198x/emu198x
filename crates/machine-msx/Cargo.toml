@@ -15,7 +15,7 @@ emu198x-yamaha-v9938 = { path = "../emu198x-yamaha-v9938", version = "0.1.0" }
 emu198x-ricoh-rp5c01 = { path = "../emu198x-ricoh-rp5c01", version = "0.1.0" }
 emu198x-konami-scc = { path = "../emu198x-konami-scc", version = "0.1.0" }
 emu198x-yamaha-ym2413 = { path = "../emu198x-yamaha-ym2413", version = "0.1.0" }
-common-z80-machine = { path = "../common-z80-machine", version = "0.44.0" }
+emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 serde = { workspace = true }
 

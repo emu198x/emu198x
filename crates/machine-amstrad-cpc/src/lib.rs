@@ -86,14 +86,14 @@
 
 pub mod screen_text;
 
-use common_tape::{TapePlayer, TapeSpan};
-use common_z80_machine::Z80Machine;
 use emu198x_amstrad_gate_array::GateArray;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_intel_8255::Ppi8255;
 use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
 pub use emu198x_nec_upd765a::DiskImage;
 use emu198x_nec_upd765a::Upd765a;
+use emu198x_tape_playback::{TapePlayer, TapeSpan};
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -896,7 +896,7 @@ impl AmstradCpc {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pin fed before each — is `common-z80-machine`'s; the Gate
+    /// interrupt pin fed before each — is `emu198x-z80-cadence`'s; the Gate
     /// Array's `/WAIT` is set before the first edge and the CRTC, PSG, tape
     /// and T-state counter tick once per T-state after the CPU, as the
     /// hand-rolled loop always had them.
@@ -1798,7 +1798,7 @@ mod tests {
     #[test]
     fn a_drained_tape_keeps_its_level_on_the_cassette_line() {
         // The Spectrum family releases its tape input a frame after the
-        // tape stops (common-tape's `StopRelease`, after FUSE). The CPC does
+        // tape stops (emu198x-tape-playback's `StopRelease`, after FUSE). The CPC does
         // not opt in until someone checks the hardware, so a tape that ends
         // high stays high on port B bit 7.
         let mut cpc = booted(&test_firmware());

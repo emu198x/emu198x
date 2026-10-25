@@ -1,6 +1,6 @@
 //! PAL timing and boot coverage. Reference: MAME's common M5 clock and
 //! European monitor `sordint.ic21`, SHA-1 ac042c4ae8272ad6abe09ae83492ef9a0026d0b2.
-use common_z80_machine::Z80Machine;
+use emu198x_z80_cadence::Z80Machine;
 use machine_sord_m5::{M5Region, SordM5};
 use std::{fs, path::PathBuf};
 

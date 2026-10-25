@@ -36,16 +36,18 @@ pub const PAUSE_MS: u32 = 1_000;
 /// CPU T-states per millisecond at 3.5 MHz.
 pub const TSTATES_PER_MS: u32 = 3_500;
 
-// `TapeSpan` and `TapePlayer` moved to `common-tape` on 2026-08-14: they are
+// `TapeSpan` and `TapePlayer` moved to `emu198x-tape-playback` on 2026-08-14: they are
 // the same model for every machine with a cassette port, and the Amstrad CPC
 // needs them. Re-exported here so Spectrum-family code and its 12 consumers
 // carry on importing them from this crate. See
 // `knowledge/decisions/crate-naming.md`.
-// The span builders moved to `common-tape` with the player: they are how
+// The span builders moved to `emu198x-tape-playback` with the player: they are how
 // every pulse-encoded tape is written, not how the Spectrum writes one.
 // `append_pause_spans` gained an explicit T-states-per-millisecond argument
 // there, since a pause is the one part of a tape quoted in real time.
-pub use common_tape::{BlockSeek, StopRelease, TapePlayer, TapeSpan, data_block_spans, push_pulse};
+pub use emu198x_tape_playback::{
+    BlockSeek, StopRelease, TapePlayer, TapeSpan, data_block_spans, push_pulse,
+};
 
 /// The shortest silence that separates two blocks, for block search.
 ///
@@ -125,7 +127,7 @@ pub fn standard_block_spans(
     push_pulse(current_level, SYNC1_PULSE, spans);
     push_pulse(current_level, SYNC2_PULSE, spans);
     data_block_spans(&block.data, 8, ZERO_PULSE, ONE_PULSE, current_level, spans);
-    common_tape::append_pause_spans(pause_ms, TSTATES_PER_MS, current_level, spans);
+    emu198x_tape_playback::append_pause_spans(pause_ms, TSTATES_PER_MS, current_level, spans);
 }
 
 #[cfg(test)]

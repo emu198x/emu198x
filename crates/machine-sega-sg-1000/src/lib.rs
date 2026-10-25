@@ -53,9 +53,9 @@
 //! two T-states. The PSG advances once per T-state. The PAL PSG denominator
 //! and runtime clock currently differ; this is separate from port wiring.
 
-use common_z80_machine::Z80Machine;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -216,7 +216,7 @@ impl Sg1000 {
 
     /// Advance one Z80 T-state and the chips it drives. The cadence — two
     /// CPU half-cycles, the interrupt pins fed before each — is
-    /// `common-z80-machine`'s; the VDP ticks on every half-cycle after the
+    /// `emu198x-z80-cadence`'s; the VDP ticks on every half-cycle after the
     /// CPU and the PSG once per T-state, as the hand-rolled loop always
     /// had them.
     fn tick_tstate(&mut self) {

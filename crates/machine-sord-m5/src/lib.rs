@@ -48,9 +48,9 @@
 //! 228 T-states per scanline and 262 / 313 scanlines per frame respectively.
 //! These are the implemented rates, not a claim of hardware-measured phase.
 
-use common_z80_machine::Z80Machine;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use emu198x_zilog_z80_ctc::Ctc;
 use serde::{Deserialize, Serialize};
@@ -226,7 +226,7 @@ impl SordM5 {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pin fed before each — is `common-z80-machine`'s; the chips
+    /// interrupt pin fed before each — is `emu198x-z80-cadence`'s; the chips
     /// below tick once per T-state after the CPU, as the hand-rolled loop
     /// always had them.
     fn tick_tstate(&mut self) {

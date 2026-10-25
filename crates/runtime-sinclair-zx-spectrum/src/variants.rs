@@ -499,7 +499,7 @@ impl SpectrumMachine for Spectrum48k {
         Spectrum48k::tape_is_playing(self)
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         Spectrum48k::tape(self)
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -703,7 +703,7 @@ impl SpectrumMachine for Spectrum16K {
         Spectrum16K::tape_is_playing(self)
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         Spectrum16K::tape(self)
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -905,7 +905,7 @@ impl SpectrumMachine for SpectrumPlus {
         SpectrumPlus::tape_is_playing(self)
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         SpectrumPlus::tape(self)
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -1110,7 +1110,7 @@ impl SpectrumMachine for Spectrum128K {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -1326,7 +1326,7 @@ impl SpectrumMachine for SpectrumPlus2 {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -1593,7 +1593,7 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -1789,7 +1789,7 @@ impl SpectrumMachine for Pentagon128 {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -1951,7 +1951,7 @@ impl SpectrumMachine for ScorpionZS256 {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -2108,7 +2108,7 @@ impl SpectrumMachine for TimexTC2048 {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
@@ -2261,7 +2261,7 @@ impl SpectrumMachine for TimexTS2068 {
         self.tape.is_playing()
     }
 
-    fn tape_player(&self) -> &common_tape::TapePlayer {
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
         &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
