@@ -8,6 +8,7 @@ pub mod asset;
 pub mod audio;
 pub mod capability;
 pub mod capture;
+pub mod commands;
 pub mod control;
 pub mod debug;
 pub mod debug_info;
