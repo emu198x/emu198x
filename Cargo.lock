@@ -3324,6 +3324,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-snk-neo-geo"
+version = "0.44.2"
+dependencies = [
+ "emu198x-snk-lspc2",
+ "emu198x-yamaha-ym2610",
+ "emu198x-zilog-z80",
+ "motorola-68000",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "machine-sord-m5"
 version = "0.44.2"
 dependencies = [
