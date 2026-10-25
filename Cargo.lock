@@ -1820,6 +1820,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-yamaha-ym2610"
+version = "0.1.0"
+dependencies = [
+ "emu198x-gi-ay-3-8910",
+ "emu198x-yamaha-ym2612",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-yamaha-ym2612"
 version = "0.1.0"
 dependencies = [
