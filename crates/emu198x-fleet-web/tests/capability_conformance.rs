@@ -186,9 +186,25 @@ fn insert_cartridge<R: FamilyRuntime>(runtime: &mut R) -> bool {
 }
 
 fn observe<R: FamilyRuntime>() -> Vec<Result<Observation, String>> {
+    observe_where::<R>(|_| true)
+}
+
+/// Observes only the variants whose profile names `machine`, for a runtime
+/// that hosts more than one machine (the MSX1 and the MSX2).
+fn observe_machine<R: FamilyRuntime>(machine: &str) -> Vec<Result<Observation, String>> {
+    observe_where::<R>(|id| {
+        R::model_from_id(id)
+            .is_some_and(|model| R::profile_for(model).machine_id.as_str() == machine)
+    })
+}
+
+fn observe_where<R: FamilyRuntime>(
+    include: impl Fn(&str) -> bool,
+) -> Vec<Result<Observation, String>> {
     let audio = known_capability(AUDIO_OUTPUT);
     R::variant_ids()
         .iter()
+        .filter(|id| include(id))
         .map(|id| {
             let model = R::model_from_id(id).ok_or_else(|| format!("{id}: no model"))?;
             let profile = R::profile_for(model);
@@ -281,7 +297,14 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
             "memotech-mtx",
             observe::<runtime_memotech_mtx::MtxRuntime>(),
         ),
-        ("msx", observe::<runtime_msx::MsxRuntime>()),
+        (
+            "msx",
+            observe_machine::<runtime_msx::MsxRuntime>("microsoft-msx1"),
+        ),
+        (
+            "msx2",
+            observe_machine::<runtime_msx::MsxRuntime>("microsoft-msx2"),
+        ),
         (
             "nintendo-game-boy",
             observe::<runtime_nintendo_game_boy::GameBoyRuntime>(),

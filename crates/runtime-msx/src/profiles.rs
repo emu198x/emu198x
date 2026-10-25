@@ -16,6 +16,13 @@
 //! real machines carry in other subslots (the VG-8235's disk ROM, the
 //! HB-F1's and FS-A1's firmware menus) is not modelled; those subslots read
 //! as empty.
+//!
+//! The two generations are separate machines, `microsoft-msx1` and
+//! `microsoft-msx2`, each with its own label and milestone, in the way the
+//! C64 and the C128 are. They share this catalogue and one runtime because
+//! an MSX2 runs MSX1 software on the same slot machinery, so a session can
+//! still switch between any two models. Snapshots record the model, not the
+//! machine, so the split leaves them unchanged.
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
@@ -358,7 +365,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
         ));
     }
     MachineProfile {
-        machine_id: MachineId::from("microsoft-msx1"),
+        // Each id is a literal so that `scripts/status/check_registry.py`
+        // can see both machines.
+        machine_id: if model.is_msx2() {
+            MachineId::from("microsoft-msx2")
+        } else {
+            MachineId::from("microsoft-msx1")
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Msx,
@@ -473,6 +486,22 @@ mod tests {
                 .summary
                 .contains("memory mapper")
         );
+    }
+
+    #[test]
+    fn each_generation_is_its_own_machine() {
+        for model in Model::ALL {
+            let expected = if model.is_msx2() {
+                "microsoft-msx2"
+            } else {
+                "microsoft-msx1"
+            };
+            assert_eq!(
+                profile_for(model).machine_id.as_str(),
+                expected,
+                "{model:?}"
+            );
+        }
     }
 
     #[test]

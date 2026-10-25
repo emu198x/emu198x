@@ -90,6 +90,11 @@
     "alias": "msx"
   },
   {
+    "family": "msx2",
+    "runtime": "MsxRuntime",
+    "alias": "msx2"
+  },
+  {
     "family": "nintendo-game-boy",
     "runtime": "GameBoyRuntime",
     "alias": "game-boy"

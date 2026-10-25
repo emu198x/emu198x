@@ -8,7 +8,7 @@ there is no iframe or separate player-page interface. Cartridge selection
 starts playback; computer firmware stays in a disclosure until needed. The worker
 imports only the selected family's WASM module when Start is pressed.
 
-The generated catalogue covers 32 runtime families and 119 model IDs. Models,
+The generated catalogue covers 33 runtime families and 121 model IDs. Models,
 firmware requirements and media slots come from `FamilyRuntime`; browser file
 extensions and site aliases live in `catalogue.mjs` and `families.json`.
 The five established defaults retain their existing loaders: Spectrum 48K PAL,
