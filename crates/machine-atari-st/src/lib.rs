@@ -5,9 +5,9 @@
 //! - **GLUE and MMU** (`emu198x-atari-st-glue-mmu`): video timing, the video counter,
 //!   RAM mapping and the DMA address.
 //! - **Shifter** (`emu198x-atari-st-shifter`): pixels from the MMU's video words.
-//! - **MFP 68901** (`motorola-mfp-68901`): timers and the interrupt
+//! - **MFP 68901** (`emu198x-motorola-mfp-68901`): timers and the interrupt
 //!   controller, on a 2.4576 MHz crystal of its own.
-//! - **Two 6850 ACIAs** (`motorola-acia-6850`): the keyboard link at
+//! - **Two 6850 ACIAs** (`emu198x-motorola-acia-6850`): the keyboard link at
 //!   7812.5 baud and MIDI at 31250, both from a 500 kHz clock.
 //! - **YM2149** (`emu198x-gi-ay-3-8910` in its YM2149 variant): sound at
 //!   a quarter of the CPU clock, its port A selecting the floppy drive and side.
@@ -71,12 +71,12 @@ pub use emu198x_atari_st_glue_mmu::Frequency;
 use emu198x_atari_st_glue_mmu::GlueMmu;
 use emu198x_atari_st_shifter::Shifter;
 use emu198x_gi_ay_3_8910::{Ay3_8910, Variant};
+use emu198x_motorola_acia_6850::Acia6850;
+use emu198x_motorola_mfp_68901::{Mfp68901, TimerId};
 use emu198x_western_digital_wd1770::{Disk, Wd1770};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
-use motorola_acia_6850::Acia6850;
-use motorola_mfp_68901::{Mfp68901, TimerId};
 use serde::{Deserialize, Serialize};
 
 pub use dma::Dma;

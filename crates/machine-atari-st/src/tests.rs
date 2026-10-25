@@ -67,8 +67,14 @@ fn the_reset_vectors_come_from_rom_and_ram_is_mapped() {
 fn the_mono_monitor_pulls_gpip_bit_7_low() {
     let colour = st(Model::St520, VideoStandard::Pal, Monitor::Colour);
     let mono = st(Model::St520, VideoStandard::Pal, Monitor::Mono);
-    assert_eq!(colour.mfp.peek(motorola_mfp_68901::reg::GPIP) & 0x80, 0x80);
-    assert_eq!(mono.mfp.peek(motorola_mfp_68901::reg::GPIP) & 0x80, 0);
+    assert_eq!(
+        colour.mfp.peek(emu198x_motorola_mfp_68901::reg::GPIP) & 0x80,
+        0x80
+    );
+    assert_eq!(
+        mono.mfp.peek(emu198x_motorola_mfp_68901::reg::GPIP) & 0x80,
+        0
+    );
 }
 
 #[test]

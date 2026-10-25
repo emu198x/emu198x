@@ -1503,6 +1503,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-motorola-acia-6850"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "emu198x-motorola-mfp-68901"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-motorola-pia-6821"
 version = "0.1.0"
 dependencies = [
@@ -2991,13 +3007,13 @@ dependencies = [
  "emu198x-atari-st-glue-mmu",
  "emu198x-atari-st-shifter",
  "emu198x-gi-ay-3-8910",
+ "emu198x-motorola-acia-6850",
+ "emu198x-motorola-mfp-68901",
  "emu198x-test-skip",
  "emu198x-western-digital-wd1770",
  "format-atari-st-msa",
  "format-atari-st-st",
  "motorola-68000",
- "motorola-acia-6850",
- "motorola-mfp-68901",
  "serde",
  "serde_json",
 ]
@@ -3712,22 +3728,6 @@ name = "motorola-68k-common"
 version = "0.44.2"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "motorola-acia-6850"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "motorola-mfp-68901"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
