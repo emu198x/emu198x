@@ -2,8 +2,11 @@
 
 **Date:** 2026-05-23
 **Status:** Locked, **amended 2026-10-22**: the workspace splits by layer,
-then by system family. Read
-[§ Amendment](#amendment-2026-10-22--extract-by-layer-then-by-system-family)
+then by system family; **amended again 2026-10-25**: every CPU and chip gets a
+repository of its own, however many families use it. Read
+[§ Amendment 2026-10-25](#amendment-2026-10-25--every-cpu-and-chip-gets-its-own-repository)
+and then
+[§ Amendment 2026-10-22](#amendment-2026-10-22--extract-by-layer-then-by-system-family)
 first. The body below is history for everything the amendment moves, and still
 governs what stays until it moves. Governs whether and when the 113-crate workspace
 splits into multiple workspaces or repos as the project grows
@@ -12,6 +15,38 @@ through Waves 2 / 3 (per the
 Companion to [`versioning-strategy.md`](versioning-strategy.md) —
 that record covers crate version management; this one covers
 workspace organisation.
+
+## Amendment 2026-10-25 — every CPU and chip gets its own repository
+
+**Every CPU and every chip gets a repository of its own, whether one family
+uses it or several.** Layer 2 below no longer asks how many families use a
+chip. The test of "two or more families or another sibling" is dropped, and
+so is the sentence "A chip only one family uses moves with that family".
+
+Steve's reasoning: a chip or CPU with one consumer today may simply be one
+whose other uses nobody has thought of yet. So extraction no longer waits for
+a second consumer to appear. Being extracted and published is what makes
+those other uses possible.
+
+What does not change:
+
+- **Families still wait for the shell gate.** Layer 4 is as written below:
+  four weeks in a row with no breaking change to `emu198x-shell`'s public
+  interface, then one pilot family, then the rest. A family repository holds
+  its machines, runtimes, binaries and family glue (`common-<family>`), but
+  no longer its chips.
+- **The 68k family still moves last**, in one repository.
+- **A crate moves as a chip only when its public interface stands on its
+  own.** A chip crate that depends on a family's glue (a `common-<family>`
+  crate) or on a format layout must be untangled first, or it moves with the
+  family. The Spectrum ULAs, which implement `common-sinclair-zx-spectrum`'s
+  `Ula` trait, are the plain case.
+- **Every move still publishes**, takes the `emu198x-` prefix and its own
+  version, and leaves no machine's test or corpus result changed.
+
+`scripts/extract-repos.toml` lists every repository this amendment makes
+movable; a chip that is not yet listed is either one of the exceptions above
+or a rename-and-publish change still to make.
 
 ## Amendment 2026-10-22 — extract by layer, then by system family
 
@@ -28,12 +63,14 @@ published versions, never `git` + `rev` pins.
    another sibling use: AY-3-8910 (with its 8912 facade), TMS9918, SN76489,
    8255, 6522, 6845, 6520, 6847, uPD765 (with the DSK adapter), WD1770,
    Z80 CTC, SID, Paula and the 2A03 APU. `common-z80-machine` and
-   `common-tape` (with the TZX adapter) get one each too. A chip only one
-   family uses moves with that family.
+   `common-tape` (with the TZX adapter) get one each too. ~~A chip only one
+   family uses moves with that family.~~ *(Superseded 2026-10-25: every
+   chip gets its own repository; see § Amendment 2026-10-25.)*
 3. **Format layouts go to Format198x**, under the umbrella
    [`emu198x-format-layouts-move-to-format198x.md`](../../../../decisions/emu198x-format-layouts-move-to-format198x.md).
 4. **One repository per system family**, single-machine families included,
-   holding its machines, runtimes, family-only chips and binaries.
+   holding its machines, runtimes, ~~family-only chips~~ and binaries.
+   *(Chips leave too since 2026-10-25.)*
 5. **This repository keeps the platform and the hosts:** `emu198x-shell`,
    `emu198x-ui`, `emu198x-native-video` and `emu198x-web`, published for the
    families, and the cross-family hosts (`emu198x-apple`,
@@ -302,3 +339,10 @@ system-family repositories as the goal, with one repository per CPU and per
 shared chip below them ("the amount of setup work is less important"),
 families waiting until the shell settles, and a repository for each
 single-machine family. See § Amendment.
+
+### 2026-10-25 — Amended: every CPU and chip gets its own repository
+
+Steve dropped the shared-chip test from layer 2. A chip with one consumer
+today may be one whose other uses nobody has thought of yet, and extracting
+and publishing it is what makes those uses possible. Families still wait for
+the shell; the 68k still moves last. See § Amendment 2026-10-25.
