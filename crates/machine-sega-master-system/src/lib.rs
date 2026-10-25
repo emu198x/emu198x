@@ -168,9 +168,10 @@ impl SmsVariant {
     }
 
     /// The FM hardware this model ships with: the Japanese Master System
-    /// has a YM2413 on the board, and nothing else does.
+    /// has a YM2413 on the board, and nothing else does. The Mark III shares
+    /// its Japanese I/O chip but took FM only through the FM Sound Unit.
     fn default_fm_unit(self) -> FmUnit {
-        if self.is_japan() {
+        if matches!(self, Self::SmsJapanNtsc) {
             FmUnit::BuiltIn
         } else {
             FmUnit::None
