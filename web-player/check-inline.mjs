@@ -67,6 +67,20 @@ assert.equal(smsWorker.calls[0].args[4].family,'sega-master-system');
 sms.canvas.dispatchEvent(new window.KeyboardEvent('keydown',{code:'Enter'}));
 assert.deepEqual(smsWorker.calls.at(-1).args[0],[['key','pause',true]]);
 sms.cleanup();
+// The Mega Drive needs no BIOS (TMSS is not modelled), so a cartridge boots
+// at once; its pad has three face buttons and a real Start.
+const md=mount('sega-mega-drive');
+assert(md.$('firmware-settings').hidden);assert(!md.root.querySelector('#pad [data-button=c]').hidden);
+assert.deepEqual([...md.root.querySelectorAll('#pad .actions button')].map(button=>button.dataset.button),['a','b','c']);
+assert.equal(md.$('media').accept,'.md,.gen,.bin,.smd,.sms');
+file(md.$('media'),'game.md');await md.$('media').onchange();
+const mdWorker=workers.at(-1);
+assert.equal(mdWorker.calls[0].args[4].family,'sega-mega-drive');assert.equal(mdWorker.calls[0].args[4].id,'mega-drive-europe');
+for(const [code,button] of [['Enter','start'],['KeyC','c'],['ShiftRight','mode']]) {
+ md.canvas.dispatchEvent(new window.KeyboardEvent('keydown',{code}));
+ assert.deepEqual(mdWorker.calls.at(-1).args[0],[['button',button,true]]);
+}
+md.cleanup();
 const coleco=mount('coleco-colecovision');
 file(coleco.$('media'),'game.col');await coleco.$('media').onchange();
 assert(coleco.$('firmware-settings').open,'BIOS consoles must request firmware after cartridge selection');coleco.cleanup();

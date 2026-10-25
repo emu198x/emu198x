@@ -115,6 +115,11 @@
     "alias": "sega-master-system"
   },
   {
+    "family": "sega-mega-drive",
+    "runtime": "MegaDriveRuntime",
+    "alias": "sega-mega-drive"
+  },
+  {
     "family": "sega-sg-1000",
     "runtime": "Sg1000Runtime",
     "alias": "sega-sg-1000"

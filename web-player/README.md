@@ -8,7 +8,7 @@ there is no iframe or separate player-page interface. Cartridge selection
 starts playback; computer firmware stays in a disclosure until needed. The worker
 imports only the selected family's WASM module when Start is pressed.
 
-The generated catalogue covers 30 runtime families and 91 model IDs. Models,
+The generated catalogue covers 31 runtime families and 104 model IDs. Models,
 firmware requirements and media slots come from `FamilyRuntime`; browser file
 extensions and site aliases live in `catalogue.mjs` and `families.json`.
 The five established defaults retain their existing loaders: Spectrum 48K PAL,
@@ -95,6 +95,9 @@ that every title or peripheral works.
   accepted as user-selected inputs, with distinct compatibility expectations.
 - Computer input uses a physical keyboard. Console families also have touch buttons.
   Tab leaves the screen; Amiga mouse capture releases with Escape.
+- The Mega Drive pad has three face buttons: X, Z and C are A, B and C, Enter
+  is Start and right Shift is Mode. It needs no BIOS, since TMSS is not
+  modelled, and runs Master System cartridges through the Power Base Converter.
 - Blur, hidden tabs, element removal, pause and restart release input and
   clear queued audio. Restart creates a new worker and discards the session.
 - Loading a cartridge requires restart. Computer media can be inserted during

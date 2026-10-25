@@ -11,9 +11,10 @@ export function playerExtras({root,system,model,asset,pause,release,setVolume,lo
  display();$('display').onchange=()=>{display();save({display:$('display').value});};
  $('sound').checked=prefs.sound===true;
  $('sound').addEventListener('change',()=>save({sound:$('sound').checked}));
- const roles=system.family?.startsWith('nintendo-')?['Start','Select']:system.family==='sega-game-gear'?['Start','Pause']:system.family?.startsWith('sega-')?['Pause','Pause']:system.family==='coleco-colecovision'?['Keypad 1','Keypad 2']:system.family==='atari-5200'?['Start','Pause']:['Reset','Select'];
+ const roles=system.family?.startsWith('nintendo-')?['Start','Select']:system.family==='sega-mega-drive'?['Start','Mode']:system.family==='sega-game-gear'?['Start','Pause']:system.family?.startsWith('sega-')?['Pause','Pause']:system.family==='coleco-colecovision'?['Keypad 1','Keypad 2']:system.family==='atari-5200'?['Start','Pause']:['Reset','Select'];
  const keyLabel=code=>({ArrowUp:'↑',ArrowDown:'↓',ArrowLeft:'←',ArrowRight:'→',ShiftRight:'Right Shift',ShiftLeft:'Left Shift'})[code] || code.replace(/^(Key|Digit)/,'');
- const canonical={up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',start:'Enter',select:'ShiftRight'};
+ // The Mega Drive's third face button, C, is remappable like the others.
+ const canonical={up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',...(system.family==='sega-mega-drive'?{c:'KeyC'}:{}),start:'Enter',select:'ShiftRight'};
  if(system.console) {
   for(const [action,label] of [['start',roles[0]],['select',roles[1]]])root.querySelector(`#pad [data-button=${action}]`).textContent=label;
   $('input-settings').hidden=false;
@@ -23,7 +24,7 @@ export function playerExtras({root,system,model,asset,pause,release,setVolume,lo
    // Reject malformed, reserved and duplicate stored bindings.
    mapping[action]=typeof wanted==='string' && /^(Key[A-Z]|Digit[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter|Shift(Left|Right))$/.test(wanted) && !used.has(wanted)?wanted:code;
    used.add(mapping[action]);
-   const label=document.createElement('label');label.textContent=({a:'Action 1 / A',b:'Action 2 / B',start:roles[0],select:roles[1]})[action] || action;
+   const label=document.createElement('label');label.textContent=({a:'Action 1 / A',b:'Action 2 / B',c:'Action 3 / C',start:roles[0],select:roles[1]})[action] || action;
    const button=document.createElement('button');button.type='button';button.textContent=keyLabel(mapping[action]);button.dataset.action=action;
    button.onclick=()=>{pause();button.textContent='Press a key…';button.dataset.waiting='true';};
    button.onblur=()=>{delete button.dataset.waiting;button.textContent=keyLabel(mapping[action]);};
@@ -40,7 +41,7 @@ export function playerExtras({root,system,model,asset,pause,release,setVolume,lo
   }
  }
  function legend() {
-  $('controls-summary').textContent=system.console ? `Move: ${keyLabel(mapping.up)}, ${keyLabel(mapping.down)}, ${keyLabel(mapping.left)}, ${keyLabel(mapping.right)}. Actions: ${keyLabel(mapping.a)}, ${keyLabel(mapping.b)}. ${roles[0]}: ${keyLabel(mapping.start)}. ${roles[1]}: ${keyLabel(mapping.select)}. Click the screen to play; Tab leaves it.` : $('help').textContent+' Tab leaves the screen.';
+  $('controls-summary').textContent=system.console ? `Move: ${keyLabel(mapping.up)}, ${keyLabel(mapping.down)}, ${keyLabel(mapping.left)}, ${keyLabel(mapping.right)}. Actions: ${keyLabel(mapping.a)}, ${keyLabel(mapping.b)}${mapping.c?`, ${keyLabel(mapping.c)}`:''}. ${roles[0]}: ${keyLabel(mapping.start)}. ${roles[1]}: ${keyLabel(mapping.select)}. Click the screen to play; Tab leaves it.` : $('help').textContent+' Tab leaves the screen.';
  }
  legend();
  fetch(asset('build.json')).then(response=>response.ok?response.json():null).then(build=>{if(!disposed && build)revision=build.revision+(build.modified?' (modified)':'');}).catch(()=>{});
