@@ -140,6 +140,11 @@
     "alias": "zx81"
   },
   {
+    "family": "snk-neo-geo",
+    "runtime": "NeoGeoRuntime",
+    "alias": "neo-geo"
+  },
+  {
     "family": "sord-m5",
     "runtime": "M5Runtime",
     "alias": "sord-m5"
