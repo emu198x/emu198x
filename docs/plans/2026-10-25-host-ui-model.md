@@ -209,5 +209,8 @@ Dizzy loads and plays at 50 Hz with no audio underruns over 10 minutes.
 ## Not in this plan
 
 - Shipping or distributing Apple builds, and the firmware policy for them.
-- The Windows and Linux native frontends.
+- The WinUI frontend for Windows, which starts once the Mac app has
+  settled (decision § 1).
+- The tvOS changes, which follow each Mac step as the Mac app's TV
+  variant rather than as steps of their own.
 - A library or store browser beyond recents.
