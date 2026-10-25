@@ -1,10 +1,13 @@
 # Repositories scripts/extract-repo.py can stand up, one entry each.
 #
-# Layers 1 (CPUs, #1997) and 2 (shared chips, #1998) of
-# knowledge/decisions/workspace-shape.md § Amendment. A crate is listed once it
-# can move: published, `emu198x-` prefixed and independently versioned. The
-# rest of those checklists need a rename-and-publish change here first, the way
-# fad8cc4de did it for these six.
+# Layers 1 (CPUs, #1997) and 2 (chips, #1998) of
+# knowledge/decisions/workspace-shape.md § Amendment. Since the 2026-10-25
+# amendment every chip gets a repository, however many families use it. A crate
+# is listed once it can move: publishable, `emu198x-` prefixed and
+# independently versioned. A chip or CPU not listed here is either gated (the
+# 68k family moves last), depends on a family's glue or a format layout and
+# must be untangled first, or still needs a rename-and-publish change like
+# fad8cc4de's.
 #
 # `corpus` entries become the repository's nightly workflow. They are the jobs
 # for these crates in .github/workflows/nightly-accuracy.yml, which leave it
@@ -97,6 +100,22 @@ consumers = "Used by the Dragon 32 and 64."
 coverage_floor = 98
 
 [[repo]]
+name = "wdc-65c816"
+crates = ["emu198x-wdc-65c816"]
+summary = "The WDC 65C816 CPU, cycle-stepped, with a pin-level bus interface."
+consumers = "Used by the SNES and the C64's SuperCPU."
+# 23.72% line coverage on 2026-10-25, with the SingleStepTests corpus absent.
+coverage_floor = 23
+
+[[repo]]
+name = "sony-spc700"
+crates = ["emu198x-sony-spc700"]
+summary = "The Sony SPC700 (S-SMP), the SNES sound CPU, with a pin-level bus interface."
+consumers = "Used by the SNES."
+# 99.91% line coverage on 2026-10-25, with the SingleStepTests corpus absent.
+coverage_floor = 99
+
+[[repo]]
 name = "gi-ay-3-8910"
 crates = ["emu198x-gi-ay-3-8910", "emu198x-gi-ay-3-8912"]
 summary = "The General Instrument AY-3-8910 programmable sound generator, with its single-port AY-3-8912 facade."
@@ -163,7 +182,7 @@ coverage_floor = 95
 name = "ti-sn76489"
 crates = ["emu198x-ti-sn76489"]
 summary = "The Texas Instruments SN76489 programmable sound generator."
-consumers = "Used by the BBC Micro, ColecoVision, Memotech MTX, Sega Master System and SG-1000, and Sord M5."
+consumers = "Used by the BBC Micro, ColecoVision, Memotech MTX, Sega Master System, SG-1000 and Mega Drive, and Sord M5."
 # 92.47% line coverage on 2026-10-24.
 coverage_floor = 92
 
@@ -211,7 +230,7 @@ coverage_floor = 84
 name = "western-digital-wd1770"
 crates = ["emu198x-western-digital-wd1770"]
 summary = "The Western Digital WD1770 floppy disk controller and its WD177x/179x relatives."
-consumers = "Used by the Commodore 1571 and 1581 drives and the Tatung Einstein."
+consumers = "Used by the BBC Micro, the Acorn Electron Plus 3, the Atari ST, the Commodore 1571 and 1581 drives and the Tatung Einstein."
 # 89.15% line coverage on 2026-10-24.
 coverage_floor = 89
 
@@ -219,7 +238,7 @@ coverage_floor = 89
 name = "sega-315-5313"
 crates = ["emu198x-sega-315-5313"]
 summary = "The Sega 315-5313 video display processor of the Mega Drive."
-consumers = "Built for the Sega Mega Drive (#496); no machine uses it yet."
+consumers = "Used by the Sega Mega Drive."
 # 97.80% line coverage on 2026-10-24, with rendering added.
 coverage_floor = 97
 
@@ -227,7 +246,7 @@ coverage_floor = 97
 name = "yamaha-v9938"
 crates = ["emu198x-yamaha-v9938"]
 summary = "The Yamaha V9938 video display processor, the MSX2's video chip, with its command engine."
-consumers = "Built for the MSX2 (#2062)."
+consumers = "Used by the MSX2."
 # 96.42% line coverage on 2026-10-24.
 coverage_floor = 95
 
@@ -235,7 +254,7 @@ coverage_floor = 95
 name = "ricoh-rp5c01"
 crates = ["emu198x-ricoh-rp5c01"]
 summary = "The Ricoh RP5C01 real-time clock, the MSX2's clock chip."
-consumers = "Built for the MSX2 (#2062)."
+consumers = "Used by the MSX2."
 # 100.00% line coverage on 2026-10-24.
 coverage_floor = 95
 
@@ -243,7 +262,7 @@ coverage_floor = 95
 name = "konami-scc"
 crates = ["emu198x-konami-scc"]
 summary = "Konami's SCC and SCC-I (SCC+) wavetable sound chips, from the MSX MegaROM and Sound Cartridges."
-consumers = "Built for the MSX's SCC cartridges (#2066)."
+consumers = "Used by the MSX's SCC and Sound Cartridges."
 # 100.00% line coverage on 2026-10-24.
 coverage_floor = 95
 
@@ -251,7 +270,7 @@ coverage_floor = 95
 name = "snk-lspc2"
 crates = ["emu198x-snk-lspc2"]
 summary = "The SNK LSPC2 video chip and palette: 381 shrinking sprite strips and the fix layer."
-consumers = "Built for the SNK Neo Geo (#2063); no machine uses it yet."
+consumers = "Used by the SNK Neo Geo."
 # 99.73% line coverage on 2026-10-25.
 coverage_floor = 99
 
@@ -259,7 +278,7 @@ coverage_floor = 99
 name = "yamaha-ym2610"
 crates = ["emu198x-yamaha-ym2610"]
 summary = "The Yamaha YM2610 (OPNB): FM, SSG, ADPCM-A and ADPCM-B."
-consumers = "Built for the SNK Neo Geo (#2063); no machine uses it yet."
+consumers = "Used by the SNK Neo Geo; Play198x's VGM playback is a planned consumer."
 # 99.43% line coverage on 2026-10-24.
 coverage_floor = 99
 
@@ -267,7 +286,7 @@ coverage_floor = 99
 name = "yamaha-ym2612"
 crates = ["emu198x-yamaha-ym2612"]
 summary = "The Yamaha YM2612 (OPN2) FM synthesis chip and its CMOS twin, the YM3438."
-consumers = "Built for the Sega Mega Drive (#496); no machine uses it yet."
+consumers = "Used by the Sega Mega Drive, and by the YM2610 for the SNK Neo Geo; Play198x's VGM playback is a planned consumer."
 # 99.88% line coverage on 2026-10-24.
 coverage_floor = 99
 
@@ -278,3 +297,236 @@ summary = "The Zilog Z80 CTC (Z8430) counter/timer circuit."
 consumers = "Used by the Memotech MTX and Sord M5."
 # 97.51% line coverage on 2026-10-24.
 coverage_floor = 97
+
+[[repo]]
+name = "mos-acia-6551"
+crates = ["emu198x-mos-acia-6551"]
+summary = "The MOS 6551 asynchronous communication interface adapter."
+consumers = "Used by the Dragon 64 and the Oric Atmos's serial card."
+# 95.72% line coverage on 2026-10-25.
+coverage_floor = 95
+
+[[repo]]
+name = "mos-cia-6526"
+crates = ["emu198x-mos-cia-6526"]
+summary = "The MOS 6526 complex interface adapter."
+consumers = "Used by the Commodore 64 and 128 and the 1571 and 1581 drives."
+# 72.34% line coverage on 2026-10-25.
+coverage_floor = 72
+
+[[repo]]
+name = "mos-cia-8520"
+crates = ["emu198x-mos-cia-8520"]
+summary = "The MOS 8520 complex interface adapter, the Amiga's 6526."
+consumers = "Used by the Amiga machines."
+# 94.13% line coverage on 2026-10-25.
+coverage_floor = 94
+
+[[repo]]
+name = "mos-riot-6532"
+crates = ["emu198x-mos-riot-6532"]
+summary = "The MOS 6532 RAM-I/O-timer."
+consumers = "Used by the Atari 2600 and 7800."
+# 74.56% line coverage on 2026-10-25.
+coverage_floor = 74
+
+[[repo]]
+name = "mos-vic-i"
+crates = ["emu198x-mos-vic-i"]
+summary = "The MOS 6560 and 6561 VIC video and sound chip."
+consumers = "Used by the Commodore VIC-20."
+# 94.80% line coverage on 2026-10-25.
+coverage_floor = 94
+
+[[repo]]
+name = "mos-vic-ii"
+crates = ["emu198x-mos-vic-ii"]
+summary = "The MOS VIC-II video chip family, including the C128's VIC-IIe."
+consumers = "Used by the Commodore 64 and 128."
+# 97.80% line coverage on 2026-10-25.
+coverage_floor = 97
+
+[[repo]]
+name = "motorola-pia-6821"
+crates = ["emu198x-motorola-pia-6821"]
+summary = "The Motorola MC6821 peripheral interface adapter."
+consumers = "Used by the Dragon 32 and 64."
+# 81.29% line coverage on 2026-10-25.
+coverage_floor = 81
+
+[[repo]]
+name = "motorola-sam-6883"
+crates = ["emu198x-motorola-sam-6883"]
+summary = "The Motorola MC6883 synchronous address multiplexer."
+consumers = "Used by the Dragon 32 and 64."
+# 96.36% line coverage on 2026-10-25.
+coverage_floor = 96
+
+[[repo]]
+name = "atari-tia"
+crates = ["emu198x-atari-tia"]
+summary = "The Atari TIA, the 2600's video and sound chip."
+consumers = "Used by the Atari 2600 and 7800."
+# 85.08% line coverage on 2026-10-25.
+coverage_floor = 85
+
+[[repo]]
+name = "atari-gtia"
+crates = ["emu198x-atari-gtia"]
+summary = "The Atari GTIA video output chip."
+consumers = "Used by the Atari 5200 and 800XL, and by ANTIC."
+# 96.65% line coverage on 2026-10-25.
+coverage_floor = 96
+
+[[repo]]
+name = "atari-antic"
+crates = ["emu198x-atari-antic"]
+summary = "The Atari ANTIC display list processor."
+consumers = "Used by the Atari 5200 and 800XL."
+# 97.20% line coverage on 2026-10-25.
+coverage_floor = 97
+
+[[repo]]
+name = "atari-maria"
+crates = ["emu198x-atari-maria"]
+summary = "The Atari 7800's MARIA display processor."
+consumers = "Used by the Atari 7800."
+# 99.47% line coverage on 2026-10-25.
+coverage_floor = 99
+
+[[repo]]
+name = "atari-pokey"
+crates = ["emu198x-atari-pokey"]
+summary = "The Atari POKEY sound and I/O chip."
+consumers = "Used by the Atari 5200, 7800 and 800XL; Play198x's SAP playback is a planned consumer."
+# 94.66% line coverage on 2026-10-25.
+coverage_floor = 94
+
+[[repo]]
+name = "commodore-agnus"
+crates = ["emu198x-commodore-agnus-ocs", "emu198x-commodore-agnus-ecs", "emu198x-commodore-agnus-aga"]
+summary = "Commodore's Agnus line: the OCS Agnus, the ECS Super Agnus and the AGA Alice, each built on the one before."
+consumers = "Used by the Amiga machines."
+# 86.58% line coverage on 2026-10-25.
+coverage_floor = 86
+# The reference programs and request corpus its tests read.
+data = [
+  "test-data/commodore/amiga/area-dma/README.md",
+  "test-data/commodore/amiga/area-dma/reference-programs.tsv",
+  "test-data/commodore/amiga/ddf-register-writes/README.md",
+  "test-data/commodore/amiga/ddf-register-writes/probe-native.rs",
+  "test-data/commodore/amiga/ddf-register-writes/registered-cases.csv",
+  "test-data/commodore/amiga/ddf-register-writes/registered-events.csv",
+]
+
+[[repo]]
+name = "commodore-denise"
+crates = ["emu198x-commodore-denise-ocs", "emu198x-commodore-denise-ecs"]
+summary = "Commodore's Denise line: the OCS Denise and the ECS Super Denise built on it."
+consumers = "Used by the Amiga machines and by the AGA Lisa, which stays with the family for now."
+# 86.32% line coverage on 2026-10-25.
+coverage_floor = 86
+
+[[repo]]
+name = "commodore-gary"
+crates = ["emu198x-commodore-gary"]
+summary = "Commodore's Gary, the Amiga's address decoder."
+consumers = "Used by the Amiga machines."
+# 96.50% line coverage on 2026-10-25.
+coverage_floor = 96
+
+[[repo]]
+name = "commodore-gayle"
+crates = ["emu198x-commodore-gayle"]
+summary = "Commodore's Gayle gate array, the A600 and A1200's IDE interface."
+consumers = "Used by the Amiga ECS and A1200 machines."
+# 94.29% line coverage on 2026-10-25.
+coverage_floor = 94
+
+[[repo]]
+name = "nintendo-game-boy-apu"
+crates = ["emu198x-nintendo-game-boy-apu"]
+summary = "The Game Boy's DMG APU."
+consumers = "Used by the Game Boy and Game Boy Color."
+# 86.71% line coverage on 2026-10-25.
+coverage_floor = 86
+
+[[repo]]
+name = "nintendo-game-boy-mbc"
+crates = ["emu198x-nintendo-game-boy-mbc"]
+summary = "The Game Boy cartridge memory bank controllers."
+consumers = "Used by the Game Boy and Game Boy Color."
+# 84.89% line coverage on 2026-10-25.
+coverage_floor = 84
+
+[[repo]]
+name = "nintendo-game-boy-timer"
+crates = ["emu198x-nintendo-game-boy-timer"]
+summary = "The Game Boy's DIV/TIMA timer block."
+consumers = "Used by the Game Boy and Game Boy Color."
+# 90.73% line coverage on 2026-10-25.
+coverage_floor = 90
+
+[[repo]]
+name = "sega-315-5124"
+crates = ["emu198x-sega-315-5124"]
+summary = "The Sega 315-5124 Master System VDP, with its 315-5246 and Game Gear relatives."
+consumers = "Used by the Sega Master System and Game Gear."
+# 97.39% line coverage on 2026-10-25.
+coverage_floor = 97
+
+[[repo]]
+name = "sinclair-zx81-ula"
+crates = ["emu198x-sinclair-zx81-ula"]
+summary = "The Sinclair ZX81 ULA."
+consumers = "Used by the ZX81 and ZX80."
+# 85.71% line coverage on 2026-10-25.
+coverage_floor = 85
+
+[[repo]]
+name = "amstrad-gate-array"
+crates = ["emu198x-amstrad-gate-array"]
+summary = "The Amstrad Gate Array (40007 and 40010)."
+consumers = "Used by the Amstrad CPC."
+# 96.41% line coverage on 2026-10-25.
+coverage_floor = 96
+
+[[repo]]
+name = "nec-upd765a"
+crates = ["emu198x-nec-upd765a"]
+summary = "The NEC uPD765A floppy disk controller."
+consumers = "Used by the Amstrad CPC 664 and 6128 and the ZX Spectrum +3, through Emu198x's format-amstrad-dsk adapter."
+# 95.81% line coverage on 2026-10-25.
+coverage_floor = 95
+
+[[repo]]
+name = "z80-cadence"
+crates = ["emu198x-z80-cadence"]
+summary = "The cadence every Z80 machine shares: two CPU half-cycles per T-state, interrupt pins fed before each."
+consumers = "Used by thirteen Z80 machines across eleven families, from the CPC to the Tatung Einstein."
+# 91.89% line coverage on 2026-10-25.
+coverage_floor = 91
+
+[[repo]]
+name = "tape-playback"
+crates = ["emu198x-tape-playback"]
+summary = "Machine-agnostic tape timing spans and their player."
+consumers = "Used by the ZX Spectrum and Amstrad CPC, through Emu198x's format-tzx adapter and their own tape formats."
+# 97.61% line coverage on 2026-10-25.
+coverage_floor = 97
+
+[[repo]]
+name = "yamaha-ym2413"
+crates = ["emu198x-yamaha-ym2413"]
+summary = "The Yamaha YM2413 (OPLL) FM synthesis chip and the Konami VRC7 core."
+consumers = "Used by the MSX's MSX-MUSIC and FM-PAC and the Master System's FM Sound Unit; the NES VRC7 is its other target, and Play198x's VGM playback a planned consumer."
+# 100.00% line coverage on 2026-10-25.
+coverage_floor = 99
+
+[[repo]]
+name = "sony-s-dsp"
+crates = ["emu198x-sony-s-dsp"]
+summary = "The Sony S-DSP, the SNES sound generator: eight BRR voices with echo."
+consumers = "Used by the SNES."
+# 99.71% line coverage on 2026-10-25.
+coverage_floor = 99
