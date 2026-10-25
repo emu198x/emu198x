@@ -108,6 +108,10 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     /// filter + DC-blocking high-pass), applied to each host sample.
     /// Coefficients come from `model`; signal history is snapshotted.
     audio_filter: crate::audio_filter::AmigaAudioFilter,
+    /// Sprite 0's arming count when it last changed, and the frame it changed
+    /// on. Lets [`crate::AmigaRuntimeKind::mouse_pointer`] tell a pointer
+    /// still on screen from one the guest has taken away. Not saved.
+    pub(crate) pointer_seen: std::cell::Cell<(u32, u64)>,
 }
 
 // =====================================================================
@@ -372,6 +376,7 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
 
     pub(crate) fn set_frame_count(&mut self, frame_count: u64) {
         self.frame_count = frame_count;
+        self.pointer_seen.set((0, 0));
     }
 
     pub(crate) fn set_non_black_pixels(&mut self, count: u32) {
@@ -524,6 +529,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         }
         self.time = MachineTime::default();
         self.frame_count = 0;
+        self.pointer_seen.set((0, 0));
         self.audio_sample_accumulator = 0;
         self.audio_resampler = BandLimitedStereo::default();
         self.audio_led_history = 0;
@@ -789,6 +795,7 @@ impl AmigaRuntime<AmigaOcs> {
                     as usize
             ],
             frame_count: 0,
+            pointer_seen: std::cell::Cell::new((0, 0)),
             non_black_pixels: 0,
             non_white_pixels: 0,
             first_active_row: None,
@@ -904,6 +911,7 @@ impl AmigaRuntime<AmigaEcs> {
                     as usize
             ],
             frame_count: 0,
+            pointer_seen: std::cell::Cell::new((0, 0)),
             non_black_pixels: 0,
             non_white_pixels: 0,
             first_active_row: None,
@@ -1025,6 +1033,7 @@ impl AmigaRuntime<AmigaA1200> {
                     as usize
             ],
             frame_count: 0,
+            pointer_seen: std::cell::Cell::new((0, 0)),
             non_black_pixels: 0,
             non_white_pixels: 0,
             first_active_row: None,
