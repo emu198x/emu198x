@@ -1,9 +1,9 @@
 # Decision: One host UI model, with the Mac app as its reference
 
 **Date:** 2026-10-25
-**Status:** PROPOSED. Not binding until Steve approves it. Section 9 asks
-for an amendment to [`debugger-architecture.md`](debugger-architecture.md)
-that this record cannot make on its own.
+**Status:** BINDING. Approved by Steve 2026-10-25, with section 9's
+amendment to [`debugger-architecture.md`](debugger-architecture.md) and a
+GTK4 Linux frontend (section 12).
 **Mockups:** the "Emu198x macOS UI" design canvas (six screens), made
 alongside this record.
 **Plan:** [`../../docs/plans/2026-10-25-host-ui-model.md`](../../docs/plans/2026-10-25-host-ui-model.md).
@@ -159,7 +159,7 @@ it already is on tvOS and in the browser.
 
 ### 9. The debugger follows its host
 
-**Asks for an amendment to [`debugger-architecture.md`](debugger-architecture.md) § 6.**
+**Amends [`debugger-architecture.md`](debugger-architecture.md) § 6** (approved 2026-10-25).
 
 That record's choices 1–5 and 7–10 stand: a separate process, an MCP
 client over `--mcp-listen`, several clients at once, learner-first, and
@@ -167,13 +167,13 @@ the MVP scope. Choice 6, egui, conflicts with
 [`native-ui-strategy.md`](native-ui-strategy.md), which rejects egui for
 anything shipped to users.
 
-The proposal: the debugger is a native window on each host, built from
-the same toolkit as that host's app (SwiftUI on the Mac). It stays an MCP
-client, so it can still run as a separate process and sit beside Claude.
+The debugger is a native window on each host, built from the same
+toolkit as that host's app (SwiftUI on the Mac, GTK4 on Linux). It stays
+an MCP client, so it can still run as a separate process and sit beside
+Claude.
 
-Until Steve decides, the Debug level (section 2) ships only the pause,
-step and disassembly strip, which `Fleet` and `DebugTarget` can already
-serve.
+The Debug level (section 2) ships the pause, step and disassembly strip
+first, which `Fleet` and `DebugTarget` can already serve.
 
 ### 10. What the winit baseline may draw itself
 
@@ -196,6 +196,16 @@ menus, `rfd` dialogs, or a native window.
 - Reduced Motion turns off CRT flicker and other animated filters.
 - Status is never shown by colour alone.
 
+### 12. Linux gets a GTK4 frontend now
+
+Approved by Steve 2026-10-25. The `muda` stub on Linux was a defect, not
+a choice: `muda`'s Linux backend is GTK3, whose gtk3-rs bindings carry the
+Dependabot alert, so the menu was dropped rather than replaced. Linux
+moves to a GTK4 frontend through `gtk4-rs`, the post-launch path in
+[`native-ui-strategy.md`](native-ui-strategy.md), brought forward. It
+calls GTK's own widgets, so it is a native frontend under that record,
+not a cross-platform toolkit. Until it lands, Linux keeps the shortcuts.
+
 ## Drift triggers
 
 Stop and re-read this record if you find yourself:
@@ -213,12 +223,9 @@ Stop and re-read this record if you find yourself:
 
 ## Open questions
 
-- **Linux.** The `muda` stub leaves Linux with no menu. Bring GTK4 forward
-  (the post-launch plan in `native-ui-strategy.md`), or accept
-  shortcuts-only on Linux for now?
-- **Save format.** Confirm that the browser's `.emu198x` file becomes the
-  shared format, and how it relates to the `EMU1` header in
-  `save-state-format.md`.
+- **Save format.** The browser's `.emu198x` file is the shared format
+  (approved 2026-10-25). How it carries the `EMU1` header from
+  `save-state-format.md` is settled in plan step 6.
 - **The Inspector's memory view** needs memory reads through `Fleet`. Use
   the query provider (`memory.read`) or a new bridge function?
 - **The per-machine app.** Each Mac app is a single family, under
@@ -241,4 +248,5 @@ Stop and re-read this record if you find yourself:
 
 | Date | Event |
 |---|---|
-| 2026-10-25 | Proposed, with mockups and a plan. Awaiting Steve's review; section 9 needs an amendment to `debugger-architecture.md`. |
+| 2026-10-25 | Proposed, with mockups and a plan. |
+| 2026-10-25 | **Approved** (Steve). Section 9 amends `debugger-architecture.md` § 6; section 12 brings the GTK4 Linux frontend forward; `.emu198x` is the shared save format. |
