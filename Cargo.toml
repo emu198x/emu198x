@@ -258,6 +258,7 @@ members = [
     "crates/emu198x-ricoh-rp5c01",
     "crates/emu198x-western-digital-wd1770",
     "crates/emu198x-sega-315-5313",
+    "crates/emu198x-snk-lspc2",
     "crates/emu198x-yamaha-ym2610",
     "crates/emu198x-yamaha-ym2612",
     "crates/emu198x-zilog-z80",

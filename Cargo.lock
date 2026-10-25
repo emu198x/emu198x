@@ -1667,6 +1667,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-snk-lspc2"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-sord-m5"
 version = "0.44.2"
 dependencies = [
