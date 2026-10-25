@@ -3,7 +3,9 @@
 **Date:** 2026-05-23
 **Status:** Locked, **amended 2026-10-22**: the workspace splits by layer,
 then by system family; **amended again 2026-10-25**: every CPU and chip gets a
-repository of its own, however many families use it. Read
+repository of its own, however many families use it, and later that day so
+does every bus, board protocol and peripheral. Read
+[§ Amendment 2026-10-25 (later)](#amendment-2026-10-25-later--buses-board-protocols-and-peripherals-too),
 [§ Amendment 2026-10-25](#amendment-2026-10-25--every-cpu-and-chip-gets-its-own-repository)
 and then
 [§ Amendment 2026-10-22](#amendment-2026-10-22--extract-by-layer-then-by-system-family)
@@ -15,6 +17,33 @@ through Waves 2 / 3 (per the
 Companion to [`versioning-strategy.md`](versioning-strategy.md) —
 that record covers crate version management; this one covers
 workspace organisation.
+
+## Amendment 2026-10-25 (later) — buses, board protocols and peripherals too
+
+**Layer 2 covers buses, board protocols and peripherals as well as CPUs and
+chips.** Each gets a repository of its own on the same terms: the `emu198x-`
+prefix, its own version, and an entry in `scripts/extract-repos.toml`. The
+Atari SIO bus, the Amiga's Zorro II autoconfig protocol, the Amiga floppy
+drive and keyboard, and the Ultimate Command Interface's network target are
+the first of them.
+
+Steve's reasoning, in his words: "So that anyone could assemble these pieces
+into a proper emulator themselves, not just following my path." A machine is
+more than its chips. Someone building an emulator of their own needs the bus
+the drives hang off and the drives themselves as much as the video chip, and
+if those stay inside a family repository, the only way to get them is to
+take the family too.
+
+The exceptions in § Amendment 2026-10-25 still hold, unchanged:
+
+- **A crate that depends on a family's glue (a `common-<family>` crate) or on
+  a format layout must be untangled first, or it moves with its family.** The
+  Spectrum peripherals, which implement `common-sinclair-zx-spectrum`'s
+  traits, are the plain case for peripherals, as the Spectrum ULAs are for
+  chips.
+- **The 68k family still moves last**, and an expansion board built on it,
+  such as the GVP A530, moves with it.
+- **Families still wait for the shell gate.**
 
 ## Amendment 2026-10-25 — every CPU and chip gets its own repository
 
@@ -346,3 +375,12 @@ Steve dropped the shared-chip test from layer 2. A chip with one consumer
 today may be one whose other uses nobody has thought of yet, and extracting
 and publishing it is what makes those uses possible. Families still wait for
 the shell; the 68k still moves last. See § Amendment 2026-10-25.
+
+### 2026-10-25 (later) — Amended: buses, board protocols and peripherals too
+
+Steve extended layer 2 past chips: "So that anyone could assemble these
+pieces into a proper emulator themselves, not just following my path."
+Buses, board protocols and peripherals get repositories of their own, on the
+same terms as chips. The family-glue and format-layout exceptions, the shell
+gate and the 68k's last place are unchanged. See § Amendment 2026-10-25
+(later).

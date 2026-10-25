@@ -1,13 +1,13 @@
 # Repositories scripts/extract-repo.py can stand up, one entry each.
 #
-# Layers 1 (CPUs, #1997) and 2 (chips, #1998) of
+# Layers 1 (CPUs, #1997) and 2 (chips, buses and peripherals, #1998) of
 # knowledge/decisions/workspace-shape.md § Amendment. Since the 2026-10-25
-# amendment every chip gets a repository, however many families use it. A crate
-# is listed once it can move: publishable, `emu198x-` prefixed and
-# independently versioned. A chip or CPU not listed here is either gated (the
-# 68k family moves last), depends on a family's glue or a format layout and
-# must be untangled first, or still needs a rename-and-publish change like
-# fad8cc4de's.
+# amendments every chip, bus, board protocol and peripheral gets a repository,
+# however many families use it. A crate is listed once it can move:
+# publishable, `emu198x-` prefixed and independently versioned. One not listed
+# here is either gated (the 68k family moves last), depends on a family's glue
+# or a format layout and must be untangled first, or still needs a
+# rename-and-publish change like fad8cc4de's.
 #
 # `corpus` entries become the repository's nightly workflow. They are the jobs
 # for these crates in .github/workflows/nightly-accuracy.yml, which leave it
