@@ -879,7 +879,14 @@ fn create_frame_bind_group(
     })
 }
 
-fn frame_rgba_pixels<'a>(
+/// The frame's pixels as RGBA, expanding an indexed frame through its palette
+/// into `scratch`. Hosts that draw frames without this presenter use it too.
+///
+/// # Errors
+///
+/// Returns an error for a frame whose data does not match its size, or an
+/// indexed frame without a palette or with an index outside it.
+pub fn frame_rgba_pixels<'a>(
     frame: &'a CapturedFrame,
     scratch: &'a mut Vec<u8>,
 ) -> Result<&'a [u8], VideoPresenterError> {

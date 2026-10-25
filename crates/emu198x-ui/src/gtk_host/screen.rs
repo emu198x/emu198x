@@ -1,0 +1,172 @@
+//! The widget the machine's picture is drawn in.
+//!
+//! It shows the latest frame at the machine's pixel aspect, centred on black,
+//! at the largest whole-number scale that fits, and smaller than scale 1 only
+//! when the window is. Pixels are drawn with nearest-neighbour filtering, so
+//! at a whole-number scale every source pixel is a solid block.
+
+use std::cell::{Cell, RefCell};
+
+use gtk4::prelude::*;
+use gtk4::subclass::prelude::*;
+use gtk4::{gdk, glib, graphene, gsk};
+
+mod imp {
+    use super::*;
+
+    pub struct Screen {
+        pub texture: RefCell<Option<gdk::Texture>>,
+        /// Width of one source pixel relative to its height.
+        pub pixel_aspect: Cell<f32>,
+        /// The picture size the window should open at, in logical pixels.
+        pub natural: Cell<(i32, i32)>,
+        /// The picture size at scale 1, the smallest the window allows.
+        pub minimum: Cell<(i32, i32)>,
+    }
+
+    impl Default for Screen {
+        fn default() -> Self {
+            Self {
+                texture: RefCell::new(None),
+                pixel_aspect: Cell::new(1.0),
+                natural: Cell::new((0, 0)),
+                minimum: Cell::new((0, 0)),
+            }
+        }
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for Screen {
+        const NAME: &'static str = "Emu198xScreen";
+        type Type = super::Screen;
+        type ParentType = gtk4::Widget;
+    }
+
+    impl ObjectImpl for Screen {}
+
+    impl WidgetImpl for Screen {
+        fn measure(&self, orientation: gtk4::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
+            let (min_w, min_h) = self.minimum.get();
+            let (nat_w, nat_h) = self.natural.get();
+            match orientation {
+                gtk4::Orientation::Horizontal => (min_w, nat_w.max(min_w), -1, -1),
+                _ => (min_h, nat_h.max(min_h), -1, -1),
+            }
+        }
+
+        fn snapshot(&self, snapshot: &gtk4::Snapshot) {
+            let widget = self.obj();
+            let width = widget.width() as f32;
+            let height = widget.height() as f32;
+            snapshot.append_color(
+                &gdk::RGBA::BLACK,
+                &graphene::Rect::new(0.0, 0.0, width, height),
+            );
+            let Some(texture) = self.texture.borrow().clone() else {
+                return;
+            };
+            let rect = super::fit(
+                texture.width(),
+                texture.height(),
+                self.pixel_aspect.get(),
+                width,
+                height,
+            );
+            snapshot.append_scaled_texture(&texture, gsk::ScalingFilter::Nearest, &rect);
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct Screen(ObjectSubclass<imp::Screen>)
+        @extends gtk4::Widget,
+        @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
+}
+
+impl Default for Screen {
+    fn default() -> Self {
+        glib::Object::new()
+    }
+}
+
+impl Screen {
+    /// Show `texture`, whose pixels are `pixel_aspect` times as wide as high.
+    pub fn show_frame(&self, texture: gdk::Texture, pixel_aspect: f32) {
+        let imp = self.imp();
+        imp.texture.replace(Some(texture));
+        imp.pixel_aspect.set(pixel_aspect);
+        self.queue_draw();
+    }
+
+    /// Set the picture's size at scale 1 (the minimum) and at the chosen
+    /// scale (the size asked for).
+    pub fn set_sizes(&self, minimum: (f64, f64), natural: (f64, f64)) {
+        let imp = self.imp();
+        imp.minimum.set(round_size(minimum));
+        imp.natural.set(round_size(natural));
+        self.queue_resize();
+    }
+
+    /// The rectangle the picture currently fills inside the widget.
+    pub fn picture_rect(&self) -> Option<graphene::Rect> {
+        let texture = self.imp().texture.borrow().clone()?;
+        Some(fit(
+            texture.width(),
+            texture.height(),
+            self.imp().pixel_aspect.get(),
+            self.width() as f32,
+            self.height() as f32,
+        ))
+    }
+}
+
+fn round_size((width, height): (f64, f64)) -> (i32, i32) {
+    (width.round() as i32, height.round() as i32)
+}
+
+/// Where a `tex_w` × `tex_h` picture with this pixel aspect goes in a
+/// `width` × `height` area: centred, at the largest whole-number scale that
+/// fits, or shrunk to fit when even scale 1 does not.
+fn fit(tex_w: i32, tex_h: i32, pixel_aspect: f32, width: f32, height: f32) -> graphene::Rect {
+    let display_w = tex_w as f32 * pixel_aspect.max(f32::MIN_POSITIVE);
+    let display_h = tex_h as f32;
+    if display_w <= 0.0 || display_h <= 0.0 {
+        return graphene::Rect::new(0.0, 0.0, 0.0, 0.0);
+    }
+    let exact = (width / display_w).min(height / display_h);
+    let scale = if exact >= 1.0 { exact.floor() } else { exact };
+    let w = display_w * scale;
+    let h = display_h * scale;
+    graphene::Rect::new(
+        ((width - w) / 2.0).round(),
+        ((height - h) / 2.0).round(),
+        w,
+        h,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit;
+
+    #[test]
+    fn fit_picks_the_largest_whole_scale_and_centres() {
+        // 320 × 200 square pixels in 1000 × 700: scale 3 fits (960 × 600).
+        let rect = fit(320, 200, 1.0, 1000.0, 700.0);
+        assert_eq!((rect.width(), rect.height()), (960.0, 600.0));
+        assert_eq!((rect.x(), rect.y()), (20.0, 50.0));
+    }
+
+    #[test]
+    fn fit_stretches_by_the_pixel_aspect() {
+        // Twice-as-wide pixels: 100 × 100 shows as 200 × 100 at scale 1.
+        let rect = fit(100, 100, 2.0, 450.0, 450.0);
+        assert_eq!((rect.width(), rect.height()), (400.0, 200.0));
+    }
+
+    #[test]
+    fn fit_shrinks_below_scale_one_only_when_it_must() {
+        let rect = fit(320, 200, 1.0, 160.0, 400.0);
+        assert_eq!((rect.width(), rect.height()), (160.0, 100.0));
+    }
+}

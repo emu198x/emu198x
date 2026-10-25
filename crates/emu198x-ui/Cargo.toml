@@ -47,5 +47,14 @@ objc2-app-kit = { workspace = true, features = [
 ] }
 objc2-foundation = { workspace = true, features = ["std", "NSData", "NSGeometry"] }
 
+# The GTK4 Linux host, off by default while it is brought up
+# (knowledge/decisions/host-ui-model.md § 12). It needs the system's
+# libgtk-4-dev to build.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk4 = { workspace = true, optional = true }
+
+[features]
+gtk = ["dep:gtk4"]
+
 [lints]
 workspace = true
