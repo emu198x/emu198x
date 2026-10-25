@@ -214,6 +214,12 @@ label = "system:zx81"
 milestone = "ZX81 100%"
 
 [[system]]
+machine_id = "snk-neo-geo"
+crate = "emu198x-snk-neo-geo"
+label = "system:neo-geo"
+milestone = "Neo Geo 100%"
+
+[[system]]
 machine_id = "sord-m5"
 crate = "emu198x-sord-m5"
 label = "system:sord-m5"

@@ -1322,6 +1322,7 @@ dependencies = [
  "runtime-sinclair-zx-spectrum",
  "runtime-sinclair-zx80",
  "runtime-sinclair-zx81",
+ "runtime-snk-neo-geo",
  "runtime-sord-m5",
  "runtime-spectravideo-svi-328",
  "runtime-tatung-einstein",
@@ -1672,6 +1673,20 @@ version = "0.1.0"
 dependencies = [
  "postcard",
  "serde",
+]
+
+[[package]]
+name = "emu198x-snk-neo-geo"
+version = "0.44.2"
+dependencies = [
+ "emu198x-app-icon",
+ "emu198x-shell",
+ "emu198x-ui",
+ "format-snk-neo-geo-romset",
+ "machine-snk-neo-geo",
+ "runtime-snk-neo-geo",
+ "serde_json",
+ "zip",
 ]
 
 [[package]]
@@ -2195,6 +2210,14 @@ version = "0.44.2"
 dependencies = [
  "emu198x-test-skip",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "format-snk-neo-geo-romset"
+version = "0.44.2"
+dependencies = [
+ "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]
@@ -5066,6 +5089,20 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "runtime-snk-neo-geo"
+version = "0.44.2"
+dependencies = [
+ "emu198x-shell",
+ "format-snk-neo-geo-romset",
+ "machine-snk-neo-geo",
+ "motorola-68000",
+ "postcard",
+ "serde",
+ "serde_json",
+ "zip",
 ]
 
 [[package]]

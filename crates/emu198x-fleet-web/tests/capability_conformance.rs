@@ -319,6 +319,10 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
             "sinclair-zx81",
             observe::<runtime_sinclair_zx81::Zx81Runtime>(),
         ),
+        (
+            "snk-neo-geo",
+            observe::<runtime_snk_neo_geo::NeoGeoRuntime>(),
+        ),
         ("sord-m5", observe::<runtime_sord_m5::M5Runtime>()),
         (
             "spectravideo-svi-328",
