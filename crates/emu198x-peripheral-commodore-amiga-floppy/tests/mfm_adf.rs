@@ -11,8 +11,8 @@
 //! before Phase 2, so these tests lock the byte counts, sync-word
 //! positions, and header-info layout that downstream code depends on.
 
-use peripheral_commodore_amiga_floppy::{Adf, DD};
-use peripheral_commodore_amiga_floppy::{
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
+use emu198x_peripheral_commodore_amiga_floppy::{
     AmigaFloppyDrive,
     mfm::{MFM_TRACK_BYTES, SECTOR_MFM_BYTES, decode_mfm_track, encode_mfm_track},
 };

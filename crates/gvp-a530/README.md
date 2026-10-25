@@ -22,7 +22,7 @@ manual evidence does not establish those values.
 
 ## Relationship to neighbouring crates
 
-`commodore-amiga-autoconfig` owns the generic Zorro-II probe and mapping state
+`emu198x-commodore-amiga-autoconfig` owns the generic Zorro-II probe and mapping state
 machine. `motorola-68k-common` supplies the MC68020/MC68030 transfer-size and
 32-bit lane helpers used by the local-RAM path. The Amiga machine integration owns
 the processor, rational clocking, cache-disable wiring and the synchronized

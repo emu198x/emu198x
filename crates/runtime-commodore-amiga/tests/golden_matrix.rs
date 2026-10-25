@@ -62,10 +62,10 @@
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+use emu198x_peripheral_commodore_amiga_floppy::Adf;
 use emu198x_shell::{
     HeadlessScript, HeadlessSession, MediaKind, ScriptMediaKind, ScriptStep, read_media_asset,
 };
-use peripheral_commodore_amiga_floppy::Adf;
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaOcsRuntime, AmigaSessionQueryProvider,
     DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,

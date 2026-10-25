@@ -2,8 +2,8 @@
 //! their slot or when asked for, and stay fitted, with their disks,
 //! across eject, reset and snapshot restore on every chipset tier.
 
+use emu198x_peripheral_commodore_amiga_floppy::DD;
 use emu198x_shell::{MachineCore, MachineError, MediaImage, MediaKind, MediaSet, ResetKind};
-use peripheral_commodore_amiga_floppy::DD;
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 const MODELS: [Model; 3] = [Model::A500OcsPal, Model::A500PlusEcsPal, Model::A1200AgaPal];

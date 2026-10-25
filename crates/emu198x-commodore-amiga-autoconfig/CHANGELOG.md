@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+The first release under the `emu198x-commodore-amiga-autoconfig` name. Until
+now the crate was `commodore-amiga-autoconfig`, versioned with the Emu198x
+suite and unpublished; earlier entries are from that name.
+
 ### Changed
 
 - [breaking] Rename the public partial configuration state to

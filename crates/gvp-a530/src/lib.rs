@@ -22,7 +22,7 @@
 
 #![forbid(unsafe_code)]
 
-use commodore_amiga_autoconfig::{
+use emu198x_commodore_amiga_autoconfig::{
     AutoconfigBoard, AutoconfigBoardDiagnosticSnapshot, AutoconfigState,
 };
 use motorola_68k_common::bus::{

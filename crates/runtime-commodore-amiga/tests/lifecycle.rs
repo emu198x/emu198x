@@ -3,12 +3,12 @@
 
 mod common;
 
+use emu198x_peripheral_commodore_amiga_floppy::DD;
 use emu198x_shell::{
     ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, InputEvent,
     MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
     MediaTransportCommand, NullAudioSink, NullFrameSink, NullTraceSink, ResetKind,
 };
-use peripheral_commodore_amiga_floppy::DD;
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, Model, PaulaChannel, RamConfig,
     profile_for,

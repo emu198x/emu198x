@@ -13,8 +13,8 @@
 //! live; the boot-flow test lives in #180 alongside the other
 //! cross-cutting scenarios.
 
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
 use machine_commodore_amiga_ocs::AmigaOcs;
-use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 fn zero_rom() -> Vec<u8> {
     vec![0; 512 * 1024]

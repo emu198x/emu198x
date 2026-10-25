@@ -15,8 +15,8 @@
 //! a blank ADF has no valid bootblock. It does prove the Floppy Phase
 //! 2 wiring (aa8aaf5+) drives the full chain end-to-end.
 
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
-use peripheral_commodore_amiga_floppy::{Adf, DD};
 use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {

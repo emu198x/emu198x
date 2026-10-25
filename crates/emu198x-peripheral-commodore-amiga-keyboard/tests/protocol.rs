@@ -5,7 +5,7 @@
 //! the encoding, power-up sequence, and handshake-timeout resend
 //! behaviour before Phase 2 wires the keyboard into the machine.
 
-use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
+use emu198x_peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 
 /// Matches the archive's private `POWERUP_DELAY_TICKS` constant.
 const POWERUP_DELAY_TICKS: u32 = 150_000;

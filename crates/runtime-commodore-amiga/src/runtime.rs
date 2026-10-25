@@ -15,6 +15,7 @@
 
 use emu198x_shell::audio::band_limited::{BandLimitedHistory, BandLimitedStereo, DELAY};
 
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, MAX_DRIVES};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult,
@@ -27,7 +28,6 @@ use machine_commodore_amiga_ecs::{
 use machine_commodore_amiga_ocs::{
     AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };
-use peripheral_commodore_amiga_floppy::{Adf, MAX_DRIVES};
 
 use crate::input::apply_input_event;
 use crate::live_access::AmigaLiveAccess;

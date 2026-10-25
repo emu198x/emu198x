@@ -57,12 +57,12 @@ run_group "Amiga library regressions" \
         -p emu198x-commodore-denise-ecs \
         -p commodore-denise-aga \
         -p emu198x-commodore-paula-8364 \
-        -p commodore-amiga-autoconfig \
+        -p emu198x-commodore-amiga-autoconfig \
         -p emu198x-commodore-gary \
         -p emu198x-commodore-gayle \
         -p emu198x-mos-cia-8520 \
-        -p peripheral-commodore-amiga-floppy \
-        -p peripheral-commodore-amiga-keyboard \
+        -p emu198x-peripheral-commodore-amiga-floppy \
+        -p emu198x-peripheral-commodore-amiga-keyboard \
         -p machine-commodore-amiga-ocs \
         -p machine-commodore-amiga-ecs \
         -p machine-commodore-amiga-a1200 \
@@ -78,7 +78,7 @@ run_group "Paula disk integration" \
     cargo test --locked -p emu198x-commodore-paula-8364 --test disk
 
 run_group "Floppy mechanism and MFM integrations" \
-    cargo test --locked -p peripheral-commodore-amiga-floppy \
+    cargo test --locked -p emu198x-peripheral-commodore-amiga-floppy \
         --test drive_state \
         --test mfm_adf
 

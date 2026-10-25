@@ -1,6 +1,6 @@
 //! Public diagnostic-snapshot coverage for the Amiga keyboard controller.
 
-use peripheral_commodore_amiga_keyboard::{AmigaKeyboard, AmigaKeyboardProtocolState};
+use emu198x_peripheral_commodore_amiga_keyboard::{AmigaKeyboard, AmigaKeyboardProtocolState};
 
 const POWERUP_DELAY_TICKS: u32 = 150_000;
 const BYTE_INTERVAL_TICKS: u32 = 700;

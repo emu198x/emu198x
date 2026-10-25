@@ -7,9 +7,9 @@
 //! CPU in a `BRA.S *` self-loop up in ROM space (where OVL can't reach
 //! it), so the DMA runs in isolation while the CPU does nothing.
 
+use emu198x_peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
 use machine_commodore_amiga_ocs::AmigaOcs;
-use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
-use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 /// 512 KiB ROM whose reset vector parks the CPU on an infinite
 /// `BRA.S *` at $F8_0008 — in ROM, immune to the OVL overlay — so it
