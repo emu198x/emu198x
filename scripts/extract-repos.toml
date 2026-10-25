@@ -570,3 +570,11 @@ summary = "The Motorola MC6850 asynchronous communications interface adapter."
 consumers = "Used by the Atari ST, for its keyboard and MIDI links."
 # 97.83% line coverage on 2026-10-25.
 coverage_floor = 97
+
+[[repo]]
+name = "atari-sio"
+crates = ["emu198x-atari-sio"]
+summary = "The Atari 8-bit SIO serial bus and the disk drives on it, at byte granularity."
+consumers = "Used by the Atari 800XL."
+# 94.53% line coverage on 2026-10-25.
+coverage_floor = 94

@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-atari-antic = { path = "../emu198x-atari-antic", version = "0.1.0" }
 emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.0" }
-atari-sio = { path = "../atari-sio", version = "0.44.0" }
+emu198x-atari-sio = { path = "../emu198x-atari-sio", version = "0.1.0" }
 emu198x-atari-pokey = { path = "../emu198x-atari-pokey", version = "0.1.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 emu198x-mos-pia-6520 = { path = "../emu198x-mos-pia-6520", version = "0.1.0" }
