@@ -30,8 +30,10 @@ starts.
   scale, and quit.
 - `emu198x-ui/src/menu.rs` builds its `muda` menu from the catalogue in
   place of its hand-written list.
-- The C ABI gains `emu198x_commands`, which returns the catalogue as JSON.
-  Header and symbol tests are updated.
+- The tape fast-forward item is labelled "Fast-Forward While Playing",
+  in place of "Fast Load" (decision § 5).
+- The C ABI function `emu198x_commands`, which returns the catalogue as
+  JSON, moves to step 2, where the Mac app first reads it.
 
 Verification:
 - A unit test fails when two entries share an id or a shortcut on the
@@ -39,9 +41,18 @@ Verification:
 - A winit test lists every catalogue id the shell claims to support, and
   checks that each one has a menu item and an `AppCommand`. Removing a
   mapping makes it fail.
-- `swift test` decodes the JSON and checks it against the catalogue.
+- A test checks that each catalogue shortcut is the key the winit
+  shortcut handlers act on.
 
 ### 2. Mac: detail levels and the Peek status line
+
+- The C ABI gains `emu198x_commands`, which returns the catalogue as JSON
+  (`emu198x_shell::commands::catalogue_json`). Header and symbol tests
+  are updated, and `swift test` decodes the JSON and checks it against
+  the catalogue. The Mac menus are built from it.
+- The Mac app's own shortcuts (⌘P pause, ⇧⌘R restart, ⌘T tape) and the
+  baseline's (F9–F12) differ today. Settle them in the catalogue here;
+  this step adds pause and restart as catalogue entries.
 
 - A View menu item for each of Play, Peek, Inspect and Debug (⌘1–⌘4),
   generated from the catalogue.
