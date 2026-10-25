@@ -14,7 +14,8 @@ runtime profile.
 The shared native menu is attached on **macOS and Windows**. On Windows the
 one unsafe call it needs lives in `emu198x-win-menu`
 ([decision](../../knowledge/decisions/windows-menu-unsafe-exception.md)).
-Linux uses a stub until the GTK4 frontend lands. Therefore the selector counts
+Linux uses a stub in the winit window; the GTK4 frontend, built with
+`emu198x-ui`'s optional `gtk` feature, has its own menu bar. Therefore the selector counts
 below describe the macOS and Windows menu surface, not equivalent controls on
 every host. See [shared menu construction and attachment](../../crates/emu198x-ui/src/menu.rs).
 

@@ -16,7 +16,7 @@ use crate::{UiSystem, VideoFilter};
 /// What a machine binary adds to [`MachineApp`] to open a window.
 pub trait UiApp: MachineApp {
     /// The [`UiSystem`] that drives this machine's window.
-    type System: UiSystem<Runtime = Self::Runtime>;
+    type System: UiSystem<Runtime = Self::Runtime> + 'static;
 
     /// The window driver for this configuration.
     fn ui_system(&self) -> Self::System;

@@ -15,6 +15,8 @@
 
 mod export;
 mod frame_stats;
+#[cfg(all(target_os = "linux", feature = "gtk"))]
+mod gtk_host;
 mod host_audio;
 mod host_core;
 mod icon;
@@ -420,6 +422,8 @@ pub enum UiError {
     InvalidPhosphorDecay { value: f32 },
     #[error("teardown failed: {0}")]
     Teardown(String),
+    #[error("the window could not open: {0}")]
+    Host(String),
 }
 
 /// The winit application: owns the window, the wgpu presenter and the native
@@ -791,7 +795,7 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
 ///
 /// Returns [`UiError`] for an invalid scale, video init failure, a machine
 /// error, or an event-loop error.
-pub fn run<S: UiSystem>(
+pub fn run<S: UiSystem + 'static>(
     system: S,
     runtime: S::Runtime,
     scale: u32,
@@ -813,7 +817,7 @@ pub fn run<S: UiSystem>(
 ///
 /// # Errors
 /// Returns [`UiError`] for invalid scale/decay, machine or host failures.
-pub fn run_with_phosphor<S: UiSystem>(
+pub fn run_with_phosphor<S: UiSystem + 'static>(
     system: S,
     runtime: S::Runtime,
     scale: u32,
@@ -836,16 +840,14 @@ pub fn run_with_phosphor<S: UiSystem>(
 
     let mut core = HostCore::new(system, runner, scale, video);
     core.presentation.phosphor_tau_ms = phosphor_ms;
-    let mut app = App::new(core, video);
-    let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut app)?;
+    let (mut core, error) = run_host(core, video)?;
 
     // Teardown (e.g. flush battery RAM) runs whether the session ended cleanly
     // or via a fatal error, so a crash still persists state. A fatal emulation
     // error takes precedence over a teardown failure (the latter is then just
     // logged), so the real cause isn't masked by a failed battery write.
-    let teardown = app.core.on_exit();
-    if let Some(err) = app.take_error() {
+    let teardown = core.on_exit();
+    if let Some(err) = error {
         if let Err(reason) = teardown {
             eprintln!("error: teardown failed: {reason}");
         }
@@ -853,6 +855,23 @@ pub fn run_with_phosphor<S: UiSystem>(
     }
     teardown.map_err(UiError::Teardown)?;
     Ok(())
+}
+
+/// Run `core` in this platform's window until it closes, returning it for
+/// teardown along with the error that ended the session, if any.
+fn run_host<S: UiSystem + 'static>(
+    core: HostCore<S>,
+    video: VideoFilter,
+) -> Result<(HostCore<S>, Option<UiError>), UiError> {
+    #[cfg(all(target_os = "linux", feature = "gtk"))]
+    if gtk_host::chosen() {
+        return gtk_host::run(core, video);
+    }
+    let mut app = App::new(core, video);
+    let event_loop = EventLoop::new()?;
+    event_loop.run_app(&mut app)?;
+    let error = app.take_error();
+    Ok((app.core, error))
 }
 
 #[cfg(test)]

@@ -188,23 +188,41 @@ baseline.
 Approved 2026-10-25 (decision § 12). It can start in parallel with steps
 2–10, once step 1 has landed, because it reads the same catalogue.
 
-- A Linux host built on `gtk4-rs`: a `GtkApplication` with a
-  `GtkPopoverMenuBar` built from the catalogue, its shortcuts set through
-  `set_accels_for_action`, and file choosers through `GtkFileDialog`.
-- The picture is drawn into a GTK widget (`GtkGLArea`, or a `GdkTexture`
-  per frame if that keeps pace) with the same sharp-bilinear rule as the
-  Mac app.
-- Emulation runs on its own thread, as `EmulatorLoop` does on the Mac.
-  Commands cross on the existing channel and are applied between frames.
-- The winit binary stays the fallback on Linux until this host reaches
-  the Mac app's step 5 behaviour. `muda` stays stubbed on Linux, so the
-  gtk3-rs tree and its Dependabot alert never come back.
-- The `gtk4` dependency, and the system `libgtk-4-dev` CI needs, are
-  confined to the Linux host crate. No other crate or target gains them.
+- First, a refactor with no behaviour change: the window-free half of the
+  winit app becomes `HostCore` (`emu198x-ui/src/host_core.rs`), which a
+  window drives through a small `Shell` trait. Steve chose this over a GTK
+  host with its own loop, which would have copied pacing, commands and
+  media handling (#2114).
+- The GTK host lives in `emu198x-ui` behind an optional `gtk` feature, on
+  Linux only (`emu198x-ui/src/gtk_host/`). It is not a crate of its own,
+  because all 30 machine binaries open their window through
+  `emu198x_ui::launch`. A separate crate would need wiring into each of
+  them, or a dependency cycle. Built with the feature, Linux opens GTK;
+  `EMU198X_UI=winit` picks the winit window.
+- `GtkApplication` with its menu bar built from the catalogue as a
+  `gio::Menu`. Each item is a GTK action that sends the same `AppCommand`
+  the shortcuts do. Radio and check items are stateful actions whose marks
+  the core moves after a command takes effect.
+- The picture is a GTK widget that draws each frame as a texture, at the
+  machine's pixel aspect and the largest whole-number scale that fits,
+  with nearest-neighbour filtering. GTK keycodes are translated into
+  winit's `KeyCode`, so every `UiSystem` key map works unchanged.
+- File choosers are `GtkFileDialog`, and messages are `GtkAlertDialog`.
+- The `gtk4` dependency and the system `libgtk-4-dev` it needs are
+  confined to that feature. A `GTK host` CI job lints and tests it.
+  `muda` stays stubbed on Linux, so the gtk3-rs tree and its Dependabot
+  alert never come back.
+- Still to come before the feature is on by default: the video filters
+  (they need the wgpu presenter), sharp bilinear at fractional scales,
+  shortcut text in the menus, and the release builds' GTK dependency.
 
-Verification: the catalogue test from step 1 passes for the GTK4 host.
-Dizzy loads and plays at 50 Hz with no audio underruns over 10 minutes.
-`cargo tree` shows no gtk3 crate anywhere in the workspace.
+Verification:
+- The catalogue test from step 1 passes for the GTK host.
+- Under Xvfb, the ZX81 with the synthetic ROM opens in the GTK window with
+  the same picture as winit, and Ctrl+S, Ctrl+L and F9 give the same log.
+- Dizzy loads and plays at 50 Hz with no audio underruns over 10 minutes
+  (needs a desktop with sound).
+- `cargo tree` shows no gtk3 crate anywhere in the workspace.
 
 ## Not in this plan
 
