@@ -16,5 +16,8 @@ postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+format-acorn-adfs = { path = "../format-acorn-adfs", version = "0.44.0" }
+
 [lints]
 workspace = true
