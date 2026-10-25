@@ -506,7 +506,7 @@ struct App<S: UiSystem> {
     frame_stats: Option<frame_stats::FrameStats>,
     fatal_error: Option<UiError>,
     halt_message: Option<String>,
-    /// Tape fast-load (turbo) armed by the user (F11 / Tape → Fast Load). Only
+    /// Tape fast-load (turbo) armed by the user (F11 / Tape → Fast-Forward While Playing). Only
     /// races ahead while [`UiSystem::tape_playing`] is also true.
     turbo_armed: bool,
     /// Native menu bar (no-op stub on Linux). Owns the muda menu tree.
@@ -1405,9 +1405,9 @@ impl<S: UiSystem> App<S> {
         }
     }
 
-    /// Tape → Fast Load (or F11): arm/disarm turbo. It only races while a tape is
-    /// playing ([`Self::turbo_active`]); a fresh baseline keeps pacing smooth
-    /// when it turns off mid-load.
+    /// Tape → Fast-Forward While Playing (or F11): arm/disarm turbo. It only
+    /// races while a tape is playing ([`Self::turbo_active`]); a fresh
+    /// baseline keeps pacing smooth when it turns off mid-load.
     fn toggle_turbo(&mut self) {
         self.turbo_armed = !self.turbo_armed;
         self.next_slice_at = Instant::now();
@@ -2033,6 +2033,73 @@ mod tests {
         // Other keys are not transport — they reach the machine (or other paths).
         assert_eq!(tape_transport_shortcut(KeyCode::F8), None);
         assert_eq!(tape_transport_shortcut(KeyCode::KeyL), None);
+    }
+
+    /// The winit key for a catalogue shortcut key.
+    fn key_code(key: emu198x_shell::commands::ShortcutKey) -> KeyCode {
+        use emu198x_shell::commands::ShortcutKey;
+        match key {
+            ShortcutKey::Function(9) => KeyCode::F9,
+            ShortcutKey::Function(10) => KeyCode::F10,
+            ShortcutKey::Function(11) => KeyCode::F11,
+            ShortcutKey::Function(12) => KeyCode::F12,
+            ShortcutKey::Letter('E') => KeyCode::KeyE,
+            ShortcutKey::Letter('K') => KeyCode::KeyK,
+            ShortcutKey::Letter('L') => KeyCode::KeyL,
+            ShortcutKey::Letter('S') => KeyCode::KeyS,
+            other => panic!("no winit key for {other:?}; add it here"),
+        }
+    }
+
+    #[test]
+    fn the_shortcut_handlers_follow_the_catalogue() {
+        use emu198x_shell::commands::expect_command;
+        let shortcut = |id: &str| {
+            let spec = expect_command(id);
+            let shortcut = spec
+                .shortcut
+                .unwrap_or_else(|| panic!("`{id}` has no shortcut"));
+            let mut mods = ModifiersState::empty();
+            if shortcut.host {
+                mods |= ModifiersState::CONTROL;
+            }
+            if shortcut.shift {
+                mods |= ModifiersState::SHIFT;
+            }
+            (mods, key_code(shortcut.key))
+        };
+
+        for (id, expected) in [
+            ("media.tape.play", TapeShortcut::Play),
+            ("media.tape.stop", TapeShortcut::Stop),
+            ("media.tape.fast-forward", TapeShortcut::ToggleTurbo),
+        ] {
+            let (mods, code) = shortcut(id);
+            assert!(mods.is_empty(), "`{id}` is a bare function key");
+            assert_eq!(tape_transport_shortcut(code), Some(expected), "{id}");
+        }
+        for (id, expected) in [
+            ("state.quick-save", StateAction::Save),
+            ("state.quick-load", StateAction::Load),
+        ] {
+            let (mods, code) = shortcut(id);
+            assert_eq!(state_chord_action(mods, code, true), Some(expected), "{id}");
+        }
+        let (mods, code) = shortcut("media.tape.export");
+        assert!(tape_export_chord(mods, code));
+        // Reset and the keyboard-mode chord are matched inline in
+        // `handle_shortcut`; pin their catalogue entries to what it checks.
+        assert_eq!(
+            shortcut("machine.reset"),
+            (ModifiersState::empty(), KeyCode::F12)
+        );
+        assert_eq!(
+            shortcut("machine.keyboard.host"),
+            (
+                ModifiersState::CONTROL | ModifiersState::SHIFT,
+                KeyCode::KeyK
+            )
+        );
     }
 
     #[test]

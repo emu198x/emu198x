@@ -27,6 +27,8 @@ use std::collections::HashMap;
 use crate::{DrivePortInfo, VariantInfo};
 
 use emu198x_native_video::VideoFilter;
+#[cfg(not(target_os = "linux"))]
+use emu198x_shell::commands::expect_command;
 use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
 #[cfg(not(target_os = "linux"))]
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
@@ -98,7 +100,8 @@ pub enum AppCommand {
         slot: Cow<'static, str>,
         action: MediaTransportAction,
     },
-    /// Toggle tape fast-load / turbo (menu Tape → Fast Load, or F11).
+    /// Toggle tape fast-load / turbo (menu Tape → Fast-Forward While
+    /// Playing, or F11).
     ToggleTurbo,
     /// Open a file dialog and load an arbitrary state/snapshot file
     /// (menu File → Open State…), parsed by the system itself.
@@ -114,21 +117,61 @@ pub enum AppCommand {
     SetHostKeyboard(bool),
 }
 
+// Only the tests read these so far. The GTK4 host will route by them.
+#[cfg(test)]
+impl AppCommand {
+    /// The command-catalogue id this command carries out
+    /// (`emu198x_shell::commands`). Exhaustive, so a new command cannot be
+    /// added without naming its catalogue entry.
+    #[must_use]
+    pub const fn catalogue_id(&self) -> &'static str {
+        match self {
+            Self::Reset => "machine.reset",
+            Self::QuickSave => "state.quick-save",
+            Self::QuickLoad => "state.quick-load",
+            Self::SetScale(_) => "view.scale",
+            Self::SetFilter(_) => "view.filter",
+            Self::OpenMedia { .. } => "media.open",
+            Self::Eject { .. } => "media.eject",
+            Self::SwitchVariant(_) => "machine.variant",
+            Self::SetPortDrive { .. } => "machine.drive",
+            Self::MediaTransport {
+                action: MediaTransportAction::Stop,
+                ..
+            } => "media.tape.stop",
+            // MediaTransportAction is non-exhaustive; Start is the only other.
+            Self::MediaTransport { .. } => "media.tape.play",
+            Self::ToggleTurbo => "media.tape.fast-forward",
+            Self::OpenState => "state.open",
+            Self::SaveState => "state.save-as",
+            Self::ExportTape => "media.tape.export",
+            Self::SetHostKeyboard(true) => "machine.keyboard.host",
+            Self::SetHostKeyboard(false) => "machine.keyboard.original",
+        }
+    }
+}
+
+/// Catalogue ids the native menu provides itself, not through an
+/// [`AppCommand`]: the predefined About and Quit items.
+#[cfg(test)]
+pub const MENU_PREDEFINED: &[&str] = &["app.about", "app.quit"];
+
+/// The filter's name, which fills the catalogue's `view.filter` label.
 #[cfg(not(target_os = "linux"))]
-fn filter_label(filter: VideoFilter) -> &'static str {
-    // VideoFilter is #[non_exhaustive]; a future addition shows a generic label
+fn filter_name(filter: VideoFilter) -> &'static str {
+    // VideoFilter is #[non_exhaustive]; a future addition shows a generic name
     // until it's named here.
     match filter {
-        VideoFilter::Raw => "Video Filter: Raw",
-        VideoFilter::Lcd => "Video Filter: LCD",
-        VideoFilter::Crt => "Video Filter: CRT",
-        VideoFilter::Signal => "Video Filter: Signal",
-        VideoFilter::Monitor => "Video Filter: Monitor",
-        VideoFilter::Modern => "Video Filter: Modern display",
-        VideoFilter::ModernMonitor => "Video Filter: Modern monitor",
-        VideoFilter::ModernWeave => "Video Filter: Modern display",
-        VideoFilter::ModernMonitorWeave => "Video Filter: Modern monitor",
-        _ => "Video Filter",
+        VideoFilter::Raw => "Raw",
+        VideoFilter::Lcd => "LCD",
+        VideoFilter::Crt => "CRT",
+        VideoFilter::Signal => "Signal",
+        VideoFilter::Monitor => "Monitor",
+        VideoFilter::Modern => "Modern display",
+        VideoFilter::ModernMonitor => "Modern monitor",
+        VideoFilter::ModernWeave => "Modern display",
+        VideoFilter::ModernMonitorWeave => "Modern monitor",
+        _ => "Other",
     }
 }
 
@@ -146,8 +189,9 @@ pub struct AppMenu {
     /// (device, option id, item) for each Machine → Drives radio, kept so a
     /// selection can re-check the right item per port.
     port_drive_items: Vec<(u8, Cow<'static, str>, CheckMenuItem)>,
-    /// The Tape → Fast Load check item, kept so its tick can follow the turbo
-    /// state. `None` when the machine has no tape slot (no Tape menu).
+    /// The Tape → Fast-Forward While Playing check item, kept so its tick
+    /// can follow the turbo state. `None` when the machine has no tape slot
+    /// (no Tape menu).
     turbo_item: Option<CheckMenuItem>,
 }
 
@@ -198,7 +242,11 @@ impl AppMenu {
         let file_menu = (!media_slots.is_empty() || state_open).then(|| {
             let file_menu = Submenu::new("File", true);
             for slot in media_slots {
-                let item = MenuItem::new(format!("Open {}…", slot.display_name), true, None);
+                let item = MenuItem::new(
+                    expect_command("media.open").label_for(&slot.display_name),
+                    true,
+                    None,
+                );
                 action_map.insert(
                     item.id().clone(),
                     AppCommand::OpenMedia {
@@ -211,7 +259,11 @@ impl AppMenu {
                 // Eject sits right under its slot's Open item. The handler
                 // reports gracefully on a slot whose runtime has no eject wired,
                 // so every slot gets the item without per-system knowledge here.
-                let eject = MenuItem::new(format!("Eject {}", slot.display_name), true, None);
+                let eject = MenuItem::new(
+                    expect_command("media.eject").label_for(&slot.display_name),
+                    true,
+                    None,
+                );
                 action_map.insert(
                     eject.id().clone(),
                     AppCommand::Eject {
@@ -226,7 +278,7 @@ impl AppMenu {
                         .append(&PredefinedMenuItem::separator())
                         .expect("append file separator");
                 }
-                let item = MenuItem::new("Open State…", true, None);
+                let item = MenuItem::new(expect_command("state.open").label, true, None);
                 action_map.insert(item.id().clone(), AppCommand::OpenState);
                 file_menu.append(&item).expect("append open state");
             }
@@ -298,15 +350,18 @@ impl AppMenu {
                 .append(&PredefinedMenuItem::separator())
                 .expect("append machine separator");
         }
-        let reset_item = MenuItem::new("Reset", true, None);
+        let reset_item = MenuItem::new(expect_command("machine.reset").label, true, None);
         action_map.insert(reset_item.id().clone(), AppCommand::Reset);
         machine_menu.append(&reset_item).expect("append reset");
 
         let mut keyboard_items = Vec::new();
         if host_keyboard {
             let keyboard = Submenu::new("Keyboard", true);
-            for (host, label) in [(true, "Host Keyboard"), (false, "Original Keyboard")] {
-                let item = CheckMenuItem::new(label, true, host, None);
+            for (host, id) in [
+                (true, "machine.keyboard.host"),
+                (false, "machine.keyboard.original"),
+            ] {
+                let item = CheckMenuItem::new(expect_command(id).label, true, host, None);
                 action_map.insert(item.id().clone(), AppCommand::SetHostKeyboard(host));
                 keyboard.append(&item).expect("append keyboard mode");
                 keyboard_items.push((host, item));
@@ -316,7 +371,7 @@ impl AppMenu {
                 .expect("append keyboard menu");
         }
 
-        // Tape → Play / Stop / Fast Load, when the machine has a tape slot. The
+        // Tape → Play / Stop / Fast-Forward While Playing, when the machine has a tape slot. The
         // transport commands target that slot; the same AppCommands the F9/F10/F11
         // shortcuts emit, so menu and keys share one path.
         let tape_slot = media_slots
@@ -325,8 +380,8 @@ impl AppMenu {
             .map(|slot| slot.id.clone());
         let (tape_menu, turbo_item) = if let Some(slot) = tape_slot {
             let tape_menu = Submenu::new("Tape", true);
-            let play = MenuItem::new("Play", true, None);
-            let stop = MenuItem::new("Stop", true, None);
+            let play = MenuItem::new(expect_command("media.tape.play").label, true, None);
+            let stop = MenuItem::new(expect_command("media.tape.stop").label, true, None);
             action_map.insert(
                 play.id().clone(),
                 AppCommand::MediaTransport {
@@ -341,13 +396,18 @@ impl AppMenu {
                     action: MediaTransportAction::Stop,
                 },
             );
-            let fast = CheckMenuItem::new("Fast Load", true, false, None);
+            let fast = CheckMenuItem::new(
+                expect_command("media.tape.fast-forward").label,
+                true,
+                false,
+                None,
+            );
             action_map.insert(fast.id().clone(), AppCommand::ToggleTurbo);
             tape_menu
                 .append_items(&[&play, &stop, &PredefinedMenuItem::separator(), &fast])
                 .expect("append tape items");
             if tape_export {
-                let export = MenuItem::new("Export Recording…", true, None);
+                let export = MenuItem::new(expect_command("media.tape.export").label, true, None);
                 action_map.insert(export.id().clone(), AppCommand::ExportTape);
                 tape_menu
                     .append_items(&[&PredefinedMenuItem::separator(), &export])
@@ -361,9 +421,9 @@ impl AppMenu {
         // State → Save / Load (the quick-slot save-states) + Save State As…
         // (a save dialog, the counterpart to File → Open State…).
         let state_menu = Submenu::new("State", true);
-        let save_item = MenuItem::new("Save State", true, None);
-        let load_item = MenuItem::new("Load State", true, None);
-        let save_as_item = MenuItem::new("Save State As…", true, None);
+        let save_item = MenuItem::new(expect_command("state.quick-save").label, true, None);
+        let load_item = MenuItem::new(expect_command("state.quick-load").label, true, None);
+        let save_as_item = MenuItem::new(expect_command("state.save-as").label, true, None);
         action_map.insert(save_item.id().clone(), AppCommand::QuickSave);
         action_map.insert(load_item.id().clone(), AppCommand::QuickLoad);
         action_map.insert(save_as_item.id().clone(), AppCommand::SaveState);
@@ -381,7 +441,7 @@ impl AppMenu {
         let mut scale_items = Vec::new();
         for &scale in SCALE_OPTIONS {
             let item = CheckMenuItem::new(
-                format!("Window Scale {scale}×"),
+                expect_command("view.scale").label_for(&scale.to_string()),
                 true,
                 scale == current_scale,
                 None,
@@ -395,8 +455,12 @@ impl AppMenu {
             .expect("append view separator");
         let mut filter_items = Vec::new();
         for &filter in FILTER_OPTIONS {
-            let item =
-                CheckMenuItem::new(filter_label(filter), true, filter == current_filter, None);
+            let item = CheckMenuItem::new(
+                expect_command("view.filter").label_for(filter_name(filter)),
+                true,
+                filter == current_filter,
+                None,
+            );
             action_map.insert(item.id().clone(), AppCommand::SetFilter(filter));
             view_menu.append(&item).expect("append filter item");
             filter_items.push((filter, item));
@@ -479,7 +543,7 @@ impl AppMenu {
         }
     }
 
-    /// Tick/untick the Tape → Fast Load item to match the turbo state. No-op
+    /// Tick/untick the Tape → Fast-Forward While Playing item to match the turbo state. No-op
     /// when the machine has no tape menu.
     pub fn set_turbo_armed(&self, armed: bool) {
         if let Some(item) = &self.turbo_item {
@@ -521,4 +585,73 @@ impl AppMenu {
     pub fn set_current_port_drive(&self, _device: u8, _kind_id: &str) {}
 
     pub fn set_turbo_armed(&self, _armed: bool) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use emu198x_shell::commands::{CATALOGUE, command};
+    use std::collections::BTreeSet;
+
+    /// One of every command, so each catalogue id is reached.
+    fn every_command() -> Vec<AppCommand> {
+        vec![
+            AppCommand::Reset,
+            AppCommand::QuickSave,
+            AppCommand::QuickLoad,
+            AppCommand::SetScale(2),
+            AppCommand::SetFilter(VideoFilter::Raw),
+            AppCommand::OpenMedia {
+                slot: Cow::Borrowed("tape-1"),
+                kind: MediaKind::Tape,
+            },
+            AppCommand::Eject {
+                slot: Cow::Borrowed("tape-1"),
+            },
+            AppCommand::SwitchVariant(Cow::Borrowed("zx-48k")),
+            AppCommand::SetPortDrive {
+                device: 8,
+                kind_id: Cow::Borrowed("1541"),
+            },
+            AppCommand::MediaTransport {
+                slot: Cow::Borrowed("tape-1"),
+                action: MediaTransportAction::Start,
+            },
+            AppCommand::MediaTransport {
+                slot: Cow::Borrowed("tape-1"),
+                action: MediaTransportAction::Stop,
+            },
+            AppCommand::ToggleTurbo,
+            AppCommand::OpenState,
+            AppCommand::SaveState,
+            AppCommand::ExportTape,
+            AppCommand::SetHostKeyboard(true),
+            AppCommand::SetHostKeyboard(false),
+        ]
+    }
+
+    #[test]
+    fn every_command_names_a_catalogue_entry() {
+        for cmd in every_command() {
+            assert!(
+                command(cmd.catalogue_id()).is_some(),
+                "{cmd:?} names `{}`, which is not in the catalogue",
+                cmd.catalogue_id()
+            );
+        }
+    }
+
+    #[test]
+    fn the_baseline_covers_the_whole_catalogue() {
+        let covered: BTreeSet<&str> = every_command()
+            .iter()
+            .map(AppCommand::catalogue_id)
+            .chain(MENU_PREDEFINED.iter().copied())
+            .collect();
+        let catalogue: BTreeSet<&str> = CATALOGUE.iter().map(|spec| spec.id).collect();
+        assert_eq!(
+            covered, catalogue,
+            "catalogue entries and winit commands must match"
+        );
+    }
 }
