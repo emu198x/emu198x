@@ -249,8 +249,8 @@ fn validate_framebuffer_pixels(actual: usize, expected: usize) -> Result<(), Mac
 
 #[cfg(test)]
 mod tests {
-    use commodore_agnus_ocs::{DmaTransfer, DmaTransferTarget};
     use common_commodore_amiga::driver::AmigaDriver;
+    use emu198x_commodore_agnus_ocs::{DmaTransfer, DmaTransferTarget};
     use machine_commodore_amiga_ocs::AmigaOcs;
     use motorola_68000::CpuModel;
     use peripheral_commodore_amiga_floppy::{Adf, DD};
@@ -292,7 +292,7 @@ mod tests {
                 );
             }
         }
-        check::<commodore_denise_ocs::DeniseOcs>(false);
+        check::<emu198x_commodore_denise_ocs::DeniseOcs>(false);
         check::<machine_commodore_amiga_ecs::DeniseEcs>(true);
         check::<commodore_denise_aga::DeniseAga>(true);
     }
@@ -310,7 +310,9 @@ mod tests {
                     .agnus_mut()
                     .admit_dma_transfer(DmaTransfer {
                         target: if channel == 1 {
-                            DmaTransferTarget::Strobe(commodore_agnus_ocs::DmaStrobe::Horizontal)
+                            DmaTransferTarget::Strobe(
+                                emu198x_commodore_agnus_ocs::DmaStrobe::Horizontal,
+                            )
                         } else {
                             DmaTransferTarget::Audio {
                                 channel,

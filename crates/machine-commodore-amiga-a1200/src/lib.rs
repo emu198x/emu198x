@@ -1,7 +1,7 @@
 //! Commodore Amiga A1200 (AGA chipset) machine — Stage A of the
 //! A1200 rollout per `knowledge/decisions/amiga-machine-rollout-plan.md`.
 //!
-//! Wires the AGA chipset chips (Alice = `commodore-agnus-aga`,
+//! Wires the AGA chipset chips (Alice = `emu198x-commodore-agnus-aga`,
 //! Lisa = `commodore-denise-aga`) into the common Amiga board
 //! substrate alongside Gayle (IDE / PCMCIA address decoder) at
 //! `$D80000-$DFFFFF`. The stock MC68EC020 is held in the shared
@@ -36,10 +36,10 @@ pub use agnus::{
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
-pub use commodore_gary::{ChipSelect, Gary};
-pub use commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
+pub use emu198x_commodore_gary::{ChipSelect, Gary};
+pub use emu198x_commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 use emu198x_commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
@@ -2381,7 +2381,7 @@ impl AmigaDriver for AmigaA1200 {
 
     fn service_blitter_dma(
         &mut self,
-        transfer: commodore_agnus_ocs::DmaTransfer,
+        transfer: emu198x_commodore_agnus_ocs::DmaTransfer,
     ) -> BlitterCckOutcome {
         let mut bus = WatchingChipRamBus::new(&mut self.memory);
         let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
@@ -2396,14 +2396,15 @@ impl AmigaDriver for AmigaA1200 {
         self.agnus.generate_display_dma();
     }
 
-    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer) {
-        let (commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
-        | commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh { reservation, .. }) =
-            transfer.target
+    fn service_addressed_sprite_dma(&mut self, transfer: emu198x_commodore_agnus_ocs::DmaTransfer) {
+        let (emu198x_commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | emu198x_commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
+            reservation, ..
+        }) = transfer.target
         else {
             panic!("non-display descriptor reached sprite adapter");
         };
-        let commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+        let emu198x_commodore_agnus_ocs::DisplayDmaChannel::Sprite {
             channel,
             second_word,
             control: _,
@@ -2458,7 +2459,7 @@ impl AmigaDriver for AmigaA1200 {
         }
     }
 
-    fn service_denise_timing_strobe(&mut self, strobe: commodore_agnus_ocs::DmaStrobe) {
+    fn service_denise_timing_strobe(&mut self, strobe: emu198x_commodore_agnus_ocs::DmaStrobe) {
         self.denise.service_timing_strobe(strobe);
     }
 
@@ -2466,7 +2467,7 @@ impl AmigaDriver for AmigaA1200 {
         &mut self,
         phase: u8,
         bitplane_dma_fetch_plane: Option<u8>,
-        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+        serviced_bitplane: Option<emu198x_commodore_agnus_ocs::DmaTransfer>,
     ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
@@ -2914,7 +2915,8 @@ mod bus_plan_dispatch_tests {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.write_htotal(0x00FA);
         amiga.agnus.write_beamcon0(
-            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+            emu198x_commodore_agnus_ecs::BEAMCON0_VARBEAMEN
+                | emu198x_commodore_agnus_ecs::BEAMCON0_PAL,
         );
         amiga.agnus.hpos = 0x00F8;
         amiga.copper.waiting = true;
@@ -3128,10 +3130,10 @@ mod bus_plan_dispatch_tests {
                 Some(0x20)
             );
             assert!(matches!(amiga.agnus.dma_pipeline().address(),
-            Some(commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(t))
             if t.address == 0x2000 && matches!(t.target,
-                commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
-                if reservation.channel == commodore_agnus_ocs::DisplayDmaChannel::Bitplane(7))));
+                emu198x_commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+                if reservation.channel == emu198x_commodore_agnus_ocs::DisplayDmaChannel::Bitplane(7))));
             amiga.tick(); // remaining half of $15
             amiga.tick(); // BPL8 service and line reset at $16
             assert_eq!(amiga.agnus.hpos, 0x16);
@@ -3293,7 +3295,8 @@ mod bus_plan_dispatch_tests {
         restored.agnus.write_htotal(0);
         restored.agnus.write_vtotal(0x03FF);
         restored.agnus.write_beamcon0(
-            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+            emu198x_commodore_agnus_ecs::BEAMCON0_VARBEAMEN
+                | emu198x_commodore_agnus_ecs::BEAMCON0_PAL,
         );
         restored.agnus.vpos = 0x0300;
         restored.agnus.hpos = 0;

@@ -1,6 +1,6 @@
 //! Registered FS-UAE uses two CCKs for display reservation -> service,
 //! with pointer sampling in between, and one for other admitted transfers.
-use commodore_agnus_ocs::{
+use emu198x_commodore_agnus_ocs::{
     Agnus, BlitterDmaOp, DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaStrobe,
     DmaTransfer, DmaTransferTarget,
 };
@@ -427,9 +427,9 @@ fn bitplane_address_sampling_matches_all_registered_ptmod_rows() {
 
 #[test]
 fn bitplane_service_matches_registered_live_fmode_width_and_lane_rows() {
-    use commodore_denise_ocs::DeniseOcs;
     use common_commodore_amiga::denise::{BitplaneDmaInput, Denise, DeniseOutputSignals};
     use common_commodore_amiga::memory::Memory;
+    use emu198x_commodore_denise_ocs::DeniseOcs;
     let reference = include_str!(
         "../../../test-data/commodore/amiga/display-dma-address/registered-service.csv"
     );

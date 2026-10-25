@@ -1,5 +1,5 @@
 //! Every request/transition versus independently compiled registered functions.
-use commodore_agnus_ocs::{DisplayDmaChannel, DisplayDmaInputs, DisplayDmaSequencer};
+use emu198x_commodore_agnus_ocs::{DisplayDmaChannel, DisplayDmaInputs, DisplayDmaSequencer};
 use std::collections::BTreeMap;
 
 fn numbers(line: &str) -> Vec<i32> {

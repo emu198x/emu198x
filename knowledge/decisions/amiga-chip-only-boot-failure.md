@@ -892,7 +892,7 @@ into $C00000 region without slow RAM, that's the smoking gun.
   the same arm).
 - `crates/machine-commodore-amiga/src/memory.rs:51-108` — read/write
   byte/word for chip RAM, slow RAM, ROM, overlay.
-- `crates/commodore-gary/src/lib.rs:163-249` — Gary decode; line 224
+- `crates/emu198x-commodore-gary/src/lib.rs:163-249` — Gary decode; line 224
   is the slow-RAM gate.
 - `crates/runtime-commodore-amiga/src/runtime.rs:513-518` — the
   workaround call (note: actual line is 517, not 535 as in §"Symptom"

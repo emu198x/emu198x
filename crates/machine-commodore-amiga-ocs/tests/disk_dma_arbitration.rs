@@ -111,12 +111,18 @@ fn idle_paula_releases_enabled_disk_cells_to_the_cpu() {
 
     let scheduled = amiga.agnus().cck_bus_plan();
     assert!(!scheduled.disk_dma_slot_granted);
-    assert_eq!(scheduled.slot_owner, commodore_agnus_ocs::SlotOwner::Cpu);
+    assert_eq!(
+        scheduled.slot_owner,
+        emu198x_commodore_agnus_ocs::SlotOwner::Cpu
+    );
 
     let requested = amiga
         .agnus()
         .cck_bus_plan_with_disk_request(amiga.paula().disk_dma_slot_requested());
-    assert_eq!(requested.slot_owner, commodore_agnus_ocs::SlotOwner::Cpu);
+    assert_eq!(
+        requested.slot_owner,
+        emu198x_commodore_agnus_ocs::SlotOwner::Cpu
+    );
     assert!(!requested.disk_dma_slot_granted);
     assert!(requested.cpu_chip_bus_granted);
 }

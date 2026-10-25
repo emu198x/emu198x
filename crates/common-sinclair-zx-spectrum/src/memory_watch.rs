@@ -5,7 +5,7 @@
 //! the instruction that issued the write. Used by the
 //! `watch_memory_*` MCP/script tools to answer "what code touched
 //! this byte?" — Amiga's analogous tool with the same shape (see
-//! `commodore-agnus-ocs::watch_memory`).
+//! `emu198x_commodore_agnus_ocs::watch_memory`).
 //!
 //! Capture is opt-in: the field on the machine core defaults to
 //! `None`, the per-cycle cost is one compare-and-branch when no

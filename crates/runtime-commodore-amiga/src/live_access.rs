@@ -22,7 +22,7 @@
 //!   every machine returns the same concrete type from its inherent
 //!   accessor.
 //! - **Agnus** uses the OCS base type via `Deref` (AgnusEcs and
-//!   AgnusAga both `Deref<Target = commodore_agnus_ocs::Agnus>`).
+//!   AgnusAga both `Deref<Target = emu198x_commodore_agnus_ocs::Agnus>`).
 //! - **Denise / Memory** vary per chipset, so the trait exposes the
 //!   primitive readback (`framebuffer()`, `overlay()`) rather than
 //!   the chip references.
@@ -32,17 +32,17 @@
 //!
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
 
-use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
 use commodore_denise_aga::{
     DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot, DeniseAgaProgrammedHblankRegisters,
 };
-use commodore_denise_ocs::DeniseDiagnosticSnapshot;
-use commodore_gary::GaryDiagnosticSnapshot;
-use commodore_gayle::GayleDiagnosticSnapshot;
 use common_commodore_amiga::ActiveCpuDiagnosticSnapshot;
 use common_commodore_amiga::board::MotherboardBridgeDiagnosticSnapshot;
 use common_commodore_amiga::denise::DeniseBoardPipelineDiagnosticSnapshot;
 use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
+use emu198x_commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
+use emu198x_commodore_denise_ocs::DeniseDiagnosticSnapshot;
+use emu198x_commodore_gary::GaryDiagnosticSnapshot;
+use emu198x_commodore_gayle::GayleDiagnosticSnapshot;
 use gvp_a530::GvpA530DiagnosticSnapshot;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
@@ -1095,7 +1095,7 @@ impl AmigaLiveAccess for AmigaEcs {
     }
 
     fn agnus(&self) -> &Agnus {
-        // The inherent accessor already returns &commodore_agnus_ocs::Agnus
+        // The inherent accessor already returns &emu198x_commodore_agnus_ocs::Agnus
         // (the OCS-base type) — AgnusEcs is the wrapper that lives in
         // the struct field, but its public accessor projects the inner
         // OCS Agnus.
@@ -1406,7 +1406,7 @@ impl AmigaLiveAccess for AmigaA1200 {
     }
 
     fn agnus(&self) -> &Agnus {
-        // Inherent agnus() already returns &commodore_agnus_ocs::Agnus.
+        // Inherent agnus() already returns &emu198x_commodore_agnus_ocs::Agnus.
         AmigaA1200::agnus(self)
     }
 

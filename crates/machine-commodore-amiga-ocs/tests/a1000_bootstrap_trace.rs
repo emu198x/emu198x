@@ -9,7 +9,7 @@
 //!   cargo test --manifest-path crates/machine-commodore-amiga-ocs/Cargo.toml \
 //!       --test a1000_bootstrap_trace -- --ignored --nocapture
 
-use commodore_agnus_ocs::{SlotOwner, bits};
+use emu198x_commodore_agnus_ocs::{SlotOwner, bits};
 use std::path::{Path, PathBuf};
 
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS, RamConfig};

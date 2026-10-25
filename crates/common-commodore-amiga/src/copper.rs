@@ -191,7 +191,7 @@ impl Copper {
         comparator_hp: u16,
         free_cell: bool,
         blitter_busy: bool,
-    ) -> Option<commodore_agnus_ocs::DmaTransfer> {
+    ) -> Option<emu198x_commodore_agnus_ocs::DmaTransfer> {
         // Registered generate_copper clocks the parked comparison on odd
         // Agnus cells too. A satisfied comparison needs a free input cell
         // before it may transition to the following fetch state.
@@ -213,8 +213,8 @@ impl Copper {
         );
         let instruction_word = if self.cck_phase == 0 { 1 } else { 2 };
         self.pending_dma_fetch = Some((instruction_word, self.pc));
-        Some(commodore_agnus_ocs::DmaTransfer {
-            target: commodore_agnus_ocs::DmaTransferTarget::Copper { instruction_word },
+        Some(emu198x_commodore_agnus_ocs::DmaTransfer {
+            target: emu198x_commodore_agnus_ocs::DmaTransferTarget::Copper { instruction_word },
             address: self.pc,
         })
     }
@@ -453,7 +453,7 @@ mod tests {
     // is chipset-agnostic so any DeniseChip impl would do, but
     // DeniseOcs is the canonical reference.
     use crate::denise::Denise;
-    use commodore_denise_ocs::DeniseOcs;
+    use emu198x_commodore_denise_ocs::DeniseOcs;
     type TestDenise = Denise<DeniseOcs>;
 
     /// Record a Denise-owned MOVE without advancing the separate display

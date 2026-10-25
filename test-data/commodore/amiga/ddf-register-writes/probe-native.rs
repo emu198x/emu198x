@@ -1,5 +1,5 @@
 //! Standalone diagnostic: compare the live Agnus write path with reference requests.
-use commodore_agnus_ocs::{Agnus, DisplayDmaChannel, SpriteDmaVerticalTiming};
+use emu198x_commodore_agnus_ocs::{Agnus, DisplayDmaChannel, SpriteDmaVerticalTiming};
 use std::{collections::BTreeMap, error::Error, fs, path::Path};
 
 type Event = (u16, u16, u16, u16);

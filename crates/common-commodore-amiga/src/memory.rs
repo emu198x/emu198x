@@ -905,7 +905,7 @@ mod tests {
     #[test]
     fn dma_reads_agree_with_dma_writes_after_address_wrap() {
         use crate::board::ChipRamBus;
-        use commodore_agnus_ocs::BlitterBus;
+        use emu198x_commodore_agnus_ocs::BlitterBus;
 
         for chip_bytes in [256 * 1024, 512 * 1024, 1024 * 1024, 2048 * 1024] {
             let mut mem = Memory::new_with_ram(test_rom(), chip_bytes, 0);

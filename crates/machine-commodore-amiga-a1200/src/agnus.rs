@@ -1,16 +1,16 @@
 //! Agnus wiring for the A1200 (AGA) machine.
 //!
 //! Mirror of `machine-commodore-amiga-ecs/src/agnus.rs` but pinned to
-//! the AGA Agnus (Alice) wrapper. `AgnusAga` from `commodore-agnus-aga`
+//! the AGA Agnus (Alice) wrapper. `AgnusAga` from `emu198x-commodore-agnus-aga`
 //! Derefs to `AgnusEcs`, which in turn Derefs to OCS Agnus — so all
 //! slot allocation / DMA / copper / blitter logic passes through
 //! unchanged. The Alice wrapper carries the FMODE register and the
 //! AGA-only bus extensions (8-bitplane lowres, wide bitplane / sprite
 //! DMA).
 
-pub use commodore_agnus_aga::AgnusAga;
-pub use commodore_agnus_ecs::AgnusEcs;
-pub use commodore_agnus_ocs::{
+pub use emu198x_commodore_agnus_aga::AgnusAga;
+pub use emu198x_commodore_agnus_ecs::AgnusEcs;
+pub use emu198x_commodore_agnus_ocs::{
     Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME,
     PAL_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };

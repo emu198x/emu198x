@@ -39,7 +39,7 @@ use crate::{
 /// Candidate states may contain only targets connected to the live driver.
 /// Keep identity validation separate: component stages support the complete
 /// approved pipeline while its machine adapters are connected incrementally.
-fn validate_live_dma_pipeline(agnus: &commodore_agnus_ocs::Agnus) -> Result<(), String> {
+fn validate_live_dma_pipeline(agnus: &emu198x_commodore_agnus_ocs::Agnus) -> Result<(), String> {
     agnus.validate_timing_strobes()?;
     agnus.validate_display_dma_sequencer()?;
     agnus.validate_ddf_register_stage()?;

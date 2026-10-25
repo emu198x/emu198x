@@ -1,0 +1,21 @@
+[package]
+name = "emu198x-commodore-denise-ocs"
+description = "Commodore Denise OCS — pixel shifter and sprite engine. Bitplane-to-pixel conversion, playfield composition, 8 sprites, palette lookup."
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["denise", "amiga", "video", "sprites", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[lints]
+workspace = true

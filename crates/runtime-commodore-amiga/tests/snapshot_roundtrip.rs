@@ -25,9 +25,9 @@ mod common;
 
 use std::error::Error;
 
-use commodore_agnus_ocs::{BlitterDmaOp, OriginalAgnusRevision};
 use common::dummy_a1000_bootstrap_rom;
 use common_commodore_amiga::driver::AmigaDriver;
+use emu198x_commodore_agnus_ocs::{BlitterDmaOp, OriginalAgnusRevision};
 use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink,
@@ -46,7 +46,7 @@ const BLTCON0: u32 = 0x00DF_F040;
 
 #[test]
 fn cancelled_audio_startup_delivery_survives_live_restore() -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+    use emu198x_commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
         mut original: AmigaRuntime<M>,
         mut restored: AmigaRuntime<M>,
@@ -741,7 +741,7 @@ fn horizontal_display_window_survives_strobe_reset_and_half_cck_restore()
 
 #[test]
 fn malformed_combined_refresh_restore_preserves_the_destination() -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{
+    use emu198x_commodore_agnus_ocs::{
         DisplayDmaChannel, DisplayDmaReservation, DmaTransfer, DmaTransferTarget,
     };
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
@@ -801,7 +801,7 @@ fn malformed_combined_refresh_restore_preserves_the_destination() -> Result<(), 
 #[test]
 fn combined_refresh_display_replays_through_live_service_on_every_chipset()
 -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{
+    use emu198x_commodore_agnus_ocs::{
         DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaTransferTarget, SlotOwner,
     };
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
@@ -921,7 +921,7 @@ fn combined_refresh_display_replays_through_live_service_on_every_chipset()
 #[test]
 fn overlapping_display_address_samples_before_outgoing_pointer_service()
 -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{
+    use emu198x_commodore_agnus_ocs::{
         DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaTransfer, DmaTransferTarget,
         SlotOwner,
     };
@@ -1039,7 +1039,7 @@ fn overlapping_display_address_samples_before_outgoing_pointer_service()
 #[test]
 fn bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service()
 -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{
+    use emu198x_commodore_agnus_ocs::{
         DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaTransfer, DmaTransferTarget,
     };
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
@@ -1160,7 +1160,7 @@ fn bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service()
 #[test]
 fn addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset()
 -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{
+    use emu198x_commodore_agnus_ocs::{
         DisplayDmaChannel, DisplayDmaReservation, DmaTransfer, DmaTransferTarget, SlotOwner,
     };
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
@@ -1280,8 +1280,8 @@ fn addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset()
 
 #[test]
 fn automatic_strobes_cross_the_live_pipeline_and_reset_denise() -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{DmaAddressStage, DmaStrobe, DmaTransferTarget};
     use common_commodore_amiga::driver::AmigaDriver;
+    use emu198x_commodore_agnus_ocs::{DmaAddressStage, DmaStrobe, DmaTransferTarget};
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
         mut runtime: AmigaRuntime<M>,
         enhanced: bool,
@@ -1349,8 +1349,8 @@ fn automatic_strobes_cross_the_live_pipeline_and_reset_denise() -> Result<(), Bo
 
 #[test]
 fn live_strobe_service_and_denise_counter_replay_on_every_chipset() -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{DmaStrobe, DmaTransfer, DmaTransferTarget, SlotOwner};
     use common_commodore_amiga::driver::AmigaDriver;
+    use emu198x_commodore_agnus_ocs::{DmaStrobe, DmaTransfer, DmaTransferTarget, SlotOwner};
 
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
         mut original: AmigaRuntime<M>,
@@ -2731,9 +2731,9 @@ fn every_line_stage_and_pending_result_survive_snapshot_restore() -> Result<(), 
                     assert_eq!(line.pending_result, 0);
                     assert!(matches!(
                         original.machine().agnus().dma_pipeline().address(),
-                        Some(commodore_agnus_ocs::DmaAddressStage::Transfer(
-                            commodore_agnus_ocs::DmaTransfer {
-                                target: commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
+                        Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(
+                            emu198x_commodore_agnus_ocs::DmaTransfer {
+                                target: emu198x_commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
                                     operation: BlitterDmaOp::Internal,
                                     ..
                                 },
@@ -3108,7 +3108,7 @@ fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), B
 
 #[test]
 fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
+    use emu198x_commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
 
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     {

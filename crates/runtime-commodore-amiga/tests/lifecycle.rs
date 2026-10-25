@@ -842,7 +842,7 @@ fn run_until_drops_unrouted_input_events() {
 // NTSC variant smoke tests
 //
 // The chip-layer alternation logic + region wiring is covered by the
-// `commodore-agnus-ocs` unit tests. These tests prove the runtime
+// `emu198x-commodore-agnus-ocs` unit tests. These tests prove the runtime
 // layer correctly:
 //   * constructs every NTSC variant from blank firmware
 //   * advertises Region::Ntsc + the NTSC clock rate in profile metadata

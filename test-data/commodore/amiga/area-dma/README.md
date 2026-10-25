@@ -13,7 +13,7 @@ python3 test-data/commodore/amiga/area-dma/tools/reference_schedule.py \
   ../../emulators/amiga/vAmiga /private/tmp/amiga-area-reference
 cmp test-data/commodore/amiga/area-dma/reference-programs.tsv \
   /private/tmp/amiga-area-reference/reference-programs.tsv
-cargo test --release -p commodore-agnus-ocs --test area_dma
+cargo test --release -p emu198x-commodore-agnus-ocs --test area_dma
 ```
 
 The Rust test compares actual requests, transfers and CPU bus availability

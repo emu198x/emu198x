@@ -50,16 +50,16 @@ run_group "Amiga library regressions" \
         -p motorola-68020 \
         -p motorola-68030 \
         -p motorola-68040 \
-        -p commodore-agnus-ocs \
-        -p commodore-agnus-ecs \
-        -p commodore-agnus-aga \
-        -p commodore-denise-ocs \
-        -p commodore-denise-ecs \
+        -p emu198x-commodore-agnus-ocs \
+        -p emu198x-commodore-agnus-ecs \
+        -p emu198x-commodore-agnus-aga \
+        -p emu198x-commodore-denise-ocs \
+        -p emu198x-commodore-denise-ecs \
         -p commodore-denise-aga \
         -p emu198x-commodore-paula-8364 \
         -p commodore-amiga-autoconfig \
-        -p commodore-gary \
-        -p commodore-gayle \
+        -p emu198x-commodore-gary \
+        -p emu198x-commodore-gayle \
         -p emu198x-mos-cia-8520 \
         -p peripheral-commodore-amiga-floppy \
         -p peripheral-commodore-amiga-keyboard \
@@ -69,7 +69,7 @@ run_group "Amiga library regressions" \
         -p runtime-commodore-amiga
 
 run_group "Agnus arbitration and blitter integrations" \
-    cargo test --locked -p commodore-agnus-ocs \
+    cargo test --locked -p emu198x-commodore-agnus-ocs \
         --test arbitration \
         --test blitter \
         --test blitter_startup

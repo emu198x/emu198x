@@ -277,10 +277,10 @@ out of the build:
 
 - `crates/machine-commodore-amiga` (integration layer)
 - `crates/runtime-commodore-amiga` (runtime wrapper)
-- `crates/commodore-agnus-ocs`
-- `crates/commodore-denise-ocs`
+- `crates/emu198x-commodore-agnus-ocs`
+- `crates/emu198x-commodore-denise-ocs`
 - `crates/commodore-paula-8364`
-- `crates/commodore-gary`
+- `crates/emu198x-commodore-gary`
 - `crates/emu198x-mos-cia-8520`
 - `crates/peripheral-commodore-amiga-floppy`
 - `crates/peripheral-commodore-amiga-keyboard`

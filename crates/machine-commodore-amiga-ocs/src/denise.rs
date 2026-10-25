@@ -1,6 +1,6 @@
 //! OCS Denise facade — type alias over the generic board-level
 //! wrapper in `common_commodore_amiga::denise`. Concrete chip is
-//! [`commodore_denise_ocs::DeniseOcs`].
+//! [`emu198x_commodore_denise_ocs::DeniseOcs`].
 //!
 //! All shared helpers (`ddf_window`, `diw_vertical_window`)
 //! re-exported from the substrate for callers that import via
@@ -8,10 +8,10 @@
 //! (`current_slot` / `cck_bus_plan`, #30) and is consumed from the
 //! shared `AmigaDriver` body, not here.
 
-use commodore_denise_ocs::DeniseOcs;
 pub use common_commodore_amiga::denise::{
     BitplaneDmaFetch, BitplaneDmaInput, DeniseOutputSignals, FB_HEIGHT, FB_WIDTH,
 };
+use emu198x_commodore_denise_ocs::DeniseOcs;
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseOcs>;
 
@@ -22,7 +22,7 @@ mod tests {
 
     const DMACON_BPL: u16 = 0x0300;
 
-    fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
+    fn observe_ddf_start(agnus: &mut emu198x_commodore_agnus_ocs::Agnus) {
         if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
             let diwstrt = agnus.diwstrt;
             let diwstop = agnus.diwstop;
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn hires_two_plane_line_fetches_forty_words_per_plane() {
         let mut denise = Denise::new();
-        let mut agnus = commodore_agnus_ocs::Agnus::new();
+        let mut agnus = emu198x_commodore_agnus_ocs::Agnus::new();
         let memory = Memory::new(vec![0; 256 * 1024]);
 
         agnus.vpos = 0x002C;
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn hires_line_drains_shift_register_before_next_line() {
         let mut denise = Denise::new();
-        let mut agnus = commodore_agnus_ocs::Agnus::new();
+        let mut agnus = emu198x_commodore_agnus_ocs::Agnus::new();
         let memory = Memory::new(vec![0; 256 * 1024]);
 
         agnus.vpos = 0x002C;
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn start_after_stop_does_not_reconstruct_an_early_vertical_window() {
-        let mut agnus = commodore_agnus_ocs::Agnus::new();
+        let mut agnus = emu198x_commodore_agnus_ocs::Agnus::new();
 
         agnus.vpos = 0x0030;
         agnus.dmacon = DMACON_BPL;

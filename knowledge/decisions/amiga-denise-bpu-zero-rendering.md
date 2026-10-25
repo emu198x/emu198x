@@ -29,7 +29,7 @@ This may be one of:
 
 ## What to investigate
 
-1. **Read our Denise's pixel-output path** (`crates/commodore-denise-ocs/src/lib.rs`) — find where BPU is consulted (or not) when generating pixel output. Verify against the Hardware Reference Manual table for BPLCON0.
+1. **Read our Denise's pixel-output path** (`crates/emu198x-commodore-denise-ocs/src/lib.rs`) — find where BPU is consulted (or not) when generating pixel output. Verify against the Hardware Reference Manual table for BPLCON0.
 2. **vAmiga / WinUAE comparison** — boot KS 1.3 in vAmiga; sample BPLCON0 at the same point; if their value also has BPU=0, then this isn't a configuration error and the question is "what does real Denise do with BPU=0 + BPLEN=1 + bitplane data being fetched". If their BPU is non-zero (and we just wrote a bad register), the bug is upstream in our Agnus or CPU bus.
 3. **Test the contrary** — write a tiny test program that sets `BPLCON0 = 0x0000` (every bit clear) and asserts the framebuffer is uniformly background colour. If our Denise still renders bitplanes, the bug is confirmed.
 4. **Check BPLCON0 latch timing** — Agnus may latch BPLCON0 at a different point than Denise samples it. We could be reading a stale value via the query pipe but Denise sees a different (correct) one. Worth ruling out.
@@ -81,7 +81,7 @@ A program that deliberately relied on `BPU=0` to blank the playfield
 mid-frame would previously have seen garbage; with the fix it now
 gets the spec-correct background colour.
 
-**Fix (`crates/commodore-denise-ocs/src/lib.rs::shift_one_playfield_source_pixel`):**
+**Fix (`crates/emu198x-commodore-denise-ocs/src/lib.rs::shift_one_playfield_source_pixel`):**
 gate the legacy-state inference on `self.bplcon0 == 0`. Any program
 that has explicitly written BPLCON0 — including a deliberate
 `BPLCON0 = $0000` — gets the spec-correct behaviour and BPU=0 blanks
@@ -104,7 +104,7 @@ Copper toggles BPU non-zero during display, which was never broken).
 
 ## Related
 
-- `crates/commodore-denise-ocs/src/lib.rs` — Denise implementation; fix at `shift_one_playfield_source_pixel`
+- `crates/emu198x-commodore-denise-ocs/src/lib.rs` — Denise implementation; fix at `shift_one_playfield_source_pixel`
 - `crates/machine-commodore-amiga/tests/denise_bpu_zero.rs` — regression test
 - `crates/machine-commodore-amiga/tests/kickstart_boot_invariants.rs` — tests deliberately don't assert BPU value
 - `knowledge/decisions/amiga-architecture-review.md`

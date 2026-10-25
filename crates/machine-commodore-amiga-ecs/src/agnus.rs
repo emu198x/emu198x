@@ -1,14 +1,14 @@
 //! Agnus wiring for the ECS machine.
 //!
 //! Mirror of `machine-commodore-amiga-ocs/src/agnus.rs` but pinned to
-//! the ECS Agnus wrapper. `AgnusEcs` from `commodore-agnus-ecs` Derefs
+//! the ECS Agnus wrapper. `AgnusEcs` from `emu198x-commodore-agnus-ecs` Derefs
 //! to the OCS Agnus inside, so all OCS slot allocation / DMA / copper
 //! / blitter logic passes through unchanged. The wrapper carries the
 //! BEAMCON0 register, programmable sync generator, and ECS-only
 //! extension state.
 
-pub use commodore_agnus_ecs::AgnusEcs;
-pub use commodore_agnus_ocs::{
+pub use emu198x_commodore_agnus_ecs::AgnusEcs;
+pub use emu198x_commodore_agnus_ocs::{
     Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME,
     PAL_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };

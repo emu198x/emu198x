@@ -12,7 +12,7 @@
 //! `amiga.machine.*` namespaces) are pushed down to the machine via
 //! `M::resolve_variant_query`.
 
-use commodore_agnus_ocs::{
+use emu198x_commodore_agnus_ocs::{
     AgnusBlitterCompletionDiagnosticPhase, BlitterBusDiagnosticAuthority, BlitterDmaOp,
     PaulaReturnProgressPolicy, SlotOwner,
 };
