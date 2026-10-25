@@ -157,6 +157,18 @@ impl Disk {
         self.sector_size
     }
 
+    /// Tracks on each side.
+    #[must_use]
+    pub fn tracks(&self) -> usize {
+        self.tracks
+    }
+
+    /// Whether the image is read-only.
+    #[must_use]
+    pub fn is_write_protected(&self) -> bool {
+        self.write_protected
+    }
+
     /// Whether a Write Sector has modified the image since the last
     /// [`take_dirty`](Self::take_dirty); useful for write-back to a file.
     #[must_use]
@@ -343,7 +355,12 @@ impl Wd1770 {
     /// `$03` into the command register; when it rises again the controller
     /// runs that Restore (WD177x datasheet, `MR` pin description). The disks,
     /// the selected drive and side, and the head's position are untouched:
-    /// they belong to the drives, not the chip.
+    /// they belong to the drives, not the chip. The BBC B+ drive latch pulses
+    /// `MR` this way.
+    ///
+    /// [`master_reset`](Self::master_reset) is the other reading of the same
+    /// pin, with no Restore, which the Electron Plus 3 needs. The sources
+    /// disagree, so a host picks the one its own precedent supports.
     pub fn reset(&mut self) {
         let disks = std::mem::take(&mut self.disks);
         let (drive, side, head_track) = (self.drive, self.side, self.head_track);
@@ -396,6 +413,33 @@ impl Wd1770 {
     /// Select the active side (0 or 1). On the Einstein this is `$23` bit 4.
     pub fn set_side(&mut self, side: u8) {
         self.side = u8::from(side != 0);
+    }
+
+    /// Take the master-reset pin (`MR`) low. Any command stops, the status
+    /// register clears, the sector register returns to 1, and `INTRQ` and
+    /// `DRQ` fall. The track register, the head's position, the disks and the
+    /// selected drive and side are untouched.
+    ///
+    /// No Restore follows when `MR` rises again. That is MAME's reading:
+    /// `wd_fdc_device_base::mr_w` (src/devices/machine/wd_fdc.cpp at
+    /// 84981cc1) skips it for parts with motor control, the WD1770 among
+    /// them. The WD177x datasheet's `MR` pin description says a Restore runs,
+    /// and [`reset`](Self::reset) follows the datasheet; the Electron Plus 3
+    /// follows MAME, its only precedent, since no Plus 3 manual is in the
+    /// reference library. While `MR` is held low the chip ignores register
+    /// writes; a host that holds it low keeps that level itself, as the
+    /// Plus 3's drive latch does.
+    pub fn master_reset(&mut self) {
+        self.status = 0;
+        self.sector = 1;
+        self.intrq = false;
+        self.drq = false;
+        self.busy_cycles = 0;
+        self.pending = Pending::TypeI;
+        self.multi = false;
+        self.buf.clear();
+        self.pos = 0;
+        self.drq_countdown = 0;
     }
 
     // -- Pins --
@@ -1183,5 +1227,42 @@ mod tests {
         }
         assert!(fdc.intrq(), "then INTRQ rises, a fresh edge");
         assert_eq!(fdc.peek_status() & ST_BUSY, 0);
+    }
+
+    #[test]
+    fn master_reset_stops_a_read_and_keeps_the_track_and_disk() {
+        let mut fdc = Wd1770::new();
+        fdc.insert_disk(0, test_disk());
+        fdc.write(DATA, 5);
+        fdc.write(STATUS, 0x10); // Seek to track 5
+        settle(&mut fdc);
+        fdc.write(SECTOR, 3);
+        fdc.write(STATUS, 0x80); // Read Sector
+        settle(&mut fdc);
+        assert!(fdc.drq(), "the read is in its data phase");
+
+        fdc.master_reset();
+        assert!(!fdc.drq() && !fdc.intrq(), "MR drops both pins");
+        assert_eq!(fdc.peek_status(), 0, "and clears the status");
+        assert_eq!(fdc.read(SECTOR), 1, "the sector register returns to 1");
+        assert_eq!(fdc.read(TRACK), 5, "the track register is kept");
+        assert_eq!(fdc.head_track(), 5, "the head does not move");
+        assert!(fdc.disk(0).is_some(), "the disk stays in the drive");
+        for _ in 0..COMMAND_CYCLES * 4 {
+            fdc.tick();
+        }
+        assert_eq!(
+            fdc.peek_status() & ST_BUSY,
+            0,
+            "no Restore follows on a 1770"
+        );
+        assert_eq!(fdc.read(TRACK), 5);
+    }
+
+    #[test]
+    fn disk_reports_its_geometry() {
+        let disk = test_disk().write_protected(true);
+        assert_eq!((disk.tracks(), disk.sides()), (40, 1));
+        assert!(disk.is_write_protected());
     }
 }

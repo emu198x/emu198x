@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Disk::sides` reports how many sides a disk has.
 - `Wd1770::reset` pulses the master-reset pin: the controller clears and runs
   a Restore, keeping its disks and drive selection.
+- `Wd1770::master_reset` takes the master-reset pin low with no Restore to
+  follow, as MAME reads it for the WD1770. Any command stops, the status
+  clears and the sector register returns to 1; the track register is kept.
+  The Electron Plus 3 needs this reading, the BBC B+ the one in `reset`.
+- `Disk::tracks` and `Disk::is_write_protected` report the rest of a disk's
+  geometry, for exporting it as the image it came from.
 
 ### Changed
 
