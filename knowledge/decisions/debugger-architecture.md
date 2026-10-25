@@ -40,7 +40,10 @@ shape decision the rest of the codebase organises around.
    the default; developer mode is a layout/scaffold toggle added
    later, not a separate product.
 6. **Tech stack: egui** for the native UI (immediate-mode, integrates
-   with the existing wgpu / winit stack).
+   with the existing wgpu / winit stack). **Superseded 2026-10-25** by
+   [`host-ui-model.md`](host-ui-model.md) § 9: the debugger is a native
+   window built with each host's own toolkit (SwiftUI on the Mac, GTK4 on
+   Linux), still an MCP client. egui is not used.
 7. **Disassemblers: hand-written `disasm-<cpu>` crates** —
    `disasm-zilog-z80`, `disasm-mos-6502`, `disasm-motorola-6809`,
    `disasm-motorola-68000`. Not third-party crates. Each owns the
@@ -464,3 +467,10 @@ concrete in-flight investigations the debugger should compress.
 
 No code landed yet. First implementation work is Wave 1 in
 `emu198x-shell/src/mcp.rs` and the per-binary CLI surfaces.
+
+### 2026-10-25 — Choice 6 superseded
+
+Steve approved [`host-ui-model.md`](host-ui-model.md), whose § 9 replaces
+egui with each host's native toolkit, in line with
+[`native-ui-strategy.md`](native-ui-strategy.md). Choices 1–5 and 7–10
+are unchanged.

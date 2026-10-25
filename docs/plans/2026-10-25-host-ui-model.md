@@ -1,7 +1,7 @@
 # Host UI model: build it in the Mac app, then bring the other hosts level
 
-**Decision:** `knowledge/decisions/host-ui-model.md` (proposed 2026-10-25,
-awaiting Steve's review).
+**Decision:** `knowledge/decisions/host-ui-model.md` (approved by Steve
+2026-10-25, with the GTK4 Linux frontend brought forward).
 **Builds on:** `docs/plans/2026-10-20-apple-native-host-spike.md`. Its
 steps 4–6 should close before step 2 here starts.
 
@@ -13,7 +13,7 @@ steps 4–6 should close before step 2 here starts.
   for a second family (the C64 is the next one the Apple build carries).
 - There is no unified launcher. Each Mac app holds one family.
 - A new dependency, or a new `unsafe` outside `emu198x-apple`, needs
-  Steve's approval first.
+  Steve's approval first. `gtk4` (gtk4-rs) for step 12 is approved.
 
 Each step is one PR with a conventional title, green before the next one
 starts.
@@ -154,11 +154,9 @@ naming that block.
 
 ### 10. Debug
 
-This waits on the decision's section 9 (the debugger toolkit).
-
-- Until then: pause, step and a disassembly strip, through `DebugTarget`.
-- After it: a native debugger window as an MCP client over
-  `--mcp-listen`.
+- First: pause, step and a disassembly strip, through `DebugTarget`.
+- Then: a native SwiftUI debugger window as an MCP client over
+  `--mcp-listen` (decision § 9).
 
 ### 11. Bring the winit baseline level
 
@@ -168,11 +166,34 @@ This waits on the decision's section 9 (the debugger toolkit).
 - Controller presets from `<name>.controls.json`, using the same file
   the Mac and TV read.
 - The `.emu198x` save format from step 6.
-- Linux depends on the decision's open question about GTK4.
+- Linux gets its menu from step 12, not from this step.
 
 Verification: each catalogue id the baseline supports passes the step 1
 test. A save and a controls file made on the Mac work unchanged on the
 baseline.
+
+### 12. Linux: the GTK4 frontend
+
+Approved 2026-10-25 (decision § 12). It can start in parallel with steps
+2–10, once step 1 has landed, because it reads the same catalogue.
+
+- A Linux host built on `gtk4-rs`: a `GtkApplication` with a
+  `GtkPopoverMenuBar` built from the catalogue, its shortcuts set through
+  `set_accels_for_action`, and file choosers through `GtkFileDialog`.
+- The picture is drawn into a GTK widget (`GtkGLArea`, or a `GdkTexture`
+  per frame if that keeps pace) with the same sharp-bilinear rule as the
+  Mac app.
+- Emulation runs on its own thread, as `EmulatorLoop` does on the Mac.
+  Commands cross on the existing channel and are applied between frames.
+- The winit binary stays the fallback on Linux until this host reaches
+  the Mac app's step 5 behaviour. `muda` stays stubbed on Linux, so the
+  gtk3-rs tree and its Dependabot alert never come back.
+- The `gtk4` dependency, and the system `libgtk-4-dev` CI needs, are
+  confined to the Linux host crate. No other crate or target gains them.
+
+Verification: the catalogue test from step 1 passes for the GTK4 host.
+Dizzy loads and plays at 50 Hz with no audio underruns over 10 minutes.
+`cargo tree` shows no gtk3 crate anywhere in the workspace.
 
 ## Not in this plan
 
