@@ -2,8 +2,8 @@
 """Extract crates from this workspace into their own repository, with history.
 
 Layers 1 and 2 of `knowledge/decisions/workspace-shape.md` § Amendment move
-each CPU core and shared chip to an `emu198x/<repo>` repository of its own
-(#1997, #1998). Every move is the same steps, so they live here rather than in
+each CPU core and each chip (since the 2026-10-25 amendment, however many
+families use it) to an `emu198x/<repo>` repository of its own (#1997, #1998). Every move is the same steps, so they live here rather than in
 someone's shell history. `scripts/extract-repos.toml` names each repository and
 the crates it takes.
 
@@ -286,8 +286,8 @@ def skeleton(entry: dict, repo_dir: pathlib.Path, crates: list[str], deps: set[s
 #
 # Moved out of emu198x/emu198x with its history on {datetime.date.today().isoformat()},
 # under knowledge/decisions/workspace-shape.md § Amendment there: one repository
-# per CPU and per shared chip, published, so each system family and sibling
-# takes it from crates.io.
+# per CPU and per chip, published, so each system family and sibling takes it
+# from crates.io.
 [workspace]
 resolver = "2"
 members = ["crates/*"]
@@ -450,15 +450,32 @@ def extract(repo: str, ref: str = "main") -> tuple[pathlib.Path, dict, list[str]
     return repo_dir, entry, crates
 
 
+def unreleased_siblings(repo_dir: pathlib.Path) -> set[str]:
+    """Crates still in this workspace that the extracted manifests depend on.
+
+    A chip extracted before the chip it builds on is released (ANTIC before
+    GTIA, the YM2610 before the YM2612) depends on a version crates.io does
+    not have yet. Each such dependency is a candidate for the same patch as
+    an unreleased test helper.
+    """
+    names = set()
+    for manifest in repo_dir.glob("crates/*/Cargo.toml"):
+        for key in re.findall(r"^([A-Za-z0-9_-]+) = (?:\"|\{ version)", manifest.read_text(), re.M):
+            if (ROOT / "crates" / key / "Cargo.toml").is_file():
+                names.add(key)
+    return names
+
+
 def verify(repo_dir: pathlib.Path) -> None:
     """Format, Clippy and tests, as the shared CI runs them.
 
-    A helper this workspace has made publishable but not yet published is
-    patched in from here, so the checks can run before it is released. The
-    patch is a command-line `--config`, never written to the repository.
+    A helper or sibling crate this workspace has made publishable but not
+    yet published is patched in from here, so the checks can run before it
+    is released. The patch is a command-line `--config`, never written to
+    the repository.
     """
     patches = []
-    for name in PUBLISHED_HELPERS:
+    for name in sorted(set(PUBLISHED_HELPERS) | unreleased_siblings(repo_dir)):
         manifest = ROOT / "crates" / name / "Cargo.toml"
         version = re.search(r'^version = "([^"]+)"', manifest.read_text(), re.M)
         if not version:
@@ -469,9 +486,9 @@ def verify(repo_dir: pathlib.Path) -> None:
     run("cargo", "clippy", *patches, "--workspace", "--all-targets", "--", "-D", "warnings", cwd=repo_dir)
     run("cargo", "test", *patches, "--workspace", cwd=repo_dir)
     # A dry-run publish resolves against the registry, so it waits for the
-    # helpers to be released.
+    # patched helpers and siblings to be released.
     if patches:
-        print("skipping cargo publish --dry-run until the test helpers are published")
+        print("skipping cargo publish --dry-run until its patched dependencies are published")
         return
     metadata = run("cargo", "metadata", "--no-deps", "--format-version", "1", cwd=repo_dir, capture=True)
     for package in json.loads(metadata)["packages"]:
