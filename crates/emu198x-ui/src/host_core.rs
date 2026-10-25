@@ -24,6 +24,7 @@ use winit::keyboard::{Key, KeyCode, ModifiersState};
 
 use crate::host_audio::HostAudio;
 use crate::menu::AppCommand;
+use crate::pointer;
 use crate::{HostControl, MouseButton, UiError, UiSystem, VideoFilter, export, keyboard};
 use crate::{media_open, quick_load};
 
@@ -159,10 +160,13 @@ pub(crate) struct HostCore<S: UiSystem> {
     held_target_keys: keyboard::HeldKeys,
     host_keyboard: bool,
     keyboard_notice: Option<String>,
-    /// Last cursor position in framebuffer coordinates, for relative mouse
-    /// deltas. `None` until the first motion (so the first event sets a baseline
-    /// without emitting a jump). Only used when the system has a mouse.
-    last_cursor_position: Option<(f64, f64)>,
+    /// Cursor movement in framebuffer coordinates, for relative mouse deltas
+    /// on a system that cannot say where its pointer is. Only used when the
+    /// system has a mouse.
+    relative_motion: pointer::RelativeMotion,
+    /// Closed-loop pointer control for a system that can say where its
+    /// pointer is ([`UiSystem::guest_pointer`]).
+    pointer_sync: pointer::PointerSync,
     /// Mouse buttons currently held, so they can be released on focus loss.
     pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
     /// Host buttons held on an aiming device's port, so focus loss can let
@@ -216,7 +220,8 @@ impl<S: UiSystem> HostCore<S> {
             held_target_keys: keyboard::HeldKeys::default(),
             host_keyboard,
             keyboard_notice: None,
-            last_cursor_position: None,
+            relative_motion: pointer::RelativeMotion::default(),
+            pointer_sync: pointer::PointerSync::default(),
             pressed_mouse_buttons: HashMap::new(),
             pressed_aim_buttons: HashSet::new(),
             modifiers: ModifiersState::empty(),
@@ -342,7 +347,10 @@ impl<S: UiSystem> HostCore<S> {
             let mut frame_completed = false;
             for _ in 0..MAX_TURBO_FRAMES {
                 let inputs = std::mem::take(&mut self.pending_inputs);
-                frame_completed |= self.runner.run_ticks(&inputs, self.full_frame_ticks)?;
+                if self.runner.run_ticks(&inputs, self.full_frame_ticks)? {
+                    frame_completed = true;
+                    self.queue_pointer_correction();
+                }
             }
             self.next_slice_at = Instant::now();
             return Ok(frame_completed);
@@ -358,7 +366,10 @@ impl<S: UiSystem> HostCore<S> {
         let mut frame_completed = false;
         while Instant::now() >= self.next_slice_at && ran < max_slices {
             let inputs = std::mem::take(&mut self.pending_inputs);
-            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
+            if self.runner.run_ticks(&inputs, self.slice_ticks)? {
+                frame_completed = true;
+                self.queue_pointer_correction();
+            }
             self.next_slice_at += self.slice_duration;
             ran += 1;
         }
@@ -574,28 +585,72 @@ impl<S: UiSystem> HostCore<S> {
         }
     }
 
-    /// Emit a relative `PointerMotion` from an absolute cursor position (the
-    /// first event after focus just sets the baseline). No-op for a system with
-    /// no mouse.
+    /// Follow the host cursor with the guest's mouse. A system that can say
+    /// where its pointer is ([`UiSystem::guest_pointer`]) has the cursor
+    /// recorded as the target for [`Self::queue_pointer_correction`]; any
+    /// other gets the cursor's movement as relative `PointerMotion`, the first
+    /// event after focus only setting the baseline. No-op for a system with no
+    /// mouse.
     fn queue_mouse_motion(&mut self, x: f64, y: f64, window: Option<(u32, u32)>) {
         let Some(device) = self.system.mouse_device() else {
             return;
         };
-        let (fx, fy) = self.cursor_to_frame_position(x, y, window);
-        let Some((last_x, last_y)) = self.last_cursor_position.replace((fx, fy)) else {
-            return; // first sample: baseline only
-        };
-        let dx = (fx - last_x).round() as i32;
-        let dy = (fy - last_y).round() as i32;
-        if dx == 0 && dy == 0 {
+        let position = self.cursor_to_frame_position(x, y, window);
+        if self.system.guest_pointer(&self.runner.runtime).is_some() {
+            self.pointer_sync.set_target(Some(position));
+            self.relative_motion.reset();
             return;
         }
+        self.pointer_sync.reset();
+        let Some((dx, dy)) = self.relative_motion.motion_to(position) else {
+            return;
+        };
         self.pending_inputs.push(InputEvent::PointerMotion {
             device: device.into(),
             dx,
             dy,
         });
         self.next_slice_at = Instant::now();
+    }
+
+    /// After a frame, send the counts that move the guest pointer toward the
+    /// host cursor. No-op unless the cursor is over the window and the system
+    /// can locate its pointer.
+    fn queue_pointer_correction(&mut self) {
+        let Some(device) = self.system.mouse_device() else {
+            return;
+        };
+        if !self.pointer_sync.is_active() {
+            return;
+        }
+        let Some(guest) = self.system.guest_pointer(&self.runner.runtime) else {
+            // The pointer has gone — a game took the screen — so hand the
+            // cursor back until it reappears.
+            self.pointer_sync.reset();
+            return;
+        };
+        let scale = self.system.pointer_counts_per_pixel();
+        if let Some((dx, dy)) = self.pointer_sync.correction(guest, scale) {
+            self.pending_inputs.push(InputEvent::PointerMotion {
+                device: device.into(),
+                dx,
+                dy,
+            });
+        }
+    }
+
+    /// Whether the window should show the host cursor. It is hidden while the
+    /// guest's own pointer stands in for it.
+    pub(crate) fn host_cursor_visible(&self) -> bool {
+        !self.pointer_sync.is_active()
+    }
+
+    /// The cursor left the window: aim away, and leave the guest pointer
+    /// where it is.
+    pub(crate) fn cursor_left(&mut self) {
+        self.queue_aim_away();
+        self.pointer_sync.reset();
+        self.relative_motion.reset();
     }
 
     /// Emit a `PointerButton` press/release, tracking held buttons so they can be
@@ -669,7 +724,8 @@ impl<S: UiSystem> HostCore<S> {
                 pressed: false,
             });
         }
-        self.last_cursor_position = None;
+        self.relative_motion.reset();
+        self.pointer_sync.reset();
         self.next_slice_at = Instant::now();
     }
 

@@ -185,6 +185,9 @@ struct GtkHost<S: UiSystem> {
     /// Physical keys held, so GTK's auto-repeat presses reach the core as
     /// repeats, as winit reports them.
     held_keys: HashSet<KeyCode>,
+    /// Whether the cursor is currently hidden over the picture, so
+    /// [`Self::sync_host_cursor`] only touches the widget on a change.
+    cursor_hidden: bool,
     fatal_error: Option<UiError>,
 }
 
@@ -207,13 +210,27 @@ impl<S: UiSystem> GtkHost<S> {
 
     /// One turn of the core's loop. `None` means the session is over.
     fn tick(&mut self) -> Option<Wake> {
-        match self.with_shell(|core, shell| core.tick(shell)) {
+        let result = self.with_shell(|core, shell| core.tick(shell));
+        self.sync_host_cursor();
+        match result {
             Ok(wake) => Some(wake),
             Err(err) => {
                 self.fail(err);
                 None
             }
         }
+    }
+
+    /// Show or hide the cursor over the picture as the core asks, touching
+    /// the widget only on a change.
+    fn sync_host_cursor(&mut self) {
+        let hidden = !self.core.host_cursor_visible();
+        if hidden == self.cursor_hidden {
+            return;
+        }
+        self.screen
+            .set_cursor_from_name(if hidden { Some("none") } else { None });
+        self.cursor_hidden = hidden;
     }
 
     fn fail(&mut self, err: UiError) {
@@ -385,6 +402,7 @@ fn open_window<S: UiSystem + 'static>(
         screen: screen.clone(),
         scratch: Vec::new(),
         held_keys: HashSet::new(),
+        cursor_hidden: false,
         fatal_error: None,
     };
     new_host.present();
@@ -438,6 +456,7 @@ fn connect_input<S: UiSystem + 'static>(
             {
                 host.held_keys.clear();
                 host.core.focus_lost();
+                host.sync_host_cursor();
             }
         });
     }
@@ -461,6 +480,7 @@ fn connect_input<S: UiSystem + 'static>(
                     None => (x, y, None),
                 };
                 host.core.cursor_moved(x, y, size);
+                host.sync_host_cursor();
             }
         });
     }
@@ -470,7 +490,8 @@ fn connect_input<S: UiSystem + 'static>(
             if let Ok(mut guard) = host.try_borrow_mut()
                 && let Some(host) = guard.as_mut()
             {
-                host.core.queue_aim_away();
+                host.core.cursor_left();
+                host.sync_host_cursor();
             }
         });
     }
