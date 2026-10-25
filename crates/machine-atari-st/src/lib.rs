@@ -2,9 +2,9 @@
 //!
 //! A 68000 at a quarter of the master clock, with:
 //!
-//! - **GLUE and MMU** (`atari-st-glue-mmu`): video timing, the video counter,
+//! - **GLUE and MMU** (`emu198x-atari-st-glue-mmu`): video timing, the video counter,
 //!   RAM mapping and the DMA address.
-//! - **Shifter** (`atari-st-shifter`): pixels from the MMU's video words.
+//! - **Shifter** (`emu198x-atari-st-shifter`): pixels from the MMU's video words.
 //! - **MFP 68901** (`motorola-mfp-68901`): timers and the interrupt
 //!   controller, on a 2.4576 MHz crystal of its own.
 //! - **Two 6850 ACIAs** (`motorola-acia-6850`): the keyboard link at
@@ -59,7 +59,7 @@
 //! - The extra wait states of the 6800-style ACIA accesses, and the four the
 //!   DMA registers add. ACIA and DMA accesses follow the four-cycle rule only.
 //! - The CPU cycles DMA bursts steal.
-//! - Mid-line video tricks (see `atari-st-glue-mmu`).
+//! - Mid-line video tricks (see `emu198x-atari-st-glue-mmu`).
 //! - The ACSI hard-disk port, the printer port and the RS-232 lines.
 
 #![forbid(unsafe_code)]
@@ -67,9 +67,9 @@
 pub mod dma;
 pub mod ikbd;
 
-pub use atari_st_glue_mmu::Frequency;
-use atari_st_glue_mmu::GlueMmu;
-use atari_st_shifter::Shifter;
+pub use emu198x_atari_st_glue_mmu::Frequency;
+use emu198x_atari_st_glue_mmu::GlueMmu;
+use emu198x_atari_st_shifter::Shifter;
 use emu198x_gi_ay_3_8910::{Ay3_8910, Variant};
 use emu198x_western_digital_wd1770::{Disk, Wd1770};
 use motorola_68000::Cpu68000;

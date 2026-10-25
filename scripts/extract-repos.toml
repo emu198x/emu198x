@@ -538,3 +538,19 @@ summary = "The Nintendo S-PPU1 and S-PPU2, the SNES picture processor pair, step
 consumers = "Used by the SNES."
 # 98.24% line coverage on 2026-10-25.
 coverage_floor = 98
+
+[[repo]]
+name = "atari-st-shifter"
+crates = ["emu198x-atari-st-shifter"]
+summary = "The Atari ST Shifter: palette, resolution and the bitplane-to-pixel shift registers."
+consumers = "Used by the Atari ST."
+# 98.59% line coverage on 2026-10-25.
+coverage_floor = 98
+
+[[repo]]
+name = "atari-st-glue-mmu"
+crates = ["emu198x-atari-st-glue-mmu"]
+summary = "The Atari ST GLUE and MMU: video timing, the video counter and fetch, DRAM mapping and the DMA address counter."
+consumers = "Used by the Atari ST."
+# 96.86% line coverage on 2026-10-25.
+coverage_floor = 96

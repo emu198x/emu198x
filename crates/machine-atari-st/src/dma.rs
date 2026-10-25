@@ -3,7 +3,7 @@
 //! The ST's DMA chip sits between the CPU, RAM and the two disk controllers:
 //! the WD1772 floppy controller and the ACSI hard-disk port. It has two
 //! registers. The DMA address counter lives in the MMU
-//! (`atari-st-glue-mmu`); the machine moves the bytes.
+//! (`emu198x-atari-st-glue-mmu`); the machine moves the bytes.
 //!
 //! **`$FF8606` mode (write).** Bit 8 sets the direction (1 = RAM to disk).
 //! Bit 7 selects the floppy (1) or the hard disk (0) for transfers. Bit 4
