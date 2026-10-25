@@ -1,4 +1,5 @@
-//! Native menu shell for the shared harness — macOS NSMenu via `muda`.
+//! Native menu shell for the shared harness: NSMenu on macOS and the Win32
+//! menu bar on Windows, both via `muda`.
 //!
 //! Generalises the Spectrum runner's menu (see
 //! `knowledge/decisions/native-menu-shell.md`) into the harness so every system
@@ -32,6 +33,7 @@ use emu198x_shell::commands::expect_command;
 use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
 #[cfg(not(target_os = "linux"))]
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+use winit::window::Window;
 
 /// The dynamic Machine-menu model: the variant radio and the per-port drive
 /// radios, bundled so [`AppMenu::new`] takes one machine-config argument.
@@ -500,18 +502,27 @@ impl AppMenu {
         self.action_map.get(id).cloned()
     }
 
-    /// Attach the menu to the process. macOS only for now; other platforms get
-    /// the same command channel but no visible bar yet.
+    /// Attach the menu: to the application on macOS, and to `window` on
+    /// Windows, where each window carries its own menu bar.
     #[cfg(target_os = "macos")]
-    pub fn install(&self) {
+    pub fn install(&self, _window: &Window) {
         self.root.init_for_nsapp();
     }
 
-    #[cfg(not(target_os = "macos"))]
-    pub fn install(&self) {
-        // TODO(#549): wire `init_for_hwnd` (Windows) when we expand past macOS.
-        // The command channel is identical; only the attachment differs.
+    /// Attach the menu: to the application on macOS, and to `window` on
+    /// Windows, where each window carries its own menu bar. A failure is
+    /// reported and the app runs on without a menu; the keyboard shortcuts
+    /// still reach every command.
+    #[cfg(target_os = "windows")]
+    pub fn install(&self, window: &Window) {
+        if let Err(err) = emu198x_win_menu::attach(&self.root, window) {
+            eprintln!("warning: no menu bar: {err}");
+        }
     }
+
+    /// No other platform has a menu attachment wired yet.
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    pub fn install(&self, _window: &Window) {}
 
     /// Refresh the View → Window Scale radio so only `scale` is checked.
     pub fn set_current_scale(&self, scale: u32) {
@@ -572,7 +583,7 @@ impl AppMenu {
         Self
     }
 
-    pub fn install(&self) {}
+    pub fn install(&self, _window: &Window) {}
 
     pub fn set_host_keyboard(&self, _enabled: bool) {}
 

@@ -1640,10 +1640,18 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
             return;
         }
         // Attach the native menu once the app is resumed (the macOS NSApp now
-        // exists). Idempotent via the flag, since `resumed` can fire again.
-        if !self.menu_installed {
-            self.app_menu.install();
+        // exists, and so does the window Windows attaches it to). Idempotent
+        // via the flag, since `resumed` can fire again.
+        if !self.menu_installed
+            && let Some(window) = self.window.clone()
+        {
+            self.app_menu.install(&window);
             self.menu_installed = true;
+            // A Windows menu bar takes its height from the client area, which
+            // would shrink the picture below its whole-number scale. Ask for
+            // the scaled size again now the bar is there.
+            #[cfg(target_os = "windows")]
+            self.set_window_scale(self.scale);
         }
     }
 

@@ -1,7 +1,9 @@
-# The Apple bridge is the one crate allowed unsafe code
+# The Apple bridge may use unsafe code
 
 **Status:** Adopted 2026-10-20 (Steve). Applies to `crates/emu198x-apple`
-only. Every other crate keeps the workspace's `unsafe_code = "forbid"`.
+only. The one other exception is `crates/emu198x-win-menu`, under
+[`windows-menu-unsafe-exception.md`](windows-menu-unsafe-exception.md).
+Every other crate keeps the workspace's `unsafe_code = "forbid"`.
 
 ## The decision
 
@@ -51,3 +53,4 @@ Stop and re-read this record if you are about to:
 | Date | Event |
 |------|-------|
 | 2026-10-20 | Adopted for the Apple native host spike (#1896–#1898). |
+| 2026-10-25 | A second exception, for the Windows menu attachment, adopted in its own record. |
