@@ -240,6 +240,14 @@ consumers = "Built for the MSX2 (#2062)."
 coverage_floor = 95
 
 [[repo]]
+name = "yamaha-ym2610"
+crates = ["emu198x-yamaha-ym2610"]
+summary = "The Yamaha YM2610 (OPNB): FM, SSG, ADPCM-A and ADPCM-B."
+consumers = "Built for the SNK Neo Geo (#2063); no machine uses it yet."
+# 99.43% line coverage on 2026-10-24.
+coverage_floor = 99
+
+[[repo]]
 name = "yamaha-ym2612"
 crates = ["emu198x-yamaha-ym2612"]
 summary = "The Yamaha YM2612 (OPN2) FM synthesis chip and its CMOS twin, the YM3438."
