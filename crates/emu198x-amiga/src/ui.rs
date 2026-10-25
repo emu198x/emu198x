@@ -180,6 +180,18 @@ impl UiSystem for AmigaSystem {
         Some(MOUSE_DEVICE)
     }
 
+    fn guest_pointer(&self, runtime: &Self::Runtime) -> Option<(f64, f64)> {
+        runtime.mouse_pointer()
+    }
+
+    // One mouse count moves Intuition's pointer about one lores pixel across
+    // and one line down, and the framebuffer has two pixels and two rows for
+    // each. Speed and acceleration preferences change this; the closed loop
+    // corrects for them.
+    fn pointer_counts_per_pixel(&self) -> (f64, f64) {
+        (0.5, 0.5)
+    }
+
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         // In keyboard-joystick mode the arrow keys + Space fall through to the
         // joystick path (returning `None` here so the harness routes them

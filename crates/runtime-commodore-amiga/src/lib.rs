@@ -6,6 +6,7 @@ mod cpu_trace;
 mod debug;
 mod input;
 mod live_access;
+mod pointer;
 mod profiles;
 mod queries;
 mod runtime;
