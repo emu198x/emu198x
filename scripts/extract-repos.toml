@@ -554,3 +554,19 @@ summary = "The Atari ST GLUE and MMU: video timing, the video counter and fetch,
 consumers = "Used by the Atari ST."
 # 96.86% line coverage on 2026-10-25.
 coverage_floor = 96
+
+[[repo]]
+name = "motorola-mfp-68901"
+crates = ["emu198x-motorola-mfp-68901"]
+summary = "The Motorola MC68901 multi-function peripheral: GPIO, four timers, a vectored interrupt controller and a USART."
+consumers = "Used by the Atari ST."
+# 94.00% line coverage on 2026-10-25.
+coverage_floor = 94
+
+[[repo]]
+name = "motorola-acia-6850"
+crates = ["emu198x-motorola-acia-6850"]
+summary = "The Motorola MC6850 asynchronous communications interface adapter."
+consumers = "Used by the Atari ST, for its keyboard and MIDI links."
+# 97.83% line coverage on 2026-10-25.
+coverage_floor = 97

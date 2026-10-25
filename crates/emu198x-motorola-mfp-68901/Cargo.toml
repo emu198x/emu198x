@@ -1,0 +1,23 @@
+[package]
+name = "emu198x-motorola-mfp-68901"
+description = "Motorola MC68901 Multi-Function Peripheral: GPIO with edge interrupts, four timers, a 16-source vectored interrupt controller and a USART"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["68901", "mfp", "timer", "motorola", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
