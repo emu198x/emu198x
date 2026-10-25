@@ -1,0 +1,23 @@
+[package]
+name = "emu198x-atari-st-glue-mmu"
+description = "Atari ST GLUE and MMU: video timing, the video counter and fetch, memory configuration and DRAM address mapping, and the DMA address counter"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["atari-st", "glue", "mmu", "video", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

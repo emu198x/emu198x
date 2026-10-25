@@ -189,22 +189,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atari-st-glue-mmu"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "atari-st-shifter"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1076,6 +1060,22 @@ dependencies = [
  "emu198x-shell",
  "emu198x-ui",
  "runtime-atari-st",
+ "serde_json",
+]
+
+[[package]]
+name = "emu198x-atari-st-glue-mmu"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "emu198x-atari-st-shifter"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2988,8 +2988,8 @@ dependencies = [
 name = "machine-atari-st"
 version = "0.44.2"
 dependencies = [
- "atari-st-glue-mmu",
- "atari-st-shifter",
+ "emu198x-atari-st-glue-mmu",
+ "emu198x-atari-st-shifter",
  "emu198x-gi-ay-3-8910",
  "emu198x-test-skip",
  "emu198x-western-digital-wd1770",
