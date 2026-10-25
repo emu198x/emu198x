@@ -8,7 +8,7 @@
 //! implementation; this wrapper retains the 7800-specific ProLine controller
 //! inputs surfaced through the TIA `INPT0`-`INPT5` registers.
 
-use atari_tia::TiaAudio as SoundCore;
+use emu198x_atari_tia::TiaAudio as SoundCore;
 
 /// Controller button state, packed exactly as MAME's `a7800` `BUTTONS` port so
 /// the `INPT` read logic ports across directly: bit 0 = P2 button 2, bit 1 =

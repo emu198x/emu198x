@@ -9,7 +9,7 @@
 
 /// NTSC palette -- 128 entries.
 ///
-/// Identical to the standard Stella NTSC palette used by `atari-tia`.
+/// Identical to the standard Stella NTSC palette used by `emu198x-atari-tia`.
 #[rustfmt::skip]
 #[allow(clippy::unreadable_literal)]
 pub const NTSC_PALETTE: [u32; 128] = [

@@ -2,8 +2,8 @@
 //!
 //! A player reaches the screen through a chain no chip test covers: ANTIC
 //! fetches its bitmap over DMA, the machine hands the bytes to GTIA, GTIA
-//! decides whether to take them and where to put them. `atari-antic` and
-//! `atari-gtia` each pin their own end with register writes; this runs the
+//! decides whether to take them and where to put them. `emu198x-atari-antic` and
+//! `emu198x-atari-gtia` each pin their own end with register writes; this runs the
 //! whole chain from a program.
 //!
 //! The program is `test-data/atari/pm-dma/atari-800xl-pm-dma.s`, a cartridge
@@ -34,7 +34,7 @@ const GRACTL_BOTH: u8 = 0x03;
 const VDELAY_P0: u8 = 0x10;
 
 /// Map chip colour clocks into the full GTIA picture's pixel coordinates.
-const FIRST_HALF_CLOCK: i32 = atari_gtia::GtiaRegion::Ntsc.first_half_clock() as i32;
+const FIRST_HALF_CLOCK: i32 = emu198x_atari_gtia::GtiaRegion::Ntsc.first_half_clock() as i32;
 
 fn pixel_x(hpos: u8) -> i32 {
     2 * i32::from(hpos) - FIRST_HALF_CLOCK

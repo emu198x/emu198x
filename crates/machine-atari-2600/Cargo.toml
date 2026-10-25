@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-tia = { path = "../atari-tia", version = "0.44.0" }
+emu198x-atari-tia = { path = "../emu198x-atari-tia", version = "0.1.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 emu198x-mos-riot-6532 = { path = "../emu198x-mos-riot-6532", version = "0.1.0" }
 serde = { workspace = true }

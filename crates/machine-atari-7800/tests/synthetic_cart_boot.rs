@@ -34,10 +34,10 @@ fn booted(rom: Vec<u8>) -> Atari7800 {
 }
 
 fn has_expected_background(machine: &Atari7800) -> bool {
-    let region = atari_maria::MariaRegion::Ntsc;
+    let region = emu198x_atari_maria::MariaRegion::Ntsc;
     let width = region.framebuffer_width() as usize;
     let left = region.border_left() as usize;
-    let right = left + atari_maria::ACTIVE_WIDTH as usize;
+    let right = left + emu198x_atari_maria::ACTIVE_WIDTH as usize;
     let framebuffer = machine.framebuffer();
     framebuffer.len() == width * region.framebuffer_height() as usize
         && framebuffer.chunks_exact(width).all(|row| {

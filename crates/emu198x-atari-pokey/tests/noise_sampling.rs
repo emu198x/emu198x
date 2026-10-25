@@ -1,4 +1,4 @@
-use atari_pokey::Pokey;
+use emu198x_atari_pokey::Pokey;
 
 fn run(chip: &mut Pokey, ticks: u32) {
     for _ in 0..ticks {

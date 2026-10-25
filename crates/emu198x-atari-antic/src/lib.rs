@@ -11,7 +11,7 @@
 //!
 //! Used in the Atari 5200 and 8-bit computer line (400/800/XL/XE).
 
-pub use atari_gtia::AnticMode;
+pub use emu198x_atari_gtia::AnticMode;
 
 use serde::{Deserialize, Serialize};
 

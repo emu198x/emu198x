@@ -559,8 +559,8 @@ impl MachineCore for Atari800xlRuntime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            atari_gtia::PAL_PIXEL_CLOCK_HZ,
-            atari_gtia::NTSC_PIXEL_CLOCK_HZ,
+            emu198x_atari_gtia::PAL_PIXEL_CLOCK_HZ,
+            emu198x_atari_gtia::NTSC_PIXEL_CLOCK_HZ,
         )
     }
 

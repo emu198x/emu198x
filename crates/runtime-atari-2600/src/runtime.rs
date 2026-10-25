@@ -303,8 +303,8 @@ impl MachineCore for Atari2600Runtime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            atari_tia::PAL_COLOUR_CLOCK_HZ,
-            atari_tia::NTSC_COLOUR_CLOCK_HZ,
+            emu198x_atari_tia::PAL_COLOUR_CLOCK_HZ,
+            emu198x_atari_tia::NTSC_COLOUR_CLOCK_HZ,
         )
     }
 

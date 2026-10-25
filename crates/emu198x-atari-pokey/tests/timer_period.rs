@@ -1,4 +1,4 @@
-use atari_pokey::Pokey;
+use emu198x_atari_pokey::Pokey;
 
 #[test]
 fn fast_timer_irq_spacing_includes_the_propagation_clocks() {

@@ -57,8 +57,8 @@ fn requested_interrupts_reach_pixels() {
                     ]);
                 }
                 let palette = match region {
-                    Atari7800Region::Ntsc => &atari_maria::NTSC_PALETTE,
-                    Atari7800Region::Pal => &atari_maria::PAL_PALETTE,
+                    Atari7800Region::Ntsc => &emu198x_atari_maria::NTSC_PALETTE,
+                    Atari7800Region::Pal => &emu198x_atari_maria::PAL_PALETTE,
                 };
                 assert_ne!(palette[0x42 >> 1], palette[0x8a >> 1]);
                 let mut descriptors = 0;

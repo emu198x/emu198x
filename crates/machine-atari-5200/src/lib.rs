@@ -53,9 +53,9 @@ mod cartridge;
 
 pub use cartridge::{CartLayout, Cartridge};
 
-use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
-use atari_gtia::Gtia;
-use atari_pokey::Pokey;
+use emu198x_atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
+use emu198x_atari_gtia::Gtia;
+use emu198x_atari_pokey::Pokey;
 use emu198x_mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -73,10 +73,10 @@ pub enum Atari5200Region {
 }
 
 impl Atari5200Region {
-    fn gtia_region(self) -> atari_gtia::GtiaRegion {
+    fn gtia_region(self) -> emu198x_atari_gtia::GtiaRegion {
         match self {
-            Self::Ntsc => atari_gtia::GtiaRegion::Ntsc,
-            Self::Pal => atari_gtia::GtiaRegion::Pal,
+            Self::Ntsc => emu198x_atari_gtia::GtiaRegion::Ntsc,
+            Self::Pal => emu198x_atari_gtia::GtiaRegion::Pal,
         }
     }
 
@@ -116,7 +116,7 @@ struct AnticView<'a> {
     bios: &'a [u8],
 }
 
-impl atari_antic::AnticMemory for AnticView<'_> {
+impl emu198x_atari_antic::AnticMemory for AnticView<'_> {
     fn read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize],
@@ -296,7 +296,7 @@ impl Atari5200 {
     fn update_vertical_blank(&mut self) {
         if let Some(output) = self.antic.vertical_blank_playfield() {
             self.gtia
-                .set_vertical_blank(output.mode == atari_gtia::AnticMode::Blank);
+                .set_vertical_blank(output.mode == emu198x_atari_gtia::AnticMode::Blank);
             self.gtia
                 .set_playfield(&output.playfield, output.playfield_width, output.mode);
         }

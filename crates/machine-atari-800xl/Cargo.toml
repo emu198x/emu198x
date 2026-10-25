@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-antic = { path = "../atari-antic", version = "0.44.0" }
-atari-gtia = { path = "../atari-gtia", version = "0.44.0" }
+emu198x-atari-antic = { path = "../emu198x-atari-antic", version = "0.1.0" }
+emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.0" }
 atari-sio = { path = "../atari-sio", version = "0.44.0" }
-atari-pokey = { path = "../atari-pokey", version = "0.44.0" }
+emu198x-atari-pokey = { path = "../emu198x-atari-pokey", version = "0.1.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 emu198x-mos-pia-6520 = { path = "../emu198x-mos-pia-6520", version = "0.1.0" }
 serde = { workspace = true }

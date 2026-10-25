@@ -19,7 +19,7 @@
 //! - **CPU:** MOS 6502C "Sally" — stock 6502 with Atari's HALT pin for
 //!   MARIA DMA cycle stealing.
 //! - **MARIA:** display processor (zone-based DLL/DL, palette,
-//!   320 × 240 framebuffer). See [`atari_maria`].
+//!   320 × 240 framebuffer). See [`emu198x_atari_maria`].
 //! - **RIOT:** I/O and timer (P0 / P1 joystick + console switches).
 //! - **TIA:** two-channel audio and controller fire inputs in 7800 mode.
 //! - **RAM:** 4 KB main at `$1800-$27FF` (mirrored to `$3FFF`), 192 B
@@ -59,8 +59,8 @@ mod tia_audio;
 pub use cartridge::{Cartridge, PokeyLocation};
 pub use tia_audio::TiaAudio;
 
-use atari_maria::{Maria, MariaRegion};
-use atari_pokey::Pokey;
+use emu198x_atari_maria::{Maria, MariaRegion};
+use emu198x_atari_pokey::Pokey;
 use emu198x_mos_6502::M6502;
 use emu198x_mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
@@ -568,8 +568,8 @@ mod tests {
             let row = mr.border_top() as usize + 2; // First buffered output: raster 18.
             let start = row * mr.framebuffer_width() as usize + mr.border_left() as usize;
             let palette = match region {
-                Atari7800Region::Ntsc => &atari_maria::NTSC_PALETTE,
-                Atari7800Region::Pal => &atari_maria::PAL_PALETTE,
+                Atari7800Region::Ntsc => &emu198x_atari_maria::NTSC_PALETTE,
+                Atari7800Region::Pal => &emu198x_atari_maria::PAL_PALETTE,
             };
             assert_eq!(
                 &sys.framebuffer()[start..start + 8],
@@ -780,11 +780,11 @@ mod tests {
             let width = maria_region.framebuffer_width() as usize;
             let top = maria_region.border_top() as usize;
             let palette = match region {
-                Atari7800Region::Ntsc => &atari_maria::NTSC_PALETTE,
-                Atari7800Region::Pal => &atari_maria::PAL_PALETTE,
+                Atari7800Region::Ntsc => &emu198x_atari_maria::NTSC_PALETTE,
+                Atari7800Region::Pal => &emu198x_atari_maria::PAL_PALETTE,
             };
             let mut previous = None;
-            for y in top..top + atari_maria::ACTIVE_HEIGHT as usize {
+            for y in top..top + emu198x_atari_maria::ACTIVE_HEIGHT as usize {
                 let row = &sys.maria.framebuffer()[y * width..(y + 1) * width];
                 let active = row[width / 2];
                 assert!([palette[0x4e >> 1], palette[0x8e >> 1]].contains(&active));
