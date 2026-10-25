@@ -25,6 +25,7 @@ pub mod launch;
 mod media_open;
 mod menu;
 mod overlay;
+mod pointer;
 mod quick_load;
 
 use std::borrow::Cow;
@@ -285,11 +286,36 @@ pub trait UiSystem {
 
     /// The pointer device name (e.g. `"mouse-1"`) if this system has a mouse,
     /// else `None` (default). `Some` opts the window into mouse capture: the
-    /// harness translates cursor motion into relative `InputEvent::PointerMotion`
-    /// deltas (in framebuffer coordinates) and clicks into
-    /// `InputEvent::PointerButton`, both tagged with this device name.
+    /// harness turns the cursor into `InputEvent::PointerMotion` counts and
+    /// clicks into `InputEvent::PointerButton`, both tagged with this device
+    /// name. The counts chase the guest's own pointer when
+    /// [`guest_pointer`](Self::guest_pointer) can locate it, and otherwise
+    /// replay the cursor's movement in framebuffer pixels.
     fn mouse_device(&self) -> Option<&'static str> {
         None
+    }
+
+    /// Where the guest's own mouse pointer is, in framebuffer pixels, or
+    /// `None` (default) if the machine cannot say — no pointer on screen, or
+    /// no way to find it.
+    ///
+    /// `Some` lets the harness keep that pointer under the host cursor: after
+    /// each frame it sends the mouse counts that close part of the gap, and it
+    /// hides the host cursor over the window so the guest's pointer stands in
+    /// for it. Without it the harness can only replay the cursor's movement,
+    /// which drifts once the guest accelerates the pointer or stops it at a
+    /// screen edge. Only consulted when [`mouse_device`](Self::mouse_device)
+    /// is `Some`.
+    fn guest_pointer(&self, _runtime: &Self::Runtime) -> Option<(f64, f64)> {
+        None
+    }
+
+    /// Mouse counts that move the guest pointer one framebuffer pixel on each
+    /// axis, before any acceleration the guest applies. Default one count per
+    /// pixel. The closed loop corrects for an inexact figure, so this only has
+    /// to be about right; it sets how quickly the pointer catches up.
+    fn pointer_counts_per_pixel(&self) -> (f64, f64) {
+        (1.0, 1.0)
     }
 
     /// The controller port an absolute pointing device is plugged into — a
@@ -438,6 +464,9 @@ struct App<S: UiSystem> {
     app_menu: AppMenu,
     /// Set once the menu has been attached to the OS (in `resumed`).
     menu_installed: bool,
+    /// Whether the host cursor is currently hidden over the window, so
+    /// [`Self::sync_host_cursor`] only touches the window on a change.
+    host_cursor_hidden: bool,
     /// Where menu clicks go: the core's command channel.
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     command_tx: Sender<AppCommand>,
@@ -563,6 +592,7 @@ impl<S: UiSystem> App<S> {
             fatal_error: None,
             app_menu,
             menu_installed: false,
+            host_cursor_hidden: false,
             command_tx,
         }
     }
@@ -725,13 +755,51 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
         if self.window_id() != Some(window_id) {
             return;
         }
+        self.handle_window_event(event_loop, event);
+        self.sync_host_cursor();
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Translate native-menu clicks into commands on the core's channel.
+        // muda's receiver is a global crossbeam channel; non-Linux only.
+        #[cfg(not(target_os = "linux"))]
+        while let Ok(event) = muda::MenuEvent::receiver().try_recv() {
+            if let Some(command) = self.app_menu.command_for(&event.id) {
+                let _ = self.command_tx.send(command);
+            }
+        }
+        let (core, mut shell) = self.split();
+        match core.tick(&mut shell) {
+            Ok(Wake::Now) => event_loop.set_control_flow(ControlFlow::Poll),
+            Ok(Wake::At(at)) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            Err(err) => self.fail(event_loop, err),
+        }
+        self.sync_host_cursor();
+    }
+}
+
+impl<S: UiSystem> App<S> {
+    /// Show or hide the host cursor as the core asks, touching the window
+    /// only on a change.
+    fn sync_host_cursor(&mut self) {
+        let hidden = !self.core.host_cursor_visible();
+        if hidden == self.host_cursor_hidden {
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.set_cursor_visible(!hidden);
+        }
+        self.host_cursor_hidden = hidden;
+    }
+
+    fn handle_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.core.modifiers_changed(modifiers.state());
             }
             WindowEvent::Focused(false) => self.core.focus_lost(),
-            WindowEvent::CursorLeft { .. } => self.core.queue_aim_away(),
+            WindowEvent::CursorLeft { .. } => self.core.cursor_left(),
             WindowEvent::CursorMoved { position, .. } => {
                 let size = self.window_size();
                 self.core.cursor_moved(position.x, position.y, size);
@@ -760,23 +828,6 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
                 }
             }
             _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Translate native-menu clicks into commands on the core's channel.
-        // muda's receiver is a global crossbeam channel; non-Linux only.
-        #[cfg(not(target_os = "linux"))]
-        while let Ok(event) = muda::MenuEvent::receiver().try_recv() {
-            if let Some(command) = self.app_menu.command_for(&event.id) {
-                let _ = self.command_tx.send(command);
-            }
-        }
-        let (core, mut shell) = self.split();
-        match core.tick(&mut shell) {
-            Ok(Wake::Now) => event_loop.set_control_flow(ControlFlow::Poll),
-            Ok(Wake::At(at)) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
-            Err(err) => self.fail(event_loop, err),
         }
     }
 }
