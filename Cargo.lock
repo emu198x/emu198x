@@ -182,13 +182,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atari-sio"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1050,6 +1043,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde-big-array",
+]
+
+[[package]]
+name = "emu198x-atari-sio"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -2994,10 +2994,10 @@ dependencies = [
 name = "machine-atari-800xl"
 version = "0.44.2"
 dependencies = [
- "atari-sio",
  "emu198x-atari-antic",
  "emu198x-atari-gtia",
  "emu198x-atari-pokey",
+ "emu198x-atari-sio",
  "emu198x-mos-6502",
  "emu198x-mos-pia-6520",
  "emu198x-test-skip",

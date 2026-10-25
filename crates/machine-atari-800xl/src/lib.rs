@@ -64,11 +64,11 @@ mod oss_carts;
 
 pub use cartridge::{Cartridge, CartridgeKind};
 
-pub use atari_sio::Disk;
-use atari_sio::SioBus;
 use emu198x_atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
 use emu198x_atari_gtia::Gtia;
 use emu198x_atari_pokey::Pokey;
+pub use emu198x_atari_sio::Disk;
+use emu198x_atari_sio::SioBus;
 use emu198x_mos_6502::M6502;
 use emu198x_mos_pia_6520::Pia6520;
 use serde::{Deserialize, Serialize};
