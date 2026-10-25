@@ -11,7 +11,7 @@ repository.workspace = true
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.44.0" }
 format-commodore-c64-d81 = { path = "../format-commodore-c64-d81", version = "0.44.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-cia-6526 = { path = "../mos-cia-6526", version = "0.44.0" }
+emu198x-mos-cia-6526 = { path = "../emu198x-mos-cia-6526", version = "0.1.0" }
 emu198x-western-digital-wd1770 = { path = "../emu198x-western-digital-wd1770", version = "0.1.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }

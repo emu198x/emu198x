@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-vic-ii = { path = "../mos-vic-ii", version = "0.44.0" }
-mos-cia-6526 = { path = "../mos-cia-6526", version = "0.44.0" }
+emu198x-mos-vic-ii = { path = "../emu198x-mos-vic-ii", version = "0.1.0" }
+emu198x-mos-cia-6526 = { path = "../emu198x-mos-cia-6526", version = "0.1.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.44.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.44.0" }

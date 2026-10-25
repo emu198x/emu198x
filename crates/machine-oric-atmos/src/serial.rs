@@ -26,7 +26,7 @@
 //! receive and drains the bytes the Oric sent, the way the Dragon 64's
 //! onboard port works.
 
-use mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ};
+use emu198x_mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ};
 
 use super::{CPU_CLOCK_HZ, OricAtmos};
 

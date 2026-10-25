@@ -12,14 +12,14 @@
 
 use common_commodore_c64::timing::C64Timing;
 use emu198x_mos_6502::M6502;
+use emu198x_mos_cia_6526::Cia6526;
+use emu198x_mos_vic_ii::Vic;
 use emu198x_shell::{
     FirmwareSet, FirmwareSource, InputEvent, MachineError, MachineProfile, QueryError,
     RomConvention,
 };
 use machine_commodore_c64::KeyboardMatrix;
 use machine_commodore_c128::{C128, C128Roms};
-use mos_cia_6526::Cia6526;
-use mos_vic_ii::Vic;
 use serde_json::json;
 
 use crate::profiles::{C128Model, c128_profile_for};

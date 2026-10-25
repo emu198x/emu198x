@@ -10,7 +10,7 @@ across the two NTSC chips within each phase. The PNGs are the corresponding
 384×247 native screenshots, with the reference window starting at raster 28
 and wrapping after raster 262. Horizontal crop: 16 from our 416-pixel frame.
 
-The snapshots use an external palette matching `mos-vic-ii/src/palette.rs`,
+The snapshots use an external palette matching `emu198x-mos-vic-ii/src/palette.rs`,
 filter 0, and all five VICE colour controls set to neutral (1000). This
 allows an exact digital colour-index comparison; it does not validate an
 analogue display model. Opposite-phase images differ by 521 pixels on the

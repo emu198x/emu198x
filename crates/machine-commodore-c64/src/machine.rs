@@ -3,11 +3,11 @@
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
 use emu198x_mos_6502::M6502;
+use emu198x_mos_cia_6526::Cia6526;
 use emu198x_mos_sid_6581::{AudioControls, Sid6581, SidChannel};
+use emu198x_mos_vic_ii::{Vic, VicModel, VicPhi2Bus};
 use format_commodore_c64_crt::{CrtCartridge, parse as parse_crt};
 use format_commodore_c64_tap::{TapParseError, TapSystem, TapVideo, encode_tap, parse_tap};
-use mos_cia_6526::Cia6526;
-use mos_vic_ii::{Vic, VicModel, VicPhi2Bus};
 
 use crate::action_replay::ActionReplay;
 use crate::config::{C64Config, C64Model};
@@ -1978,7 +1978,7 @@ mod tests {
 
     #[test]
     fn c64c_model_selects_the_6526a_cia_on_both_chips() {
-        use mos_cia_6526::CiaModel;
+        use emu198x_mos_cia_6526::CiaModel;
 
         let breadbin = stub_machine(C64Model::PalBreadbin);
         assert_eq!(breadbin.cia1().model(), CiaModel::Mos6526);

@@ -105,7 +105,7 @@ impl AnticRegion {
 /// This is not the CPU bus interface [`RULES.md`] rule 6 forbids. That rule is
 /// about how a *CPU* exposes its pins, so the chips sharing its bus can watch
 /// them continuously. ANTIC is on the other side of that relationship: it
-/// drives the address bus for its own fetches. `mos-vic-ii` reads its memory
+/// drives the address bus for its own fetches. `emu198x-mos-vic-ii` reads its memory
 /// the same way, through `VicMemory`.
 pub trait AnticMemory {
     /// Read the byte ANTIC's address bus is pointing at.

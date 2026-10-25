@@ -16,12 +16,12 @@ mod vdc;
 
 use common_commodore_c64::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_mos_6502::M6502;
+use emu198x_mos_cia_6526::{Cia6526, CiaModel};
 use emu198x_mos_sid_6581::Sid6581;
+use emu198x_mos_vic_ii::{Vic, VicMemory, VicModel, VicPhi2Bus};
 use emu198x_zilog_z80::{BusOp, Z80};
 use machine_commodore_c64::KeyboardMatrix;
 use mmu::{Mmu, MmuEvent, Target};
-use mos_cia_6526::{Cia6526, CiaModel};
-use mos_vic_ii::{Vic, VicMemory, VicModel, VicPhi2Bus};
 use serde::{Deserialize, Serialize};
 use vdc::Vdc;
 

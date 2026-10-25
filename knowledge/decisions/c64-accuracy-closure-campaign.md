@@ -496,7 +496,7 @@ them on the engine's line number failed `dmadelay`: once its `$D011` stores
 landed at VICE's cycles, the store at engine 0 of line 48 made that line a
 badline and moved the whole screen up a character row.
 
-- Files: `crates/mos-vic-ii/src/lib.rs` (`tick` IRQ assertion, `read` and
+- Files: `crates/emu198x-mos-vic-ii/src/lib.rs` (`tick` IRQ assertion, `read` and
   `peek` for `$11`/`$12`, `check_badline`, the vertical border flip-flop, the
   raster-IRQ and border unit tests); `crates/machine-commodore-c64/src/machine.rs`
   (its IRQ test); `crates/runtime-commodore-c64/tests/vicii_testbench.rs`
@@ -524,9 +524,9 @@ pending `$D011` completion phase, the two hidden output cells and the 12-bit
 C-data carry origin, and the sprite-DMA and `$D017` write phases. Keep each
 retained rule only where the VICE trace still supports it.
 
-- Files: `crates/mos-vic-ii/src/lib.rs` (`check_badline`, far-edge window,
+- Files: `crates/emu198x-mos-vic-ii/src/lib.rs` (`check_badline`, far-edge window,
   forced-output delay, C-data carry, sprite-chain write phases);
-  `crates/mos-vic-ii/src/sprite_fetch_chain.rs` if crunch timing moves;
+  `crates/emu198x-mos-vic-ii/src/sprite_fetch_chain.rs` if crunch timing moves;
   `crates/runtime-commodore-c64/tests/vicii_testbench.rs` (the
   `sequencer-bug` signature); the three records named below.
 - State: if the fields change shape, bump `SNAPSHOT_VERSION` in
@@ -562,7 +562,7 @@ covers sprites, as `draw_border8` does after `draw_sprites8`. Outside the
 fetch window the sequencer shifts out zero graphics instead of leaving the
 previous frame's pixels, which an opened side border exposes.
 
-- Files: `crates/mos-vic-ii/src/lib.rs` (`render_pixels`, a pending-cell ring,
+- Files: `crates/emu198x-mos-vic-ii/src/lib.rs` (`render_pixels`, a pending-cell ring,
   `Vic::write` recording the colour write, `FRAME_ROUTING_VERSION` 7 → 8 with
   its doc entry); `crates/runtime-commodore-c64/src/snapshot.rs`;
   `crates/emu198x-catalogue/manifest/c64.toml`;
@@ -591,7 +591,7 @@ timing, and map `PalC64c` and `NtscC64c` to them in
 cell after a colour-register write shows light grey (`$F`) when its source is
 the written register (`draw_colors_8565`). This closes #796.
 
-- Files: `crates/mos-vic-ii/src/lib.rs`,
+- Files: `crates/emu198x-mos-vic-ii/src/lib.rs`,
   `crates/machine-commodore-c64/src/machine.rs`,
   `crates/runtime-commodore-c64/src/snapshot.rs` (the stored revision flag),
   `crates/runtime-commodore-c64/tests/vicii_testbench.rs`.

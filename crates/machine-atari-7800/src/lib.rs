@@ -62,7 +62,7 @@ pub use tia_audio::TiaAudio;
 use atari_maria::{Maria, MariaRegion};
 use atari_pokey::Pokey;
 use emu198x_mos_6502::M6502;
-use mos_riot_6532::Riot6532;
+use emu198x_mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

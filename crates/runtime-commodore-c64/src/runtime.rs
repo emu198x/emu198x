@@ -841,9 +841,9 @@ impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
         }
         let pal = self.model.is_pal();
         let pixel_hz = if pal {
-            mos_vic_ii::PAL_DOT_CLOCK_HZ
+            emu198x_mos_vic_ii::PAL_DOT_CLOCK_HZ
         } else {
-            mos_vic_ii::NTSC_DOT_CLOCK_HZ
+            emu198x_mos_vic_ii::NTSC_DOT_CLOCK_HZ
         };
         let carrier_hz = if pal { 4_433_618.75 } else { 3_579_545.454_545 };
         let line_pixels = self.machine.vic().signal_line_pixels();
@@ -1226,8 +1226,8 @@ where
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            mos_vic_ii::PAL_DOT_CLOCK_HZ,
-            mos_vic_ii::NTSC_DOT_CLOCK_HZ,
+            emu198x_mos_vic_ii::PAL_DOT_CLOCK_HZ,
+            emu198x_mos_vic_ii::NTSC_DOT_CLOCK_HZ,
         )
     }
 

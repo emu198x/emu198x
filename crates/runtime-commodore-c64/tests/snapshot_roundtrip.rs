@@ -2,10 +2,10 @@
 
 mod common;
 
+use emu198x_mos_vic_ii::palette::PALETTE;
 use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, NullAudioSink, NullTraceSink, ResetKind,
 };
-use mos_vic_ii::palette::PALETTE;
 use runtime_commodore_c64::{C64Runtime, Model};
 
 use common::{FrameCollector, blank_firmware, blank_firmware_with_drive};
@@ -417,7 +417,7 @@ fn snapshot_round_trip_preserves_live_sprite_pipeline() {
     for _ in 0..8 {
         assert_eq!(restored.machine_mut().tick(), expected.tick());
     }
-    let row_start = 101 * mos_vic_ii::FB_WIDTH as usize;
+    let row_start = 101 * emu198x_mos_vic_ii::FB_WIDTH as usize;
     let sprite_span = row_start + 190..row_start + 230;
     assert_eq!(
         &restored.machine().framebuffer()[sprite_span.clone()],

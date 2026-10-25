@@ -27,9 +27,9 @@
 #[cfg(test)]
 const C64_STACK_SOURCE_ROOTS: &[&str] = &[
     "crates/emu198x-mos-6502/src",
-    "crates/mos-vic-ii/src",
+    "crates/emu198x-mos-vic-ii/src",
     "crates/emu198x-mos-sid-6581/src",
-    "crates/mos-cia-6526/src",
+    "crates/emu198x-mos-cia-6526/src",
     "crates/common-commodore-c64/src",
     "crates/common-commodore-iec/src",
     "crates/machine-commodore-c64/src",
@@ -81,7 +81,7 @@ mod tests {
     }
 
     fn is_reviewed_signal_cache(path: &Path, annotation: &str, next_line: Option<&str>) -> bool {
-        path == Path::new("crates/mos-vic-ii/src/lib.rs")
+        path == Path::new("crates/emu198x-mos-vic-ii/src/lib.rs")
             && annotation == "#[serde(skip)]"
             && next_line.map(str::trim) == Some("signal_codes: Vec<u16>,")
     }
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn reviewed_exception_is_exactly_the_derived_vic_colour_cache() {
-        let vic = Path::new("crates/mos-vic-ii/src/lib.rs");
+        let vic = Path::new("crates/emu198x-mos-vic-ii/src/lib.rs");
         assert!(is_reviewed_signal_cache(
             vic,
             "#[serde(skip)]",

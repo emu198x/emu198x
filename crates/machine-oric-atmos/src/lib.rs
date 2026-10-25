@@ -113,8 +113,8 @@
 
 use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use emu198x_mos_6502::M6502;
+use emu198x_mos_acia_6551::Acia6551;
 use emu198x_mos_via_6522::Via6522;
-use mos_acia_6551::Acia6551;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

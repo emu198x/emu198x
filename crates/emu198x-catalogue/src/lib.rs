@@ -762,12 +762,12 @@ fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
                 });
             }
             if let Some(found) = manifest.system.frame_routing_version
-                && found != mos_vic_ii::FRAME_ROUTING_VERSION
+                && found != emu198x_mos_vic_ii::FRAME_ROUTING_VERSION
             {
                 return Err(CatalogueError::RoutingVersionMismatch {
                     kind: "frame",
                     system: "c64".into(),
-                    expected: mos_vic_ii::FRAME_ROUTING_VERSION,
+                    expected: emu198x_mos_vic_ii::FRAME_ROUTING_VERSION,
                     found,
                 });
             }
@@ -3525,7 +3525,7 @@ hash = "xxh64:0000000000000000"
     fn routing_version_check_passes_for_c64_when_manifest_matches_runtime() {
         let manifest = c64_manifest_with_versions(
             Some(emu198x_mos_sid_6581::AUDIO_ROUTING_VERSION),
-            Some(mos_vic_ii::FRAME_ROUTING_VERSION),
+            Some(emu198x_mos_vic_ii::FRAME_ROUTING_VERSION),
         );
         verify_routing_versions(&manifest).expect("matching C64 versions should pass");
     }

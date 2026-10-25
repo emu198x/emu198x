@@ -281,7 +281,7 @@ out of the build:
 - `crates/commodore-denise-ocs`
 - `crates/commodore-paula-8364`
 - `crates/commodore-gary`
-- `crates/mos-cia-8520`
+- `crates/emu198x-mos-cia-8520`
 - `crates/peripheral-commodore-amiga-floppy`
 - `crates/peripheral-commodore-amiga-keyboard`
 

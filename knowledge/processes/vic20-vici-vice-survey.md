@@ -75,7 +75,7 @@ The empty `-config` file keeps any user `vicerc` out.
 host pixels wide. On PAL the PNG is 568 x 312 and its pixel `(2x, y)` is
 raster pixel `x` of line `y`; on NTSC it is 520 x 261 and starts at line 1, so
 pixel `(2x, y)` is raster pixel `x` of line `y + 1`. Emu198x's framebuffer is
-the window a set displays (`mos_vic_i::window_first_pixel` and
+the window a set displays (`emu198x_mos_vic_i::window_first_pixel` and
 `window_first_line`): 230 x 288 from raster pixel 20 of line 24 on PAL, and
 214 x 240 from pixel 4 of line 21 on NTSC. The survey compares that whole
 window. The boot screens match VICE pixel for pixel at these mappings, which
@@ -86,7 +86,7 @@ RGB values are never compared. The script captures sixteen calibration frames
 per standard — a program that sets background colour *c* and border colour
 *c & 7* and spins — and the survey reads VICE's rendering of each colour from
 them. Every pixel of a reference is then classified by exact RGB match, and
-Emu198x's pixels by exact match against `mos_vic_i::VIC_PALETTE`; the two
+Emu198x's pixels by exact match against `emu198x_mos_vic_i::VIC_PALETTE`; the two
 colour numbers are compared.
 
 The script checks every capture against the manifest's SHA-256 and fails on

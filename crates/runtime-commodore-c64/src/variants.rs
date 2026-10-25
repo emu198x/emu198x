@@ -18,14 +18,14 @@
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
 use emu198x_mos_6502::M6502;
+use emu198x_mos_cia_6526::Cia6526;
+use emu198x_mos_vic_ii::Vic;
 use emu198x_shell::{
     BasicProgramLoaded, ControlCommand, FirmwareSet, FirmwareSource, HeadlessSession, InputEvent,
     LoaderError, MachineError, MachineProfile, MediaImage, RomConvention, SessionQueryProvider,
     TapeAutoloaded,
 };
 use machine_commodore_c64::{C64, C64Config, C64Snapshot, KeyboardMatrix};
-use mos_cia_6526::Cia6526;
-use mos_vic_ii::Vic;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 

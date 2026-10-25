@@ -584,7 +584,7 @@ dependencies = [
  "commodore-denise-ecs",
  "commodore-denise-ocs",
  "emu198x-commodore-paula-8364",
- "mos-cia-8520",
+ "emu198x-mos-cia-8520",
  "motorola-68000",
  "motorola-68010",
  "motorola-68020",
@@ -1044,11 +1044,11 @@ name = "emu198x-amiga"
 version = "0.44.2"
 dependencies = [
  "emu198x-app-icon",
+ "emu198x-mos-cia-8520",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
  "machine-commodore-amiga-a1200",
- "mos-cia-8520",
  "motorola-68000",
  "png",
  "runtime-commodore-amiga",
@@ -1159,9 +1159,9 @@ version = "0.44.2"
 dependencies = [
  "common-commodore-c64",
  "emu198x-app-icon",
+ "emu198x-mos-vic-ii",
  "emu198x-shell",
  "emu198x-ui",
- "mos-vic-ii",
  "runtime-commodore-c64",
  "serde",
  "serde_json",
@@ -1175,6 +1175,7 @@ dependencies = [
  "common-commodore-c64",
  "common-sinclair-zx-spectrum",
  "emu198x-mos-sid-6581",
+ "emu198x-mos-vic-ii",
  "emu198x-ricoh-apu-2a03",
  "emu198x-shell",
  "machine-sinclair-zx-spectrum-128k",
@@ -1182,7 +1183,6 @@ dependencies = [
  "machine-sinclair-zx-spectrum-plus2a",
  "machine-sinclair-zx-spectrum-plus2b",
  "machine-sinclair-zx-spectrum-plus3",
- "mos-vic-ii",
  "ricoh-ppu-2c02",
  "runtime-commodore-amiga",
  "runtime-commodore-c64",
@@ -1233,10 +1233,10 @@ name = "emu198x-commodore-vic-20"
 version = "0.44.2"
 dependencies = [
  "emu198x-app-icon",
+ "emu198x-mos-vic-i",
  "emu198x-shell",
  "emu198x-ui",
  "machine-commodore-vic-20",
- "mos-vic-i",
  "png",
  "runtime-commodore-vic-20",
  "serde_json",
@@ -1434,10 +1434,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-mos-acia-6551"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-mos-cia-6526"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-mos-cia-8520"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "emu198x-mos-pia-6520"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-mos-riot-6532"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -1456,6 +1485,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-mos-vic-i"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-mos-vic-ii"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "emu198x-motorola-6809"
 version = "0.1.0"
 dependencies = [
@@ -1464,6 +1508,20 @@ dependencies = [
 
 [[package]]
 name = "emu198x-motorola-6845"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-motorola-pia-6821"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-motorola-sam-6883"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -2833,8 +2891,8 @@ version = "0.44.2"
 dependencies = [
  "atari-tia",
  "emu198x-mos-6502",
+ "emu198x-mos-riot-6532",
  "emu198x-test-skip",
- "mos-riot-6532",
  "postcard",
  "serde",
  "serde-big-array",
@@ -2861,7 +2919,7 @@ dependencies = [
  "atari-pokey",
  "atari-tia",
  "emu198x-mos-6502",
- "mos-riot-6532",
+ "emu198x-mos-riot-6532",
  "postcard",
  "serde",
  "serde-big-array",
@@ -2940,12 +2998,12 @@ dependencies = [
  "common-commodore-iec",
  "common-commodore-iec-drive",
  "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
  "emu198x-mos-via-6522",
  "emu198x-western-digital-wd1770",
  "format-commodore-c64-d64",
  "format-commodore-c64-d71",
  "format-commodore-c64-g64",
- "mos-cia-6526",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -2956,9 +3014,9 @@ version = "0.44.2"
 dependencies = [
  "common-commodore-iec",
  "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
  "emu198x-western-digital-wd1770",
  "format-commodore-c64-d81",
- "mos-cia-6526",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -2978,9 +3036,9 @@ dependencies = [
  "commodore-gayle",
  "common-commodore-amiga",
  "emu198x-commodore-paula-8364",
+ "emu198x-mos-cia-8520",
  "emu198x-test-skip",
  "machine-commodore-amiga-ocs",
- "mos-cia-8520",
  "motorola-68000",
  "motorola-68020",
  "peripheral-commodore-amiga-floppy",
@@ -3004,8 +3062,8 @@ dependencies = [
  "commodore-gayle",
  "common-commodore-amiga",
  "emu198x-commodore-paula-8364",
+ "emu198x-mos-cia-8520",
  "machine-commodore-amiga-ocs",
- "mos-cia-8520",
  "motorola-68000",
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
@@ -3025,9 +3083,9 @@ dependencies = [
  "commodore-gary",
  "common-commodore-amiga",
  "emu198x-commodore-paula-8364",
+ "emu198x-mos-cia-8520",
  "emu198x-test-skip",
  "gvp-a530",
- "mos-cia-8520",
  "motorola-68000",
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
@@ -3043,11 +3101,11 @@ version = "0.44.2"
 dependencies = [
  "common-commodore-c64",
  "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
  "emu198x-mos-sid-6581",
+ "emu198x-mos-vic-ii",
  "emu198x-zilog-z80",
  "machine-commodore-c64",
- "mos-cia-6526",
- "mos-vic-ii",
  "postcard",
  "serde",
  "serde-big-array",
@@ -3062,14 +3120,14 @@ dependencies = [
  "common-commodore-iec",
  "emu198x-esp-at-modem",
  "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
  "emu198x-mos-sid-6581",
+ "emu198x-mos-vic-ii",
  "emu198x-wdc-65c816",
  "format-commodore-c64-crt",
  "format-commodore-c64-prg",
  "format-commodore-c64-tap",
  "machine-commodore-1541",
- "mos-cia-6526",
- "mos-vic-ii",
  "peripheral-ultimate-uci-net",
  "serde",
  "thiserror 2.0.21",
@@ -3094,9 +3152,9 @@ version = "0.44.2"
 dependencies = [
  "emu198x-mos-6502",
  "emu198x-mos-via-6522",
+ "emu198x-mos-vic-i",
  "emu198x-test-skip",
  "format-commodore-vic-20-crt",
- "mos-vic-i",
  "png",
  "postcard",
  "serde",
@@ -3109,12 +3167,12 @@ dependencies = [
 name = "machine-dragon-32"
 version = "0.44.2"
 dependencies = [
+ "emu198x-mos-acia-6551",
  "emu198x-motorola-6809",
+ "emu198x-motorola-pia-6821",
+ "emu198x-motorola-sam-6883",
  "emu198x-motorola-vdg-6847",
  "format-dragon-disk",
- "mos-acia-6551",
- "motorola-pia-6821",
- "motorola-sam-6883",
  "serde",
 ]
 
@@ -3222,8 +3280,8 @@ version = "0.44.2"
 dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-mos-6502",
+ "emu198x-mos-acia-6551",
  "emu198x-mos-via-6522",
- "mos-acia-6551",
  "postcard",
  "serde",
  "serde-big-array",
@@ -3543,50 +3601,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mos-acia-6551"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "mos-cia-6526"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "mos-cia-8520"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "mos-riot-6532"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
-
-[[package]]
-name = "mos-vic-i"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "mos-vic-ii"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
-
-[[package]]
 name = "motorola-68000"
 version = "0.44.2"
 dependencies = [
@@ -3674,20 +3688,6 @@ version = "0.44.2"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "motorola-pia-6821"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "motorola-sam-6883"
-version = "0.44.2"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -4866,6 +4866,8 @@ dependencies = [
  "common-commodore-iec",
  "emu198x-esp-at-modem",
  "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
+ "emu198x-mos-vic-ii",
  "emu198x-shell",
  "emu198x-test-skip",
  "format-commodore-c64-d64",
@@ -4878,8 +4880,6 @@ dependencies = [
  "machine-commodore-1581",
  "machine-commodore-c128",
  "machine-commodore-c64",
- "mos-cia-6526",
- "mos-vic-ii",
  "png",
  "postcard",
  "serde",
@@ -4904,9 +4904,9 @@ name = "runtime-commodore-vic-20"
 version = "0.44.2"
 dependencies = [
  "emu198x-esp-at-modem",
+ "emu198x-mos-vic-i",
  "emu198x-shell",
  "machine-commodore-vic-20",
- "mos-vic-i",
  "postcard",
  "serde",
  "serde_json",

@@ -17,7 +17,7 @@
 //! workspace consumer would reuse this rendering loop (no other Ace-
 //! family machine exists), so this stays inline as part of the
 //! machine itself. Contrast with the VIC-20's MOS 6560/6561 (real IC,
-//! extracted to `mos-vic-i`) or the Atom's MC6847 (real IC, shared via
+//! extracted to `emu198x-mos-vic-i`) or the Atom's MC6847 (real IC, shared via
 //! `emu198x-motorola-vdg-6847`).
 //!
 //! # Timing

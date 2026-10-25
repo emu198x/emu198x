@@ -21,6 +21,7 @@ use common_commodore_drive_gcr::{
 use common_commodore_iec::IecBus;
 use common_commodore_iec_drive::{BoardState, IecDriveBoard};
 use emu198x_mos_6502::{M6502, registers::FLAG_V};
+use emu198x_mos_cia_6526::Cia6526;
 use emu198x_mos_via_6522::Via6522;
 use emu198x_western_digital_wd1770::Wd1770;
 use format_commodore_c64_d64::{
@@ -31,7 +32,6 @@ use format_commodore_c64_d71::{
     sectors_in_track as sectors_in_track_d71, write_sector as write_sector_d71,
 };
 use format_commodore_c64_g64::G64ParseError;
-use mos_cia_6526::Cia6526;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
