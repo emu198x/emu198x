@@ -16,6 +16,7 @@
 mod export;
 mod frame_stats;
 mod host_audio;
+mod host_core;
 mod icon;
 mod keyboard;
 pub mod launch;
@@ -25,28 +26,23 @@ mod overlay;
 mod quick_load;
 
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-use host_audio::HostAudio;
+use host_core::{FileFilter, HostCore, MenuSync, Notice, Runner, Shell, Wake};
 use menu::{AppCommand, AppMenu};
 
-use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
-use emu198x_shell::{
-    CapturedFrame, ControlCommand, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MachineTime, MediaKind, MediaTransportAction, MediaTransportCommand,
-    NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind, RunResult,
-};
+use emu198x_native_video::{VideoPresenterError, WgpuVideoPresenter};
+use emu198x_shell::{CapturedFrame, MachineCore, MachineError, MachineTime, PixelFormat};
 use thiserror::Error;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::error::{EventLoopError, OsError};
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, ModifiersState, PhysicalKey};
+use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 // Re-exported so a `UiSystem` impl can describe itself without depending on
@@ -63,12 +59,6 @@ pub use winit::keyboard::KeyCode;
 /// The empty axis map returned by [`UiSystem::axis_map`]'s default — a system
 /// with no analogue inputs gets no axis routing.
 static EMPTY_AXIS_MAP: AxisInputMap = AxisInputMap::new(&[]);
-
-const MAX_CATCH_UP_FRAMES: u32 = 4;
-const MAX_AUDIO_BUFFER_MS: u32 = 250;
-/// Frames per `about_to_wait` while fast-loading a tape (turbo): run unthrottled
-/// in bounded bursts so the loader races ahead but the window stays responsive.
-const MAX_TURBO_FRAMES: u32 = 32;
 
 /// A switchable machine variant for the Machine menu's variant radio. `id` is a
 /// stable string the system maps back to its model — the same id its script/MCP
@@ -432,183 +422,157 @@ pub enum UiError {
     Teardown(String),
 }
 
-/// Drives a [`MachineCore`] runtime a frame (or sub-frame) at a time, capturing
-/// the latest frame and feeding framed audio.
-struct Runner<R: MachineCore> {
-    runtime: R,
-    frame_capture: LatestFrameCapture,
-    audio_output: HostAudio,
-    last_run_result: Option<RunResult>,
-}
-
-impl<R: MachineCore> Runner<R> {
-    /// A runner playing through the host output device when `audio` is set
-    /// and the device opens; silent otherwise (see [`HostAudio::open`]).
-    fn new(runtime: R, audio: bool) -> Self {
-        Self {
-            runtime,
-            frame_capture: LatestFrameCapture::default(),
-            audio_output: HostAudio::open(audio, || NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)),
-            last_run_result: None,
-        }
-    }
-
-    fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, UiError> {
-        let previous = self.frame().map(|frame| frame.timestamp);
-        let target = self.runtime.time().saturating_add(ticks);
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events,
-            frame_sink: &mut self.frame_capture,
-            audio_sink: &mut self.audio_output,
-            trace_sink: &mut trace_sink,
-        };
-        self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
-        Ok(self.frame().map(|frame| frame.timestamp) != previous)
-    }
-
-    fn frame(&self) -> Option<&CapturedFrame> {
-        self.frame_capture.frame()
-    }
-}
-
-/// The winit application: hosts the window, the wgpu presenter, the pacing
-/// loop, and keyboard/gamepad input for one [`UiSystem`].
+/// The winit application: owns the window, the wgpu presenter and the native
+/// menu bar, and feeds a [`HostCore`] its events.
 struct App<S: UiSystem> {
-    system: S,
-    runner: Runner<S::Runtime>,
-    scale: u32,
-    slice_ticks: u64,
-    slice_duration: Duration,
-    full_frame_ticks: u64,
-    next_slice_at: Instant,
-    pending_inputs: Vec<InputEvent>,
-    pressed_keys: HashMap<KeyCode, HostControl>,
-    held_target_keys: keyboard::HeldKeys,
-    host_keyboard: bool,
-    keyboard_notice: Option<String>,
-    /// Last cursor position in framebuffer coordinates, for relative mouse
-    /// deltas. `None` until the first motion (so the first event sets a baseline
-    /// without emitting a jump). Only used when the system has a mouse.
-    last_cursor_position: Option<(f64, f64)>,
-    /// Mouse buttons currently held, so they can be released on focus loss.
-    pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
-    /// Host buttons held on an aiming device's port, so focus loss can let
-    /// go of a trigger the game would otherwise see stuck down.
-    pressed_aim_buttons: HashSet<MouseButton>,
-    /// Held modifier keys, tracked so the save/load chords (Cmd/Ctrl+S / +L)
-    /// can be distinguished from the bare keys the machine keyboard uses.
-    modifiers: ModifiersState,
-    gamepads: NativeGamepadInput,
+    core: HostCore<S>,
     window: Option<Arc<Window>>,
     video: Option<WgpuVideoPresenter>,
-    presentation: PresentationProfile,
     frame_stats: Option<frame_stats::FrameStats>,
     fatal_error: Option<UiError>,
-    halt_message: Option<String>,
-    /// Tape fast-load (turbo) armed by the user (F11 / Tape → Fast-Forward While Playing). Only
-    /// races ahead while [`UiSystem::tape_playing`] is also true.
-    turbo_armed: bool,
     /// Native menu bar (no-op stub on Linux). Owns the muda menu tree.
     app_menu: AppMenu,
     /// Set once the menu has been attached to the OS (in `resumed`).
     menu_installed: bool,
-    /// Command channel shared by menu clicks and keyboard shortcuts; drained at
-    /// the frame boundary so an action never tears down state mid-frame.
+    /// Where menu clicks go: the core's command channel.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     command_tx: Sender<AppCommand>,
-    command_rx: Receiver<AppCommand>,
+}
+
+/// The winit window, presenter and menu, lent to the core as its [`Shell`].
+struct WinitShell<'a> {
+    window: Option<&'a Arc<Window>>,
+    video: &'a mut Option<WgpuVideoPresenter>,
+    menu: &'a AppMenu,
+}
+
+impl Shell for WinitShell<'_> {
+    fn set_title(&mut self, title: &str) {
+        if let Some(window) = self.window {
+            window.set_title(title);
+        }
+    }
+
+    fn request_redraw(&mut self) {
+        if let Some(window) = self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn request_picture_size(&mut self, width: f64, height: f64) {
+        if let Some(window) = self.window {
+            let _ = window.request_inner_size(LogicalSize::new(width, height));
+        }
+    }
+
+    fn framebuffer_resized(&mut self, width: u32, height: u32) -> Result<(), UiError> {
+        if let Some(window) = self.window {
+            *self.video = Some(WgpuVideoPresenter::new(window.clone(), width, height)?);
+        }
+        Ok(())
+    }
+
+    fn reset_video_history(&mut self) {
+        if let Some(video) = self.video.as_mut() {
+            video.reset_temporal_history();
+        }
+    }
+
+    fn sync_menu(&mut self, change: MenuSync<'_>) {
+        match change {
+            MenuSync::Scale(scale) => self.menu.set_current_scale(scale),
+            MenuSync::Filter(filter) => self.menu.set_current_filter(filter),
+            MenuSync::Variant(id) => self.menu.set_current_variant(id),
+            MenuSync::PortDrive { device, kind_id } => {
+                self.menu.set_current_port_drive(device, kind_id);
+            }
+            MenuSync::Turbo(armed) => self.menu.set_turbo_armed(armed),
+            MenuSync::HostKeyboard(enabled) => self.menu.set_host_keyboard(enabled),
+        }
+    }
+
+    fn pick_file(&mut self, title: &str, (label, extensions): FileFilter<'_>) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title(title)
+            .add_filter(label, extensions)
+            .add_filter("All files", &["*"])
+            .pick_file()
+    }
+
+    fn pick_save_file(
+        &mut self,
+        title: &str,
+        file_name: &str,
+        (label, extensions): FileFilter<'_>,
+        all_files: bool,
+    ) -> Option<PathBuf> {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title(title)
+            .set_file_name(file_name)
+            .add_filter(label, extensions);
+        if all_files {
+            dialog = dialog.add_filter("All files", &["*"]);
+        }
+        dialog.save_file()
+    }
+
+    fn message(&mut self, title: &str, level: Notice, text: &str) {
+        rfd::MessageDialog::new()
+            .set_title(title)
+            .set_level(match level {
+                Notice::Info => rfd::MessageLevel::Info,
+                Notice::Warning => rfd::MessageLevel::Warning,
+                Notice::Error => rfd::MessageLevel::Error,
+            })
+            .set_description(text)
+            .show();
+    }
 }
 
 impl<S: UiSystem> App<S> {
-    fn new(system: S, runner: Runner<S::Runtime>, scale: u32, video: VideoFilter) -> Self {
-        let slices = system.input_slices_per_frame().max(1);
-        let frame_ticks = system.frame_ticks(&runner.runtime);
-        let frame_duration = system.frame_duration(&runner.runtime);
-        let slice_ticks = frame_ticks.div_ceil(u64::from(slices));
-        let slice_duration =
-            Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(slices));
-        // The pixel aspect ratio is derived from the system's target display
-        // aspect and the cropped framebuffer size once the window opens (see
-        // `create_window`); square pixels until then.
-        let presentation = PresentationProfile::for_filter(video);
+    fn new(core: HostCore<S>, video: VideoFilter) -> Self {
+        let system = &core.system;
+        let runtime = &core.runner.runtime;
         let variants = system.variants();
         let current_variant = system.current_variant();
-        let drive_ports = system.drive_ports(&runner.runtime);
-        let state_open = system.state_open_filter().is_some();
+        let drive_ports = system.drive_ports(runtime);
         let app_menu = AppMenu::new(
             &system.window_title(),
-            scale,
+            core.scale,
             video,
-            &runner.runtime.profile().media_slots,
+            &runtime.profile().media_slots,
             &crate::menu::MachineMenu {
                 variants: &variants,
                 current_variant: current_variant.as_deref(),
                 drive_ports: &drive_ports,
                 host_keyboard: system.supports_host_keyboard(),
             },
-            state_open,
+            system.state_open_filter().is_some(),
             system.tape_export_filter().is_some(),
         );
-        let (command_tx, command_rx) = channel();
-        let host_keyboard = system.supports_host_keyboard();
+        let command_tx = core.command_sender();
         Self {
-            system,
-            runner,
-            scale,
-            slice_ticks,
-            slice_duration,
-            full_frame_ticks: frame_ticks,
-            next_slice_at: Instant::now(),
-            pending_inputs: Vec::new(),
-            pressed_keys: HashMap::new(),
-            held_target_keys: keyboard::HeldKeys::default(),
-            host_keyboard,
-            keyboard_notice: None,
-            last_cursor_position: None,
-            pressed_mouse_buttons: HashMap::new(),
-            pressed_aim_buttons: HashSet::new(),
-            modifiers: ModifiersState::empty(),
-            gamepads: NativeGamepadInput::new(),
+            core,
             window: None,
             video: None,
-            presentation,
             frame_stats: std::env::var_os("EMU198X_FRAME_STATS").map(|_| Default::default()),
             fatal_error: None,
-            halt_message: None,
-            turbo_armed: false,
             app_menu,
             menu_installed: false,
             command_tx,
-            command_rx,
         }
     }
 
-    /// Surface a machine halt (e.g. a CPU JAM). On the transition into a halt:
-    /// log it, append it to the window title, and (via [`Self::render`]) draw
-    /// the on-screen overlay. Clears again — restoring the title — when the
-    /// machine resumes, e.g. after a reset. Idempotent per state.
-    fn update_halt_status(&mut self) {
-        let status = self.system.halt_status(&self.runner.runtime);
-        if status == self.halt_message {
-            return;
-        }
-        match &status {
-            Some(message) => {
-                eprintln!("warning: {message}");
-                if let Some(window) = &self.window {
-                    window.set_title(&format!("{} — {message}", self.window_title()));
-                }
-            }
-            None => {
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                }
-            }
-        }
-        self.halt_message = status;
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
+    /// The core, and the window lent to it as its shell.
+    fn split(&mut self) -> (&mut HostCore<S>, WinitShell<'_>) {
+        (
+            &mut self.core,
+            WinitShell {
+                window: self.window.as_ref(),
+                video: &mut self.video,
+                menu: &self.app_menu,
+            },
+        )
     }
 
     fn take_error(&mut self) -> Option<UiError> {
@@ -621,107 +585,47 @@ impl<S: UiSystem> App<S> {
         event_loop.exit();
     }
 
-    /// Pixel aspect for the picture the machine is showing *now*.
-    ///
-    /// Prefer the raster-derived value, which does not depend on how much of
-    /// the signal this core crops to. Cores not yet migrated fall back to the
-    /// older "fill this shape" hook, which does. The presenter and the window
-    /// size then stretch width to match.
-    fn current_pixel_aspect_ratio(&self) -> f32 {
-        let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        self.system
-            .display(&self.runner.runtime)
-            .map_or(1.0, |display| {
-                display.pixel_aspect_ratio(fb_width, fb_height)
-            })
-    }
-
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), UiError> {
         if self.window.is_some() {
             return Ok(());
         }
-        let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        self.presentation.pixel_aspect_ratio = self.current_pixel_aspect_ratio();
-        let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
-        let display_width = f64::from(fb_width) * par;
+        self.core.update_pixel_aspect();
+        let (display_width, display_height) = self.core.display_size();
+        let (width, height) = self.core.picture_size(self.core.scale);
         let attributes = icon::with_icon(
             WindowAttributes::default()
-                .with_title(self.window_title())
-                .with_inner_size(self.window_logical_size(self.scale))
-                .with_min_inner_size(LogicalSize::new(display_width, f64::from(fb_height))),
+                .with_title(self.core.window_title())
+                .with_inner_size(LogicalSize::new(width, height))
+                .with_min_inner_size(LogicalSize::new(display_width, display_height)),
         );
         let window = Arc::new(event_loop.create_window(attributes)?);
         icon::show_in_dock();
+        let (fb_width, fb_height) = self.core.system.framebuffer_size(&self.core.runner.runtime);
         let video = WgpuVideoPresenter::new(window.clone(), fb_width, fb_height)?;
         self.window = Some(window);
         self.video = Some(video);
-        self.next_slice_at = Instant::now();
+        self.core.restart_pacing();
         Ok(())
-    }
-
-    /// The logical window size for an integer `scale`: the cropped framebuffer
-    /// stretched by the derived pixel-aspect ratio (so the picture keeps its
-    /// 4:3-or-whatever shape) and then by `scale`. Used both at window creation
-    /// and by the View → Window Scale menu.
-    fn window_logical_size(&self, scale: u32) -> LogicalSize<f64> {
-        let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
-        let display_width = f64::from(fb_width) * par;
-        LogicalSize::new(
-            display_width * f64::from(scale),
-            f64::from(fb_height.saturating_mul(scale)),
-        )
     }
 
     fn window_id(&self) -> Option<WindowId> {
         self.window.as_ref().map(|window| window.id())
     }
 
-    fn advance_machine(&mut self) -> Result<bool, UiError> {
-        self.gamepads.drain_events_with_axes(
-            self.system.button_map(),
-            self.system.axis_map(),
-            &mut self.pending_inputs,
-        );
-
-        // Turbo (fast-load): while a tape is playing and the user armed it, run
-        // unthrottled in a bounded burst so the loader races ahead. `about_to_wait`
-        // sets `Poll` in this state so bursts run back-to-back.
-        if self.turbo_active() {
-            let mut frame_completed = false;
-            for _ in 0..MAX_TURBO_FRAMES {
-                let inputs = std::mem::take(&mut self.pending_inputs);
-                frame_completed |= self.runner.run_ticks(&inputs, self.full_frame_ticks)?;
-            }
-            self.next_slice_at = Instant::now();
-            return Ok(frame_completed);
-        }
-
-        if Instant::now() < self.next_slice_at {
-            return Ok(false);
-        }
-
-        let mut ran = 0u32;
-        let max_slices =
-            MAX_CATCH_UP_FRAMES.saturating_mul(self.system.input_slices_per_frame().max(1));
-        let mut frame_completed = false;
-        while Instant::now() >= self.next_slice_at && ran < max_slices {
-            let inputs = std::mem::take(&mut self.pending_inputs);
-            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
-            self.next_slice_at += self.slice_duration;
-            ran += 1;
-        }
-        if ran == max_slices && Instant::now() >= self.next_slice_at {
-            self.next_slice_at = Instant::now() + self.slice_duration;
-        }
-        Ok(frame_completed)
+    /// The window's inner size, for mapping the cursor onto the framebuffer.
+    fn window_size(&self) -> Option<(u32, u32)> {
+        self.window.as_ref().map(|window| {
+            let size = window.inner_size();
+            (size.width, size.height)
+        })
     }
 
     fn render(&mut self) -> Result<(), UiError> {
+        let core = &mut self.core;
         // A halted machine draws the diagnostic overlay over the frozen frame
         // instead of presenting it — so the cause is on-screen, not a mystery.
-        if let Some(message) = &self.halt_message {
-            let (width, height) = self.system.framebuffer_size(&self.runner.runtime);
+        if let Some(message) = &core.halt_message {
+            let (width, height) = core.system.framebuffer_size(&core.runner.runtime);
             let pixels = overlay::build_halt_overlay(width, height, message);
             let frame = CapturedFrame {
                 signal: None,
@@ -733,32 +637,32 @@ impl<S: UiSystem> App<S> {
                 pixels,
             };
             if let Some(video) = self.video.as_mut() {
-                let mut profile = self.presentation;
+                let mut profile = core.presentation;
                 profile.filter = VideoFilter::Raw;
                 video.present(&frame, &profile)?;
             }
             return Ok(());
         }
 
-        let (Some(frame), Some(video)) = (self.runner.frame(), self.video.as_mut()) else {
+        let (Some(frame), Some(video)) = (core.runner.frame(), self.video.as_mut()) else {
             return Ok(());
         };
         // Debug stepping and a switch to a variant without an electrical
         // source must still display their raw state, rather than end the UI.
-        if frame.signal.is_none() && self.presentation.filter.uses_signal() {
-            let fallback = if self.presentation.filter.is_modern() {
+        if frame.signal.is_none() && core.presentation.filter.uses_signal() {
+            let fallback = if core.presentation.filter.is_modern() {
                 VideoFilter::Raw
             } else {
                 VideoFilter::Crt
             };
-            self.presentation.filter = fallback;
+            core.presentation.filter = fallback;
             self.app_menu.set_current_filter(fallback);
             eprintln!("electrical video is unavailable for this frame; using {fallback} display");
         }
-        let clock = self.runner.runtime.profile().clock.rate;
-        self.presentation.clock_hz = clock.numerator_hz as f64 / clock.denominator_hz as f64;
+        let clock = core.runner.runtime.profile().clock.rate;
+        core.presentation.clock_hz = clock.numerator_hz as f64 / clock.denominator_hz as f64;
         let started = Instant::now();
-        let presented = video.present_with_status(frame, &self.presentation)?;
+        let presented = video.present_with_status(frame, &core.presentation)?;
         if let Some(stats) = self.frame_stats.as_mut() {
             if !presented {
                 stats.suspend();
@@ -766,10 +670,10 @@ impl<S: UiSystem> App<S> {
             }
             stats.observe(
                 frame.timestamp,
-                self.presentation.clock_hz,
-                self.presentation.filter,
+                core.presentation.clock_hz,
+                core.presentation.filter,
                 started.elapsed(),
-                self.system.frame_duration(&self.runner.runtime),
+                core.system.frame_duration(&core.runner.runtime),
             );
         }
         Ok(())
@@ -778,857 +682,6 @@ impl<S: UiSystem> App<S> {
     fn resize_surface(&mut self, width: u32, height: u32) {
         if let Some(video) = self.video.as_mut() {
             video.resize_surface(width, height);
-        }
-    }
-
-    fn window_title(&self) -> String {
-        let title = self.system.window_title();
-        if let Some(notice) = &self.keyboard_notice {
-            return format!("{title} — {notice}");
-        }
-        if self.system.supports_host_keyboard() {
-            format!(
-                "{title} — {} keyboard",
-                if self.host_keyboard {
-                    "Host"
-                } else {
-                    "Original"
-                }
-            )
-        } else {
-            title
-        }
-    }
-
-    fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
-        // Keyboard path (home computers): one host key → one or more machine key
-        // names, emitted as InputEvent::Key. Takes precedence over the joystick
-        // button map.
-        if let Some(names) = self.system.map_keys(code) {
-            let keys = pressed.then(|| names.iter().map(|name| (*name).to_owned()).collect());
-            self.pending_inputs
-                .extend(self.held_target_keys.update(code, keys));
-            self.next_slice_at = Instant::now();
-            return;
-        }
-
-        // Joystick / d-pad path (consoles): host key → HostControl → button map.
-        let map = self.system.button_map();
-        if pressed {
-            let Some(control) = self.system.map_key(code) else {
-                return;
-            };
-            if self.pressed_keys.contains_key(&code) {
-                return;
-            }
-            self.pressed_keys.insert(code, control);
-            if let Some(input) = map.event(control, true) {
-                self.pending_inputs.push(input);
-            }
-            self.next_slice_at = Instant::now();
-        } else if let Some(control) = self.pressed_keys.remove(&code) {
-            if let Some(input) = map.event(control, false) {
-                self.pending_inputs.push(input);
-            }
-            self.next_slice_at = Instant::now();
-        }
-    }
-
-    fn queue_host_key(&mut self, code: KeyCode, logical: &Key, pressed: bool) {
-        let keys = match keyboard::route_host_key(
-            code,
-            logical,
-            pressed,
-            self.modifiers,
-            self.system.host_keyword_modifier(),
-            &self.held_target_keys,
-        ) {
-            keyboard::HostKey::Release => None,
-            keyboard::HostKey::Ignore => return,
-            keyboard::HostKey::Keys(keys) => Some(keys),
-            keyboard::HostKey::Physical => self
-                .system
-                .map_keys(code)
-                .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
-            keyboard::HostKey::Control => self
-                .system
-                .host_control_keys(code)
-                .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
-            keyboard::HostKey::Character(ch) => {
-                match self.system.host_character_keys(&self.runner.runtime, ch) {
-                    Some(keys) => Some(keys),
-                    None => {
-                        self.keyboard_notice = Some(format!("Unsupported character: {ch}"));
-                        if let Some(window) = &self.window {
-                            window.set_title(&self.window_title());
-                        }
-                        eprintln!(
-                            "keyboard: character {ch:?} is not supported by this target mapping"
-                        );
-                        return;
-                    }
-                }
-            }
-        };
-        if pressed
-            && self.keyboard_notice.take().is_some()
-            && let Some(window) = &self.window
-        {
-            window.set_title(&self.window_title());
-        }
-        self.pending_inputs
-            .extend(self.held_target_keys.update(code, keys));
-        self.next_slice_at = Instant::now();
-    }
-
-    fn release_all_keys(&mut self) {
-        let map = self.system.button_map();
-        for control in std::mem::take(&mut self.pressed_keys).into_values() {
-            if let Some(input) = map.event(control, false) {
-                self.pending_inputs.push(input);
-            }
-        }
-        self.pending_inputs
-            .extend(self.held_target_keys.release_all());
-        self.next_slice_at = Instant::now();
-    }
-
-    /// Convert a window cursor position to framebuffer coordinates, so mouse
-    /// deltas track the emulated screen resolution rather than the window scale.
-    fn cursor_to_frame_position(&self, x: f64, y: f64) -> (f64, f64) {
-        let (Some(window), (fb_w, fb_h)) = (
-            &self.window,
-            self.system.framebuffer_size(&self.runner.runtime),
-        ) else {
-            return (x, y);
-        };
-        let size = window.inner_size();
-        let width = f64::from(size.width.max(1));
-        let height = f64::from(size.height.max(1));
-        (x * f64::from(fb_w) / width, y * f64::from(fb_h) / height)
-    }
-
-    /// Emit an absolute `Aim` for a system with a pointing device.
-    ///
-    /// Sent on every move rather than on change, because the machine may have
-    /// resized its display since the last one — the Master System switches
-    /// between 192, 224 and 240 lines at runtime — and the same cursor
-    /// position then means a different pixel.
-    fn queue_aim(&mut self, x: f64, y: f64) {
-        let Some(port) = self.system.aim_port() else {
-            return;
-        };
-        let (fb_w, fb_h) = self.system.framebuffer_size(&self.runner.runtime);
-        let (fx, fy) = self.cursor_to_frame_position(x, y);
-        let at = emu198x_shell::aim_from_pixels(fx as i32, fy as i32, fb_w, fb_h);
-        self.pending_inputs.push(InputEvent::Aim { port, at });
-        self.next_slice_at = Instant::now();
-    }
-
-    /// Tell a pointing device the cursor has left the window, which is a
-    /// gesture and not an absence: light-gun games read "aimed off the
-    /// screen" as the reload.
-    fn queue_aim_away(&mut self) {
-        if let Some(port) = self.system.aim_port() {
-            self.pending_inputs.push(InputEvent::Aim { port, at: None });
-            self.next_slice_at = Instant::now();
-        }
-    }
-
-    /// Emit a relative `PointerMotion` from an absolute cursor position (the
-    /// first event after focus just sets the baseline). No-op for a system with
-    /// no mouse.
-    fn queue_mouse_motion(&mut self, x: f64, y: f64) {
-        let Some(device) = self.system.mouse_device() else {
-            return;
-        };
-        let (fx, fy) = self.cursor_to_frame_position(x, y);
-        let Some((last_x, last_y)) = self.last_cursor_position.replace((fx, fy)) else {
-            return; // first sample: baseline only
-        };
-        let dx = (fx - last_x).round() as i32;
-        let dy = (fy - last_y).round() as i32;
-        if dx == 0 && dy == 0 {
-            return;
-        }
-        self.pending_inputs.push(InputEvent::PointerMotion {
-            device: device.into(),
-            dx,
-            dy,
-        });
-        self.next_slice_at = Instant::now();
-    }
-
-    /// Emit a `PointerButton` press/release, tracking held buttons so they can be
-    /// released on focus loss. No-op for a system with no mouse or an unmapped
-    /// button.
-    fn queue_mouse_button_state(&mut self, button: MouseButton, pressed: bool) {
-        if let (Some(port), Some(name)) =
-            (self.system.aim_port(), self.system.map_aim_button(button))
-        {
-            let held = self.pressed_aim_buttons.contains(&button);
-            if pressed != held {
-                if pressed {
-                    self.pressed_aim_buttons.insert(button);
-                } else {
-                    self.pressed_aim_buttons.remove(&button);
-                }
-                self.pending_inputs.push(InputEvent::Button {
-                    port,
-                    name: name.into(),
-                    pressed,
-                });
-                self.next_slice_at = Instant::now();
-            }
-        }
-        let Some(device) = self.system.mouse_device() else {
-            return;
-        };
-        if pressed {
-            let Some(name) = self.system.map_mouse_button(button) else {
-                return;
-            };
-            if self.pressed_mouse_buttons.insert(button, name).is_some() {
-                return; // already held
-            }
-            self.pending_inputs.push(InputEvent::PointerButton {
-                device: device.into(),
-                button: name.into(),
-                pressed: true,
-            });
-            self.next_slice_at = Instant::now();
-        } else if let Some(name) = self.pressed_mouse_buttons.remove(&button) {
-            self.pending_inputs.push(InputEvent::PointerButton {
-                device: device.into(),
-                button: name.into(),
-                pressed: false,
-            });
-            self.next_slice_at = Instant::now();
-        }
-    }
-
-    fn release_all_mouse_buttons(&mut self) {
-        if let Some(port) = self.system.aim_port() {
-            for button in std::mem::take(&mut self.pressed_aim_buttons) {
-                if let Some(name) = self.system.map_aim_button(button) {
-                    self.pending_inputs.push(InputEvent::Button {
-                        port,
-                        name: name.into(),
-                        pressed: false,
-                    });
-                }
-            }
-            self.next_slice_at = Instant::now();
-        }
-        let Some(device) = self.system.mouse_device() else {
-            return;
-        };
-        for name in std::mem::take(&mut self.pressed_mouse_buttons).into_values() {
-            self.pending_inputs.push(InputEvent::PointerButton {
-                device: device.into(),
-                button: name.into(),
-                pressed: false,
-            });
-        }
-        self.last_cursor_position = None;
-        self.next_slice_at = Instant::now();
-    }
-
-    fn reset_video_history(&mut self) {
-        if let Some(video) = self.video.as_mut() {
-            video.reset_temporal_history();
-        }
-    }
-
-    /// Hard-reset the machine: reset the runtime, run the system's re-init
-    /// hook, clear capture/audio, and run one frame so a picture is ready.
-    fn reset_machine(&mut self) -> Result<(), UiError> {
-        self.release_all_keys();
-        self.runner.runtime.reset(ResetKind::Hard);
-        self.system.after_reset(&mut self.runner.runtime)?;
-        self.reset_video_history();
-        self.runner.frame_capture = LatestFrameCapture::default();
-        self.runner.audio_output.clear();
-        self.runner.last_run_result = None;
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
-        Ok(())
-    }
-
-    /// The quick-save slot file for the running machine: one file per concrete
-    /// profile (`<profile_id>.state`) under the state directory, so e.g. the
-    /// NTSC and PAL variants of a console don't share a slot. `None` if no
-    /// state directory can be resolved.
-    fn state_slot_path(&self) -> Option<PathBuf> {
-        let root = state_root()?;
-        let id = self.runner.runtime.profile().profile_id.as_str();
-        Some(root.join(slot_file_name(id)))
-    }
-
-    /// Quick-save: serialise the runtime via [`MachineCore::snapshot`] and write
-    /// it to the machine's slot file. Failures (a runtime that can't snapshot,
-    /// or an I/O error) are reported and otherwise ignored — a missing
-    /// save-state must never take the window down.
-    fn quick_save(&mut self) {
-        let bytes = match self.runner.runtime.snapshot() {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                eprintln!("save-state: this machine can't snapshot yet: {err}");
-                return;
-            }
-        };
-        let Some(path) = self.state_slot_path() else {
-            eprintln!("save-state: no state directory (set EMU198X_STATE_DIR or HOME)");
-            return;
-        };
-        if let Some(parent) = path.parent()
-            && let Err(err) = std::fs::create_dir_all(parent)
-        {
-            eprintln!("save-state: cannot create {}: {err}", parent.display());
-            return;
-        }
-        match std::fs::write(&path, &bytes) {
-            Ok(()) => println!(
-                "save-state: wrote {} ({} bytes)",
-                path.display(),
-                bytes.len()
-            ),
-            Err(err) => eprintln!("save-state: cannot write {}: {err}", path.display()),
-        }
-    }
-
-    /// Quick-load: read the machine's slot file and restore it via
-    /// [`MachineCore::restore`], then refresh the picture. A missing slot or a
-    /// rejected restore is reported, not fatal; only a genuine emulation error
-    /// from running the refresh frame propagates.
-    fn quick_load(&mut self) -> Result<(), UiError> {
-        let path = self.state_slot_path();
-        if let Err(message) =
-            quick_load::restore(path.as_deref(), |bytes| self.runner.runtime.restore(bytes))
-        {
-            // A native modal can consume key-up events while it owns focus.
-            self.release_all_keys();
-            rfd::MessageDialog::new()
-                .set_title("Load State")
-                .set_level(rfd::MessageLevel::Warning)
-                .set_description(&message)
-                .show();
-            self.next_slice_at = Instant::now();
-            return Ok(());
-        }
-        // Drop held keys and stale capture/audio, then run one frame so the
-        // restored picture is on screen immediately.
-        self.release_all_keys();
-        self.reset_video_history();
-        self.runner.frame_capture = LatestFrameCapture::default();
-        self.runner.audio_output.clear();
-        self.runner.last_run_result = None;
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
-        // A restored snapshot can carry a different drive layout.
-        self.refresh_all_port_drives();
-        if let Some(path) = path {
-            println!("load-state: restored {}", path.display());
-        }
-        Ok(())
-    }
-
-    /// Returns `true` if the key was consumed as a UI shortcut (harness F12,
-    /// the Cmd/Ctrl+S / +L save-state chords, or a per-system
-    /// [`UiSystem::handle_key`] shortcut), so it isn't also routed to the
-    /// machine.
-    fn handle_shortcut(&mut self, code: KeyCode, pressed: bool) -> bool {
-        if self.system.supports_host_keyboard()
-            && code == KeyCode::KeyK
-            && !self.modifiers.alt_key()
-            && self.modifiers.shift_key()
-            && (self.modifiers.super_key() || self.modifiers.control_key())
-        {
-            if pressed {
-                let _ = self
-                    .command_tx
-                    .send(AppCommand::SetHostKeyboard(!self.host_keyboard));
-            }
-            return true;
-        }
-        if self.system.tape_export_filter().is_some() && tape_export_chord(self.modifiers, code) {
-            if pressed {
-                let _ = self.command_tx.send(AppCommand::ExportTape);
-            }
-            return true;
-        }
-        // Save-state chords. Gated on a host modifier (Cmd on macOS, Ctrl
-        // elsewhere) so they never shadow the bare S / L keys the machine
-        // keyboard uses, nor the F1-F10 function keys the home computers map.
-        // Routed through the command channel so the chord and the State menu
-        // run the identical handler.
-        match state_chord_action(self.modifiers, code, pressed) {
-            Some(StateAction::Save) => {
-                let _ = self.command_tx.send(AppCommand::QuickSave);
-                return true;
-            }
-            Some(StateAction::Load) => {
-                let _ = self.command_tx.send(AppCommand::QuickLoad);
-                return true;
-            }
-            None => {}
-        }
-        // Tape transport: F9 play / F10 stop / F11 toggle fast-load — but only
-        // for a system that has a tape slot, and only for a key the system
-        // doesn't itself map (so non-tape machines, and tape machines that use
-        // F9-F11 as keys, keep them). Routed through the command channel so the
-        // Tape menu and these shortcuts share one handler.
-        if let Some(shortcut) = tape_transport_shortcut(code)
-            && self.system.map_keys(code).is_none()
-            && let Some(slot) = self.tape_slot()
-        {
-            if pressed {
-                let _ = self.command_tx.send(match shortcut {
-                    TapeShortcut::Play => AppCommand::MediaTransport {
-                        slot,
-                        action: MediaTransportAction::Start,
-                    },
-                    TapeShortcut::Stop => AppCommand::MediaTransport {
-                        slot,
-                        action: MediaTransportAction::Stop,
-                    },
-                    TapeShortcut::ToggleTurbo => AppCommand::ToggleTurbo,
-                });
-            }
-            return true;
-        }
-        match code {
-            // Reset goes through the same `AppCommand::Reset` the Machine menu
-            // emits, so menu and shortcut share one path.
-            KeyCode::F12 => {
-                if pressed {
-                    let _ = self.command_tx.send(AppCommand::Reset);
-                }
-                true
-            }
-            _ => self
-                .system
-                .handle_key(&mut self.runner.runtime, code, pressed),
-        }
-    }
-
-    /// Process one queued [`AppCommand`] at the frame boundary, whatever its
-    /// source (menu click or keyboard shortcut).
-    fn handle_command(&mut self, event_loop: &ActiveEventLoop, command: AppCommand) {
-        match command {
-            AppCommand::Reset => {
-                if let Err(err) = self.reset_machine() {
-                    self.fail(event_loop, err);
-                }
-            }
-            AppCommand::QuickSave => self.quick_save(),
-            AppCommand::QuickLoad => {
-                if let Err(err) = self.quick_load() {
-                    self.fail(event_loop, err);
-                }
-            }
-            AppCommand::SetScale(scale) => self.set_window_scale(scale),
-            AppCommand::SetFilter(filter) => self.set_video_filter(filter),
-            AppCommand::OpenMedia { slot, kind } => {
-                if let Err(err) = self.open_media(&slot, kind) {
-                    self.fail(event_loop, err);
-                }
-            }
-            AppCommand::Eject { slot } => {
-                if let Err(err) = self.eject_media(&slot) {
-                    self.fail(event_loop, err);
-                }
-            }
-            AppCommand::SwitchVariant(id) => {
-                if let Err(err) = self.switch_to_variant(&id) {
-                    self.fail(event_loop, err);
-                }
-            }
-            AppCommand::SetPortDrive { device, kind_id } => self.set_port_drive(device, &kind_id),
-            AppCommand::MediaTransport { slot, action } => self.media_transport(&slot, action),
-            AppCommand::ToggleTurbo => self.toggle_turbo(),
-            AppCommand::OpenState => {
-                if let Err(err) = self.open_state() {
-                    self.fail(event_loop, err);
-                }
-            }
-            AppCommand::SaveState => self.save_state(),
-            AppCommand::ExportTape => self.export_tape(),
-            AppCommand::SetHostKeyboard(enabled) => {
-                self.release_all_keys();
-                self.keyboard_notice = None;
-                self.host_keyboard = enabled && self.system.supports_host_keyboard();
-                self.app_menu.set_host_keyboard(self.host_keyboard);
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                }
-            }
-        }
-    }
-
-    /// File → Open State…: pop a native picker filtered to the system's state
-    /// formats, hand the chosen file to [`UiSystem::load_state_file`], and
-    /// refresh the picture. A cancelled dialog or a rejected file is reported and
-    /// ignored; only a genuine emulation error from the refresh frame propagates.
-    fn open_state(&mut self) -> Result<(), UiError> {
-        let Some((label, extensions)) = self.system.state_open_filter() else {
-            return Ok(());
-        };
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Open State")
-            .add_filter(label, extensions)
-            .add_filter("All files", &["*"])
-            .pick_file()
-        else {
-            return Ok(()); // user cancelled
-        };
-        if let Err(err) = self.system.load_state_file(&mut self.runner.runtime, &path) {
-            eprintln!("state: cannot load {}: {err}", path.display());
-            return Ok(());
-        }
-        self.release_all_keys();
-        self.reset_video_history();
-        self.runner.frame_capture = LatestFrameCapture::default();
-        self.runner.audio_output.clear();
-        self.runner.last_run_result = None;
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
-        // A loaded state can carry a different drive layout.
-        self.refresh_all_port_drives();
-        println!("state: loaded {}", path.display());
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
-        Ok(())
-    }
-
-    /// State → Save State As…: serialise via [`MachineCore::snapshot`], then pop
-    /// a native save dialog defaulted to the machine's slot name and write the
-    /// bytes there. The counterpart to [`Self::open_state`] / [`Self::quick_save`]
-    /// (which writes the fixed slot). Failures — a runtime that can't snapshot, a
-    /// cancelled dialog, an I/O error — are reported and otherwise ignored, never
-    /// fatal. The snapshot is taken before the dialog, so a machine that can't
-    /// snapshot reports immediately instead of popping a picker that can't be honoured.
-    fn save_state(&mut self) {
-        let bytes = match self.runner.runtime.snapshot() {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                eprintln!("save-state: this machine can't snapshot yet: {err}");
-                return;
-            }
-        };
-        let default_name = slot_file_name(self.runner.runtime.profile().profile_id.as_str());
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Save State")
-            .set_file_name(&default_name)
-            .add_filter("Save state", &["state"])
-            .add_filter("All files", &["*"])
-            .save_file()
-        else {
-            return; // user cancelled
-        };
-        match std::fs::write(&path, &bytes) {
-            Ok(()) => println!(
-                "save-state: wrote {} ({} bytes)",
-                path.display(),
-                bytes.len()
-            ),
-            Err(err) => eprintln!("save-state: cannot write {}: {err}", path.display()),
-        }
-    }
-
-    /// Export the recording to a new host file; cancellation and write failures
-    /// retain the recording so the user can retry. Dialogs run at a frame boundary.
-    fn export_tape(&mut self) {
-        let Some((label, extension)) = self.system.tape_export_filter() else {
-            return;
-        };
-        self.release_all_keys();
-        let bytes = match self.system.export_tape(&self.runner.runtime) {
-            Ok(bytes) => bytes,
-            Err(message) => {
-                tape_export_message(rfd::MessageLevel::Warning, &message);
-                return;
-            }
-        };
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Export Tape Recording — choose a new file")
-            .set_file_name(format!("recording.{extension}"))
-            .add_filter(label, &[extension])
-            .save_file()
-        else {
-            return;
-        };
-        match export::write_new_file(&path, &bytes) {
-            Ok(()) => tape_export_message(
-                rfd::MessageLevel::Info,
-                &format!(
-                    "Exported {} bytes to {}.\nThe recording remains available in this session.",
-                    bytes.len(),
-                    path.display()
-                ),
-            ),
-            Err(err) => tape_export_message(
-                rfd::MessageLevel::Error,
-                &format!(
-                    "Could not export to {}: {err}\nChoose a new filename and try again. The recording has been kept.",
-                    path.display()
-                ),
-            ),
-        }
-    }
-
-    /// The id of the machine's tape slot (the first `Tape`-kind media slot in
-    /// its profile), if any. Drives the transport shortcuts/menu and gates the
-    /// turbo pacing.
-    fn tape_slot(&self) -> Option<Cow<'static, str>> {
-        self.runner
-            .runtime
-            .profile()
-            .media_slots
-            .iter()
-            .find(|slot| slot.kind == MediaKind::Tape)
-            .map(|slot| slot.id.clone())
-    }
-
-    /// Whether to race the machine (turbo): the user armed fast-load and a tape
-    /// is actually playing.
-    fn turbo_active(&self) -> bool {
-        self.turbo_armed && self.system.tape_playing(&self.runner.runtime)
-    }
-
-    /// Tape → Play / Stop (or F9 / F10): issue a transport command to the slot.
-    /// A rejected command is logged, never fatal; the running pacing loop picks
-    /// up the new tape state on the next tick.
-    fn media_transport(&mut self, slot: &str, action: MediaTransportAction) {
-        let command =
-            ControlCommand::MediaTransport(MediaTransportCommand::new(slot.to_owned(), action));
-        if let Err(err) = self.runner.runtime.command(&command) {
-            eprintln!("transport: {action:?} on slot \"{slot}\" rejected: {err}");
-        }
-    }
-
-    /// Tape → Fast-Forward While Playing (or F11): arm/disarm turbo. It only
-    /// races while a tape is playing ([`Self::turbo_active`]); a fresh
-    /// baseline keeps pacing smooth when it turns off mid-load.
-    fn toggle_turbo(&mut self) {
-        self.turbo_armed = !self.turbo_armed;
-        self.next_slice_at = Instant::now();
-        self.app_menu.set_turbo_armed(self.turbo_armed);
-        println!(
-            "tape fast-load {}",
-            if self.turbo_armed { "armed" } else { "off" }
-        );
-    }
-
-    /// Machine → Drives radio: set the drive model on `device` via the system's
-    /// [`UiSystem::set_port_drive`], then re-check the radio from the runtime's
-    /// actual post-change state. Unlike a variant switch this swaps a drive on
-    /// the bus without rebuilding the machine, so there is no re-pacing or
-    /// framebuffer change — a non-fatal action, run between frames like the
-    /// others. On error the running machine is untouched and the re-read pins the
-    /// radio back to the unchanged selection.
-    fn set_port_drive(&mut self, device: u8, kind_id: &str) {
-        if let Err(err) = self
-            .system
-            .set_port_drive(&mut self.runner.runtime, device, kind_id)
-        {
-            eprintln!("machine: cannot set device {device} drive to {kind_id}: {err}");
-        }
-        self.refresh_port_drive(device);
-    }
-
-    /// Re-check `device`'s Drives radio from the runtime's live selection.
-    fn refresh_port_drive(&mut self, device: u8) {
-        if let Some(port) = self
-            .system
-            .drive_ports(&self.runner.runtime)
-            .into_iter()
-            .find(|port| port.device == device)
-        {
-            self.app_menu.set_current_port_drive(device, &port.current);
-        }
-    }
-
-    /// Re-check every Drives radio from the runtime — used after a state load,
-    /// which can change the whole port layout.
-    fn refresh_all_port_drives(&mut self) {
-        for port in self.system.drive_ports(&self.runner.runtime) {
-            self.app_menu
-                .set_current_port_drive(port.device, &port.current);
-        }
-    }
-
-    /// Recompute the per-frame pacing (slice ticks + wall-clock) from the current
-    /// runtime's timing. Called after a variant switch, since frame length can
-    /// differ between variants (e.g. the Spectrum 48K's 69888 T-states vs the
-    /// 128K's 70908).
-    fn recompute_pacing(&mut self) {
-        let slices = self.system.input_slices_per_frame().max(1);
-        let frame_ticks = self.system.frame_ticks(&self.runner.runtime);
-        let frame_duration = self.system.frame_duration(&self.runner.runtime);
-        self.full_frame_ticks = frame_ticks;
-        self.slice_ticks = frame_ticks.div_ceil(u64::from(slices));
-        self.slice_duration =
-            Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(slices));
-        self.next_slice_at = Instant::now();
-    }
-
-    /// Machine → variant radio: rebuild the live machine as `variant` via the
-    /// system's [`UiSystem::switch_variant`], then re-pace and refresh the
-    /// picture. Runs between frames (the single-command-channel invariant), so it
-    /// never tears down a machine a frame is mid-render on. On failure the
-    /// running machine is untouched and the radio is pinned back to it; only a
-    /// genuine emulation error from the refresh frame is fatal.
-    fn switch_to_variant(&mut self, variant: &str) -> Result<(), UiError> {
-        let old_size = self.system.framebuffer_size(&self.runner.runtime);
-        if let Err(err) = self
-            .system
-            .switch_variant(&mut self.runner.runtime, variant)
-        {
-            eprintln!("machine: cannot switch to variant {variant}: {err}");
-            if let Some(current) = self.system.current_variant() {
-                self.app_menu.set_current_variant(&current);
-            }
-            return Ok(());
-        }
-        // Re-pace from the new machine's timing and drop stale input + capture.
-        self.recompute_pacing();
-        self.release_all_keys();
-        self.reset_video_history();
-        self.runner.frame_capture = LatestFrameCapture::default();
-        self.runner.audio_output.clear();
-        self.runner.last_run_result = None;
-        // The framebuffer size can differ between variants; rebuild the presenter
-        // and resize the window if so.
-        // A variant can move a machine between PAL and NTSC, which changes the
-        // pixel aspect even when the framebuffer keeps its dimensions.
-        self.presentation.pixel_aspect_ratio = self.current_pixel_aspect_ratio();
-        let new_size = self.system.framebuffer_size(&self.runner.runtime);
-        if new_size != old_size
-            && let Some(window) = &self.window
-        {
-            let (w, h) = new_size;
-            self.video = Some(WgpuVideoPresenter::new(window.clone(), w, h)?);
-            let _ = window.request_inner_size(self.window_logical_size(self.scale));
-        }
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
-        if let Some(current) = self.system.current_variant() {
-            self.app_menu.set_current_variant(&current);
-        }
-        if let Some(window) = &self.window {
-            window.set_title(&self.window_title());
-            window.request_redraw();
-        }
-        Ok(())
-    }
-
-    /// File → Open: pop a native file picker filtered to the slot's media kind,
-    /// load the chosen image into the named slot via [`MachineCore::load_media`],
-    /// and refresh the picture. Cancellation is quiet; unreadable or rejected
-    /// media gets a nonfatal native warning. Only a genuine emulation error
-    /// from the refresh frame propagates. The dialog blocks the loop while open
-    /// — fine, since it's user-initiated and the machine simply pauses.
-    fn open_media(&mut self, slot: &str, kind: MediaKind) -> Result<(), UiError> {
-        let (label, extensions) = media_filter(kind);
-        let Some(path) = rfd::FileDialog::new()
-            .set_title(format!("Open {label}"))
-            .add_filter(label, extensions)
-            .add_filter("All files", &["*"])
-            .pick_file()
-        else {
-            return Ok(()); // user cancelled
-        };
-        if let Err(message) =
-            media_open::load(&path, slot, kind, |set| self.runner.runtime.load_media(set))
-        {
-            // A native modal can consume key-up events while it owns focus.
-            self.release_all_keys();
-            rfd::MessageDialog::new()
-                .set_title("Open Media")
-                .set_level(rfd::MessageLevel::Warning)
-                .set_description(&message)
-                .show();
-            self.next_slice_at = Instant::now();
-            return Ok(());
-        }
-        // Fresh capture/audio, then one frame so the inserted media shows. Some
-        // cartridge machines need a Reset (Machine → Reset) to pick it up.
-        self.release_all_keys();
-        self.runner.frame_capture = LatestFrameCapture::default();
-        self.runner.audio_output.clear();
-        self.runner.last_run_result = None;
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
-        println!("media: loaded {} into slot \"{slot}\"", path.display());
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
-        Ok(())
-    }
-
-    /// File → Eject: eject whatever media occupies `slot` via
-    /// [`MachineCore::eject_media`], then refresh the picture. A runtime that
-    /// rejects the eject (empty slot, no eject wired for this slot, or an
-    /// unsupported machine) is reported and ignored — never fatal, mirroring
-    /// [`Self::media_transport`]. Only a genuine emulation error from the
-    /// refresh frame propagates.
-    fn eject_media(&mut self, slot: &str) -> Result<(), UiError> {
-        if let Err(err) = self.runner.runtime.eject_media(slot) {
-            eprintln!("media: eject of slot \"{slot}\" rejected: {err}");
-            return Ok(());
-        }
-        // Fresh capture/audio, then one frame so the now-empty slot shows.
-        self.release_all_keys();
-        self.runner.frame_capture = LatestFrameCapture::default();
-        self.runner.audio_output.clear();
-        self.runner.last_run_result = None;
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
-        println!("media: ejected slot \"{slot}\"");
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
-        Ok(())
-    }
-
-    /// Resize the window to an integer multiple of the native frame. The wgpu
-    /// surface follows via the resulting [`WindowEvent::Resized`].
-    fn set_window_scale(&mut self, scale: u32) {
-        self.scale = scale;
-        let size = self.window_logical_size(scale);
-        if let Some(window) = &self.window {
-            let _ = window.request_inner_size(size);
-            window.request_redraw();
-        }
-        self.app_menu.set_current_scale(scale);
-    }
-
-    /// Switch display mode while preserving geometry, timebase and phosphor settings.
-    fn set_video_filter(&mut self, filter: VideoFilter) {
-        if filter.uses_signal() {
-            let supported = self
-                .runner
-                .frame()
-                .and_then(|frame| frame.signal.as_ref())
-                .is_some_and(|signal| {
-                    !filter.uses_monitor_connection()
-                        || matches!(
-                            signal.encoding,
-                            emu198x_shell::SignalEncoding::Rgb
-                                | emu198x_shell::SignalEncoding::Yuv {
-                                    separate_chroma: true,
-                                    ..
-                                }
-                        )
-                });
-            if !supported {
-                eprintln!(
-                    "the selected video connection is unavailable for this machine or variant"
-                );
-                return;
-            }
-        }
-        // Display geometry, timebase and phosphor choice survive mode changes.
-        self.presentation.filter = filter;
-        self.app_menu.set_current_filter(filter);
-        if let Some(window) = &self.window {
-            window.request_redraw();
         }
     }
 }
@@ -1651,7 +704,11 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
             // would shrink the picture below its whole-number scale. Ask for
             // the scaled size again now the bar is there.
             #[cfg(target_os = "windows")]
-            self.set_window_scale(self.scale);
+            {
+                let (core, mut shell) = self.split();
+                let scale = core.scale;
+                core.set_window_scale(&mut shell, scale);
+            }
         }
     }
 
@@ -1667,54 +724,31 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(modifiers) => {
-                self.modifiers = modifiers.state();
-                if self.host_keyboard
-                    && let Some(keyword) = self.system.host_keyword_modifier()
-                {
-                    self.pending_inputs.extend(
-                        self.held_target_keys
-                            .refresh_keyword(keyword, self.modifiers.shift_key()),
-                    );
-                    self.next_slice_at = Instant::now();
-                }
+                self.core.modifiers_changed(modifiers.state());
             }
-            WindowEvent::Focused(false) => {
-                self.modifiers = ModifiersState::empty();
-                self.release_all_keys();
-                self.release_all_mouse_buttons();
-                self.queue_aim_away();
-            }
-            WindowEvent::CursorLeft { .. } => self.queue_aim_away(),
+            WindowEvent::Focused(false) => self.core.focus_lost(),
+            WindowEvent::CursorLeft { .. } => self.core.queue_aim_away(),
             WindowEvent::CursorMoved { position, .. } => {
-                self.queue_mouse_motion(position.x, position.y);
-                self.queue_aim(position.x, position.y);
+                let size = self.window_size();
+                self.core.cursor_moved(position.x, position.y, size);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                self.queue_mouse_button_state(button, state == ElementState::Pressed);
+                self.core
+                    .mouse_button(button, state == ElementState::Pressed);
             }
             WindowEvent::Resized(size) => self.resize_surface(size.width, size.height),
             WindowEvent::ScaleFactorChanged { .. } => {
-                if let Some(window) = &self.window {
-                    let size = window.inner_size();
-                    self.resize_surface(size.width, size.height);
+                if let Some((width, height)) = self.window_size() {
+                    self.resize_surface(width, height);
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.repeat {
-                    return;
-                }
                 let PhysicalKey::Code(code) = event.physical_key else {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
-                if self.handle_shortcut(code, pressed) {
-                    return;
-                }
-                if self.host_keyboard {
-                    self.queue_host_key(code, &event.logical_key, pressed);
-                } else {
-                    self.queue_key_state(code, pressed);
-                }
+                let (core, mut shell) = self.split();
+                core.key_event(&mut shell, code, &event.logical_key, pressed, event.repeat);
             }
             WindowEvent::RedrawRequested => {
                 if let Err(err) = self.render() {
@@ -1726,160 +760,21 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Translate native-menu clicks into commands on our channel. muda's
-        // receiver is a global crossbeam channel; non-Linux only.
+        // Translate native-menu clicks into commands on the core's channel.
+        // muda's receiver is a global crossbeam channel; non-Linux only.
         #[cfg(not(target_os = "linux"))]
         while let Ok(event) = muda::MenuEvent::receiver().try_recv() {
             if let Some(command) = self.app_menu.command_for(&event.id) {
                 let _ = self.command_tx.send(command);
             }
         }
-        // Drain queued commands (menu + shortcuts) at the frame boundary, so an
-        // action never tears down state the current frame is using.
-        while let Ok(command) = self.command_rx.try_recv() {
-            self.handle_command(event_loop, command);
-        }
-
-        match self.advance_machine() {
-            Ok(true) => {
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            Ok(false) => {}
-            Err(err) => {
-                self.fail(event_loop, err);
-                return;
-            }
-        }
-        self.update_halt_status();
-        // While turbo-loading, poll back-to-back so the fast-load bursts run with
-        // no wait between them; otherwise wake at the next paced slice.
-        if self.turbo_active() {
-            event_loop.set_control_flow(ControlFlow::Poll);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
+        let (core, mut shell) = self.split();
+        match core.tick(&mut shell) {
+            Ok(Wake::Now) => event_loop.set_control_flow(ControlFlow::Poll),
+            Ok(Wake::At(at)) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            Err(err) => self.fail(event_loop, err),
         }
     }
-}
-
-fn tape_export_message(level: rfd::MessageLevel, message: &str) {
-    rfd::MessageDialog::new()
-        .set_title("Export Tape Recording")
-        .set_level(level)
-        .set_description(message)
-        .show();
-}
-
-fn tape_export_chord(modifiers: ModifiersState, code: KeyCode) -> bool {
-    code == KeyCode::KeyE
-        && modifiers.shift_key()
-        && (modifiers.super_key() || modifiers.control_key())
-        && !modifiers.alt_key()
-}
-
-/// A tape-transport action a function key maps to (only honoured on a system
-/// that has a tape slot and doesn't itself use the key).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TapeShortcut {
-    Play,
-    Stop,
-    ToggleTurbo,
-}
-
-/// The tape-transport shortcut for a key, if any: F9 play, F10 stop, F11
-/// toggle fast-load — matching the Spectrum/C64 bespoke runners.
-fn tape_transport_shortcut(code: KeyCode) -> Option<TapeShortcut> {
-    match code {
-        KeyCode::F9 => Some(TapeShortcut::Play),
-        KeyCode::F10 => Some(TapeShortcut::Stop),
-        KeyCode::F11 => Some(TapeShortcut::ToggleTurbo),
-        _ => None,
-    }
-}
-
-/// A save-state action a key event maps to, once the modifier gating is
-/// applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StateAction {
-    Save,
-    Load,
-}
-
-/// Decide whether a key event is a save-state chord. The chord fires only on
-/// key-*down* with Cmd (macOS) or Ctrl (elsewhere) held — never on a bare key,
-/// so the machine keyboard keeps its S / L and F-keys, and never on release.
-fn state_chord_action(
-    modifiers: ModifiersState,
-    code: KeyCode,
-    pressed: bool,
-) -> Option<StateAction> {
-    if !pressed || modifiers.alt_key() || !(modifiers.super_key() || modifiers.control_key()) {
-        return None;
-    }
-    match code {
-        KeyCode::KeyS => Some(StateAction::Save),
-        KeyCode::KeyL => Some(StateAction::Load),
-        _ => None,
-    }
-}
-
-/// File-dialog filter (label + extensions) for a media kind. Extensions are a
-/// generous superset across the family's machines; `MediaKind` is
-/// `#[non_exhaustive]`, so an unknown kind falls back to no extension filter.
-fn media_filter(kind: MediaKind) -> (&'static str, &'static [&'static str]) {
-    match kind {
-        MediaKind::Tape => ("Tape images", &["tap", "tzx", "cas", "t64", "tsx", "cdt"]),
-        MediaKind::Disk => (
-            "Disk images",
-            &[
-                "dsk", "adf", "d64", "trd", "img", "scl", "fdi", "do", "po", "st",
-            ],
-        ),
-        MediaKind::Cartridge => (
-            "Cartridge ROMs",
-            &[
-                "bin", "rom", "a26", "a52", "a78", "col", "sg", "nes", "crt", "car", "cart",
-            ],
-        ),
-        MediaKind::Optical => ("Disc images", &["iso", "cue", "chd"]),
-        MediaKind::Snapshot => ("Snapshots", &["sna", "z80", "szx", "sav", "vsf"]),
-        MediaKind::Program => ("Programs", &["prg", "bas", "p", "o", "com"]),
-        _ => ("Files", &[]),
-    }
-}
-
-/// The slot file name for a profile id: the id with any character that isn't
-/// ASCII-alphanumeric, `-`, or `_` replaced by `-`, plus a `.state` extension.
-/// Keeps the per-profile slot on a single predictable, filesystem-safe path.
-fn slot_file_name(profile_id: &str) -> String {
-    let mut name: String = profile_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    name.push_str(".state");
-    name
-}
-
-/// Directory the quick-save slots live in: `$EMU198X_STATE_DIR` if set,
-/// otherwise `<home>/.emu198x/state`. `None` when neither the override nor a
-/// home directory can be resolved (in which case save-states are unavailable).
-fn state_root() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("EMU198X_STATE_DIR")
-        && !dir.is_empty()
-    {
-        return Some(PathBuf::from(dir));
-    }
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .filter(|h| !h.is_empty())?;
-    Some(PathBuf::from(home).join(".emu198x/state"))
 }
 
 /// Open a native window for `system` driving `runtime`, and run the winit
@@ -1939,8 +834,9 @@ pub fn run_with_phosphor<S: UiSystem>(
     let frame_ticks = system.frame_ticks(&runner.runtime);
     runner.run_ticks(&[], frame_ticks)?;
 
-    let mut app = App::new(system, runner, scale, video);
-    app.presentation.phosphor_tau_ms = phosphor_ms;
+    let mut core = HostCore::new(system, runner, scale, video);
+    core.presentation.phosphor_tau_ms = phosphor_ms;
+    let mut app = App::new(core, video);
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
@@ -1948,7 +844,7 @@ pub fn run_with_phosphor<S: UiSystem>(
     // or via a fatal error, so a crash still persists state. A fatal emulation
     // error takes precedence over a teardown failure (the latter is then just
     // logged), so the real cause isn't masked by a failed battery write.
-    let teardown = app.system.on_exit(&mut app.runner.runtime);
+    let teardown = app.core.on_exit();
     if let Some(err) = app.take_error() {
         if let Err(reason) = teardown {
             eprintln!("error: teardown failed: {reason}");
@@ -1962,6 +858,12 @@ pub fn run_with_phosphor<S: UiSystem>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host_core::{
+        StateAction, TapeShortcut, media_filter, slot_file_name, state_chord_action,
+        tape_export_chord, tape_transport_shortcut,
+    };
+    use emu198x_shell::MediaKind;
+    use winit::keyboard::ModifiersState;
 
     #[test]
     fn tape_export_requires_an_explicit_host_chord() {
