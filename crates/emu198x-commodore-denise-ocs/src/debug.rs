@@ -100,6 +100,19 @@ pub struct DeniseSpriteDiagnosticSnapshot {
     pub display_position: u16,
     pub position_dirty: bool,
     pub control: u16,
+    /// SPRxPOS of the last pair that armed this sprite: where it was last
+    /// shown, which the live `position` stops saying once DMA loads the next
+    /// pair.
+    #[serde(default)]
+    pub last_shown_position: u16,
+    /// SPRxCTL of that pair.
+    #[serde(default)]
+    pub last_shown_control: u16,
+    /// How many times the sprite has been armed, wrapping. It moves every
+    /// frame the sprite is displayed, so a count that stands still says the
+    /// last-shown pair is stale.
+    #[serde(default)]
+    pub shown_count: u32,
     pub data: u64,
     pub data_b: u64,
     pub armed: bool,

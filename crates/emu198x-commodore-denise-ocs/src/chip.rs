@@ -18,6 +18,9 @@ use crate::debug::{
 };
 use crate::viewport::{ViewportImage, ViewportPreset};
 
+/// First line on which sprite DMA runs (HRM, "Sprite Hardware Details").
+const FIRST_SPRITE_DMA_LINE: u16 = 0x14;
+
 fn deserialize_scroll_cursor<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<u16, D::Error> {
@@ -129,6 +132,18 @@ pub struct DeniseOcs {
     /// Flags indicating a position write happened since the last pixel step.
     spr_pos_dirty: [bool; 8],
     pub spr_ctl: [u16; 8],
+    /// The last SPRxPOS/SPRxCTL pair that armed each sprite (VSTART and VSTOP
+    /// apart). Sprite DMA ends every sprite by loading the next pair, often
+    /// the 0/0 terminator, so the live registers read empty for most of a
+    /// frame; this keeps where the sprite was last shown. Observation only:
+    /// nothing reads it back into the display, so it is not saved.
+    #[serde(skip)]
+    spr_last_shown: [(u16, u16); 8],
+    /// How many times each sprite has been armed, wrapping. Sprite DMA arms a
+    /// displayed sprite every frame, so a count that stops moving means the
+    /// sprite is no longer shown and `spr_last_shown` is stale.
+    #[serde(skip)]
+    spr_shown_count: [u32; 8],
     pub spr_data: [u64; 8],
     pub spr_datb: [u64; 8],
     pub spr_armed: [bool; 8],
@@ -263,6 +278,8 @@ impl DeniseOcs {
             clxcon2: 0,
             clxdat: 0,
             spr_pos: [0; 8],
+            spr_last_shown: [(0, 0); 8],
+            spr_shown_count: [0; 8],
             spr_pos_display: [0; 8],
             spr_pos_dirty: [false; 8],
             spr_ctl: [0; 8],
@@ -472,6 +489,24 @@ impl DeniseOcs {
             self.spr_armed[sprite] = false;
             self.spr_shift_count[sprite] = 0;
             self.spr_current_code[sprite] = 0;
+            self.note_sprite_shown(sprite);
+        }
+    }
+
+    /// Remember the sprite's position and control words if they arm it.
+    ///
+    /// Called on the SPRxCTL write only: sprite DMA loads POS and then CTL,
+    /// so a POS write on its own leaves a half-updated pair — the terminator's
+    /// zero POS beside the old CTL — that would read as a sprite on line 256.
+    fn note_sprite_shown(&mut self, sprite: usize) {
+        let (pos, ctl) = (self.spr_pos[sprite], self.spr_ctl[sprite]);
+        let vstart = (pos >> 8) | ((ctl & 0x0004) << 6);
+        let vstop = (ctl >> 8) | ((ctl & 0x0002) << 7);
+        // A pair starting above line $14 can never be displayed — sprite DMA
+        // does not start until then — so it is a parked or dummy sprite.
+        if vstart != vstop && vstart >= FIRST_SPRITE_DMA_LINE {
+            self.spr_last_shown[sprite] = (pos, ctl);
+            self.spr_shown_count[sprite] = self.spr_shown_count[sprite].wrapping_add(1);
         }
     }
 
@@ -660,6 +695,9 @@ impl DeniseOcs {
                 display_position: self.spr_pos_display[sprite],
                 position_dirty: self.spr_pos_dirty[sprite],
                 control: self.spr_ctl[sprite],
+                last_shown_position: self.spr_last_shown[sprite].0,
+                last_shown_control: self.spr_last_shown[sprite].1,
+                shown_count: self.spr_shown_count[sprite],
                 data: self.spr_data[sprite],
                 data_b: self.spr_datb[sprite],
                 armed: self.spr_armed[sprite],
@@ -2060,6 +2098,32 @@ mod tests {
     //! files.
 
     use super::*;
+
+    #[test]
+    fn the_last_pair_that_armed_a_sprite_outlives_the_terminator() {
+        let mut denise = DeniseOcs::new();
+        // VSTART $63, HSTART $9C, VSTOP $73: a pointer on screen.
+        denise.write_sprite_pos(0, 0x634E);
+        denise.write_sprite_ctl(0, 0x7300);
+        // Sprite DMA then loads the 0/0 terminator, POS first.
+        denise.write_sprite_pos(0, 0);
+        denise.write_sprite_ctl(0, 0);
+        let sprite = denise.diagnostic_snapshot().sprites[0];
+        assert_eq!((sprite.position, sprite.control), (0, 0));
+        assert_eq!(
+            (sprite.last_shown_position, sprite.last_shown_control),
+            (0x634E, 0x7300)
+        );
+        assert_eq!(sprite.shown_count, 1);
+    }
+
+    #[test]
+    fn a_sprite_parked_above_line_20_is_not_taken_as_shown() {
+        let mut denise = DeniseOcs::new();
+        denise.write_sprite_pos(0, 0x0000);
+        denise.write_sprite_ctl(0, 0x3C00); // VSTART 0, VSTOP 60
+        assert_eq!(denise.diagnostic_snapshot().sprites[0].shown_count, 0);
+    }
 
     fn collect_raw_source_pixels(denise: &mut DeniseOcs, count: usize) -> Vec<u8> {
         let mut out = Vec::with_capacity(count);
