@@ -1663,6 +1663,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-peripheral-ultimate-uci-net"
+version = "0.1.0"
+
+[[package]]
 name = "emu198x-ricoh-apu-2a03"
 version = "0.6.0"
 dependencies = [
@@ -3194,12 +3198,12 @@ dependencies = [
  "emu198x-mos-cia-6526",
  "emu198x-mos-sid-6581",
  "emu198x-mos-vic-ii",
+ "emu198x-peripheral-ultimate-uci-net",
  "emu198x-wdc-65c816",
  "format-commodore-c64-crt",
  "format-commodore-c64-prg",
  "format-commodore-c64-tap",
  "machine-commodore-1541",
- "peripheral-ultimate-uci-net",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -4403,10 +4407,6 @@ dependencies = [
  "format-sinclair-zx-spectrum-mdr",
  "serde",
 ]
-
-[[package]]
-name = "peripheral-ultimate-uci-net"
-version = "0.44.2"
 
 [[package]]
 name = "pin-project"

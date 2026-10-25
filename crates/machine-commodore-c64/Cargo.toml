@@ -21,7 +21,7 @@ emu198x-mos-vic-ii = { path = "../emu198x-mos-vic-ii", version = "0.1.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
-peripheral-ultimate-uci-net = { path = "../peripheral-ultimate-uci-net", version = "0.44.0" }
+emu198x-peripheral-ultimate-uci-net = { path = "../emu198x-peripheral-ultimate-uci-net", version = "0.1.0" }
 
 [dev-dependencies]
 emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.44.0" }
