@@ -15,7 +15,9 @@ use crate::runtime::ElectronRuntime;
 // current scanline, so instruction stepping crosses line
 // boundaries the way running does (#1202). postcard is not
 // self-describing, so added fields shift every byte after them.
-const SNAPSHOT_VERSION: u16 = 4;
+// Bumped to 5: the machine carries an optional Plus 3 (its WD1770,
+// drive and ROM latches, ADFS ROM and discs, #400).
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -100,5 +102,24 @@ mod tests {
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
+    }
+
+    /// A version-4 snapshot predates the Plus 3 field. Its bytes would decode
+    /// out of step, so it is refused by version rather than misread.
+    #[test]
+    fn decode_rejects_the_pre_plus3_version_4() {
+        let mut runtime = ElectronRuntime::blank(Model::Electron);
+        let bytes = postcard::to_allocvec(&ElectronRuntimeSnapshotRefV2 {
+            version: 4,
+            time: 0,
+            model_id: runtime.model().model_id(),
+            machine: None,
+        })
+        .expect("synthetic envelope should encode");
+        let err = decode(&mut runtime, &bytes).expect_err("version 4 should reject");
+        assert!(
+            matches!(&err, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 4")),
+            "unexpected error: {err:?}"
+        );
     }
 }

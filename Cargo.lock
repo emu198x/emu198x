@@ -1930,6 +1930,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "format-acorn-adfs"
+version = "0.44.2"
+
+[[package]]
 name = "format-acorn-atom-atm"
 version = "0.44.2"
 dependencies = [
@@ -2689,6 +2693,8 @@ version = "0.44.2"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-mos-6502",
+ "emu198x-western-digital-wd1770",
+ "format-acorn-adfs",
  "format-acorn-uef",
  "postcard",
  "serde",
