@@ -98,7 +98,7 @@ pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), Machi
 
 #[cfg(test)]
 mod tests {
-    use super::{SNAPSHOT_VERSION, decode};
+    use super::{SNAPSHOT_VERSION, decode, encode};
     use crate::profiles::Model;
     use crate::runtime::MsxRuntime;
     use emu198x_shell::MachineError;
@@ -137,5 +137,24 @@ mod tests {
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
+    }
+
+    /// The envelope names the model, never the machine, so giving the MSX2
+    /// its own machine id (`microsoft-msx2`) left MSX2 snapshots loadable
+    /// without a version bump.
+    #[test]
+    fn msx2_snapshots_are_keyed_by_model_not_machine() {
+        let saved = MsxRuntime::blank(Model::PhilipsVg8235);
+        let bytes = encode(&saved).expect("snapshot should encode");
+
+        let mut same_model = MsxRuntime::blank(Model::PhilipsVg8235);
+        decode(&mut same_model, &bytes).expect("same model should restore");
+
+        let mut other_model = MsxRuntime::blank(Model::Msx2Pal);
+        let err = decode(&mut other_model, &bytes).expect_err("another model should reject");
+        assert!(
+            matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("philips-vg-8235")),
+            "unexpected error: {err:?}"
+        );
     }
 }

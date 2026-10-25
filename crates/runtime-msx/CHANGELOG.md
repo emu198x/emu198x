@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The MSX2 models now declare their own machine id, `microsoft-msx2`; the MSX1 models keep `microsoft-msx1`. Model ids, firmware and snapshots are unchanged.
 - Advance live-machine snapshots to version 8: the machine now carries its slot layout and subslot registers.
 - Advance live-machine snapshots to version 3 and rehydrate the Z80 walker sequence before resumed execution; version 2 cannot preserve accepted interrupt response identity
 

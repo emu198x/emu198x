@@ -148,6 +148,15 @@ crate = "emu198x-msx"
 label = "system:msx"
 milestone = "MSX 100%"
 
+# The MSX2 runs in the MSX1's runtime and ships from the same crate, as the
+# C128 does from the C64's, but it is a machine of its own: V9938, SUB-ROM,
+# clock and memory mapper.
+[[system]]
+machine_id = "microsoft-msx2"
+crate = "emu198x-msx"
+label = "system:msx2"
+milestone = "MSX2 100%"
+
 [[system]]
 machine_id = "nintendo-game-boy"
 crate = "emu198x-game-boy"

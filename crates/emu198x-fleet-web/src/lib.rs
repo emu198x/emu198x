@@ -301,6 +301,28 @@ fn build_with_queries<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + '
         web: WebMachine::new_with_query_provider(runtime, queries),
     }))
 }
+/// Builds `variant` only when its profile names `machine`. One runtime can
+/// host two machines (the MSX1 and the MSX2), and each fleet family is one
+/// machine, so a family refuses the other machine's models.
+#[cfg(any(feature = "msx", feature = "msx2"))]
+fn build_machine<R: FamilyRuntime + 'static>(
+    machine: &str,
+    variant: &str,
+    firmware: &FirmwareSet<'_>,
+) -> Result<Box<dyn Host>, String> {
+    R::model_from_id(variant)
+        .filter(|model| R::profile_for(*model).machine_id.as_str() == machine)
+        .ok_or_else(|| format!("unknown variant: {variant}"))?;
+    build::<R>(variant, firmware)
+}
+/// The catalogue entries of `R` whose profile names `machine`.
+#[cfg(any(feature = "msx", feature = "msx2"))]
+fn machine_profiles<R: FamilyRuntime>(family: &str, machine: &str) -> Vec<Value> {
+    profiles::<R>(family)
+        .into_iter()
+        .filter(|entry| entry["machineId"] == machine)
+        .collect()
+}
 fn profiles<R: FamilyRuntime>(family: &str) -> Vec<Value> {
     R::variant_ids().iter().filter_map(|id|R::model_from_id(id)).map(|model| {
         let profile=R::profile_for(model);
