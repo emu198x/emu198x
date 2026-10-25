@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Remember the last position and control word that armed each sprite, and how
+  many times one has, in the sprite snapshot, so a frontend can find the
+  mouse pointer after sprite DMA has loaded the 0/0 terminator
+
 ## 0.1.0
 
 ### Added
