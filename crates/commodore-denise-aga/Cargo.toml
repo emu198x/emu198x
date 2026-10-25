@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.44.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.44.0" }
+emu198x-commodore-denise-ecs = { path = "../emu198x-commodore-denise-ecs", version = "0.1.0" }
+emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
 common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.44.0" }
 serde = { workspace = true }
 

@@ -1,5 +1,5 @@
 //! The admitted service cell is historical state, not a live-register decode.
-use commodore_agnus_ocs::{Agnus, SlotOwner, bits};
+use emu198x_commodore_agnus_ocs::{Agnus, SlotOwner, bits};
 
 #[test]
 fn every_dma_owner_survives_register_changes_and_serialization() {

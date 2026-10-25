@@ -1,4 +1,4 @@
-use commodore_agnus_ocs::{Agnus, BlitterBus, DmaTransferTarget, bits};
+use emu198x_commodore_agnus_ocs::{Agnus, BlitterBus, DmaTransferTarget, bits};
 
 #[derive(Default)]
 struct Bus {
@@ -56,7 +56,7 @@ fn accepted_d_words_retire_once_from_retained_addresses_and_replay() {
                 before,
                 "admission touched memory at {cck}"
             );
-            if let Some(commodore_agnus_ocs::DmaAddressStage::Transfer(transfer)) =
+            if let Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(transfer)) =
                 chip.dma_pipeline().address()
                 && matches!(
                     transfer.target,
@@ -97,7 +97,7 @@ fn accepted_d_words_retire_once_from_retained_addresses_and_replay() {
 
 #[test]
 fn all_reference_channel_programs_retire_one_cck_after_admission() {
-    use commodore_agnus_ocs::BlitterDmaOp;
+    use emu198x_commodore_agnus_ocs::BlitterDmaOp;
     use std::collections::BTreeSet;
     #[derive(Default)]
     struct TraceBus {

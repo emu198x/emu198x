@@ -25,11 +25,11 @@ pub use agnus::{
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
-pub use commodore_denise_ecs::DeniseEcsBlankingStages;
-pub use commodore_gary::{ChipSelect, Gary};
-pub use commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 pub use copper::Copper;
 pub use denise::{Denise, DeniseEcs, FB_HEIGHT, FB_WIDTH};
+pub use emu198x_commodore_denise_ecs::DeniseEcsBlankingStages;
+pub use emu198x_commodore_gary::{ChipSelect, Gary};
+pub use emu198x_commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 use emu198x_commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
@@ -682,7 +682,7 @@ impl AmigaEcs {
     /// Direct read-only access to the ECS Super Denise wrapper and its
     /// enhanced display state.
     #[must_use]
-    pub const fn denise_ecs(&self) -> &commodore_denise_ecs::DeniseEcs {
+    pub const fn denise_ecs(&self) -> &emu198x_commodore_denise_ecs::DeniseEcs {
         &self.denise.ocs
     }
 
@@ -2262,7 +2262,7 @@ impl AmigaDriver for AmigaEcs {
 
     fn service_blitter_dma(
         &mut self,
-        transfer: commodore_agnus_ocs::DmaTransfer,
+        transfer: emu198x_commodore_agnus_ocs::DmaTransfer,
     ) -> BlitterCckOutcome {
         let mut bus = WatchingChipRamBus::new(&mut self.memory);
         let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
@@ -2277,14 +2277,15 @@ impl AmigaDriver for AmigaEcs {
         self.agnus.generate_display_dma();
     }
 
-    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer) {
-        let (commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
-        | commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh { reservation, .. }) =
-            transfer.target
+    fn service_addressed_sprite_dma(&mut self, transfer: emu198x_commodore_agnus_ocs::DmaTransfer) {
+        let (emu198x_commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | emu198x_commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
+            reservation, ..
+        }) = transfer.target
         else {
             panic!("non-display descriptor reached sprite adapter");
         };
-        let commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+        let emu198x_commodore_agnus_ocs::DisplayDmaChannel::Sprite {
             channel,
             second_word,
             control: _,
@@ -2339,7 +2340,7 @@ impl AmigaDriver for AmigaEcs {
         }
     }
 
-    fn service_denise_timing_strobe(&mut self, strobe: commodore_agnus_ocs::DmaStrobe) {
+    fn service_denise_timing_strobe(&mut self, strobe: emu198x_commodore_agnus_ocs::DmaStrobe) {
         self.denise.service_timing_strobe(strobe);
     }
 
@@ -2347,7 +2348,7 @@ impl AmigaDriver for AmigaEcs {
         &mut self,
         phase: u8,
         bitplane_dma_fetch_plane: Option<u8>,
-        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+        serviced_bitplane: Option<emu198x_commodore_agnus_ocs::DmaTransfer>,
     ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
@@ -2856,7 +2857,8 @@ mod bus_plan_dispatch_tests {
         let mut amiga = machine();
         amiga.agnus.write_htotal(0x00FA);
         amiga.agnus.write_beamcon0(
-            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+            emu198x_commodore_agnus_ecs::BEAMCON0_VARBEAMEN
+                | emu198x_commodore_agnus_ecs::BEAMCON0_PAL,
         );
         amiga.agnus.hpos = 0x00F8;
         amiga.copper.waiting = true;
@@ -2877,7 +2879,8 @@ mod bus_plan_dispatch_tests {
         let mut amiga = machine();
         amiga.agnus.write_htotal(229);
         amiga.agnus.write_beamcon0(
-            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+            emu198x_commodore_agnus_ecs::BEAMCON0_VARBEAMEN
+                | emu198x_commodore_agnus_ecs::BEAMCON0_PAL,
         );
         assert_eq!(amiga.agnus.current_line_ccks(), 230);
 
@@ -3127,7 +3130,7 @@ mod bus_plan_dispatch_tests {
         tick_until_hpos(&mut amiga, 74);
         assert_eq!(
             amiga.agnus.dma_pipeline().reservation().map(|r| r.channel),
-            Some(commodore_agnus_ocs::DisplayDmaChannel::Bitplane(3))
+            Some(emu198x_commodore_agnus_ocs::DisplayDmaChannel::Bitplane(3))
         );
         assert_eq!(amiga.agnus.bpl_pt[3], 0x5000);
         tick_until_hpos(&mut amiga, 76);

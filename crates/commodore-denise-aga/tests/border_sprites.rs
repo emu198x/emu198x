@@ -111,7 +111,7 @@ fn ocs_and_ecs_do_not_gain_lisas_border_sprite_switch() {
             assert_eq!(sample.final_color_idx, 0);
         }
     }
-    let mut ocs = commodore_denise_ocs::DeniseOcs::new();
+    let mut ocs = emu198x_commodore_denise_ocs::DeniseOcs::new();
     ocs.bplcon0 = 1;
     ocs.begin_beam_line();
     ocs.write_sprite_pos(0, 0);
@@ -119,6 +119,8 @@ fn ocs_and_ecs_do_not_gain_lisas_border_sprite_switch() {
     ocs.write_sprite_datb(0, 0);
     ocs.write_sprite_data(0, 0xFFFF);
     ocs.enable_sprites_from_bpl1dat();
-    emit(commodore_denise_ecs::DeniseEcs::from_ocs(ocs.clone()));
+    emit(emu198x_commodore_denise_ecs::DeniseEcs::from_ocs(
+        ocs.clone(),
+    ));
     emit(ocs);
 }

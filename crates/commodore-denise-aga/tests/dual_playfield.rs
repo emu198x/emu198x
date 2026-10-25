@@ -106,7 +106,7 @@ fn ocs_and_ecs_keep_the_fixed_playfield_two_offset() {
         }
     }
     for selector in 0..8 {
-        let mut ocs = commodore_denise_ocs::DeniseOcs::new();
+        let mut ocs = emu198x_commodore_denise_ocs::DeniseOcs::new();
         ocs.bplcon0 = 0x6400;
         ocs.begin_beam_line();
         for plane in [1, 3, 5] {
@@ -114,7 +114,7 @@ fn ocs_and_ecs_keep_the_fixed_playfield_two_offset() {
         }
         ocs.trigger_shift_load();
         emit(
-            commodore_denise_ecs::DeniseEcs::from_ocs(ocs.clone()),
+            emu198x_commodore_denise_ecs::DeniseEcs::from_ocs(ocs.clone()),
             selector,
         );
         emit(ocs, selector);

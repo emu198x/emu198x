@@ -1,0 +1,20 @@
+[package]
+name = "emu198x-commodore-gayle"
+description = "Commodore Gayle gate array — IDE task-file registers, four Gayle control registers, and (when wired) the A1200/A600 PCMCIA slot. Stage A: bare control-register I/O + no-drive IDE defaults, no PCMCIA. IDE drive and PCMCIA support land alongside the first catalogue entry that needs hard-disk or expansion-card boot."
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["gayle", "amiga", "ide", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

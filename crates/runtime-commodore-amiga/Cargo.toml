@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.44.0" }
+emu198x-commodore-agnus-ocs = { path = "../emu198x-commodore-agnus-ocs", version = "0.1.0" }
 commodore-denise-aga = { path = "../commodore-denise-aga", version = "0.44.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.44.0" }
-commodore-gary = { path = "../commodore-gary", version = "0.44.0" }
-commodore-gayle = { path = "../commodore-gayle", version = "0.44.0" }
+emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
+emu198x-commodore-gary = { path = "../emu198x-commodore-gary", version = "0.1.0" }
+emu198x-commodore-gayle = { path = "../emu198x-commodore-gayle", version = "0.1.0" }
 common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.44.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 gvp-a530 = { path = "../gvp-a530", version = "0.44.0" }

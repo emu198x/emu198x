@@ -35,9 +35,9 @@ pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{
     AutoconfigBoard, AutoconfigBoardDiagnosticSnapshot, AutoconfigState,
 };
-pub use commodore_gary::{ChipSelect, ExtendedRomWindow, Gary};
 pub use copper::Copper;
 pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
+pub use emu198x_commodore_gary::{ChipSelect, ExtendedRomWindow, Gary};
 use emu198x_commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
@@ -2523,7 +2523,7 @@ impl AmigaDriver for AmigaOcs {
 
     fn service_blitter_dma(
         &mut self,
-        transfer: commodore_agnus_ocs::DmaTransfer,
+        transfer: emu198x_commodore_agnus_ocs::DmaTransfer,
     ) -> BlitterCckOutcome {
         let mut bus = WatchingChipRamBus::new(&mut self.memory);
         let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
@@ -2538,14 +2538,15 @@ impl AmigaDriver for AmigaOcs {
         self.agnus.generate_display_dma();
     }
 
-    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer) {
-        let (commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
-        | commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh { reservation, .. }) =
-            transfer.target
+    fn service_addressed_sprite_dma(&mut self, transfer: emu198x_commodore_agnus_ocs::DmaTransfer) {
+        let (emu198x_commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | emu198x_commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
+            reservation, ..
+        }) = transfer.target
         else {
             panic!("non-display descriptor reached sprite adapter");
         };
-        let commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+        let emu198x_commodore_agnus_ocs::DisplayDmaChannel::Sprite {
             channel,
             second_word,
             control: _,
@@ -2605,7 +2606,7 @@ impl AmigaDriver for AmigaOcs {
         }
     }
 
-    fn service_denise_timing_strobe(&mut self, strobe: commodore_agnus_ocs::DmaStrobe) {
+    fn service_denise_timing_strobe(&mut self, strobe: emu198x_commodore_agnus_ocs::DmaStrobe) {
         self.denise.service_timing_strobe(strobe);
     }
 
@@ -2613,7 +2614,7 @@ impl AmigaDriver for AmigaOcs {
         &mut self,
         phase: u8,
         bitplane_dma_fetch_plane: Option<u8>,
-        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+        serviced_bitplane: Option<emu198x_commodore_agnus_ocs::DmaTransfer>,
     ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
@@ -2895,7 +2896,7 @@ mod tests {
         assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 0);
         assert_eq!(
             amiga.agnus.next_blitter_dma_request(),
-            Some(commodore_agnus_ocs::BlitterDmaOp::WriteD)
+            Some(emu198x_commodore_agnus_ocs::BlitterDmaOp::WriteD)
         );
         assert!(amiga.agnus.next_blitter_progress_uses_bus());
         assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
@@ -2903,7 +2904,7 @@ mod tests {
     }
 
     fn assert_d_only_write_admitted(amiga: &AmigaOcs) {
-        use commodore_agnus_ocs::{BlitterDmaOp, DmaAddressStage, DmaTransferTarget};
+        use emu198x_commodore_agnus_ocs::{BlitterDmaOp, DmaAddressStage, DmaTransferTarget};
         assert!(
             matches!(amiga.agnus.dma_pipeline().address(), Some(DmaAddressStage::Transfer(t))
             if t.address == 0x2000 && t.target == DmaTransferTarget::Blitter {
@@ -3004,7 +3005,7 @@ mod tests {
 
     #[test]
     fn copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma() {
-        use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
+        use emu198x_commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
         let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
         amiga.cpu.state = State::Stopped;
         amiga.agnus.vpos = 0x0020;
@@ -3346,8 +3347,8 @@ mod tests {
         assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
         assert!(amiga.paula.disk_dma_pending());
         assert!(matches!(amiga.agnus.dma_pipeline().address(),
-            Some(commodore_agnus_ocs::DmaAddressStage::Transfer(t))
-            if matches!(t.target, commodore_agnus_ocs::DmaTransferTarget::Disk { slot: 2, .. })));
+            Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if matches!(t.target, emu198x_commodore_agnus_ocs::DmaTransferTarget::Disk { slot: 2, .. })));
         amiga.tick(); // finish the admission CCK before arming the CPU
         amiga.cpu.state = State::BusCycle {
             op: MicroOp::WriteWord,
@@ -3548,7 +3549,8 @@ mod tests {
         assert!(fat.agnus.write_timing_register(0x1C0, 0x00FA));
         assert!(fat.agnus.write_timing_register(
             0x1DC,
-            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+            emu198x_commodore_agnus_ecs::BEAMCON0_VARBEAMEN
+                | emu198x_commodore_agnus_ecs::BEAMCON0_PAL,
         ));
         assert_eq!(
             fat.agnus.current_line_ccks(),
@@ -4308,7 +4310,7 @@ mod tests {
 
     #[test]
     fn active_copper_fetch_keeps_its_cell_from_nasty_blitter_and_cpu() {
-        use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+        use emu198x_commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
         let mut amiga = primed_d_only_blitter(true, true);
         // Retire the preceding internal phase without admitting D. IR1 and
         // the ready D will then compete for the same odd input cell at $37.
@@ -4326,7 +4328,7 @@ mod tests {
         );
         assert_eq!(
             amiga.agnus.next_blitter_dma_request(),
-            Some(commodore_agnus_ocs::BlitterDmaOp::WriteD)
+            Some(emu198x_commodore_agnus_ocs::BlitterDmaOp::WriteD)
         );
         amiga.tick();
         arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
@@ -4345,7 +4347,7 @@ mod tests {
 
     #[test]
     fn cpu_reuses_line_internal_and_suppressed_d_cells_in_nasty_mode() {
-        use commodore_agnus_ocs::BlitterDmaOp;
+        use emu198x_commodore_agnus_ocs::BlitterDmaOp;
         for (drain, pending, next, next_nasty) in [
             (2, BlitterDmaOp::Internal, BlitterDmaOp::ReadC, true),
             (9, BlitterDmaOp::WriteD, BlitterDmaOp::Internal, false),
@@ -4406,8 +4408,8 @@ mod tests {
             // The operation above was admitted, not serviced. Retire it
             // through the real stage with another mature CPU request.
             assert!(matches!(amiga.agnus.dma_pipeline().address(),
-            Some(commodore_agnus_ocs::DmaAddressStage::Transfer(t))
-            if t.target == commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
+            Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if t.target == emu198x_commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
                 operation: pending, allocated: false
             }));
             amiga.tick();

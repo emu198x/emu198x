@@ -31,8 +31,8 @@
 
 use std::ops::{Deref, DerefMut};
 
-pub use commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
-pub use commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDebug};
+pub use emu198x_commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
+pub use emu198x_commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDebug};
 
 use common_commodore_amiga::denise_counter::DeniseStrobe;
 use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};

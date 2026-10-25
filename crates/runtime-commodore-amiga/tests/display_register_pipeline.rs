@@ -1,8 +1,8 @@
 //! Pending Alice/Lisa register stages must survive a save-state boundary.
-use commodore_agnus_ocs::Agnus;
 use commodore_denise_aga::DeniseAga;
-use commodore_denise_ocs::DeniseOcs;
 use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_agnus_ocs::Agnus;
+use emu198x_commodore_denise_ocs::DeniseOcs;
 
 #[test]
 fn restore_retains_shifted_bits_above_the_narrow_output_tap() {

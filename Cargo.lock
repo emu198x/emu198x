@@ -456,30 +456,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "commodore-agnus-aga"
-version = "0.44.2"
-dependencies = [
- "commodore-agnus-ecs",
- "commodore-agnus-ocs",
- "serde",
-]
-
-[[package]]
-name = "commodore-agnus-ecs"
-version = "0.44.2"
-dependencies = [
- "commodore-agnus-ocs",
- "serde",
-]
-
-[[package]]
-name = "commodore-agnus-ocs"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "commodore-amiga-autoconfig"
 version = "0.44.2"
 dependencies = [
@@ -491,39 +467,9 @@ dependencies = [
 name = "commodore-denise-aga"
 version = "0.44.2"
 dependencies = [
- "commodore-denise-ecs",
- "commodore-denise-ocs",
  "common-commodore-amiga",
- "serde",
-]
-
-[[package]]
-name = "commodore-denise-ecs"
-version = "0.44.2"
-dependencies = [
- "commodore-denise-ocs",
- "serde",
-]
-
-[[package]]
-name = "commodore-denise-ocs"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
-
-[[package]]
-name = "commodore-gary"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "commodore-gayle"
-version = "0.44.2"
-dependencies = [
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
  "serde",
 ]
 
@@ -538,9 +484,9 @@ dependencies = [
 name = "common-commodore-amiga"
 version = "0.44.2"
 dependencies = [
- "commodore-agnus-ocs",
- "commodore-denise-ecs",
- "commodore-denise-ocs",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
  "motorola-68000",
@@ -1206,6 +1152,60 @@ dependencies = [
  "png",
  "runtime-coleco-colecovision",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-commodore-agnus-aga"
+version = "0.1.0"
+dependencies = [
+ "emu198x-commodore-agnus-ecs",
+ "emu198x-commodore-agnus-ocs",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-commodore-agnus-ecs"
+version = "0.1.0"
+dependencies = [
+ "emu198x-commodore-agnus-ocs",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-commodore-agnus-ocs"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-commodore-denise-ecs"
+version = "0.1.0"
+dependencies = [
+ "emu198x-commodore-denise-ocs",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-commodore-denise-ocs"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
+name = "emu198x-commodore-gary"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-commodore-gayle"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3025,16 +3025,16 @@ dependencies = [
 name = "machine-commodore-amiga-a1200"
 version = "0.44.2"
 dependencies = [
- "commodore-agnus-aga",
- "commodore-agnus-ecs",
- "commodore-agnus-ocs",
  "commodore-amiga-autoconfig",
  "commodore-denise-aga",
- "commodore-denise-ecs",
- "commodore-denise-ocs",
- "commodore-gary",
- "commodore-gayle",
  "common-commodore-amiga",
+ "emu198x-commodore-agnus-aga",
+ "emu198x-commodore-agnus-ecs",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
+ "emu198x-commodore-gary",
+ "emu198x-commodore-gayle",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
  "emu198x-test-skip",
@@ -3053,14 +3053,14 @@ dependencies = [
 name = "machine-commodore-amiga-ecs"
 version = "0.44.2"
 dependencies = [
- "commodore-agnus-ecs",
- "commodore-agnus-ocs",
  "commodore-amiga-autoconfig",
- "commodore-denise-ecs",
- "commodore-denise-ocs",
- "commodore-gary",
- "commodore-gayle",
  "common-commodore-amiga",
+ "emu198x-commodore-agnus-ecs",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
+ "emu198x-commodore-gary",
+ "emu198x-commodore-gayle",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
  "machine-commodore-amiga-ocs",
@@ -3076,12 +3076,12 @@ dependencies = [
 name = "machine-commodore-amiga-ocs"
 version = "0.44.2"
 dependencies = [
- "commodore-agnus-ecs",
- "commodore-agnus-ocs",
  "commodore-amiga-autoconfig",
- "commodore-denise-ocs",
- "commodore-gary",
  "common-commodore-amiga",
+ "emu198x-commodore-agnus-ecs",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-ocs",
+ "emu198x-commodore-gary",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
  "emu198x-test-skip",
@@ -4835,12 +4835,12 @@ dependencies = [
 name = "runtime-commodore-amiga"
 version = "0.44.2"
 dependencies = [
- "commodore-agnus-ocs",
  "commodore-denise-aga",
- "commodore-denise-ocs",
- "commodore-gary",
- "commodore-gayle",
  "common-commodore-amiga",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-ocs",
+ "emu198x-commodore-gary",
+ "emu198x-commodore-gayle",
  "emu198x-shell",
  "emu198x-test-skip",
  "gvp-a530",

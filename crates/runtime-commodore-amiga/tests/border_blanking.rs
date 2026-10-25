@@ -1,7 +1,7 @@
 //! Exercise Lisa border black through the production board framebuffer path.
-use commodore_agnus_ocs::Agnus;
 use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::{DeniseChip, denise::Denise, memory::Memory};
+use emu198x_commodore_agnus_ocs::Agnus;
 
 fn fixture(ecsena: bool, blank: bool, bpl1dat: bool, sprite: bool) -> (Denise<DeniseAga>, Agnus) {
     let mut denise = Denise::<DeniseAga>::new();

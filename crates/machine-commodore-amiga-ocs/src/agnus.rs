@@ -1,16 +1,16 @@
 //! Agnus wiring for the OCS machine.
 //!
 //! As of task #139 (port session 2026-04-20), the Agnus implementation
-//! lives in the standalone `commodore-agnus-ocs` crate. This module
+//! lives in the standalone `emu198x-commodore-agnus-ocs` crate. This module
 //! re-exports the chip type and provides a few derived constants the
 //! machine uses to convert between CCK time (Agnus's native unit) and
 //! master/4 ticks (the machine's primary clock).
 
 use std::ops::{Deref, DerefMut};
 
-pub use commodore_agnus_ecs::AgnusEcs;
+pub use emu198x_commodore_agnus_ecs::AgnusEcs;
 
-pub use commodore_agnus_ocs::{
+pub use emu198x_commodore_agnus_ocs::{
     Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME,
     OriginalAgnusRevision, PAL_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner,
     VBL_END_LINE, bits,
@@ -53,7 +53,7 @@ pub(crate) enum ExtendedBlitterWrite {
 impl InstalledAgnus {
     pub(crate) fn service_retained_sprite_dma(
         &mut self,
-        transfer: commodore_agnus_ocs::DmaTransfer,
+        transfer: emu198x_commodore_agnus_ocs::DmaTransfer,
         width: u8,
         read: impl FnMut(u32) -> u16,
     ) -> (bool, u64) {

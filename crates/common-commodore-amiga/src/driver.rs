@@ -48,7 +48,7 @@ use crate::clock::{CpuClock, CpuDomainPhase};
 use crate::copper::Copper;
 use crate::memory::Memory;
 use crate::rtc::Msm6242Rtc;
-use commodore_agnus_ocs::{
+use emu198x_commodore_agnus_ocs::{
     Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, DmaStrobe, DmaTransferTarget, SlotOwner,
     bits,
 };
@@ -295,14 +295,14 @@ pub trait AmigaDriver {
     /// Retire a captured blitter transfer through the machine's watched RAM.
     fn service_blitter_dma(
         &mut self,
-        transfer: commodore_agnus_ocs::DmaTransfer,
+        transfer: emu198x_commodore_agnus_ocs::DmaTransfer,
     ) -> BlitterCckOutcome;
 
     /// Generate display reservations through the concrete installed Agnus.
     fn generate_display_dma(&mut self);
 
     /// Retire a sprite descriptor through the concrete installed Agnus/Denise.
-    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer);
+    fn service_addressed_sprite_dma(&mut self, transfer: emu198x_commodore_agnus_ocs::DmaTransfer);
 
     /// Record a disk read-DMA word after Agnus has transferred it into chip
     /// RAM. The concrete machine owns the optional watch range and log.
@@ -364,7 +364,7 @@ pub trait AmigaDriver {
         &mut self,
         phase: u8,
         bitplane_dma_fetch_plane: Option<u8>,
-        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+        serviced_bitplane: Option<emu198x_commodore_agnus_ocs::DmaTransfer>,
     );
 
     // ---------- per-tick scalar bookkeeping ----------
@@ -554,14 +554,14 @@ pub trait AmigaDriver {
                             self.agnus_mut().service_combined_refresh_dma(transfer);
                             let register = reservation.rga_register() & fixed_register;
                             match reservation.channel {
-                                commodore_agnus_ocs::DisplayDmaChannel::Bitplane(_)
+                                emu198x_commodore_agnus_ocs::DisplayDmaChannel::Bitplane(_)
                                     if (0x110..0x120).contains(&register) =>
                                 {
                                     serviced_bitplane = Some(transfer)
                                 }
-                                commodore_agnus_ocs::DisplayDmaChannel::Sprite { .. }
-                                    if (0x140..0x180).contains(&register) =>
-                                {
+                                emu198x_commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+                                    ..
+                                } if (0x140..0x180).contains(&register) => {
                                     self.service_addressed_sprite_dma(transfer)
                                 }
                                 _ => self.agnus_mut().service_displaced_display_dma(transfer),
@@ -569,8 +569,9 @@ pub trait AmigaDriver {
                         }
                         DmaTransferTarget::Display {
                             reservation:
-                                commodore_agnus_ocs::DisplayDmaReservation {
-                                    channel: commodore_agnus_ocs::DisplayDmaChannel::Bitplane(_),
+                                emu198x_commodore_agnus_ocs::DisplayDmaReservation {
+                                    channel:
+                                        emu198x_commodore_agnus_ocs::DisplayDmaChannel::Bitplane(_),
                                     ..
                                 },
                             ..
@@ -691,12 +692,14 @@ pub trait AmigaDriver {
                         DmaTransferTarget::Audio { channel, .. } => self
                             .paula()
                             .audio_dma_request(channel)
-                            .map(|(address, reload)| commodore_agnus_ocs::DmaTransfer {
-                                target: DmaTransferTarget::Audio { channel, reload },
-                                address,
-                            }),
+                            .map(
+                                |(address, reload)| emu198x_commodore_agnus_ocs::DmaTransfer {
+                                    target: DmaTransferTarget::Audio { channel, reload },
+                                    address,
+                                },
+                            ),
                         DmaTransferTarget::Disk { slot, .. } => {
-                            Some(commodore_agnus_ocs::DmaTransfer {
+                            Some(emu198x_commodore_agnus_ocs::DmaTransfer {
                                 target: DmaTransferTarget::Disk {
                                     slot,
                                     write: self.paula().disk_write_dma_slot_requested(),
@@ -704,10 +707,12 @@ pub trait AmigaDriver {
                                 address: self.agnus().dsk_pt & 0x001F_FFFE,
                             })
                         }
-                        DmaTransferTarget::Refresh => Some(commodore_agnus_ocs::DmaTransfer {
-                            target,
-                            address: self.agnus().refresh_dma_pointer(),
-                        }),
+                        DmaTransferTarget::Refresh => {
+                            Some(emu198x_commodore_agnus_ocs::DmaTransfer {
+                                target,
+                                address: self.agnus().refresh_dma_pointer(),
+                            })
+                        }
                         _ => unreachable!("non-fixed request in DMAL"),
                     };
                     if let Some(request) = request {

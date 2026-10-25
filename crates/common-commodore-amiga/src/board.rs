@@ -275,7 +275,7 @@ impl<'de> Deserialize<'de> for SynchronizedMotherboardBridge {
 /// via Agnus DMA, and addresses wrap at the 2 MiB chip-RAM boundary.
 pub struct ChipRamBus<'a>(pub &'a mut Memory);
 
-impl commodore_agnus_ocs::BlitterBus for ChipRamBus<'_> {
+impl emu198x_commodore_agnus_ocs::BlitterBus for ChipRamBus<'_> {
     fn read_word(&mut self, addr: u32) -> u16 {
         self.0.read_chip_ram_word(addr)
     }
@@ -307,7 +307,7 @@ impl<'a> WatchingChipRamBus<'a> {
     }
 }
 
-impl commodore_agnus_ocs::BlitterBus for WatchingChipRamBus<'_> {
+impl emu198x_commodore_agnus_ocs::BlitterBus for WatchingChipRamBus<'_> {
     fn read_word(&mut self, addr: u32) -> u16 {
         self.memory.read_chip_ram_word(addr)
     }

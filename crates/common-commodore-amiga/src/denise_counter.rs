@@ -3,7 +3,7 @@
 //! The counter advances at the existing lores output clock, independently of
 //! Agnus's beam. See `amiga-denise-horizontal-counter.md` for source provenance.
 
-pub use commodore_agnus_ocs::DmaStrobe as DeniseStrobe;
+pub use emu198x_commodore_agnus_ocs::DmaStrobe as DeniseStrobe;
 
 /// Saved state of the normal strobe stage and the two-tick counter commit.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

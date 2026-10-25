@@ -4,7 +4,7 @@
 //! fetch service, pointer advancement, chipset selection and snapshots all
 //! observe the same terminal fetch state.
 
-use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
+use emu198x_commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
 use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
 
 const CUSTOM_BASE: u32 = 0x00DF_F000;
@@ -270,7 +270,7 @@ fn fat_agnus_harddis_keeps_the_post_df_slots_available() {
         .address()
         .expect("cross-wrap BPL4");
     assert!(
-        matches!(pending, commodore_agnus_ocs::DmaAddressStage::Transfer(t)
+        matches!(pending, emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(t)
         if matches!(t.target, DmaTransferTarget::Display { reservation, .. }
             if reservation.channel == DisplayDmaChannel::Bitplane(3))
         && t.address == line_bases[3] + 100)

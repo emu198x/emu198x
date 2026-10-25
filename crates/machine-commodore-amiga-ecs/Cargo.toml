@@ -12,15 +12,15 @@ common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.44.0
 motorola-68000 = { path = "../motorola-68000", version = "0.44.0" }
 emu198x-mos-cia-8520 = { path = "../emu198x-mos-cia-8520", version = "0.1.0" }
 emu198x-commodore-paula-8364 = { path = "../emu198x-commodore-paula-8364", version = "0.6.0" }
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.44.0" }
-commodore-agnus-ecs = { path = "../commodore-agnus-ecs", version = "0.44.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.44.0" }
-commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.44.0" }
-commodore-gayle = { path = "../commodore-gayle", version = "0.44.0" }
+emu198x-commodore-agnus-ocs = { path = "../emu198x-commodore-agnus-ocs", version = "0.1.0" }
+emu198x-commodore-agnus-ecs = { path = "../emu198x-commodore-agnus-ecs", version = "0.1.0" }
+emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
+emu198x-commodore-denise-ecs = { path = "../emu198x-commodore-denise-ecs", version = "0.1.0" }
+emu198x-commodore-gayle = { path = "../emu198x-commodore-gayle", version = "0.1.0" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.44.0" }
 peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.44.0" }
 peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.44.0" }
-commodore-gary = { path = "../commodore-gary", version = "0.44.0" }
+emu198x-commodore-gary = { path = "../emu198x-commodore-gary", version = "0.1.0" }
 commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.44.0" }
 serde = { workspace = true }
 

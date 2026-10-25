@@ -1,5 +1,5 @@
-use commodore_agnus_ocs::DmaTransferTarget;
 use common_commodore_amiga::copper::Copper;
+use emu198x_commodore_agnus_ocs::DmaTransferTarget;
 
 fn restore(chip: Copper) -> Copper {
     postcard::from_bytes(&postcard::to_allocvec(&chip).expect("save Copper input stage"))

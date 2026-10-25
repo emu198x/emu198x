@@ -1,14 +1,14 @@
 //! Combined RGA effects are checked against compiled registered source, including
 //! suppressed data strobes, retained refresh addresses and pointer side effects.
-use commodore_agnus_ocs::{
-    Agnus, DisplayDmaChannel, DisplayDmaReservation, DmaStrobe, DmaTransfer, DmaTransferTarget,
-    SlotOwner,
-};
-use commodore_denise_ocs::DeniseOcs;
 use common_commodore_amiga::{
     denise::{BitplaneDmaInput, Denise, DeniseOutputSignals},
     memory::Memory,
 };
+use emu198x_commodore_agnus_ocs::{
+    Agnus, DisplayDmaChannel, DisplayDmaReservation, DmaStrobe, DmaTransfer, DmaTransferTarget,
+    SlotOwner,
+};
+use emu198x_commodore_denise_ocs::DeniseOcs;
 
 fn edge(chip: &mut Agnus) {
     chip.tick_cck();

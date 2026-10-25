@@ -1,6 +1,6 @@
 //! Commodore Amiga family profile catalogue.
 
-use commodore_agnus_ocs::{NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
+use emu198x_commodore_agnus_ocs::{NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
     MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,

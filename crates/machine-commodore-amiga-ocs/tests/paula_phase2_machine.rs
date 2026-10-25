@@ -771,7 +771,7 @@ fn dma_pulse_during_manual_playback_preserves_the_board_sample_phase() {
 
 #[test]
 fn admitted_audio_word_still_reaches_the_holding_latch_after_dma_is_disabled() {
-    use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+    use emu198x_commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
     use emu198x_commodore_paula_8364::PaulaAudioDmaState;
     for channel in 0..4u16 {
         let mut amiga = AmigaOcs::new(zero_rom());
@@ -825,7 +825,7 @@ fn admitted_audio_word_still_reaches_the_holding_latch_after_dma_is_disabled() {
 
 #[test]
 fn cancelled_startup_accepts_an_already_admitted_word_as_manual_data() {
-    use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+    use emu198x_commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
     use emu198x_commodore_paula_8364::PaulaAudioDmaState;
     for channel in 0..4u16 {
         for second in [false, true] {

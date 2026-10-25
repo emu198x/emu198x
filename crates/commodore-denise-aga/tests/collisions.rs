@@ -165,10 +165,10 @@ fn hires_and_superhires_extra_planes_match_each_actual_sample_including_zero() {
 
 #[test]
 fn ocs_and_ecs_do_not_decode_the_aga_extension() {
-    let mut ocs = commodore_denise_ocs::DeniseOcs::new();
+    let mut ocs = emu198x_commodore_denise_ocs::DeniseOcs::new();
     ocs.write_word(0x10E, 0x00C3);
     assert_eq!(ocs.diagnostic_snapshot().clxcon2, 0);
-    let mut ecs = commodore_denise_ecs::DeniseEcs::new();
+    let mut ecs = emu198x_commodore_denise_ecs::DeniseEcs::new();
     ecs.write_word(0x10E, 0x00C3);
     assert_eq!(ecs.as_inner().diagnostic_snapshot().clxcon2, 0);
 }

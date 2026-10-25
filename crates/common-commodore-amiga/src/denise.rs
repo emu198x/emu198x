@@ -1,7 +1,7 @@
 //! Denise — board-level wrapper, generic over the Denise chip variant.
 //!
 //! Register + pixel-pipeline state lives in the concrete chip
-//! (`commodore_denise_ocs::DeniseOcs` for OCS, `commodore_denise_ecs::DeniseEcs`
+//! (`emu198x_commodore_denise_ocs::DeniseOcs` for OCS, `emu198x_commodore_denise_ecs::DeniseEcs`
 //! for ECS, future variants for AGA Lisa / CD32). This module is the
 //! narrow wiring layer that the machine uses to:
 //!
@@ -60,7 +60,7 @@ pub struct BitplaneDmaFetch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BitplaneDmaInput {
     Granted(BitplaneDmaFetch),
-    Serviced(commodore_agnus_ocs::DmaTransfer),
+    Serviced(emu198x_commodore_agnus_ocs::DmaTransfer),
 }
 
 /// One bitplane transfer crossing the normal (one-CCK) Denise RGA stage.
@@ -447,7 +447,7 @@ impl<C: DeniseChip> Denise<C> {
     #[must_use]
     pub fn output_comparator_position_for(
         &self,
-        agnus: &commodore_agnus_ocs::Agnus,
+        agnus: &emu198x_commodore_agnus_ocs::Agnus,
         phase: u8,
     ) -> u16 {
         if agnus.dma_pipeline().stages_started() {
@@ -462,7 +462,7 @@ impl<C: DeniseChip> Denise<C> {
     #[must_use]
     pub fn next_output_comparator_position_for(
         &self,
-        agnus: &commodore_agnus_ocs::Agnus,
+        agnus: &emu198x_commodore_agnus_ocs::Agnus,
         phase: u8,
     ) -> u16 {
         if agnus.dma_pipeline().stages_started() {
@@ -523,7 +523,7 @@ impl<C: DeniseChip> Denise<C> {
         phase: u8,
         bitplane_dma_fetch: Option<BitplaneDmaFetch>,
         vertical_diw_active: bool,
-        agnus: &mut commodore_agnus_ocs::Agnus,
+        agnus: &mut emu198x_commodore_agnus_ocs::Agnus,
         memory: &Memory,
         line_ccks: u16,
     ) {
@@ -548,7 +548,7 @@ impl<C: DeniseChip> Denise<C> {
         phase: u8,
         bitplane_dma_fetch: Option<BitplaneDmaFetch>,
         output_signals: DeniseOutputSignals,
-        agnus: &mut commodore_agnus_ocs::Agnus,
+        agnus: &mut emu198x_commodore_agnus_ocs::Agnus,
         memory: &Memory,
         line_ccks: u16,
     ) {
@@ -569,7 +569,7 @@ impl<C: DeniseChip> Denise<C> {
         phase: u8,
         bitplane_dma_fetch: Option<BitplaneDmaInput>,
         output_signals: DeniseOutputSignals,
-        agnus: &mut commodore_agnus_ocs::Agnus,
+        agnus: &mut emu198x_commodore_agnus_ocs::Agnus,
         memory: &Memory,
         line_ccks: u16,
     ) {
@@ -655,20 +655,20 @@ impl<C: DeniseChip> Denise<C> {
                     ),
                     BitplaneDmaInput::Serviced(transfer) => {
                         let (reservation, increment) = match transfer.target {
-                            commodore_agnus_ocs::DmaTransferTarget::Display {
+                            emu198x_commodore_agnus_ocs::DmaTransferTarget::Display {
                                 reservation,
                                 pointer_modulo,
                             } => (
                                 reservation,
                                 2 * i32::from(agnus.bpl_fetch_width()) + pointer_modulo,
                             ),
-                            commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
+                            emu198x_commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
                                 reservation,
                                 ..
                             } => (reservation, 0),
                             _ => panic!("non-display transfer passed to Denise bitplane service"),
                         };
-                        let commodore_agnus_ocs::DisplayDmaChannel::Bitplane(plane) =
+                        let emu198x_commodore_agnus_ocs::DisplayDmaChannel::Bitplane(plane) =
                             reservation.channel
                         else {
                             panic!("non-bitplane transfer passed to Denise bitplane service");
@@ -989,8 +989,8 @@ mod tests {
     fn lost_strobe_does_not_move_the_physical_host_scan() {
         use super::{Denise, DeniseOutputSignals, FB_WIDTH};
         use crate::memory::Memory;
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         for counter_ticks in [0, 140, 510] {
             let mut agnus = Agnus::new();
@@ -1069,8 +1069,8 @@ mod tests {
     }
 
     fn capture_prior_line_tail(
-        denise: &mut Denise<commodore_denise_ocs::DeniseOcs>,
-        agnus: &mut commodore_agnus_ocs::Agnus,
+        denise: &mut Denise<emu198x_commodore_denise_ocs::DeniseOcs>,
+        agnus: &mut emu198x_commodore_agnus_ocs::Agnus,
         memory: &Memory,
         vpos: u16,
         line_ccks: u16,
@@ -1098,8 +1098,8 @@ mod tests {
     }
 
     fn render_wrapped_hpos_zero(
-        denise: &mut Denise<commodore_denise_ocs::DeniseOcs>,
-        agnus: &mut commodore_agnus_ocs::Agnus,
+        denise: &mut Denise<emu198x_commodore_denise_ocs::DeniseOcs>,
+        agnus: &mut emu198x_commodore_agnus_ocs::Agnus,
         memory: &Memory,
         vpos: u16,
         line_ccks: u16,
@@ -1110,7 +1110,7 @@ mod tests {
         denise.tick(1, None, true, agnus, memory, line_ccks);
     }
 
-    fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
+    fn observe_ddf_start(agnus: &mut emu198x_commodore_agnus_ocs::Agnus) {
         if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
             let diwstrt = agnus.diwstrt;
             let diwstop = agnus.diwstop;
@@ -1252,8 +1252,8 @@ mod tests {
 
     #[test]
     fn aga_fine_hblank_can_split_one_output_pair() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1285,8 +1285,8 @@ mod tests {
 
     #[test]
     fn external_hblank_masks_output_without_stalling_the_pixel_pipeline() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut reference_agnus = Agnus::new();
@@ -1334,8 +1334,8 @@ mod tests {
 
     #[test]
     fn noninterlaced_host_row_duplication_does_not_advance_ham_twice() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1378,8 +1378,8 @@ mod tests {
 
     #[test]
     fn wrapped_hpos_zero_uses_the_previous_lines_actual_length() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let prior_vpos = 50;
@@ -1439,8 +1439,8 @@ mod tests {
 
     #[test]
     fn line_local_denise_state_resets_at_hblank_start_not_counter_wrap() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1471,8 +1471,8 @@ mod tests {
 
     #[test]
     fn board_pipeline_snapshot_tracks_fetch_and_prior_line_context() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1569,7 +1569,7 @@ mod tests {
 
     #[test]
     fn clxdat_register_reads_include_fixed_high_bit_without_storing_it() {
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
         let mut denise = Denise::<DeniseOcs>::new();
         for latch in [0, 1, 0x0267, 0x7FFF] {
             denise.ocs.clxdat = latch;
@@ -1588,7 +1588,7 @@ mod tests {
 
     #[test]
     fn ocs_copper_color_is_visible_on_the_dispatch_output_tick() {
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
         let mut denise = Denise::<DeniseOcs>::new();
         denise.write_word(0x180, 0x123);
         denise.write_word_before_output_tick(0x180, 0xABC);
@@ -1604,7 +1604,7 @@ mod tests {
 
     #[test]
     fn lisa_output_stage_preserves_16_32_and_64_pixel_payloads() {
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
         for width in [16, 32, 64] {
             let mut denise = DeniseOcs::new();
             denise.max_bitplanes = 8;
@@ -1628,7 +1628,7 @@ mod tests {
 
     #[test]
     fn lisa_pending_sprite_code_survives_restore_and_collides_at_visible_output() {
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
         let mut original = DeniseOcs::new();
         original.max_bitplanes = 8;
         original.clxcon = 0xFFFF;
@@ -1666,7 +1666,7 @@ mod tests {
 
     #[test]
     fn ecs_copper_color_reaches_the_dispatch_output_tick() {
-        use commodore_denise_ecs::DeniseEcs;
+        use emu198x_commodore_denise_ecs::DeniseEcs;
         let mut denise = Denise::<DeniseEcs>::new();
         denise.ocs.set_palette(0, 0x0123);
         // Counter-traced ECS control: four successive MOVEs appear at
@@ -1685,7 +1685,7 @@ mod tests {
 
     #[test]
     fn color_write_after_output_is_ready_for_the_next_tick() {
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let mut denise = Denise::<DeniseOcs>::new();
         denise.ocs.set_palette(0, 0x0123);
@@ -1703,7 +1703,7 @@ mod tests {
 
     #[test]
     fn ecs_dispatched_copper_color_survives_serialization() {
-        use commodore_denise_ecs::DeniseEcs;
+        use emu198x_commodore_denise_ecs::DeniseEcs;
 
         let mut denise = Denise::<DeniseEcs>::new();
         denise.write_word_before_output_tick(0x0180, 0x0ABC);
@@ -1721,8 +1721,8 @@ mod tests {
 
     #[test]
     fn completed_display_field_waits_for_wrapped_raster_carry() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1768,8 +1768,8 @@ mod tests {
 
     #[test]
     fn wrapped_pixels_keep_the_previous_fields_interlace_row() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1803,8 +1803,8 @@ mod tests {
 
     #[test]
     fn startup_hpos_zero_without_prior_context_does_not_consume_video_state() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let memory = Memory::new(vec![0; 2]);
         let mut agnus = Agnus::new();
@@ -1829,8 +1829,8 @@ mod tests {
 
     #[test]
     fn sprite_first_pixel_follows_hstart_load_in_board_framebuffer() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let mut agnus = Agnus::new();
         agnus.vpos = 50;
@@ -1881,8 +1881,8 @@ mod tests {
 
     #[test]
     fn sprite_index_bypasses_ham_while_the_playfield_stream_advances() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let mut agnus = Agnus::new();
         agnus.vpos = 50;
@@ -1939,8 +1939,8 @@ mod tests {
 
     #[test]
     fn wide_fetch_advances_pointer_by_width_words_per_line() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         // Workbench 3.1 AGA: hires, 2 planes, FMODE=$0003 (64-bit). The
         // DMA scheduler grants 11 plane accesses per line; the fetch
@@ -1999,8 +1999,8 @@ mod tests {
 
     #[test]
     fn narrow_fetch_advances_pointer_by_one_word_per_access() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         // OCS / ECS regression: FMODE=0 keeps 16-bit fetch. DDFSTRT=$40
         // DDFSTOP=$D0 hires = 38 accesses/plane → 38 words = 76 bytes.
@@ -2048,8 +2048,8 @@ mod tests {
 
     #[test]
     fn aga_bitplane_dma_selects_word_lanes_before_the_pending_stage() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         // Reference custom.cpp::fetch32_bpl/fetch64. Distinct data in every
         // lane distinguishes address selection from consecutive reads.
@@ -2129,8 +2129,8 @@ mod tests {
 
     #[test]
     fn pending_dma_roundtrip_preserves_fetched_words_and_wide_tails() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         for width in [1, 2, 4] {
             let mut agnus = Agnus::new();
@@ -2208,7 +2208,7 @@ mod tests {
 
     #[test]
     fn pending_dma_validation_rejects_invalid_plane_and_width() {
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
         let mut denise = Denise::<DeniseOcs>::new();
         for (plane, width) in [(8, 1), (0, 0), (0, 3), (0, 5)] {
             denise.pending_bitplane_dma = Some(PendingBitplaneDma {
@@ -2222,8 +2222,8 @@ mod tests {
 
     #[test]
     fn dma_fine_scroll_delays_the_same_stream_for_all_sixteen_values() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let render =
             |scroll: u16| {
@@ -2281,8 +2281,8 @@ mod tests {
 
     #[test]
     fn ddfstrt_rewrite_after_match_does_not_rephase_pixels() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let mut matched = Agnus::new();
         matched.agnus_id = 0x2000;
@@ -2373,8 +2373,8 @@ mod tests {
 
     #[test]
     fn early_ddf_primes_bitplane_shifter_before_framebuffer_viewport() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let mut agnus = Agnus::new();
         agnus.agnus_id = 0x2300;
@@ -2434,8 +2434,8 @@ mod tests {
 
     #[test]
     fn hires_overfetch_keeps_identical_plane_streams_pixel_aligned() {
-        use commodore_agnus_ocs::Agnus;
-        use commodore_denise_ocs::DeniseOcs;
+        use emu198x_commodore_agnus_ocs::Agnus;
+        use emu198x_commodore_denise_ocs::DeniseOcs;
 
         let mut agnus = Agnus::new();
         agnus.agnus_id = 0x2000;

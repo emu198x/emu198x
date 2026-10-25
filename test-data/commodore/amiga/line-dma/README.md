@@ -2,7 +2,7 @@
 
 The standard width-two line engine retains four CCK stages per pixel.
 Optional B DMA adds a B read and a reserved bus stage, for six stages.
-`crates/commodore-agnus-ocs/tests/line_dma.rs` observes the actual reads,
+`crates/emu198x-commodore-agnus-ocs/tests/line_dma.rs` observes the actual reads,
 writes, result values, pointer movement and concurrent CPU availability.
 
 Run the registered source-table adapter from the emulator root:

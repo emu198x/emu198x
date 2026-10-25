@@ -1,16 +1,16 @@
 //! `DeniseChip` trait — the surface the board-level `Denise` wrapper
 //! requires from any concrete Denise variant.
 //!
-//! Currently implemented by `commodore_denise_ocs::DeniseOcs` and
-//! `commodore_denise_ecs::DeniseEcs`. Future variants (AGA's Lisa,
+//! Currently implemented by `emu198x_commodore_denise_ocs::DeniseOcs` and
+//! `emu198x_commodore_denise_ecs::DeniseEcs`. Future variants (AGA's Lisa,
 //! CD32's AKIKO-aware variant) impl the same trait and the wrapper
 //! works against them unchanged.
 //!
 //! See Seam 1 of
 //! `knowledge/decisions/amiga-full-family-architecture-review.md`.
 
-use commodore_denise_ecs::DeniseEcs;
-use commodore_denise_ocs::{DeniseOcs, DeniseOutputPixelDebug};
+use emu198x_commodore_denise_ecs::DeniseEcs;
+use emu198x_commodore_denise_ocs::{DeniseOcs, DeniseOutputPixelDebug};
 
 /// Timing of a horizontal display-window comparator match relative to the
 /// output tick at the matching beam position.
