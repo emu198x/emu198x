@@ -78,6 +78,10 @@ use crate::variants::C64FamilyMachine;
 /// restore during the three-cycle bus handover could make the next matrix or
 /// sprite access valid at the wrong Phi2 phase.
 ///
+/// Version 21 adds the CMD SuperCPU: the machine carries the live board, and
+/// the envelope its firmware and SuperRAM size, so a reset after a restore
+/// fits it again.
+///
 /// Version 4 makes arbitrary mid-frame snapshots lossless by including the
 /// live VIC-II sprite fetch/draw pipeline and SID samples queued since the last
 /// frame boundary. Those fields were omitted from earlier machine snapshots.
@@ -90,7 +94,7 @@ use crate::variants::C64FamilyMachine;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 20;
+const SNAPSHOT_VERSION: u32 = 21;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,
@@ -115,6 +119,7 @@ struct SnapshotEnvelopeV13<S> {
     georam_kb: Option<usize>,
     reu_kb: Option<usize>,
     mouse_1351_port: Option<u8>,
+    supercpu: Option<(Vec<u8>, usize)>,
 }
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
@@ -134,6 +139,9 @@ pub(crate) fn encode<M: C64FamilyMachine>(
         georam_kb: runtime.georam_kb(),
         reu_kb: runtime.reu_kb(),
         mouse_1351_port: runtime.mouse_1351_port(),
+        supercpu: runtime
+            .supercpu_fitting()
+            .map(|(rom, superram)| (rom.to_vec(), superram)),
     })
     .map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -191,6 +199,7 @@ pub(crate) fn decode<M: C64FamilyMachine>(
         snapshot.georam_kb,
         snapshot.reu_kb,
         snapshot.mouse_1351_port,
+        snapshot.supercpu,
     );
     runtime.set_time(snapshot.time);
     Ok(())
