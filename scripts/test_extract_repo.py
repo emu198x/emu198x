@@ -29,6 +29,26 @@ def rewrite(manifest: str, moving: set[str]) -> tuple[str, set[str], list[str]]:
         return path.read_text(), used, warnings
 
 
+class UnreleasedSiblings(unittest.TestCase):
+    def test_a_registry_dependency_still_in_this_workspace_is_a_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = pathlib.Path(tmp) / "crates" / "emu198x-atari-antic" / "Cargo.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(textwrap.dedent(
+                """\
+                [dependencies]
+                emu198x-atari-gtia = "0.1.0"
+                emu198x-mos-6502 = { version = "0.6.0", features = [] }
+                serde = { workspace = true }
+                not-a-crate-here = "1"
+                """
+            ))
+            self.assertEqual(
+                extract_repo.unreleased_siblings(pathlib.Path(tmp)),
+                {"emu198x-atari-gtia", "emu198x-mos-6502"},
+            )
+
+
 class RewriteManifest(unittest.TestCase):
     def test_a_dependency_left_behind_comes_from_the_registry(self) -> None:
         text, _, _ = rewrite(
