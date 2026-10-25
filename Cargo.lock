@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-nintendo-s-ppu"
-version = "0.44.2"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde-big-array",

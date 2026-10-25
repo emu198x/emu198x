@@ -530,3 +530,11 @@ summary = "The Sony S-DSP, the SNES sound generator: eight BRR voices with echo.
 consumers = "Used by the SNES."
 # 99.71% line coverage on 2026-10-25.
 coverage_floor = 99
+
+[[repo]]
+name = "nintendo-s-ppu"
+crates = ["emu198x-nintendo-s-ppu"]
+summary = "The Nintendo S-PPU1 and S-PPU2, the SNES picture processor pair, stepped one dot at a time."
+consumers = "Used by the SNES."
+# 98.24% line coverage on 2026-10-25.
+coverage_floor = 98

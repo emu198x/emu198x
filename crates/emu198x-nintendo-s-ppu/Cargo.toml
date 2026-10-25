@@ -1,11 +1,17 @@
 [package]
 name = "emu198x-nintendo-s-ppu"
 description = "Nintendo S-PPU1 5C77 and S-PPU2 5C78: the SNES picture processor pair, stepped one dot at a time"
-version.workspace = true
-publish = false
 edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it was made publishable.
+version = "0.1.0"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["snes", "ppu", "video", "nintendo", "emulator"]
+categories = ["emulators"]
 
 [dependencies]
 serde = { workspace = true }
