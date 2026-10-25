@@ -11,7 +11,7 @@
 //!   7812.5 baud and MIDI at 31250, both from a 500 kHz clock.
 //! - **YM2149** (`emu198x-gi-ay-3-8910` in its YM2149 variant): sound at
 //!   a quarter of the CPU clock, its port A selecting the floppy drive and side.
-//! - **WD1772** (`western-digital-wd1770`) behind the DMA chip ([`dma`]).
+//! - **WD1772** (`emu198x-western-digital-wd1770`) behind the DMA chip ([`dma`]).
 //! - **The IKBD** ([`ikbd`]): keyboard, mouse, joysticks and clock, simulated
 //!   at the protocol level.
 //!
@@ -70,13 +70,13 @@ pub mod ikbd;
 use atari_st_glue_mmu::{Frequency, GlueMmu};
 use atari_st_shifter::Shifter;
 use emu198x_gi_ay_3_8910::{Ay3_8910, Variant};
+use emu198x_western_digital_wd1770::{Disk, Wd1770};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
 use motorola_acia_6850::Acia6850;
 use motorola_mfp_68901::{Mfp68901, TimerId};
 use serde::{Deserialize, Serialize};
-use western_digital_wd1770::{Disk, Wd1770};
 
 pub use dma::Dma;
 pub use ikbd::{Ikbd, Stick};

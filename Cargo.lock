@@ -2707,6 +2707,7 @@ dependencies = [
  "atari-st-shifter",
  "emu198x-gi-ay-3-8910",
  "emu198x-test-skip",
+ "emu198x-western-digital-wd1770",
  "format-atari-st-msa",
  "format-atari-st-st",
  "motorola-68000",
@@ -2714,7 +2715,6 @@ dependencies = [
  "motorola-mfp-68901",
  "serde",
  "serde_json",
- "western-digital-wd1770",
 ]
 
 [[package]]
