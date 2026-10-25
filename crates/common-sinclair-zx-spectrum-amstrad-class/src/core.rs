@@ -37,6 +37,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_zilog_z80::{BusOp, Z80};
 use nec_upd765a::Upd765a;
+use peripheral_divmmc::{DivMmc, DivMmcEepromError};
 use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
 
 use crate::memory::MemoryPlus;
@@ -70,6 +71,9 @@ pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     /// Multiface 3. Unplugged until [`Self::attach_multiface`] supplies
     /// its ROM; while paged in it overlays the bottom 16 KB.
     pub multiface: Multiface,
+    /// DivMMC and its SD card. Unplugged until [`Self::attach_divmmc`]
+    /// supplies its EEPROM; while paged in it overlays the bottom 16 KB.
+    pub divmmc: DivMmc,
     pub tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -153,6 +157,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
             multiface: Multiface::new(MultifaceModel::Three),
+            divmmc: DivMmc::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -175,6 +180,16 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             ay_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// Plugs in a DivMMC with its 8 KB EEPROM image, such as esxDOS. Its
+    /// SD card slot starts empty; [`Self::divmmc`] holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), DivMmcEepromError> {
+        self.divmmc.attach(eeprom)
     }
 
     /// Plugs in a Multiface 3 with its 8 KB ROM image.
@@ -344,6 +359,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.z80 = Z80::new();
         self.memory.reset_paging();
         self.multiface.reset();
+        self.divmmc.reset();
         self.fdc.reset();
         self.fdc_motor_on = false;
         self.update_fdc_inputs();
@@ -393,17 +409,27 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
                     if held && !self.multiface.nmi_asserted() {
                         self.z80.nmi = false;
                     }
+                    self.divmmc.on_m1(addr);
                 }
-                self.z80.data_in = match self.multiface.read_memory(addr) {
+                self.z80.data_in = match self
+                    .multiface
+                    .read_memory(addr)
+                    .or_else(|| self.divmmc.read_memory(addr))
+                {
                     Some(value) => value,
                     None => self.memory.read(addr),
                 };
+                if self.z80.m1 {
+                    self.divmmc.after_m1(addr);
+                }
             }
             Some(BusOp::MemWrite) => {
                 if let Some(w) = &mut self.write_watch {
                     w.maybe_record(self.z80.regs.pc, self.z80.addr, self.z80.data);
                 }
-                if !self.multiface.write_memory(self.z80.addr, self.z80.data) {
+                if !self.multiface.write_memory(self.z80.addr, self.z80.data)
+                    && !self.divmmc.write_memory(self.z80.addr, self.z80.data)
+                {
                     self.memory.write(self.z80.addr, self.z80.data);
                 }
             }
@@ -457,6 +483,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.divmmc.claims_read(port) {
+            return self.divmmc.read(port);
+        }
         if self.multiface.claims_port(port) {
             return self.multiface.read(port);
         }
@@ -501,6 +530,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
+        if self.divmmc.claims_port(port) {
+            self.divmmc.write(port, data);
+        }
         self.multiface.observe_io_write(port, data);
         if self.multiface.claims_port(port) {
             self.multiface.write(port, data);
@@ -1280,5 +1312,28 @@ mod multiface_tests {
         assert_eq!(m.port_read(0x1F3F), 0xF4);
         m.port_read(0x00BF);
         assert!(!m.multiface.is_paged(), "A7 high pages a Multiface 3 out");
+    }
+}
+
+#[cfg(test)]
+mod divmmc_tests {
+    use super::*;
+    use crate::variant::Plus2AMarker;
+
+    type Machine = SpectrumAmstradClassCore<Plus2AMarker>;
+
+    #[test]
+    fn the_fetch_from_0000_automaps_the_eeprom() {
+        // DI in every ROM; the EEPROM, from $0001, stores $5A at $8000.
+        let mut rom = vec![0; 16 * 1024];
+        rom[0] = 0xF3;
+        let mut eeprom = vec![0xFF; 0x2000];
+        eeprom[1..8].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+        let mut m = Machine::new();
+        m.memory.load_roms(&rom, &rom, &rom, &rom);
+        m.attach_divmmc(&eeprom).expect("an 8 KB EEPROM attaches");
+        m.run_frame();
+        assert!(m.divmmc.is_paged());
+        assert_eq!(m.memory.read(0x8000), 0x5A);
     }
 }

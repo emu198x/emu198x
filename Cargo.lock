@@ -654,6 +654,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
  "emu198x-zilog-z80",
+ "peripheral-divmmc",
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
  "peripheral-multiface",
@@ -670,6 +671,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-zilog-z80",
  "ferranti-ula-6c001e",
+ "peripheral-divmmc",
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
  "peripheral-multiface",
@@ -687,6 +689,7 @@ dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-zilog-z80",
  "nec-upd765a",
+ "peripheral-divmmc",
  "peripheral-multiface",
  "serde",
  "serde_json",
@@ -4223,6 +4226,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "peripheral-divmmc"
+version = "0.44.2"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
 name = "peripheral-kempston-joystick"
 version = "0.44.2"
 dependencies = [
@@ -4980,6 +4991,7 @@ dependencies = [
  "machine-sinclair-zx-spectrum-plus3",
  "machine-timex-tc2048",
  "machine-timex-ts2068",
+ "peripheral-divmmc",
  "peripheral-kempston-joystick",
  "peripheral-kempston-mouse",
  "peripheral-sinclair-interface1",

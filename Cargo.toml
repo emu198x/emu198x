@@ -209,6 +209,7 @@ members = [
     "crates/nintendo-game-boy-ppu",
     "crates/nintendo-game-boy-timer",
     "crates/pentagon-ula",
+    "crates/peripheral-divmmc",
     "crates/peripheral-multiface",
     "crates/peripheral-sinclair-interface1",
     "crates/scorpion-ula",
