@@ -1066,6 +1066,12 @@ impl C64Memory {
         }
     }
 
+    /// A byte of the character ROM, `offset` within its 4 KB.
+    #[must_use]
+    pub(crate) fn character_rom_byte(&self, offset: u16) -> u8 {
+        self.character_rom[usize::from(offset & 0x0FFF)]
+    }
+
     /// Direct RAM read bypassing overlays.
     #[must_use]
     pub fn ram_read(&self, addr: u16) -> u8 {

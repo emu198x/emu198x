@@ -36,7 +36,7 @@ pub use input::{key_name_is_valid, keys_for_char};
 pub use machine_commodore_c64::{AudioControls, SidChannel};
 pub use profiles::{C128Model, Model, c128_profile_for, c128_profiles, profile_for, profiles};
 pub use queries::C64SessionQueryProvider;
-pub use runtime::{C64FamilyRuntime, C64Runtime};
+pub use runtime::{C64FamilyRuntime, C64Runtime, SUPERCPU_FIRMWARE_ID};
 pub use typing::{
     DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES,
     MAX_KEY_HOLD_FRAMES, press_key, type_string,

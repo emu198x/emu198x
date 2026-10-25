@@ -2,7 +2,9 @@
 
 mod common;
 
-use emu198x_shell::{HostIo, MachineCore, MachineError, MachineTime, NullAudioSink, NullTraceSink};
+use emu198x_shell::{
+    HostIo, MachineCore, MachineError, MachineTime, NullAudioSink, NullTraceSink, ResetKind,
+};
 use mos_vic_ii::palette::PALETTE;
 use runtime_commodore_c64::{C64Runtime, Model};
 
@@ -567,6 +569,60 @@ fn snapshot_round_trip_preserves_ram_expansion_and_mouse_bookkeeping() {
     );
 }
 
+/// A synthetic stand-in for the CMD ROM: 64 KB whose reset vector points at
+/// a `BRA *` loop through the boot map. The real ROM is never committed.
+fn supercpu_rom() -> Vec<u8> {
+    let mut rom = vec![0xFF; 0x1_0000];
+    rom[0xE000..0xE002].copy_from_slice(&[0x80, 0xFE]);
+    rom[0xFFFC] = 0x00;
+    rom[0xFFFD] = 0xE0;
+    rom
+}
+
+#[test]
+fn a_supercpu_survives_a_snapshot_and_a_later_reset() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    runtime
+        .set_supercpu(Some((supercpu_rom(), 1024 * 1024)))
+        .expect("fit");
+    assert!(runtime.machine().supercpu().is_some());
+
+    let snapshot = runtime.snapshot().expect("runtime should snapshot");
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&snapshot)
+        .expect("snapshot restore should succeed");
+    let scpu = restored
+        .machine()
+        .supercpu()
+        .expect("restored with the board");
+    assert_eq!(scpu.superram_size(), 1024 * 1024);
+    assert_eq!(
+        restored.supercpu_fitting().map(|(_, superram)| superram),
+        Some(1024 * 1024),
+        "the fitting survives restore so a reset fits the board again"
+    );
+
+    restored.reset(ResetKind::Hard);
+    assert!(
+        restored.machine().supercpu().is_some(),
+        "still fitted after a reset"
+    );
+}
+
+#[test]
+fn a_supercpu_needs_firmware_of_a_size_it_takes() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    assert!(matches!(
+        runtime.set_supercpu(Some((vec![0; 100], 0))),
+        Err(MachineError::InvalidFirmware { .. })
+    ));
+    assert!(runtime.machine().supercpu().is_none());
+    assert!(runtime.supercpu_fitting().is_none());
+}
+
 #[test]
 fn restore_rejects_corrupt_postcard_bytes() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
@@ -585,11 +641,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[19])
-        .expect_err("version 19 snapshot should be rejected before payload decode");
+        .restore(&[20])
+        .expect_err("version 20 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 19; expected 20"),
+            if reason == "unsupported snapshot version 20; expected 21"),
         "unexpected error variant: {err:?}",
     );
 }

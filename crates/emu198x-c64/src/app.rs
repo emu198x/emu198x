@@ -90,6 +90,10 @@ pub struct C64 {
     pub turbo_tape: bool,
     pub georam_kb: Option<usize>,
     pub reu_kb: Option<usize>,
+    /// The CMD ROM image for a SuperCPU, which fits the board.
+    pub supercpu_rom: Option<PathBuf>,
+    /// SuperRAM for the SuperCPU, in megabytes.
+    pub superram_mb: Option<usize>,
     pub mouse_1351_port: Option<u8>,
     pub esp_at_tcp: bool,
     pub esp_at_baud: Option<u64>,
@@ -124,6 +128,8 @@ impl Default for C64 {
             turbo_tape: false,
             georam_kb: None,
             reu_kb: None,
+            supercpu_rom: None,
+            superram_mb: None,
             mouse_1351_port: None,
             esp_at_tcp: false,
             esp_at_baud: None,
@@ -188,6 +194,8 @@ impl MachineApp for C64 {
     --turbo-tape         (accepted; arm tape fast-load in the UI with F11)
     --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
     --reu KB             attach a 17xx REU RAM expansion (128, 256, or 512 KiB)
+    --supercpu PATH      fit a CMD SuperCPU, booting from the CMD ROM at PATH
+    --superram MB        SuperRAM on the SuperCPU (0, 1, 4, 8 or 16) [default: 0]
     --mouse-1351 PORT    plug a 1351 proportional mouse into control port 1 or 2
     --esp-at-tcp         plug a WiFi modem into the user port; dialling opens a
                          real TCP connection (64-byte frame reassembly). Speaks
@@ -248,6 +256,8 @@ impl MachineApp for C64 {
             "--turbo-tape" => self.turbo_tape = true,
             "--georam" => self.georam_kb = Some(parse_georam_size(&args.value(flag)?)?),
             "--reu" => self.reu_kb = Some(parse_reu_size(&args.value(flag)?)?),
+            "--supercpu" => self.supercpu_rom = Some(args.path(flag)?),
+            "--superram" => self.superram_mb = Some(parse_superram_size(&args.value(flag)?)?),
             "--mouse-1351" => self.mouse_1351_port = Some(parse_mouse_port(&args.value(flag)?)?),
             "--esp-at-tcp" => self.esp_at_tcp = true,
             "--esp-at-baud" => self.esp_at_baud = Some(args.parse(flag, "a positive integer")?),
@@ -455,14 +465,15 @@ impl C64 {
 
         let wants_c64_hardware = self.georam_kb.is_some()
             || self.reu_kb.is_some()
+            || self.supercpu_rom.is_some()
             || self.mouse_1351_port.is_some()
             || self.esp_at_tcp
             || self.ultimate_net;
         let Some(c64) = machine.as_c64_mut() else {
             if wants_c64_hardware {
                 return Err(LaunchError::Run(
-                    "--georam, --reu, --mouse-1351, --esp-at-tcp and --ultimate-net fit C64 \
-                     hardware the C128 does not model yet"
+                    "--georam, --reu, --supercpu, --mouse-1351, --esp-at-tcp and \
+                     --ultimate-net fit C64 hardware the C128 does not model yet"
                         .to_owned(),
                 ));
             }
@@ -476,6 +487,18 @@ impl C64 {
         }
         if let Some(kb) = self.reu_kb {
             c64.set_reu(Some(kb));
+        }
+        if self.superram_mb.is_some() && self.supercpu_rom.is_none() {
+            return Err(LaunchError::Usage(
+                "--superram needs a SuperCPU fitted with --supercpu".to_owned(),
+            ));
+        }
+        if let Some(path) = &self.supercpu_rom {
+            let rom = std::fs::read(path)
+                .map_err(|err| format!("cannot read {}: {err}", path.display()))?;
+            let superram = self.superram_mb.unwrap_or(0) * 1024 * 1024;
+            c64.set_supercpu(Some((rom, superram)))
+                .map_err(|err| LaunchError::Run(format!("invalid --supercpu: {err}")))?;
         }
         if let Some(port) = self.mouse_1351_port {
             c64.set_mouse_1351(Some(port));
@@ -676,6 +699,17 @@ fn parse_reu_size(value: &str) -> Result<usize, LaunchError> {
     }
 }
 
+/// Parse a `--superram` size in megabytes: the SIMM sizes the SuperCPU's
+/// configuration register decodes.
+fn parse_superram_size(value: &str) -> Result<usize, LaunchError> {
+    match value.parse::<usize>() {
+        Ok(mb @ (0 | 1 | 4 | 8 | 16)) => Ok(mb),
+        _ => Err(LaunchError::Usage(
+            "--superram expects a size in MB: 0, 1, 4, 8, or 16".to_owned(),
+        )),
+    }
+}
+
 /// Parse a `--mouse-1351` control-port number. The C64 has two control ports.
 fn parse_mouse_port(value: &str) -> Result<u8, LaunchError> {
     match value.parse::<u8>() {
@@ -823,8 +857,14 @@ mod tests {
         assert_eq!(app.esp_at_baud, Some(2400));
         assert!(app.ultimate_net);
 
+        let (app, _, _) = parsed(&["--supercpu", "scpu.rom", "--superram", "4"]);
+        assert_eq!(app.supercpu_rom, Some(PathBuf::from("scpu.rom")));
+        assert_eq!(app.superram_mb, Some(4));
+
         assert_eq!(parse_georam_size("2048"), Ok(2048));
         assert_eq!(parse_reu_size("128"), Ok(128));
+        assert_eq!(parse_superram_size("16"), Ok(16));
+        assert!(parse_superram_size("2").is_err());
         assert_eq!(parse_mouse_port("2"), Ok(2));
         assert!(parse_georam_size("640").is_err());
         assert!(parse_reu_size("1024").is_err());
