@@ -5,6 +5,11 @@
 //! the MCP `load_media` path. Electron audio is the ULA's 1-bit sound
 //! generator; the chip crate exposes `take_audio_buffer` so the runtime
 //! pushes those samples per frame at 48 kHz.
+//!
+//! The Plus 3 model also fits the disc expansion. Its ADFS ROM is optional
+//! firmware, and its two drives are the `drive-0` and `drive-1` media slots:
+//! ADFS `.adf` and `.adl` images load, eject and export as the image they
+//! are, with whatever the machine has written.
 
 use common_acorn_cassette::TapePulse;
 use emu198x_shell::{
@@ -15,7 +20,9 @@ use emu198x_shell::{
 use machine_acorn_electron::AcornElectron;
 
 use crate::input::apply_input_event;
-use crate::profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for};
+use crate::profiles::{
+    ADFS_FIRMWARE_ID, BASIC_FIRMWARE_ID, DISK_SLOTS, Model, OS_FIRMWARE_ID, profile_for,
+};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
@@ -31,6 +38,9 @@ pub struct ElectronRuntime {
     machine: Option<AcornElectron>,
     os_bytes: Option<Vec<u8>>,
     basic_bytes: Option<Vec<u8>>,
+    /// The Plus 3's ADFS ROM, on the Plus 3 model. A Plus 3 without one still
+    /// has its drives and controller; nothing pages into ROM 4.
+    adfs_bytes: Option<Vec<u8>>,
     /// The mounted cassette's decoded waveform, kept so it survives a reset's
     /// machine rebuild (the tape stays in the deck across a reset).
     tape_pulses: Option<Vec<TapePulse>>,
@@ -49,6 +59,7 @@ impl ElectronRuntime {
             machine: None,
             os_bytes: None,
             basic_bytes: None,
+            adfs_bytes: None,
             tape_pulses: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
@@ -87,7 +98,37 @@ impl ElectronRuntime {
                 .ok_or_else(|| MachineError::MissingFirmware {
                     id: BASIC_FIRMWARE_ID.to_owned(),
                 })?;
-        Self::new(model, os.to_vec(), basic.to_vec())
+        let mut runtime = Self::new(model, os.to_vec(), basic.to_vec())?;
+        if model.has_plus3()
+            && let Some(adfs) = firmware.bytes(ADFS_FIRMWARE_ID)
+        {
+            runtime.set_adfs(adfs.to_vec())?;
+        }
+        Ok(runtime)
+    }
+
+    /// Fit the Plus 3's ADFS ROM and rebuild the machine. The discs stay in
+    /// their drives.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidFirmware` if the ROM is not 16 KB, and
+    /// `MachineError::UnsupportedOperation` on a model without a Plus 3.
+    pub fn set_adfs(&mut self, adfs_rom: Vec<u8>) -> Result<(), MachineError> {
+        if !self.model.has_plus3() {
+            return Err(MachineError::UnsupportedOperation {
+                operation: "set_adfs",
+            });
+        }
+        if adfs_rom.len() != ROM_SIZE {
+            return Err(MachineError::InvalidFirmware {
+                id: ADFS_FIRMWARE_ID.to_owned(),
+                reason: format!("ADFS ROM is {} bytes; expected {ROM_SIZE}", adfs_rom.len()),
+            });
+        }
+        self.adfs_bytes = Some(adfs_rom);
+        self.rebuild_machine();
+        Ok(())
     }
 
     /// Replace both ROMs and rebuild the wrapped machine.
@@ -162,6 +203,17 @@ impl ElectronRuntime {
         if let Some(pulses) = &self.tape_pulses {
             machine.insert_tape(pulses.clone());
         }
+        if self.model.has_plus3() {
+            machine.fit_plus3(self.adfs_bytes.clone().unwrap_or_default());
+            // Nor the discs, which keep whatever the machine wrote to them.
+            if let Some(old) = self.machine.as_ref() {
+                for drive in 0..DISK_SLOTS.len() {
+                    if let Some(disk) = old.disk(drive) {
+                        machine.insert_disk(drive, disk.clone());
+                    }
+                }
+            }
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -169,6 +221,17 @@ impl ElectronRuntime {
         self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
+    }
+
+    /// The Plus 3 drive a disc slot names, on the Plus 3 model.
+    fn disk_drive(&self, slot: &str) -> Result<usize, MachineError> {
+        DISK_SLOTS
+            .iter()
+            .position(|&name| name == slot)
+            .filter(|_| self.model.has_plus3())
+            .ok_or_else(|| MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            })
     }
 
     fn update_rgba_framebuffer(&mut self) {
@@ -255,6 +318,20 @@ impl MachineCore for ElectronRuntime {
                     }
                     self.tape_pulses = Some(tape.pulses);
                 }
+                MediaKind::Disk => {
+                    let drive = self.disk_drive(slot)?;
+                    let disk = machine_acorn_electron::adfs_disk(image.bytes, image.writable)
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        })?;
+                    let Some(machine) = self.machine.as_mut() else {
+                        return Err(MachineError::InvalidRequest {
+                            reason: "load the OS and BASIC ROMs before a disc".to_owned(),
+                        });
+                    };
+                    machine.insert_disk(drive, disk);
+                }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
@@ -263,6 +340,43 @@ impl MachineCore for ElectronRuntime {
             }
         }
         Ok(())
+    }
+
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        if slot == "tape-1" {
+            self.tape_pulses = None;
+            if let Some(machine) = self.machine.as_mut() {
+                machine.eject_tape();
+            }
+            return Ok(());
+        }
+        let drive = self.disk_drive(slot)?;
+        if let Some(machine) = self.machine.as_mut() {
+            machine.eject_disk(drive);
+        }
+        Ok(())
+    }
+
+    /// A disc exports as the ADFS image it is: `adf` for one side, `adl`
+    /// for two (interleaved by track), holding whatever the machine wrote.
+    fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        let drive = self.disk_drive(slot)?;
+        let invalid = |reason: String| MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason,
+        };
+        let disk = self
+            .machine
+            .as_ref()
+            .and_then(|machine| machine.disk(drive))
+            .ok_or_else(|| invalid("no disc in the drive".to_owned()))?;
+        let native = if disk.sides() == 2 { "adl" } else { "adf" };
+        if format != native {
+            return Err(invalid(format!(
+                "this disc exports as {native}, not {format}"
+            )));
+        }
+        Ok(disk.data().to_vec())
     }
 
     fn run_until(
