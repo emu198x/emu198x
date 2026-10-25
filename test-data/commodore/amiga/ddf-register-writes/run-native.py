@@ -14,7 +14,7 @@ def run(output: Path, fixtures: Path, probe: str) -> int:
     output.mkdir(parents=True, exist_ok=True)
     manifest = '[package]\nname="ddf-register-probe"\nversion="0.0.0"\nedition="2024"\n[dependencies]\n'
     for name in (
-        "commodore-agnus-ocs",
+        "emu198x-commodore-agnus-ocs",
         "common-commodore-amiga",
         "machine-commodore-amiga-ecs",
         "motorola-68000",
