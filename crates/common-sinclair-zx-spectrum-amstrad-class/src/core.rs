@@ -35,8 +35,8 @@ use common_sinclair_zx_spectrum::timing::{FrameTiming, TIMING_PLUS2A};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
+use emu198x_nec_upd765a::Upd765a;
 use emu198x_zilog_z80::{BusOp, Z80};
-use nec_upd765a::Upd765a;
 use peripheral_divmmc::{DivMmc, DivMmcEepromError};
 use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
 
@@ -643,7 +643,7 @@ impl<V: AmstradVariant> Default for SpectrumAmstradClassCore<V> {
 // that doesn't have a drive.
 impl SpectrumAmstradClassCore<Plus3Marker> {
     /// Insert a parsed DSK / EDSK image into drive 0.
-    pub fn insert_disk(&mut self, image: nec_upd765a::DiskImage) {
+    pub fn insert_disk(&mut self, image: emu198x_nec_upd765a::DiskImage) {
         self.fdc.insert_disk(0, image);
     }
 
@@ -770,10 +770,10 @@ mod tests {
             let mut machine = SpectrumAmstradClassCore::<Plus3Marker>::new();
             machine.fdc.insert_disk_with_writable(
                 0,
-                nec_upd765a::DiskImage {
+                emu198x_nec_upd765a::DiskImage {
                     sides: 1,
                     tracks_per_side: 1,
-                    tracks: vec![vec![nec_upd765a::DiskTrack::default()]],
+                    tracks: vec![vec![emu198x_nec_upd765a::DiskTrack::default()]],
                 },
                 writable,
             );
@@ -794,7 +794,7 @@ mod tests {
             for (drive, writable) in [(0, writable_a), (1, writable_b)] {
                 machine.fdc.insert_disk_with_writable(
                     drive,
-                    nec_upd765a::DiskImage::default(),
+                    emu198x_nec_upd765a::DiskImage::default(),
                     writable,
                 );
             }
@@ -820,7 +820,7 @@ mod tests {
         // previous TS level behind, even without an intervening CPU tick.
         machine
             .fdc
-            .insert_disk_with_writable(0, nec_upd765a::DiskImage::default(), true);
+            .insert_disk_with_writable(0, emu198x_nec_upd765a::DiskImage::default(), true);
         machine.io_write(0x3ffd, 4);
         machine.io_write(0x3ffd, 0);
         assert_eq!(machine.io_read(0x3ffd) & (8 | 0x40), 0);
@@ -840,7 +840,7 @@ mod tests {
     #[test]
     fn plus3_motor_controls_ready_attention_for_wired_unit_aliases() {
         let mut machine = SpectrumAmstradClassCore::<Plus3Marker>::new();
-        machine.insert_disk(nec_upd765a::DiskImage::default());
+        machine.insert_disk(emu198x_nec_upd765a::DiskImage::default());
         machine.io_write(0x1ffd, 4); // normal mode, motor stopped
         for _ in 0..8000 {
             machine.fdc.tick();
@@ -1222,7 +1222,7 @@ mod tests {
         let mut m = SpectrumPlus3::new();
         // A minimal blank DSK image — single track, single side, zero
         // sectors — is enough to exercise the insert/eject path.
-        let image = nec_upd765a::DiskImage::default();
+        let image = emu198x_nec_upd765a::DiskImage::default();
         assert!(!m.fdc.has_disk(0), "fresh +3 starts with no disk mounted");
         m.insert_disk(image);
         assert!(m.fdc.has_disk(0), "insert_disk must mount on drive 0");

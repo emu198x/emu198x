@@ -90,13 +90,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amstrad-gate-array"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "amstrad-ula-40077"
 version = "0.44.2"
 dependencies = [
@@ -591,8 +584,8 @@ dependencies = [
  "amstrad-ula-40077",
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
+ "emu198x-nec-upd765a",
  "emu198x-zilog-z80",
- "nec-upd765a",
  "peripheral-divmmc",
  "peripheral-multiface",
  "serde",
@@ -971,6 +964,13 @@ dependencies = [
  "machine-amstrad-cpc",
  "runtime-amstrad-cpc",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-amstrad-gate-array"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1569,6 +1569,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-nec-upd765a"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "emu198x-nes"
 version = "0.44.2"
 dependencies = [
@@ -1590,6 +1597,27 @@ dependencies = [
  "emu198x-web",
  "runtime-nintendo-nes",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "emu198x-nintendo-game-boy-apu"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-nintendo-game-boy-mbc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-nintendo-game-boy-timer"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1630,6 +1658,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sega-315-5124"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "emu198x-sega-315-5313"
 version = "0.1.0"
 dependencies = [
@@ -1656,12 +1692,12 @@ name = "emu198x-sega-master-system"
 version = "0.44.2"
 dependencies = [
  "emu198x-app-icon",
+ "emu198x-sega-315-5124",
  "emu198x-shell",
  "emu198x-ui",
  "machine-sega-master-system",
  "png",
  "runtime-sega-master-system",
- "sega-vdp",
  "serde_json",
 ]
 
@@ -1741,6 +1777,10 @@ dependencies = [
  "runtime-sinclair-zx81",
  "serde_json",
 ]
+
+[[package]]
+name = "emu198x-sinclair-zx81-ula"
+version = "0.1.0"
 
 [[package]]
 name = "emu198x-snes"
@@ -2110,8 +2150,8 @@ dependencies = [
 name = "format-amstrad-dsk"
 version = "0.44.2"
 dependencies = [
+ "emu198x-nec-upd765a",
  "format198x-amstrad-cpc-dsk",
- "nec-upd765a",
 ]
 
 [[package]]
@@ -2871,17 +2911,17 @@ dependencies = [
 name = "machine-amstrad-cpc"
 version = "0.44.2"
 dependencies = [
- "amstrad-gate-array",
  "common-tape",
  "common-z80-machine",
+ "emu198x-amstrad-gate-array",
  "emu198x-gi-ay-3-8912",
  "emu198x-intel-8255",
  "emu198x-motorola-6845",
+ "emu198x-nec-upd765a",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
  "format-amstrad-dsk",
- "nec-upd765a",
  "serde",
 ]
 
@@ -3234,13 +3274,13 @@ name = "machine-nintendo-game-boy"
 version = "0.44.2"
 dependencies = [
  "common-nintendo-game-boy",
+ "emu198x-nintendo-game-boy-apu",
+ "emu198x-nintendo-game-boy-mbc",
+ "emu198x-nintendo-game-boy-timer",
  "emu198x-sharp-lr35902",
  "emu198x-test-skip",
  "format-nintendo-game-boy-cartridge",
- "nintendo-game-boy-apu",
- "nintendo-game-boy-mbc",
  "nintendo-game-boy-ppu",
- "nintendo-game-boy-timer",
  "png",
  "postcard",
  "serde",
@@ -3323,11 +3363,11 @@ name = "machine-sega-master-system"
 version = "0.44.2"
 dependencies = [
  "common-z80-machine",
+ "emu198x-sega-315-5124",
  "emu198x-ti-sn76489",
  "emu198x-yamaha-ym2413",
  "emu198x-zilog-z80",
  "postcard",
- "sega-vdp",
  "serde",
  "serde-big-array",
 ]
@@ -3438,8 +3478,8 @@ version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
+ "emu198x-nec-upd765a",
  "emu198x-test-skip",
- "nec-upd765a",
 ]
 
 [[package]]
@@ -3447,13 +3487,13 @@ name = "machine-sinclair-zx80"
 version = "0.44.2"
 dependencies = [
  "common-z80-machine",
+ "emu198x-sinclair-zx81-ula",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx80-o",
  "png",
  "postcard",
  "serde",
- "sinclair-zx81-ula",
 ]
 
 [[package]]
@@ -3461,13 +3501,13 @@ name = "machine-sinclair-zx81"
 version = "0.44.2"
 dependencies = [
  "common-z80-machine",
+ "emu198x-sinclair-zx81-ula",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx81-p",
  "png",
  "postcard",
  "serde",
- "sinclair-zx81-ula",
 ]
 
 [[package]]
@@ -3777,40 +3817,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "nec-upd765a"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "nintendo-game-boy-apu"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "nintendo-game-boy-mbc"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "nintendo-game-boy-ppu"
 version = "0.44.2"
 dependencies = [
  "common-nintendo-game-boy",
  "serde",
  "serde-big-array",
-]
-
-[[package]]
-name = "nintendo-game-boy-timer"
-version = "0.44.2"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -4742,14 +4754,14 @@ dependencies = [
 name = "runtime-amstrad-cpc"
 version = "0.44.2"
 dependencies = [
- "amstrad-gate-array",
  "common-tape",
+ "emu198x-amstrad-gate-array",
+ "emu198x-nec-upd765a",
  "emu198x-shell",
  "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
  "format-amstrad-dsk",
  "machine-amstrad-cpc",
- "nec-upd765a",
  "postcard",
  "serde",
  "serde_json",
@@ -5049,11 +5061,11 @@ dependencies = [
 name = "runtime-sega-master-system"
 version = "0.44.2"
 dependencies = [
+ "emu198x-sega-315-5124",
  "emu198x-shell",
  "emu198x-zilog-z80",
  "machine-sega-master-system",
  "runtime-sega-master-system-class",
- "sega-vdp",
  "serde_json",
 ]
 
@@ -5061,11 +5073,11 @@ dependencies = [
 name = "runtime-sega-master-system-class"
 version = "0.44.2"
 dependencies = [
+ "emu198x-sega-315-5124",
  "emu198x-shell",
  "emu198x-zilog-z80",
  "machine-sega-master-system",
  "postcard",
- "sega-vdp",
  "serde",
  "serde_json",
 ]
@@ -5313,14 +5325,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sega-vdp"
-version = "0.44.2"
-dependencies = [
- "serde",
- "serde-big-array",
-]
-
-[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5433,10 +5437,6 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
 ]
-
-[[package]]
-name = "sinclair-zx81-ula"
-version = "0.44.2"
 
 [[package]]
 name = "slab"

@@ -21,8 +21,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use emu198x_nec_upd765a::{DiskSector, DiskTrack};
 use machine_amstrad_cpc::{AmstradCpc, CpcModel, DiskImage};
-use nec_upd765a::{DiskSector, DiskTrack};
 
 fn rom(env_var: &str, file: &str) -> Option<Vec<u8>> {
     let path = env::var(env_var).map(PathBuf::from).ok().or_else(|| {

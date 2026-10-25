@@ -390,8 +390,8 @@ impl<M: SmsModel> MachineCore for SmsRuntime<M> {
             SmsVariant::GameGear => Some(Display::Lcd),
             _ => Display::television_for_region(
                 self.profile().region,
-                sega_vdp::PAL_DOT_CLOCK_HZ,
-                sega_vdp::NTSC_DOT_CLOCK_HZ,
+                emu198x_sega_315_5124::PAL_DOT_CLOCK_HZ,
+                emu198x_sega_315_5124::NTSC_DOT_CLOCK_HZ,
             ),
         }
     }

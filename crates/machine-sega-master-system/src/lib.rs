@@ -12,7 +12,7 @@
 //!
 //! The Master System (Mark III in Japan, 1985) is Sega's 8-bit console,
 //! big in Europe and Brazil. Same Z80A + SN76489 audio + new
-//! [Sega VDP](sega_vdp::SegaVdp) (315-5124/5246). **No BIOS required**
+//! [Sega VDP](emu198x_sega_315_5124::SegaVdp) (315-5124/5246). **No BIOS required**
 //! for most carts — execution starts at `$0000` in the cart. SMS-1
 //! BIOSes exist (for the title screen and `Hang On / Safari Hunt`
 //! built-ins) but are optional.
@@ -70,7 +70,7 @@
 //! # Clock model
 //!
 //! Adopts SG-1000 / MSX 3:2 VDP-dot-per-T-state phase counter. The
-//! `sega-vdp` crate exposes only `tick_scanline()` (not per-dot tick)
+//! `emu198x-sega-315-5124` crate exposes only `tick_scanline()` (not per-dot tick)
 //! so the machine accumulates 342 dots' worth of phase before issuing
 //! one scanline tick. This is even more accuracy-relaxed than
 //! `emu198x-ti-tms9918`'s per-dot tick — refining the VDP to a per-dot model
@@ -89,9 +89,9 @@ pub use fm::FmUnit;
 use fm::FmSound;
 
 use common_z80_machine::Z80Machine;
+use emu198x_sega_315_5124::{SegaVdp, VdpRegion, VdpVariant};
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_zilog_z80::{BusOp, Z80};
-use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
@@ -183,7 +183,7 @@ impl SmsVariant {
     /// The 315-5124 shipped in the early Master System and the 315-5246 in
     /// the Master System II and the Game Gear. The difference is a handful of
     /// register bits the earlier chip ANDs with the VRAM address bus, plus a
-    /// sprite-magnification quirk — see `sega-vdp`.
+    /// sprite-magnification quirk — see `emu198x-sega-315-5124`.
     fn vdp_variant(self) -> VdpVariant {
         match self {
             Self::Sms1Ntsc | Self::Sms1Pal | Self::MarkIII => VdpVariant::Sms1,

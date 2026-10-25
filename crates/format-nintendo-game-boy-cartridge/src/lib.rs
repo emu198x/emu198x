@@ -3,7 +3,7 @@
 //! The DMG / CGB cartridge header lives at ROM offsets `$0100..=$014F`.
 //! This crate decodes it into a [`CartridgeHeader`]. It describes the
 //! board the header names without modelling it: the memory bank
-//! controllers themselves live in `nintendo-game-boy-mbc`, and the
+//! controllers themselves live in `emu198x-nintendo-game-boy-mbc`, and the
 //! machine builds one from the header.
 //!
 //! Header layout (Pan Docs §11):

@@ -68,7 +68,7 @@ GATED_CRATES = [
     "amstrad-ula-40077",
     "ferranti-ula-6c001e",
     "emu198x-gi-ay-3-8912",
-    "nec-upd765a",
+    "emu198x-nec-upd765a",
     "sinclair-ula-7k010e",
     "emu198x-zilog-z80",
     # Format crates

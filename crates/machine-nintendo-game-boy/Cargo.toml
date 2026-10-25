@@ -10,10 +10,10 @@ repository.workspace = true
 [dependencies]
 common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.44.0" }
 format-nintendo-game-boy-cartridge = { path = "../format-nintendo-game-boy-cartridge", version = "0.44.0" }
-nintendo-game-boy-apu = { path = "../nintendo-game-boy-apu", version = "0.44.0" }
-nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc", version = "0.44.0" }
+emu198x-nintendo-game-boy-apu = { path = "../emu198x-nintendo-game-boy-apu", version = "0.1.0" }
+emu198x-nintendo-game-boy-mbc = { path = "../emu198x-nintendo-game-boy-mbc", version = "0.1.0" }
 nintendo-game-boy-ppu = { path = "../nintendo-game-boy-ppu", version = "0.44.0" }
-nintendo-game-boy-timer = { path = "../nintendo-game-boy-timer", version = "0.44.0" }
+emu198x-nintendo-game-boy-timer = { path = "../emu198x-nintendo-game-boy-timer", version = "0.1.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 emu198x-sharp-lr35902 = { path = "../emu198x-sharp-lr35902", version = "0.1.0" }

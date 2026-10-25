@@ -12,7 +12,7 @@
 pub use common_sinclair_zx_spectrum_amstrad_class::{
     MemoryPlus, Plus3Marker, SpectrumAmstradClassCore,
 };
-pub use nec_upd765a::DiskImage;
+pub use emu198x_nec_upd765a::DiskImage;
 
 /// Machine-local state for a stock ZX Spectrum +3.
 pub type SpectrumPlus3 = SpectrumAmstradClassCore<Plus3Marker>;

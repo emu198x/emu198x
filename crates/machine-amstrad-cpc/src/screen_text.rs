@@ -31,7 +31,7 @@
 //! plausible-looking text — software with its own font will come back as a
 //! wall of `?`, and that is the correct answer rather than a silent one.
 
-use amstrad_gate_array::VideoMode;
+use emu198x_amstrad_gate_array::VideoMode;
 
 /// Offset of the firmware's character matrices within the 16 KB OS ROM.
 pub const FONT_OFFSET: usize = 0x3800;

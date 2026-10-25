@@ -1,0 +1,20 @@
+[package]
+name = "emu198x-amstrad-gate-array"
+description = "Amstrad Gate Array (40007 / 40010) — the CPC's video, palette and ROM-paging chip"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["gate-array", "amstrad", "cpc", "video", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

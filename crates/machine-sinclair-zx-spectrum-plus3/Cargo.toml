@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.44.0" }
 common-sinclair-zx-spectrum-amstrad-class = { path = "../common-sinclair-zx-spectrum-amstrad-class", version = "0.44.0" }
-nec-upd765a = { path = "../nec-upd765a", version = "0.44.0" }
+emu198x-nec-upd765a = { path = "../emu198x-nec-upd765a", version = "0.1.0" }
 
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }

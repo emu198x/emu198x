@@ -5,7 +5,7 @@
 //! used the deprecated `emu_core::Bus` callback; this file uses it as
 //! the system spec but wires [`emu198x_zilog_z80::Z80`] through its public pin
 //! fields and `bus_request()` collapse. The keyboard matrix is shared
-//! with the ZX80 — see [`sinclair_zx81_ula`]; the display is not, and
+//! with the ZX80 — see [`emu198x_sinclair_zx81_ula`]; the display is not, and
 //! [`video`] says why.
 //!
 //! # The ZX81

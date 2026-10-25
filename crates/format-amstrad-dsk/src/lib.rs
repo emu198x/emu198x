@@ -2,7 +2,7 @@
 //! The decoder and its history graduated to Format198x; controller types stay
 //! here so existing machine state serialisation and call sites remain stable.
 
-use nec_upd765a::{DiskImage, DiskSector, DiskTrack};
+use emu198x_nec_upd765a::{DiskImage, DiskSector, DiskTrack};
 
 /// Encode the live controller image using the shared sector-model EDSK writer.
 ///

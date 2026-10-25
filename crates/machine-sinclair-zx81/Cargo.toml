@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 common-z80-machine = { path = "../common-z80-machine", version = "0.44.0" }
 serde = { workspace = true }
-sinclair-zx81-ula = { path = "../sinclair-zx81-ula", version = "0.44.0" }
+emu198x-sinclair-zx81-ula = { path = "../emu198x-sinclair-zx81-ula", version = "0.1.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 
 [dev-dependencies]
