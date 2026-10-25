@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-commodore-agnus-ecs"
-description = "Commodore Super Agnus (ECS) — thin wrapper over commodore-agnus-ocs that adds the BEAMCON0 register, programmable sync generator, and ECS-specific timing extensions. Used by ECS machines (A500+, A600, A3000)."
+description = "Commodore Super Agnus (ECS) — thin wrapper over emu198x-commodore-agnus-ocs that adds the BEAMCON0 register, programmable sync generator, and ECS-specific timing extensions. Used by ECS machines (A500+, A600, A3000)."
 edition.workspace = true
 # Independently versioned, not the workspace lockstep version: this is a
 # published crate whose version communicates *its* changes to consumers, so it

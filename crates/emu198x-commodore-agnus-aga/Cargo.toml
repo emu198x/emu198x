@@ -1,6 +1,6 @@
 [package]
 name = "emu198x-commodore-agnus-aga"
-description = "Commodore Alice (AGA Agnus) — thin wrapper over commodore-agnus-ecs that adds the FMODE register (bitplane / sprite DMA fetch widths) and AGA-specific bus arbitration. Used by AGA machines (A1200, A4000, CD32)."
+description = "Commodore Alice (AGA Agnus) — thin wrapper over emu198x-commodore-agnus-ecs that adds the FMODE register (bitplane / sprite DMA fetch widths) and AGA-specific bus arbitration. Used by AGA machines (A1200, A4000, CD32)."
 edition.workspace = true
 # Independently versioned, not the workspace lockstep version: this is a
 # published crate whose version communicates *its* changes to consumers, so it
