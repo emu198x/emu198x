@@ -1,0 +1,13 @@
+[package]
+name = "format-acorn-adfs"
+description = "Acorn ADFS old-map floppy images (.adf, .adl): geometry, a blank formatter and the root catalogue"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

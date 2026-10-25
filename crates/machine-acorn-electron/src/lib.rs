@@ -38,15 +38,19 @@
 //! - **RAM:** 32 KB at `$0000-$7FFF`
 //! - **OS ROM:** 16 KB at `$C000-$FFFF` (with ULA registers visible
 //!   at `$FE00-$FE0F`)
-//! - **BASIC ROM:** 16 KB at `$8000-$BFFF` (the sideways ROM slot)
+//! - **BASIC ROM:** 16 KB at `$8000-$BFFF` (paged ROMs 10 and 11)
+//! - **Plus 3** (optional, [`plus3`]): WD1770 disc interface at
+//!   `$FCC0-$FCC7` and the ADFS ROM in paged ROM 4
 //!
 //! # Memory map
 //!
 //! | Range         | Contents                                       |
 //! |---------------|------------------------------------------------|
 //! | `$0000-$7FFF` | 32 KB RAM (shared with ULA video fetch)        |
-//! | `$8000-$BFFF` | Sideways ROM slot (BASIC by default)           |
-//! | `$C000-$FDFF` | OS ROM                                         |
+//! | `$8000-$BFFF` | Paged ROM: 8/9 keyboard, 10/11 BASIC, others   |
+//! |               | on the expansion bus (`$FF` when empty)        |
+//! | `$C000-$FBFF` | OS ROM                                         |
+//! | `$FC00-$FDFF` | Expansion I/O (Plus 3 at `$FCC0-$FCC7`)        |
 //! | `$FE00-$FE0F` | ULA registers (override the OS ROM here)       |
 //! | `$FE10-$FEFF` | I/O space (returns `$FF`)                      |
 //! | `$FF00-$FFFF` | OS ROM (includes reset / IRQ / NMI vectors)    |
@@ -68,10 +72,15 @@
 //! - `$FE08-$FE0F` w: palette mapping — each register sets two
 //!   logical-to-physical colour entries
 
+pub mod plus3;
+
 use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
 use emu198x_mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+
+pub use plus3::{Plus3, adfs_disk};
+pub use western_digital_wd1770::Disk;
 
 /// Nanoseconds per 2 MHz master tick — the cassette receiver's time base.
 const NS_PER_MASTER_TICK: u64 = 500;
@@ -397,6 +406,9 @@ pub struct AcornElectron {
     /// so a script can stop a tape mid-load and look at what happened
     /// (#1198).
     deck_running: bool,
+    /// The Plus 3 disc expansion, when fitted. It sits on the expansion bus:
+    /// it answers at `$FCC0-$FCC7`, drives paged ROM 4 and snoops `$FE05`.
+    plus3: Option<Plus3>,
 }
 
 impl AcornElectron {
@@ -421,7 +433,38 @@ impl AcornElectron {
             scanline: 0,
             cassette: CassetteReceiver::new(),
             deck_running: true,
+            plus3: None,
         }
+    }
+
+    /// Fit a Plus 3 with the given ADFS ROM (16 KB; empty for none). A Plus 3
+    /// already fitted is replaced, discs and all.
+    pub fn fit_plus3(&mut self, adfs_rom: Vec<u8>) {
+        self.plus3 = Some(Plus3::new(adfs_rom));
+    }
+
+    /// The Plus 3, when fitted.
+    #[must_use]
+    pub fn plus3(&self) -> Option<&Plus3> {
+        self.plus3.as_ref()
+    }
+
+    /// Put a disc in a Plus 3 drive (0 or 1). Ignored without a Plus 3.
+    pub fn insert_disk(&mut self, drive: usize, disk: Disk) {
+        if let Some(plus3) = self.plus3.as_mut() {
+            plus3.insert_disk(drive, disk);
+        }
+    }
+
+    /// Take the disc out of a Plus 3 drive.
+    pub fn eject_disk(&mut self, drive: usize) -> Option<Disk> {
+        self.plus3.as_mut().and_then(|p| p.eject_disk(drive))
+    }
+
+    /// The disc in a Plus 3 drive, with whatever the machine has written.
+    #[must_use]
+    pub fn disk(&self, drive: usize) -> Option<&Disk> {
+        self.plus3.as_ref().and_then(|p| p.disk(drive))
     }
 
     /// Loads a cassette tape from a decoded UEF pulse stream, rewound to the
@@ -520,6 +563,11 @@ impl AcornElectron {
         for _ in 0..cost {
             self.ula.tick_sound();
         }
+        if let Some(plus3) = self.plus3.as_mut() {
+            for _ in 0..cost {
+                plus3.tick();
+            }
+        }
         self.tick_cassette(cost);
         self.master_ticks += cost;
         self.cpu_cycles += 1;
@@ -604,25 +652,37 @@ impl AcornElectron {
         icount * 2
     }
 
+    /// The paged-ROM window as the bus sees it: what the ULA drives for its
+    /// own pages, ANDed with whatever the expansion bus drives. Pages 8 and 9
+    /// are the keyboard (A0-A13 select columns, D0-D3 the rows), 10 and 11
+    /// BASIC; every other page belongs to the expansion bus, where the Plus 3
+    /// answers for page 4 and an empty bus floats high. (MAME
+    /// `electron_state::rom_r` ANDs the ULA and expansion reads the same way.)
+    fn paged_rom_byte(&self, addr: u16) -> u8 {
+        let ula = match self.ula.rom_page {
+            8 | 9 => self.ula.read_keyboard(addr),
+            10 | 11 => self
+                .basic_rom
+                .get((addr - 0x8000) as usize)
+                .copied()
+                .unwrap_or(0xFF),
+            _ => 0xFF,
+        };
+        let expansion = self.plus3.as_ref().map_or(0xFF, |p| p.rom_byte(addr));
+        ula & expansion
+    }
+
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0xBFFF => {
-                // Sideways-ROM slot. Slots 8 and 9 are the keyboard: reading
-                // the paged area with those selected returns the matrix
-                // (A0-A13 select columns, D0-D3 the rows). Other slots hold
-                // BASIC / expansion ROMs.
-                match self.ula.rom_page {
-                    8 | 9 => self.ula.read_keyboard(addr),
-                    _ => self
-                        .basic_rom
-                        .get((addr - 0x8000) as usize)
-                        .copied()
-                        .unwrap_or(0xFF),
-                }
-            }
+            0x8000..=0xBFFF => self.paged_rom_byte(addr),
             0xFE00..=0xFE0F => self.ula_read(addr),
-            0xFC00..=0xFDFF | 0xFE10..=0xFEFF => 0xFF,
+            0xFC00..=0xFDFF => self
+                .plus3
+                .as_mut()
+                .and_then(|p| p.io_read(addr))
+                .unwrap_or(0xFF),
+            0xFE10..=0xFEFF => 0xFF,
             0xC000..=0xFFFF => self
                 .os_rom
                 .get((addr - 0xC000) as usize)
@@ -636,6 +696,13 @@ impl AcornElectron {
             0x0000..=0x7FFF => self.ram[addr as usize] = value,
             0xFE00..=0xFE0F => self.ula_write(addr, value),
             _ => {}
+        }
+        // The expansion bus sees every write: the Plus 3 decodes its own
+        // registers and snoops the ULA's paging register.
+        if matches!(addr, 0xFC00..=0xFDFF | 0xFE05)
+            && let Some(plus3) = self.plus3.as_mut()
+        {
+            plus3.write(addr, value);
         }
     }
 
@@ -683,7 +750,13 @@ impl AcornElectron {
             }
             0x04 => {} // Cassette data shift (stub)
             0x05 => {
-                self.ula.rom_page = value & 0x0F;
+                // With the keyboard or BASIC (pages 8-11) selected, only a
+                // write with bit 3 set changes the page; that is why the OS
+                // reaches ROMs 0-7 through 12-15 first. (Electron reference,
+                // ROM paging; MAME `electron_ula` `&FE05` write.)
+                if self.ula.rom_page & 0x0C != 0x08 || value & 0x08 != 0 {
+                    self.ula.rom_page = value & 0x0F;
+                }
                 if value & 0x10 != 0 {
                     self.ula.interrupt_status &= !0x04;
                 }
@@ -849,6 +922,18 @@ impl AcornElectron {
         self.frame_count
     }
 
+    /// The paged-ROM number the ULA has selected (`$FE05` bits 0-3).
+    #[must_use]
+    pub fn rom_page(&self) -> u8 {
+        self.ula.rom_page
+    }
+
+    /// The display start address the ULA fetches from (`$FE02`/`$FE03`).
+    #[must_use]
+    pub fn screen_start(&self) -> u16 {
+        self.ula.screen_start
+    }
+
     /// Current ULA display mode (0-7).
     #[must_use]
     pub fn display_mode(&self) -> u8 {
@@ -863,18 +948,20 @@ impl AcornElectron {
 }
 
 impl AcornElectron {
-    /// Read one byte with no side effects (RAM / BASIC / OS ROM;
-    /// `$FF` for the ULA / I/O page).
+    /// Read one byte with no side effects (RAM, the paged ROM as currently
+    /// selected, the OS ROM, the Plus 3's latch and passive registers; `$FF`
+    /// for the ULA page).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0xBFFF => self
-                .basic_rom
-                .get((addr - 0x8000) as usize)
-                .copied()
+            0x8000..=0xBFFF => self.paged_rom_byte(addr),
+            0xFC00..=0xFDFF => self
+                .plus3
+                .as_ref()
+                .and_then(|p| p.io_peek(addr))
                 .unwrap_or(0xFF),
-            0xFC00..=0xFEFF => 0xFF,
+            0xFE00..=0xFEFF => 0xFF,
             0xC000..=0xFFFF => self
                 .os_rom
                 .get((addr - 0xC000) as usize)
@@ -1086,6 +1173,7 @@ mod tests {
         basic[0x0100] = 0xBB;
         let mut sys = AcornElectron::new(os, basic);
         assert_eq!(sys.mem_read(0xC100), 0xAA);
+        sys.ula_write(0xFE05, 0x0A); // BASIC
         assert_eq!(sys.mem_read(0x8100), 0xBB);
         sys.mem_write(0x4000, 0x42);
         assert_eq!(sys.mem_read(0x4000), 0x42);
@@ -1366,5 +1454,112 @@ mod tests {
         assert_eq!(sys.ula.interrupt_status & RX_FULL_IRQ, 0);
         // ...and the carrier leader raised high-tone detect along the way.
         assert!(sys.ula.interrupt_status & HIGH_TONE_IRQ != 0);
+    }
+
+    #[test]
+    fn basic_answers_only_in_pages_10_and_11_and_empty_pages_float_high() {
+        let (os, mut basic) = trap_roms();
+        basic[0x0006] = 0x60; // a language ROM's type byte
+        let mut sys = AcornElectron::new(os, basic);
+        for page in [10u8, 11] {
+            sys.ula_write(0xFE05, page);
+            assert_eq!(sys.mem_read(0x8006), 0x60, "BASIC in page {page}");
+        }
+        sys.ula_write(0xFE05, 0x0C); // ROM 12: nothing fitted
+        assert_eq!(sys.mem_read(0x8006), 0xFF);
+        sys.ula_write(0xFE05, 0x04);
+        assert_eq!(
+            sys.mem_read(0x8006),
+            0xFF,
+            "ROM 4 is empty without a Plus 3"
+        );
+    }
+
+    #[test]
+    fn from_pages_8_to_11_only_a_write_with_bit_3_changes_the_page() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.ula_write(0xFE05, 0x0A);
+        sys.ula_write(0xFE05, 0x04);
+        assert_eq!(sys.rom_page(), 10, "BASIC holds against a page below 8");
+        sys.ula_write(0xFE05, 0x0C);
+        sys.ula_write(0xFE05, 0x04);
+        assert_eq!(sys.rom_page(), 4, "through ROM 12, as the OS does it");
+        sys.ula_write(0xFE05, 0x09);
+        assert_eq!(sys.rom_page(), 9);
+    }
+
+    #[test]
+    fn a_fitted_plus_3_pages_adfs_into_rom_4_and_decodes_its_registers() {
+        let (os, basic) = trap_roms();
+        let mut adfs = vec![0u8; 0x4000];
+        adfs[0x0007] = 0x2A;
+        let mut sys = AcornElectron::new(os, basic);
+        sys.fit_plus3(adfs);
+        assert!(sys.plus3().is_some_and(Plus3::has_adfs));
+        // Through the bus, as the OS selects it: ROM 12 then ROM 4.
+        sys.mem_write(0xFE05, 0x0C);
+        sys.mem_write(0xFE05, 0x04);
+        assert_eq!(sys.mem_read(0x8007), 0x2A);
+        assert_eq!(sys.peek(0x8007), 0x2A);
+        sys.mem_write(0xFE05, 0x0A);
+        assert_eq!(
+            sys.mem_read(0x8007),
+            0xFF,
+            "BASIC's page: the Plus 3 lets go (the trap BASIC is all &FF)"
+        );
+        // The 1770's track register round-trips at &FCC5.
+        sys.mem_write(0xFCC5, 0x5A);
+        assert_eq!(sys.mem_read(0xFCC5), 0x5A);
+        assert_eq!(sys.peek(0xFCC5), 0x5A);
+        assert_eq!(sys.mem_read(0xFCC0), 0xFF);
+        sys.mem_write(0xFCC0, 0x21);
+        assert_eq!(sys.plus3().and_then(Plus3::selected_drive), Some(0));
+    }
+
+    #[test]
+    fn a_6502_program_reads_a_sector_from_a_plus_3_disc_by_polling() {
+        // A program in RAM selects drive 0, reads track 0 sector 2 (the root
+        // directory) into &2000 by polling the status register, as ADFS does,
+        // then loops.
+        let (mut os, basic) = trap_roms();
+        os[0x3FFC] = 0x00;
+        os[0x3FFD] = 0x10; // reset vector -> &1000
+        let mut sys = AcornElectron::new(os, basic);
+        sys.fit_plus3(Vec::new());
+        let image = format_acorn_adfs::blank(format_acorn_adfs::Format::M, "POLL");
+        sys.insert_disk(0, adfs_disk(&image, true).expect("disc"));
+        let program: &[u8] = &[
+            0xA9, 0x21, 0x8D, 0xC0, 0xFC, // LDA #&21: STA &FCC0 (drive 0, MR high)
+            0xA9, 0x02, 0x8D, 0xC6, 0xFC, // LDA #2: STA &FCC6 (sector 2)
+            0xA9, 0x80, 0x8D, 0xC4, 0xFC, // LDA #&80: STA &FCC4 (read sector)
+            0xA2, 0x00, //                   LDX #0
+            0xAD, 0xC4, 0xFC, //             loop: LDA &FCC4
+            0x6A, //                         ROR A (busy -> C)
+            0x90, 0x0C, //                   BCC done
+            0x6A, //                         ROR A (DRQ -> C)
+            0x90, 0xF7, //                   BCC loop
+            0xAD, 0xC7, 0xFC, //             LDA &FCC7
+            0x9D, 0x00, 0x20, //             STA &2000,X
+            0xE8, //                         INX
+            0xD0, 0xEE, //                   BNE loop
+            0x4C, 0x23, 0x10, //             done: JMP done
+        ];
+        for (i, &b) in program.iter().enumerate() {
+            sys.poke(0x1000 + i as u16, b);
+        }
+        for _ in 0..5 {
+            sys.run_frame();
+        }
+        assert_eq!(
+            &sys.ram[0x2000..0x2005],
+            b"\x00Hugo",
+            "the root directory's first bytes"
+        );
+        assert_eq!(
+            &sys.ram[0x20FB..0x2100],
+            &image[0x2FB..0x300],
+            "the whole sector arrived"
+        );
     }
 }
