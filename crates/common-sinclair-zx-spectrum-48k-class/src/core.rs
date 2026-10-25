@@ -33,6 +33,7 @@ use common_sinclair_zx_spectrum::timing::{
 use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_zilog_z80::{BusOp, Z80};
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
+use peripheral_divmmc::{DivMmc, DivMmcEepromError};
 use peripheral_kempston_joystick::KempstonJoystick;
 use peripheral_kempston_mouse::KempstonMouse;
 use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
@@ -85,6 +86,9 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     /// [`Self::attach_interface1`] supplies its ROM; while its shadow ROM
     /// is paged in it overlays the bottom 16 KB.
     pub interface1: Interface1,
+    /// DivMMC and its SD card. Unplugged until [`Self::attach_divmmc`]
+    /// supplies its EEPROM; while paged in it overlays the bottom 16 KB.
+    pub divmmc: DivMmc,
     tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -130,6 +134,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             kempston_mouse: KempstonMouse::new(),
             multiface: Multiface::default(),
             interface1: Interface1::new(),
+            divmmc: DivMmc::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -248,6 +253,16 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             self.z80.nmi = true;
         }
         pulled
+    }
+
+    /// Plugs in a DivMMC with its 8 KB EEPROM image, such as esxDOS. Its
+    /// SD card slot starts empty; [`Self::divmmc`] holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), DivMmcEepromError> {
+        self.divmmc.attach(eeprom)
     }
 
     /// Plugs in an Interface 1 with its 8 KB ROM image. Its eight
@@ -536,6 +551,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.ula = FerrantiUla::new(revision);
         self.multiface.reset();
         self.interface1.reset();
+        self.divmmc.reset();
         self.audio = make_audio();
         self.audio_frame.fill(0.0);
         self.speaker = SpeakerMixer::default();
@@ -584,17 +600,20 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                         self.z80.nmi = false;
                     }
                     self.interface1.on_m1(addr);
+                    self.divmmc.on_m1(addr);
                 }
                 self.z80.data_in = match self
                     .multiface
                     .read_memory(addr)
                     .or_else(|| self.interface1.read_memory(addr))
+                    .or_else(|| self.divmmc.read_memory(addr))
                 {
                     Some(value) => value,
                     None => self.memory.read(addr),
                 };
                 if self.z80.m1 {
                     self.interface1.after_m1(addr);
+                    self.divmmc.after_m1(addr);
                 }
             }
             Some(BusOp::MemWrite) => {
@@ -603,6 +622,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                 }
                 if !self.multiface.write_memory(self.z80.addr, self.z80.data)
                     && !self.interface1.write_memory(self.z80.addr, self.z80.data)
+                    && !self.divmmc.write_memory(self.z80.addr, self.z80.data)
                 {
                     self.memory.write(self.z80.addr, self.z80.data);
                 }
@@ -640,9 +660,13 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             && !self.kempston.claims_port(port)
             && !self.multiface.claims_port(port)
             && !self.interface1.claims_port(port)
+            && !self.divmmc.claims_read(port)
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.divmmc.claims_read(port) {
+            return self.divmmc.read(port);
+        }
         if self.interface1.claims_port(port) {
             return self.interface1.read(port);
         }
@@ -671,6 +695,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     }
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
+        if self.divmmc.claims_port(port) {
+            self.divmmc.write(port, data);
+        }
         self.multiface.observe_io_write(port, data);
         if self.multiface.claims_port(port) {
             self.multiface.write(port, data);
@@ -1664,5 +1691,96 @@ mod interface1_tests {
             .expect("an 8 KB ROM attaches");
         assert!(!m.is_floating_bus_port(0x00EF));
         assert_eq!(m.port_read(0x00EF), 0xE7);
+    }
+}
+
+#[cfg(test)]
+mod divmmc_tests {
+    use super::*;
+
+    use crate::variant::Spectrum48kMarker;
+
+    type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
+
+    /// A Spectrum ROM whose only code is `DI` at `$0000`. Everything after
+    /// it must come from the DivMMC.
+    fn spectrum_rom() -> [u8; 16 * 1024] {
+        let mut rom = [0; 16 * 1024];
+        rom[0] = 0xF3;
+        rom
+    }
+
+    /// A stand-in for esxDOS. The fetch from `$0000` pages it in, so it
+    /// runs from `$0001`: select the card, send CMD0, CMD8, CMD55,
+    /// ACMD41 and CMD17 for block 1, skip the R1 and data token, and read
+    /// the 512 bytes to `$8000`.
+    fn eeprom() -> Vec<u8> {
+        let mut eeprom = vec![0xFF; 0x2000];
+        let program = [
+            0x3E, 0xFE, // LD A,$FE
+            0xD3, 0xE7, // OUT ($E7),A: card 0 selected
+            0x21, 0x1D, 0x00, // LD HL,commands
+            0x01, 0xEB, 0x1E, // LD BC,$1EEB: 30 bytes to the SPI port
+            0xED, 0xB3, // OTIR
+            0xDB, 0xEB, // IN A,($EB): R1
+            0xDB, 0xEB, // IN A,($EB): data token
+            0x21, 0x00, 0x80, // LD HL,$8000
+            0x01, 0xEB, 0x00, // LD BC,$00EB: 256 bytes
+            0xED, 0xB2, // INIR
+            0xED, 0xB2, // INIR
+            0x18, 0xFE, // JR $
+        ];
+        eeprom[1..1 + program.len()].copy_from_slice(&program);
+        let commands = [
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x95, // CMD0
+            0x48, 0x00, 0x00, 0x01, 0xAA, 0x87, // CMD8
+            0x77, 0x00, 0x00, 0x00, 0x00, 0x01, // CMD55
+            0x69, 0x40, 0x00, 0x00, 0x00, 0x01, // ACMD41, HCS
+            0x51, 0x00, 0x00, 0x00, 0x01, 0x01, // CMD17, block 1
+        ];
+        eeprom[0x1D..0x1D + commands.len()].copy_from_slice(&commands);
+        eeprom
+    }
+
+    fn card() -> Vec<u8> {
+        let mut card = vec![0; peripheral_divmmc::SD_IMAGE_UNIT];
+        for (i, byte) in card[512..1024].iter_mut().enumerate() {
+            *byte = (i as u8) ^ 0x5A;
+        }
+        card
+    }
+
+    #[test]
+    fn the_eeprom_reads_a_block_from_the_card() {
+        let mut m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        m.attach_divmmc(&eeprom()).expect("an 8 KB EEPROM attaches");
+        m.divmmc.card.insert(card()).expect("512 KB");
+        m.run_frame();
+        assert!(m.divmmc.is_paged(), "automapped by the fetch from $0000");
+        let read: Vec<u8> = (0..512).map(|i| m.memory().read(0x8000 + i)).collect();
+        assert_eq!(read, card()[512..1024]);
+    }
+
+    #[test]
+    fn without_a_divmmc_its_ports_float() {
+        let m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        assert!(m.is_floating_bus_port(0x00EB));
+    }
+
+    #[test]
+    fn the_write_only_ports_still_float_when_attached() {
+        let mut m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        m.attach_divmmc(&eeprom()).expect("an 8 KB EEPROM attaches");
+        assert!(m.is_floating_bus_port(0x00E3));
+        assert!(!m.is_floating_bus_port(0x00EB));
+    }
+
+    #[test]
+    fn reset_pages_it_out() {
+        let mut m = Spectrum48k::with_rom(UlaRevision::Ferranti6C, spectrum_rom());
+        m.attach_divmmc(&eeprom()).expect("an 8 KB EEPROM attaches");
+        m.run_frame();
+        m.reset();
+        assert!(!m.divmmc.is_paged());
     }
 }

@@ -142,6 +142,30 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         false
     }
 
+    /// Plugs in a DivMMC with its 8 KB EEPROM image, on the 48K-,
+    /// 128K- and Amstrad-class machines. The EEPROM, usually esxDOS, is
+    /// supplied by the user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB, or if the variant
+    /// hosts no DivMMC (the default).
+    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        let _ = eeprom;
+        Err("this machine does not host a DivMMC".to_owned())
+    }
+
+    /// The DivMMC, if the variant hosts one. Default `None`.
+    fn divmmc(&self) -> Option<&peripheral_divmmc::DivMmc> {
+        None
+    }
+
+    /// Mutable access to the DivMMC, if the variant hosts one. Default
+    /// `None`.
+    fn divmmc_mut(&mut self) -> Option<&mut peripheral_divmmc::DivMmc> {
+        None
+    }
+
     /// Plugs in an Interface 1 with its 8 KB ROM image, on the 48K- and
     /// 128K-class machines. The ROM is Sinclair's firmware, supplied by
     /// the user.
@@ -629,6 +653,29 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         self.machine.attach_multiface(rom)
     }
 
+    /// Plugs a DivMMC into the machine; see
+    /// [`SpectrumMachine::attach_divmmc`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB or the variant hosts no
+    /// DivMMC.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
+        self.machine.attach_divmmc(eeprom)
+    }
+
+    fn attached_divmmc_mut(
+        &mut self,
+        slot: &str,
+    ) -> Result<&mut peripheral_divmmc::DivMmc, MachineError> {
+        match self.machine.divmmc_mut() {
+            Some(divmmc) if divmmc.is_attached() => Ok(divmmc),
+            _ => Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            }),
+        }
+    }
+
     /// Plugs an Interface 1 into the machine; see
     /// [`SpectrumMachine::attach_interface1`].
     ///
@@ -906,6 +953,15 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                         bytes: image.bytes.to_vec(),
                     });
                 }
+                MediaKind::Disk if slot == SD_CARD_SLOT => {
+                    let card = self.attached_divmmc_mut(slot)?;
+                    card.card.insert(image.bytes.to_vec()).map_err(|err| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: err.to_string(),
+                        }
+                    })?;
+                }
                 MediaKind::Cartridge if microdrive_index(slot).is_some() => {
                     self.insert_microdrive(slot, image.bytes)?;
                 }
@@ -923,6 +979,10 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        if slot == SD_CARD_SLOT {
+            self.attached_divmmc_mut(slot)?.card.eject();
+            return Ok(());
+        }
         if let Some(drive) = microdrive_index(slot) {
             self.attached_interface1_mut(slot)?.eject(drive);
             return Ok(());
@@ -950,6 +1010,23 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     }
 
     fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        if slot == SD_CARD_SLOT {
+            if format != "img" {
+                return Err(MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: format!("an SD card exports as img, not {format}"),
+                });
+            }
+            return self
+                .machine
+                .divmmc()
+                .and_then(|divmmc| divmmc.card.image())
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason: "no SD card in the DivMMC".to_owned(),
+                });
+        }
         if let Some(drive) = microdrive_index(slot) {
             if format != "mdr" {
                 return Err(MachineError::InvalidMedia {
@@ -1090,6 +1167,9 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         self.profile.capabilities.clone()
     }
 }
+
+/// The DivMMC's SD card slot.
+pub const SD_CARD_SLOT: &str = "sd-card-1";
 
 /// The drive a `microdrive-1` … `microdrive-8` slot names, from 0.
 fn microdrive_index(slot: &str) -> Option<usize> {

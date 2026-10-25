@@ -30,6 +30,7 @@ use common_sinclair_zx_spectrum::timing::{
 use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_zilog_z80::{BusOp, Z80};
+use peripheral_divmmc::{DivMmc, DivMmcEepromError};
 use peripheral_kempston_joystick::KempstonJoystick;
 use peripheral_kempston_mouse::KempstonMouse;
 use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
@@ -76,6 +77,9 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
     /// [`Self::attach_interface1`] supplies its ROM; while its shadow ROM
     /// is paged in it overlays the bottom 16 KB.
     pub interface1: Interface1,
+    /// DivMMC and its SD card. Unplugged until [`Self::attach_divmmc`]
+    /// supplies its EEPROM; while paged in it overlays the bottom 16 KB.
+    pub divmmc: DivMmc,
     pub tape: TapePlayer,
     /// Holds the tape input for one frame after playback stops, then
     /// releases it to low, as FUSE's `tape_stop_mic_off` does.
@@ -135,6 +139,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             kempston_mouse: KempstonMouse::new(),
             multiface: Multiface::default(),
             interface1: Interface1::new(),
+            divmmc: DivMmc::new(),
             tape: TapePlayer::new(),
             tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
@@ -299,6 +304,16 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         pulled
     }
 
+    /// Plugs in a DivMMC with its 8 KB EEPROM image, such as esxDOS. Its
+    /// SD card slot starts empty; [`Self::divmmc`] holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image is not 8 KB.
+    pub fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), DivMmcEepromError> {
+        self.divmmc.attach(eeprom)
+    }
+
     /// Plugs in an Interface 1 with its 8 KB ROM image. Its eight
     /// Microdrives start empty; [`Self::interface1`] holds them.
     ///
@@ -355,6 +370,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         self.memory.reset_paging();
         self.multiface.reset();
         self.interface1.reset();
+        self.divmmc.reset();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
@@ -400,17 +416,20 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
                         self.z80.nmi = false;
                     }
                     self.interface1.on_m1(addr);
+                    self.divmmc.on_m1(addr);
                 }
                 self.z80.data_in = match self
                     .multiface
                     .read_memory(addr)
                     .or_else(|| self.interface1.read_memory(addr))
+                    .or_else(|| self.divmmc.read_memory(addr))
                 {
                     Some(value) => value,
                     None => self.memory.read(addr),
                 };
                 if self.z80.m1 {
                     self.interface1.after_m1(addr);
+                    self.divmmc.after_m1(addr);
                 }
             }
             Some(BusOp::MemWrite) => {
@@ -419,6 +438,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
                 }
                 if !self.multiface.write_memory(self.z80.addr, self.z80.data)
                     && !self.interface1.write_memory(self.z80.addr, self.z80.data)
+                    && !self.divmmc.write_memory(self.z80.addr, self.z80.data)
                 {
                     self.memory.write(self.z80.addr, self.z80.data);
                 }
@@ -456,11 +476,15 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             && !self.kempston.claims_port(port)
             && !self.multiface.claims_port(port)
             && !self.interface1.claims_port(port)
+            && !self.divmmc.claims_read(port)
             && port & 0xc002 != 0xc000
             && port != 0x001f
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
+        if self.divmmc.claims_read(port) {
+            return self.divmmc.read(port);
+        }
         if self.interface1.claims_port(port) {
             return self.interface1.read(port);
         }
@@ -507,6 +531,9 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     }
 
     fn io_write_untraced(&mut self, port: u16, data: u8) {
+        if self.divmmc.claims_port(port) {
+            self.divmmc.write(port, data);
+        }
         self.multiface.observe_io_write(port, data);
         if self.multiface.claims_port(port) {
             self.multiface.write(port, data);
@@ -1090,6 +1117,29 @@ mod interface1_tests {
         m.attach_interface1(&if1_rom).expect("an 8 KB ROM attaches");
         m.run_frame();
         assert!(m.interface1.is_paged());
+        assert_eq!(m.memory.read(0x8000), 0x5A);
+    }
+}
+
+#[cfg(test)]
+mod divmmc_tests {
+    use super::*;
+    use crate::variant::Sinclair128KMarker;
+
+    type Machine = Spectrum128kClassCore<Sinclair128KMarker>;
+
+    #[test]
+    fn the_fetch_from_0000_automaps_the_eeprom() {
+        // DI in every ROM; the EEPROM, from $0001, stores $5A at $8000.
+        let mut rom = vec![0; 16 * 1024];
+        rom[0] = 0xF3;
+        let mut eeprom = vec![0xFF; 0x2000];
+        eeprom[1..8].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
+        let mut m = Machine::new();
+        m.memory.load_roms(&rom, &rom);
+        m.attach_divmmc(&eeprom).expect("an 8 KB EEPROM attaches");
+        m.run_frame();
+        assert!(m.divmmc.is_paged());
         assert_eq!(m.memory.read(0x8000), 0x5A);
     }
 }

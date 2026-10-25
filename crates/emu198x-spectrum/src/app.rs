@@ -18,8 +18,8 @@ use emu198x_shell::{
     build_variant, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Model, SpectrumLiveAccess,
-    SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Model, SD_CARD_SLOT,
+    SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -156,6 +156,12 @@ pub struct Spectrum {
     /// `--microdrive PATH`, repeatable: `.mdr` cartridges for Microdrives
     /// 1 to 8, in order. Needs `--interface1`.
     pub microdrives: Vec<PathBuf>,
+    /// `--divmmc PATH`: the 8 KB DivMMC EEPROM image, such as esxDOS, to
+    /// plug in. It is never bundled.
+    pub divmmc: Option<PathBuf>,
+    /// `--sd-card PATH`: an SD card image for the DivMMC. Needs
+    /// `--divmmc`.
+    pub sd_card: Option<PathBuf>,
 }
 
 impl Spectrum {
@@ -239,7 +245,10 @@ impl MachineApp for Spectrum {
                     the 16K/48K/+/128K/+2
     --microdrive PATH
                     an .mdr cartridge for the next Microdrive, 1 to 8;
-                    repeatable, needs --interface1";
+                    repeatable, needs --interface1
+    --divmmc PATH   plug in a DivMMC with this 8 KB EEPROM image (esxDOS)
+    --sd-card PATH  a raw SD card image, a whole number of 512 KB, for the
+                    DivMMC; needs --divmmc";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
@@ -269,6 +278,8 @@ impl MachineApp for Spectrum {
             "--multiface" => self.multiface = Some(args.path(flag)?),
             "--interface1" => self.interface1 = Some(args.path(flag)?),
             "--microdrive" => self.microdrives.push(args.path(flag)?),
+            "--divmmc" => self.divmmc = Some(args.path(flag)?),
+            "--sd-card" => self.sd_card = Some(args.path(flag)?),
             positional if !positional.starts_with('-') => {
                 if self.tape.is_some() {
                     return Err(LaunchError::Usage(
@@ -315,6 +326,9 @@ impl MachineApp for Spectrum {
                 MICRODRIVE_SLOTS.len()
             )));
         }
+        if self.sd_card.is_some() && self.divmmc.is_none() {
+            return Err(LaunchError::Usage("--sd-card needs --divmmc".to_owned()));
+        }
         let model = self.boot_model()?;
         let overrides = firmware_overrides(&self.rom, model)?;
         let mut runtime =
@@ -325,6 +339,13 @@ impl MachineApp for Spectrum {
             runtime
                 .attach_multiface(&rom)
                 .map_err(|e| format!("--multiface {}: {e}", path.display()))?;
+        }
+        if let Some(path) = &self.divmmc {
+            let eeprom =
+                std::fs::read(path).map_err(|e| format!("--divmmc {}: {e}", path.display()))?;
+            runtime
+                .attach_divmmc(&eeprom)
+                .map_err(|e| format!("--divmmc {}: {e}", path.display()))?;
         }
         if let Some(path) = &self.interface1 {
             let rom =
@@ -360,6 +381,16 @@ impl MachineApp for Spectrum {
             session
                 .load_media(&media)
                 .map_err(|e| format!("--microdrive {}: {e}", path.display()))?;
+        }
+
+        if let Some(path) = &self.sd_card {
+            let bytes =
+                std::fs::read(path).map_err(|e| format!("--sd-card {}: {e}", path.display()))?;
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new(SD_CARD_SLOT, MediaKind::Disk, &bytes));
+            session
+                .load_media(&media)
+                .map_err(|e| format!("--sd-card {}: {e}", path.display()))?;
         }
 
         if self.autoload_tape {
@@ -619,5 +650,17 @@ mod tests {
             app.build_runtime().is_err(),
             "a Microdrive needs the Interface 1"
         );
+    }
+
+    #[test]
+    fn divmmc_and_sd_card_flags_parse() {
+        let (app, _, _) = parsed(&["--divmmc", "esxmmc.bin", "--sd-card", "card.img"]);
+        assert_eq!(app.divmmc, Some(PathBuf::from("esxmmc.bin")));
+        assert_eq!(app.sd_card, Some(PathBuf::from("card.img")));
+        let (app, _, _) = parsed(&["--sd-card", "card.img"]);
+        assert!(matches!(
+            app.build_runtime(),
+            Err(LaunchError::Usage(reason)) if reason.contains("needs --divmmc")
+        ));
     }
 }
