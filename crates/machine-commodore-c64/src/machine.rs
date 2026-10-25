@@ -17,7 +17,10 @@ use crate::freeze_cart::FreezeCart;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, C64MemorySnapshot, CartBankPair, CartBanking, MemoryInitError};
 
+mod supercpu;
 mod user_port;
+
+pub use supercpu::{MIRRORED_PAGES, SUPERCPU_HZ, SUPERRAM_MAX, SuperCpu};
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// 6510 port bits that read high when configured as inputs. Bits 0-2
@@ -80,6 +83,8 @@ pub struct C64 {
     mice: [Option<Mouse1351>; 2],
     phi2_cycles: u64,
     frame_count: u64,
+    /// A CMD SuperCPU, which holds the 6510 off the bus while fitted.
+    supercpu: Option<Box<SuperCpu>>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -99,6 +104,8 @@ pub struct C64Snapshot {
     mice: [Option<Mouse1351>; 2],
     phi2_cycles: u64,
     frame_count: u64,
+    #[serde(default)]
+    supercpu: Option<Box<SuperCpu>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -432,6 +439,7 @@ impl C64 {
             mice: [None; 2],
             phi2_cycles: 0,
             frame_count: 0,
+            supercpu: None,
         };
         machine.refresh_keyboard_scan();
         machine.refresh_vic_bank();
@@ -950,7 +958,9 @@ impl C64 {
         self.cpu.nmi = self.cia2.irq || self.restore_nmi || self.memory.freeze_cart_nmi();
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
-        if self.cpu.rdy {
+        if let Some(scpu) = self.supercpu.take() {
+            self.supercpu = Some(self.tick_supercpu(scpu));
+        } else if self.cpu.rdy {
             if self.cpu.rw {
                 self.cpu.data_in = self.cpu_read(self.cpu.addr);
             } else {
@@ -988,7 +998,9 @@ impl C64 {
         self.cpu.nmi = self.cia2.irq || self.restore_nmi || self.memory.freeze_cart_nmi();
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
-        if self.cpu.rdy {
+        if let Some(scpu) = self.supercpu.take() {
+            self.supercpu = Some(self.tick_supercpu(scpu));
+        } else if self.cpu.rdy {
             if self.cpu.rw {
                 self.cpu.data_in = self.cpu_read_with_iec_bus(self.cpu.addr, bus);
             } else {
@@ -1125,6 +1137,7 @@ impl C64 {
             mice: self.mice,
             phi2_cycles: self.phi2_cycles,
             frame_count: self.frame_count,
+            supercpu: self.supercpu.clone(),
         }
     }
 
@@ -1156,6 +1169,7 @@ impl C64 {
         self.mice = snapshot.mice;
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
+        self.supercpu = snapshot.supercpu;
         self.refresh_keyboard_scan();
         // The saved VIC bank is the output used by the next fetch, which can
         // differ from CIA2's selected bank during a C64C glue-logic transient.

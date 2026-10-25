@@ -13,6 +13,7 @@ use crate::runtime::{
 };
 use crate::variants::C64FamilyMachine;
 use emu198x_esp_at_modem::EspAtTcpBridge;
+use machine_commodore_c64::machine::SuperCpu;
 
 /// Paths every machine in the family answers: its CPU, CIAs, VIC-II, the
 /// 40-column screen and bank 0 RAM. Wildcard paths like
@@ -159,6 +160,13 @@ pub(crate) const C64_ONLY_QUERY_PATHS: &[&str] = &[
     "memory.io_visible",
     "memory.port_data",
     "memory.port_ddr",
+    "supercpu.emulation",
+    "supercpu.fast",
+    "supercpu.optimisation",
+    "supercpu.pbr",
+    "supercpu.pc",
+    "supercpu.present",
+    "supercpu.superram_bytes",
     "tape.loaded",
     "tape.motor_on",
     "tape.pulse_count",
@@ -489,6 +497,17 @@ pub(crate) fn c64_extra_query(
         "memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
         "memory.port_data" => json!(machine.machine().memory().port_data()),
         "memory.port_ddr" => json!(machine.machine().memory().port_ddr()),
+        "supercpu.present" => json!(machine.machine().supercpu().is_some()),
+        "supercpu.fast" => json!(machine.machine().supercpu().map(SuperCpu::fast)),
+        "supercpu.pc" => json!(machine.machine().supercpu().map(|s| s.cpu().regs.pc)),
+        "supercpu.pbr" => json!(machine.machine().supercpu().map(|s| s.cpu().regs.pbr)),
+        "supercpu.emulation" => json!(machine.machine().supercpu().map(|s| s.cpu().e())),
+        "supercpu.optimisation" => {
+            json!(machine.machine().supercpu().map(SuperCpu::optimisation))
+        }
+        "supercpu.superram_bytes" => {
+            json!(machine.machine().supercpu().map(SuperCpu::superram_size))
+        }
         "tape.loaded" => json!(machine.machine().tape_is_loaded()),
         "tape.motor_on" => json!(machine.machine().tape_motor_on()),
         "tape.pulse_count" => json!(machine.machine().tape_pulse_count()),

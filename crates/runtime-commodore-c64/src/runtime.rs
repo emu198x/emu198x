@@ -79,6 +79,9 @@ pub struct C64FamilyRuntime<M: C64FamilyMachine> {
     georam_kb: Option<usize>,
     /// Attached REU size in KiB, retained across a reset like `georam_kb`.
     reu_kb: Option<usize>,
+    /// A fitted SuperCPU's CMD firmware and SuperRAM size, retained across a
+    /// reset like the other expansions.
+    supercpu: Option<(Vec<u8>, usize)>,
     /// Control port a 1351 mouse is plugged into (1 or 2), retained across a
     /// reset so the mouse stays plugged in — and so host pointer events know
     /// which port to drive.
@@ -99,6 +102,9 @@ pub struct C64FamilyRuntime<M: C64FamilyMachine> {
 
 /// The Commodore 64 runtime.
 pub type C64Runtime = C64FamilyRuntime<C64>;
+
+/// The id a SuperCPU's CMD firmware is reported under.
+pub const SUPERCPU_FIRMWARE_ID: &str = "cmd-supercpu-rom";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 struct DriveRomTraceState {
@@ -360,6 +366,7 @@ impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
             cartridge_image: None,
             georam_kb: None,
             reu_kb: None,
+            supercpu: None,
             mouse_1351_port: None,
             iec_bus: IecBus::new(),
             rgba_framebuffer,
@@ -612,6 +619,14 @@ impl C64Runtime {
         if let Some(size_kb) = self.reu_kb {
             self.machine.attach_reu(size_kb);
         }
+        if let Some((rom, superram)) = &self.supercpu {
+            self.machine
+                .fit_supercpu(rom.clone(), *superram)
+                .map_err(|reason| MachineError::InvalidFirmware {
+                    id: SUPERCPU_FIRMWARE_ID.to_owned(),
+                    reason,
+                })?;
+        }
         // A 1351 mouse stays plugged into its control port across a reset.
         if let Some(port) = self.mouse_1351_port {
             self.machine.attach_mouse_1351(port);
@@ -637,6 +652,30 @@ impl C64Runtime {
             Some(kb) => self.machine.attach_reu(kb),
             None => self.machine.detach_reu(),
         }
+    }
+
+    /// Fits a CMD SuperCPU with `Some((firmware, superram_bytes))`, or removes
+    /// it with `None`. The firmware is the CMD ROM the user supplies. Retained
+    /// so a later reset fits it again.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidFirmware` for a firmware or SuperRAM size
+    /// the board does not take; nothing changes then.
+    pub fn set_supercpu(&mut self, fitting: Option<(Vec<u8>, usize)>) -> Result<(), MachineError> {
+        match &fitting {
+            Some((rom, superram)) => {
+                self.machine
+                    .fit_supercpu(rom.clone(), *superram)
+                    .map_err(|reason| MachineError::InvalidFirmware {
+                        id: SUPERCPU_FIRMWARE_ID.to_owned(),
+                        reason,
+                    })?
+            }
+            None => self.machine.remove_supercpu(),
+        }
+        self.supercpu = fitting;
+        Ok(())
     }
 
     /// Plugs a 1351 proportional mouse into control port `Some(1 | 2)`, or
@@ -710,6 +749,15 @@ impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
         self.reu_kb
     }
 
+    /// The fitted SuperCPU's firmware and SuperRAM size, if any. Retained
+    /// across a reset.
+    #[must_use]
+    pub fn supercpu_fitting(&self) -> Option<(&[u8], usize)> {
+        self.supercpu
+            .as_ref()
+            .map(|(rom, superram)| (rom.as_slice(), *superram))
+    }
+
     /// Raw `.crt` bytes of the inserted cartridge, if any. Retained across a
     /// reset (and captured into a snapshot so a restore survives the next one).
     pub(crate) fn cartridge_image_bytes(&self) -> Option<&[u8]> {
@@ -729,10 +777,12 @@ impl<M: C64FamilyMachine> C64FamilyRuntime<M> {
         georam_kb: Option<usize>,
         reu_kb: Option<usize>,
         mouse_1351_port: Option<u8>,
+        supercpu: Option<(Vec<u8>, usize)>,
     ) {
         self.cartridge_image = cartridge_image;
         self.georam_kb = georam_kb;
         self.reu_kb = reu_kb;
+        self.supercpu = supercpu;
         self.mouse_1351_port = mouse_1351_port;
     }
 

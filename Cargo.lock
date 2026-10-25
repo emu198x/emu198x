@@ -2906,6 +2906,7 @@ dependencies = [
  "emu198x-esp-at-modem",
  "emu198x-mos-6502",
  "emu198x-mos-sid-6581",
+ "emu198x-wdc-65c816",
  "format-commodore-c64-crt",
  "format-commodore-c64-prg",
  "format-commodore-c64-tap",
