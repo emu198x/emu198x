@@ -38,12 +38,12 @@
 //! > effective clock rate is approximately 3.3 MHz.
 //!
 //! Modelled as the pin, not as a table of instruction lengths:
-//! [`amstrad_gate_array::wait_asserted`] shapes it and this machine drives it
+//! [`emu198x_amstrad_gate_array::wait_asserted`] shapes it and this machine drives it
 //! from the character-clock phase, leaving the Z80 core to produce whatever
 //! that yields. It went unmodelled for a long time for want of an oracle —
 //! none of MAME, Arnold or Caprice32 models `/WAIT` as a pin. SHAKER supplied
 //! one, and also narrows which T-state is free; see
-//! [`amstrad_gate_array::WAIT_FREE_TSTATE`].
+//! [`emu198x_amstrad_gate_array::WAIT_FREE_TSTATE`].
 //!
 //! # The disc
 //!
@@ -86,15 +86,15 @@
 
 pub mod screen_text;
 
-use amstrad_gate_array::GateArray;
 use common_tape::{TapePlayer, TapeSpan};
 use common_z80_machine::Z80Machine;
+use emu198x_amstrad_gate_array::GateArray;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_intel_8255::Ppi8255;
 use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
+pub use emu198x_nec_upd765a::DiskImage;
+use emu198x_nec_upd765a::Upd765a;
 use emu198x_zilog_z80::{BusOp, Z80};
-pub use nec_upd765a::DiskImage;
-use nec_upd765a::Upd765a;
 use serde::{Deserialize, Serialize};
 
 /// T-states per CRTC character clock: 4 MHz CPU against a 1 MHz CRTC.
@@ -1250,7 +1250,7 @@ impl Z80Machine for AmstradCpc {
         // until the free one, which is what quantises the CPU onto the 1 µs
         // grid. `crtc_phase` is that grid already: four T-states to the
         // character clock.
-        self.cpu.wait = amstrad_gate_array::wait_asserted(self.crtc_phase);
+        self.cpu.wait = emu198x_amstrad_gate_array::wait_asserted(self.crtc_phase);
     }
 
     fn feed_interrupt_pins(&mut self) {
@@ -1474,13 +1474,13 @@ mod tests {
         cpc.io_write(0x7F00, 0b1000_0010); // mode 2
         assert_eq!(
             cpc.gate_array().mode(),
-            amstrad_gate_array::VideoMode::Mode2
+            emu198x_amstrad_gate_array::VideoMode::Mode2
         );
         // A15 high: not the Gate Array, so the mode must not move.
         cpc.io_write(0xFF00, 0b1000_0001);
         assert_eq!(
             cpc.gate_array().mode(),
-            amstrad_gate_array::VideoMode::Mode2
+            emu198x_amstrad_gate_array::VideoMode::Mode2
         );
     }
 
@@ -1865,7 +1865,7 @@ mod tests {
     /// A DATA-format disc: 40 tracks of nine 512-byte sectors, IDs `&C1`-`&C9`,
     /// each byte naming its track, sector and offset.
     fn data_disc() -> DiskImage {
-        use nec_upd765a::{DiskSector, DiskTrack};
+        use emu198x_nec_upd765a::{DiskSector, DiskTrack};
         let tracks = (0..40u8)
             .map(|c| DiskTrack {
                 sectors: (0xC1..=0xC9u8)

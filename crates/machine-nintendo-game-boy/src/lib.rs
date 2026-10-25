@@ -50,18 +50,18 @@ mod cgb_tests;
 mod tests;
 
 use common_nintendo_game_boy::{JoypadButton, JoypadMatrix, MemoryBus};
+use emu198x_nintendo_game_boy_apu::Apu;
+use emu198x_nintendo_game_boy_mbc::{CartType, Cartridge};
+use emu198x_nintendo_game_boy_timer::Timer;
 use emu198x_sharp_lr35902::{PostBootCpuState, Sm83};
 use format_nintendo_game_boy_cartridge::{CartridgeHeader, CartridgeType, CgbSupport, HeaderError};
-use nintendo_game_boy_apu::Apu;
-use nintendo_game_boy_mbc::{CartType, Cartridge};
 use nintendo_game_boy_ppu::Ppu;
-use nintendo_game_boy_timer::Timer;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use crate::cgb::{COMPATIBILITY_BG_PALETTE, COMPATIBILITY_OBJ_PALETTE, CgbState};
 
-pub use nintendo_game_boy_apu::{ApuChannel, AudioControls};
+pub use emu198x_nintendo_game_boy_apu::{ApuChannel, AudioControls};
 
 /// Eight 4 KiB WRAM banks; a DMG uses the first two.
 const WRAM_SIZE: usize = 0x8000;

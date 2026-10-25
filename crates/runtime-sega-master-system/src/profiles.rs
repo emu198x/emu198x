@@ -213,7 +213,7 @@ const NTSC_Z80_HZ: u64 = 3_579_545;
 /// slower, and a PAL machine given the NTSC rate runs that much fast. MAME's
 /// `sms.cpp` states the master clock ("12 * subcarrier freq. (4.43361875MHz)")
 /// and both divisors; the VDP takes master over ten, which is why
-/// `sega_vdp::PAL_DOT_CLOCK_HZ` is 1.5 times this.
+/// `emu198x_sega_315_5124::PAL_DOT_CLOCK_HZ` is 1.5 times this.
 ///
 /// `machine-sega-master-system` has held this figure as `PAL_PSG_CLOCK_HZ`
 /// since the PSG landed — the sound chip runs at the CPU rate — so the two
@@ -299,7 +299,7 @@ mod tests {
     /// an early machine the later chip.
     #[test]
     fn each_model_builds_the_vdp_revision_it_names() {
-        use sega_vdp::VdpVariant;
+        use emu198x_sega_315_5124::VdpVariant;
         for (model, expected) in [
             (Model::SmsNtsc, VdpVariant::Sms2),
             (Model::SmsJapanNtsc, VdpVariant::Sms2),

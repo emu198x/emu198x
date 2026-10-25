@@ -10,9 +10,9 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
+use emu198x_nintendo_game_boy_mbc::CartType;
 use format_nintendo_game_boy_cartridge::CartridgeHeader;
 use format_nintendo_game_boy_cartridge::CartridgeType;
-use nintendo_game_boy_mbc::CartType;
 
 /// Build a 32 KiB ROM with NOPs and a valid header.
 fn nop_rom() -> Vec<u8> {

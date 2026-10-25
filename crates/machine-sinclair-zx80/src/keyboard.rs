@@ -56,7 +56,7 @@ impl KeyboardState {
     /// Returns bits 0-4 (active low: 0 = pressed), bits 5-7 = 1.
     #[must_use]
     pub fn read(&self, addr_high: u8) -> u8 {
-        sinclair_zx81_ula::Zx81Ula::read_keyboard(addr_high, &self.rows)
+        emu198x_sinclair_zx81_ula::Zx81Ula::read_keyboard(addr_high, &self.rows)
     }
 
     /// Release all keys.

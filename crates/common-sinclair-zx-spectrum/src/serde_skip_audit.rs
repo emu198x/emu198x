@@ -56,7 +56,7 @@ const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
                         there is no I/O M-cycle in flight to be mid-count.",
     },
     SerdeSkipAudit {
-        path: "crates/nec-upd765a/src/lib.rs",
+        path: "crates/emu198x-nec-upd765a/src/lib.rs",
         expected: 0,
         justification: "Spectrum snapshot v5 carries live mounted disks, \
                         protection and in-flight writes in the FDC. Replaying \

@@ -100,8 +100,8 @@ The Amstrad-class deliberately has no Kempston field (rear-connector pinout brok
 **Current state.** Three classes of state live outside the serde graph today:
 
 - **`&'static UlaConfig`** in `UlaEngine` (`crates/common-sinclair-zx-spectrum/src/ula_engine.rs:201-203`). Serde-skipped; defaults to `CONFIG_48K`. Each variant ULA exposes `reattach_config()` to reinstall the correct one.
-- **`disks: [Option<DiskImage>; 4]`** in `Upd765a` (`crates/nec-upd765a/src/lib.rs:212`). `#[serde(skip)]` with no rehydration path. A +3 snapshot taken with a disk mounted comes back with no disk.
-- **`reread_key`, `reread_count`, `read_id_index`** in `Upd765a` (`crates/nec-upd765a/src/lib.rs:220-242`). `#[serde(default)]`; resets to zero on restore. Marginal-encoding variation and rotational position both lost.
+- **`disks: [Option<DiskImage>; 4]`** in `Upd765a` (`crates/emu198x-nec-upd765a/src/lib.rs:212`). `#[serde(skip)]` with no rehydration path. A +3 snapshot taken with a disk mounted comes back with no disk.
+- **`reread_key`, `reread_count`, `read_id_index`** in `Upd765a` (`crates/emu198x-nec-upd765a/src/lib.rs:220-242`). `#[serde(default)]`; resets to zero on restore. Marginal-encoding variation and rotational position both lost.
 
 The 48K-class, 128K-class, and Amstrad-class composition crates all expose `restore_volatile_refs()` that calls `z80.rehydrate_walker_sequence()` and `ula.reattach_config()`. The runtime wires this through `after_restore()` for all eight SOLID variants in `crates/runtime-sinclair-zx-spectrum/src/variants.rs`.
 

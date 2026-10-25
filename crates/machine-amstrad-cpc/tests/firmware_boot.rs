@@ -21,7 +21,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use amstrad_gate_array::{BORDER_PEN, VideoMode};
+use emu198x_amstrad_gate_array::{BORDER_PEN, VideoMode};
 use machine_amstrad_cpc::AmstradCpc;
 
 /// Hardware colour codes the CPC464 firmware sets for its own boot screen.

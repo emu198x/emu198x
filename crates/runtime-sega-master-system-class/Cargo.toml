@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-sega-vdp = { path = "../sega-vdp", version = "0.44.0" }
+emu198x-sega-315-5124 = { path = "../emu198x-sega-315-5124", version = "0.1.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.44.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }

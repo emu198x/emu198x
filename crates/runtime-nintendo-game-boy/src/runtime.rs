@@ -15,7 +15,7 @@ use crate::{CGB_BOOT_ROM_ID, Model, profile_for};
 use emu198x_shell::display::Display;
 
 /// Audio sample rate produced by the APU. Matches
-/// `nintendo_game_boy_apu::SAMPLE_RATE_HZ`.
+/// `emu198x_nintendo_game_boy_apu::SAMPLE_RATE_HZ`.
 const APU_SAMPLE_RATE_HZ: u32 = 48_000;
 
 /// Stereo audio: left + right interleaved.

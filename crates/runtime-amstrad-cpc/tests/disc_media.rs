@@ -13,7 +13,7 @@ fn firmware() -> Vec<u8> {
 
 /// A one-track DATA-format disc, sectors `&C1`-`&C9`.
 fn dsk() -> Vec<u8> {
-    use nec_upd765a::{DiskSector, DiskTrack};
+    use emu198x_nec_upd765a::{DiskSector, DiskTrack};
     let track = DiskTrack {
         sectors: (0xC1..=0xC9u8)
             .map(|id| DiskSector {
