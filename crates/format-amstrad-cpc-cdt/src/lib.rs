@@ -20,7 +20,7 @@
 //! in `tape.cpp`, with `MS_TO_CYCLES(p) ((dword)(p) * 4000)` where the
 //! Spectrum would use 3,500.
 
-use common_tape::TapeSpan;
+use emu198x_tape_playback::TapeSpan;
 
 /// The CPC's Z80 clock, in T-states per millisecond.
 const CPC_TSTATES_PER_MS: u32 = 4_000;
@@ -45,7 +45,7 @@ fn scale(duration: u32) -> u32 {
 /// Parses a CDT file into a CPC-facing timing stream.
 ///
 /// Spans come back in the CPC's own 4 MHz T-states, ready to hand to a
-/// [`common_tape::TapePlayer`] the machine advances at its CPU rate.
+/// [`emu198x_tape_playback::TapePlayer`] the machine advances at its CPU rate.
 ///
 /// # Errors
 ///

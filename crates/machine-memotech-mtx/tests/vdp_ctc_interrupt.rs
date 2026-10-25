@@ -1,7 +1,7 @@
 //! Exercise the real ROM, I/O and IM2 path. MEMU's interrupt setup uses
 //! CTC channel 0 with $C5 (falling edge, counter mode), count 1.
 //! MAME's MTX driver inverts its asserted VDP callback before CTC TRG0.
-use common_z80_machine::Z80Machine;
+use emu198x_z80_cadence::Z80Machine;
 use machine_memotech_mtx::{Mtx, MtxModel};
 
 fn guest(vector: u8, rising_edge: bool) -> Vec<u8> {

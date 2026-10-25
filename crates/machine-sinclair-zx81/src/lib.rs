@@ -49,7 +49,7 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// T-states a second, which is what `master_clock` counts.
 const CPU_CLOCK_HZ: u64 = 3_250_000;
 
-use common_z80_machine::Z80Machine;
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -385,7 +385,7 @@ impl Zx81 {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pins fed before each — is `common-z80-machine`'s; this
+    /// interrupt pins fed before each — is `emu198x-z80-cadence`'s; this
     /// machine only orders its own logic around it (the ULA, speaker and
     /// NMI edge detection ahead of the CPU, the refresh-driven /INT after
     /// each edge, as the hand-rolled loop always had them) and gates the

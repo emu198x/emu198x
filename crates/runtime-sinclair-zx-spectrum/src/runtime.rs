@@ -357,7 +357,7 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// finished from one that gave up — both end not-playing. Every
     /// Spectrum-family variant owns a `TapePlayer`, so this is required
     /// rather than optional.
-    fn tape_player(&self) -> &common_tape::TapePlayer;
+    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer;
 
     /// Returns the current half-cycle position within the frame.
     fn half_cycle_in_frame(&self) -> u32;

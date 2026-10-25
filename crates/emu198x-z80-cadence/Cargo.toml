@@ -1,0 +1,19 @@
+[package]
+name = "emu198x-z80-cadence"
+description = "The Z80 cadence every Z80 machine shares: two CPU half-cycles per T-state, interrupt pins fed before each"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["z80", "cadence", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -23,7 +23,7 @@
 //! - `knowledge/concepts/tape-formats.md`
 //! - Promoted from `format-sinclair-zx-spectrum-tzx` on 2026-08-15
 
-use common_tape::{TapeSpan, append_pause_spans, push_pulse};
+use emu198x_tape_playback::{TapeSpan, append_pause_spans, push_pulse};
 
 const PILOT_PULSE: u32 = 2_168;
 const SYNC1_PULSE: u32 = 667;

@@ -48,9 +48,9 @@
 //! which ran the VDP and wall-clock 1.5× too fast. Same model as the
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
-use common_z80_machine::Z80Machine;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -253,7 +253,7 @@ impl ColecoVision {
 
     /// Advance one Z80 T-state and the chips it drives. The cadence — two
     /// CPU half-cycles, the interrupt pin fed before each — is
-    /// `common-z80-machine`'s; this machine only orders its own chips
+    /// `emu198x-z80-cadence`'s; this machine only orders its own chips
     /// around it (the VDP after each CPU edge, the PSG and T-state counter
     /// once per T-state, as the hand-rolled loop always had them).
     fn tick_cpu_cycle(&mut self) {

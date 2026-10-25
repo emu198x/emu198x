@@ -1,7 +1,7 @@
 //! Home-console controller wiring, not the SC-3000 PPI or arcade board.
 //! Sources: shared reference/by-system/sega-sg-1000/2026-controller-wiring-observations.md;
 //! Ares ares/sg/cpu/memory.cpp and MAME sg1000_state::peripheral_r.
-use common_z80_machine::Z80Machine;
+use emu198x_z80_cadence::Z80Machine;
 use machine_sega_sg_1000::{ControllerState, Sg1000, Sg1000Region};
 
 // Bit masks from the home-console wiring table, in host input order:

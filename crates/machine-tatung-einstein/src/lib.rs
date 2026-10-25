@@ -124,10 +124,10 @@
 //! as the Memotech MTX (the other 4 MHz TMS9918 machine). PSG ticks
 //! every other T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
-use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_western_digital_wd1770::{Disk, Wd1770};
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -333,7 +333,7 @@ impl Einstein {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pin fed before each — is `common-z80-machine`'s; the chips
+    /// interrupt pin fed before each — is `emu198x-z80-cadence`'s; the chips
     /// below tick once per T-state after the CPU, as the hand-rolled loop
     /// always had them. Whether the VDP raster wrapped is left in
     /// `vdp_frame_wrapped` for `run_frame`.

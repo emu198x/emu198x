@@ -70,7 +70,7 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "tape.loaded",
     "tape.playing",
     // Position, so "did the tape drain" is observable rather than inferred.
-    // Names come from `common_tape::POSITION_QUERY_PATHS` so every machine
+    // Names come from `emu198x_tape_playback::POSITION_QUERY_PATHS` so every machine
     // with a deck answers the same set.
     "tape.span_index",
     "tape.span_count",

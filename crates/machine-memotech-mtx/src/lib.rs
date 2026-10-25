@@ -51,9 +51,9 @@ pub use emu198x_ti_tms9918::Tms9918;
 pub use input::MtxKey;
 pub use keyboard::KeyboardState;
 
-use common_z80_machine::Z80Machine;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_ti_tms9918::VdpRegion;
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use emu198x_zilog_z80_ctc::Ctc;
 use serde::{Deserialize, Serialize};
@@ -193,7 +193,7 @@ impl Mtx {
 
     /// Advance one Z80 T-state and report whether the VDP raster wrapped.
     /// The cadence — two CPU half-cycles, the interrupt pin fed before each
-    /// — is `common-z80-machine`'s; the PSG, VDP and CTC tick once per
+    /// — is `emu198x-z80-cadence`'s; the PSG, VDP and CTC tick once per
     /// T-state ahead of the CPU, as the hand-rolled loop always had them.
     fn tick_cpu(&mut self) -> bool {
         self.raster_wrapped = false;

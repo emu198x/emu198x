@@ -70,8 +70,8 @@
 //! (register 14) is player 2, port B (register 15) is player 1. Codes are
 //! transcribed from MAME `bus/aquarius/mini.cpp`.
 
-use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -399,7 +399,7 @@ impl Aquarius {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pins fed before each — is `common-z80-machine`'s; the
+    /// interrupt pins fed before each — is `emu198x-z80-cadence`'s; the
     /// T-state counter and speaker below tick once per T-state after the
     /// CPU, as the hand-rolled loop always had them.
     fn tick_tstate(&mut self) {

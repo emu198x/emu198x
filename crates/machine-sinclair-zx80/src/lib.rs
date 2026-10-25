@@ -35,7 +35,7 @@ pub use keyboard::KeyboardState;
 mod video;
 pub use video::{FB_WIDTH, Zx80Video};
 
-use common_z80_machine::Z80Machine;
+use emu198x_z80_cadence::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -150,7 +150,7 @@ impl Zx80 {
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
-    /// interrupt pin fed before each — is `common-z80-machine`'s; this
+    /// interrupt pin fed before each — is `emu198x-z80-cadence`'s; this
     /// machine only orders its own logic around it (the video ahead of the
     /// CPU, the refresh-driven /INT and sync detection after each edge, as
     /// the hand-rolled loop always had them).
