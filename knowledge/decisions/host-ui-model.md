@@ -43,6 +43,20 @@ Why the Mac: it is the first true native frontend, it is the platform the
 owner uses every day, and SwiftUI gives every part of this model a native
 widget (sheets, inspectors, a Settings window, document types).
 
+The hosts follow in this order (Steve, 2026-10-25):
+
+1. **macOS** settles first.
+2. **tvOS** is the Mac app with changes for the television: the focus
+   engine, the Siri Remote, a 10-foot layout and no file system. It shares
+   `apple/Emu198x/Shared` and differs only where the TV must. It is not a
+   separate design.
+3. **WinUI** on Windows starts once the Mac app has settled. Until then,
+   Windows runs the winit baseline with its `muda` menu (attached by
+   `emu198x-win-menu`, under `windows-menu-unsafe-exception.md`).
+
+The GTK4 Linux frontend (section 12) runs alongside, because it is already
+approved and reads the same catalogue.
+
 ### 2. Four detail levels, one at a time
 
 | Level | Shortcut | Shows | Data |
@@ -250,3 +264,4 @@ Stop and re-read this record if you find yourself:
 |---|---|
 | 2026-10-25 | Proposed, with mockups and a plan. |
 | 2026-10-25 | **Approved** (Steve). Section 9 amends `debugger-architecture.md` § 6; section 12 brings the GTK4 Linux frontend forward; `.emu198x` is the shared save format. |
+| 2026-10-25 | Host order recorded (Steve): macOS, then tvOS as its variant, then WinUI. |
