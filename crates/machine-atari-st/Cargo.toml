@@ -20,7 +20,7 @@ format-atari-st-msa = { path = "../format-atari-st-msa", version = "0.44.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.44.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 serde_json = { workspace = true }
 
 [lints]
