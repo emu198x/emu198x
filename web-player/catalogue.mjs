@@ -16,13 +16,15 @@ const formats={
  'nintendo-game-boy':{Cartridge:'.gb'},'nintendo-nes':{Cartridge:'.nes'},'oric-atmos':{Tape:'.tap'},
  'sega-game-gear':{Cartridge:'.gg'},'sega-master-system':{Cartridge:'.sms'},'sega-mega-drive':{Cartridge:'.md,.gen,.bin,.smd,.sms'},'sega-sg-1000':{Cartridge:'.sg,.bin'},
  'sinclair-zx-spectrum':{Tape:'.tap,.tzx',Disk:'.dsk'},'sinclair-zx80':{Tape:'.o'},'sinclair-zx81':{Tape:'.p,.81'},
- 'spectravideo-svi-328':{Tape:'.cas'},'tatung-einstein':{Disk:'.dsk'},
+ 'snk-neo-geo':{Cartridge:'.zip,.bin'},'spectravideo-svi-328':{Tape:'.cas'},'tatung-einstein':{Disk:'.dsk'},
 };
 // Families whose controls differ from the generic console wording.
 const help={
  // The runtime reads the cartridge header, so a Master System image goes
  // through the Power Base Converter. TMSS is not modelled: no BIOS is asked for.
  'sega-mega-drive':'Arrow keys move; X, Z and C are A, B and C. Enter is Start and right Shift is Mode. Master System cartridges run through the Power Base Converter.',
+ // A ROM set reaches the runtime as the whole zip, which it unpacks itself.
+ 'snk-neo-geo':'Arrow keys move; X, Z, C and V are A, B, C and D. Enter is Start and right Shift is Select. Choose a game’s ROM set as a zip, or a homebrew program ROM, then your own AES BIOS.',
 };
 // `bundledSpectrum48k` is set only when the build embedded the verified 48K ROM
 // in the Spectrum module's wasm. It marks that one variant's firmware as
@@ -39,8 +41,10 @@ export function makeCatalogue(profiles,{bundledSpectrum48k=false}={}) {
   }
   if(family==='sinclair-zx-spectrum')for(const variant of variants)variant.slots.push({id:'snapshot',kind:'Snapshot',display_name:'Snapshot',accept:'.sna,.z80',required:false});
   if(family==='sinclair-zx-spectrum' && bundledSpectrum48k)for(const variant of variants)if(variant.id==='spectrum_48k')variant.firmware=variant.firmware.map(firmware=>({...firmware,bundled:true}));
+  // The optional L0 ROM keeps its MAME name, 000-lo.lo.
+  if(family==='snk-neo-geo')for(const variant of variants)variant.firmware=variant.firmware.map(firmware=>firmware.id==='neo-geo-l0'?{...firmware,accept:'.lo,.rom,.bin'}:firmware);
   const defaultVariant=defaults[family] || variants[0].id;
-  const consoleFamily=['atari-2600','atari-5200','atari-7800','coleco-colecovision','nintendo-game-boy','nintendo-nes','sega-game-gear','sega-master-system','sega-mega-drive','sega-sg-1000'].includes(family);
+  const consoleFamily=['atari-2600','atari-5200','atari-7800','coleco-colecovision','nintendo-game-boy','nintendo-nes','sega-game-gear','sega-master-system','sega-mega-drive','sega-sg-1000','snk-neo-geo'].includes(family);
   const variantAliases=family==='sinclair-zx-spectrum'?{'pentagon-128':'pentagon_128','scorpion-zs256':'scorpion_zs256','timex-tc2048':'timex_tc2048','timex-ts2068':'timex_ts2068'}:{};
   const name=old?.name || models[0].name.replace(/ \(.*/, '');
   return {...old,demo:demoFor(family),id:family,variantAliases,aliases:[...new Set([alias,...Object.keys(variantAliases),...models.map(p=>p.machineId),...(old?.aliases || [])])],siteId:models[0].machineId,name,kind:old?.kind || 'fleet',family,defaultVariant,variants,console:consoleFamily,

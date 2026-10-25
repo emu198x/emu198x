@@ -71,7 +71,7 @@ sms.cleanup();
 // at once; its pad has three face buttons and a real Start.
 const md=mount('sega-mega-drive');
 assert(md.$('firmware-settings').hidden);assert(!md.root.querySelector('#pad [data-button=c]').hidden);
-assert.deepEqual([...md.root.querySelectorAll('#pad .actions button')].map(button=>button.dataset.button),['a','b','c']);
+assert.deepEqual([...md.root.querySelectorAll('#pad .actions button')].filter(button=>!button.hidden).map(button=>button.dataset.button),['a','b','c']);
 assert.equal(md.$('media').accept,'.md,.gen,.bin,.smd,.sms');
 file(md.$('media'),'game.md');await md.$('media').onchange();
 const mdWorker=workers.at(-1);
@@ -81,6 +81,23 @@ for(const [code,button] of [['Enter','start'],['KeyC','c'],['ShiftRight','mode']
  assert.deepEqual(mdWorker.calls.at(-1).args[0],[['button',button,true]]);
 }
 md.cleanup();
+// The Neo Geo takes a ROM set zip whole, then asks for the visitor's BIOS;
+// its pad has four face buttons, A B C D.
+const neo=mount('snk-neo-geo');
+assert.deepEqual([...neo.root.querySelectorAll('#pad .actions button')].filter(button=>!button.hidden).map(button=>button.dataset.button),['a','b','c','d']);
+assert.equal(neo.$('media').accept,'.zip,.bin');assert.equal(neo.$('neo-geo-l0').accept,'.lo,.rom,.bin');
+const beforeNeo=workers.length;
+file(neo.$('media'),'game.zip');await neo.$('media').onchange();
+assert(neo.$('firmware-settings').open,'The Neo Geo must request its BIOS after cartridge selection');assert.equal(workers.length,beforeNeo,'Missing BIOS must not boot');
+file(neo.$('neo-geo-aes-bios'),'neo-epo.bin');await neo.$('setup').onsubmit({preventDefault(){}});
+for(let i=0;i<20 && neo.$('standby').hidden===false;i++)await new Promise(resolve=>setTimeout(resolve,0));
+const neoWorker=workers.at(-1);
+assert.equal(neoWorker.calls[0].args[4].family,'snk-neo-geo');assert.equal(neoWorker.calls[0].args[2].slot,'cartridge-1');
+for(const [code,button] of [['KeyV','d'],['Enter','start'],['ShiftRight','select']]) {
+ neo.canvas.dispatchEvent(new window.KeyboardEvent('keydown',{code}));
+ assert.deepEqual(neoWorker.calls.at(-1).args[0],[['button',button,true]]);
+}
+neo.cleanup();
 const coleco=mount('coleco-colecovision');
 file(coleco.$('media'),'game.col');await coleco.$('media').onchange();
 assert(coleco.$('firmware-settings').open,'BIOS consoles must request firmware after cartridge selection');coleco.cleanup();

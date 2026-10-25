@@ -1,4 +1,4 @@
-import {playerExtras} from './player-extras.js';
+import {extraButtons,playerExtras} from './player-extras.js';
 import {writePreferences} from './preferences.js';
 import {sessionControls} from './session-controls.js';
 import {amigaMouse} from './mouse.js';
@@ -167,9 +167,11 @@ function controls(code) {
       return name ? [['button',name]] : [];
     }
     // The Mega Drive pad has three face buttons, A B C, and Start; Mode is
-    // the six-button pad's extra button.
-    if(family==='sega-mega-drive') {
-      const name={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',KeyX:'a',KeyZ:'b',KeyC:'c',Enter:'start',ShiftRight:'mode'}[code];
+    // the six-button pad's extra button. The Neo Geo has A B C D, Start
+    // and Select.
+    if(extraButtons[family]) {
+      const extra=Object.fromEntries(Object.entries(extraButtons[family]).map(([name,key])=>[key,name]));
+      const name={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',KeyX:'a',KeyZ:'b',...extra,Enter:'start',ShiftRight:family==='sega-mega-drive'?'mode':'select'}[code];
       return name ? [['button',name]] : [];
     }
     const directions={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'};
@@ -214,9 +216,9 @@ listen(document,'visibilitychange',()=>{ if(document.hidden && running)pause(); 
 listen(window,'pagehide',stop);
 for(const button of root.querySelectorAll('#pad button')) {
   button.setAttribute('aria-pressed','false');
-  button.onpointerdown=event=>{ if(!running)return; event.preventDefault(); button.setPointerCapture(event.pointerId); down(`pad-${event.pointerId}`,controls(({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',c:'KeyC',start:'Enter',select:'ShiftRight'})[button.dataset.button])); button.setAttribute('aria-pressed','true'); };
+  button.onpointerdown=event=>{ if(!running)return; event.preventDefault(); button.setPointerCapture(event.pointerId); down(`pad-${event.pointerId}`,controls(({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',c:'KeyC',d:'KeyV',start:'Enter',select:'ShiftRight'})[button.dataset.button])); button.setAttribute('aria-pressed','true'); };
   button.onpointerup=button.onpointercancel=button.onlostpointercapture=event=>{ up(`pad-${event.pointerId}`); button.setAttribute('aria-pressed','false'); };
-  button.onkeydown=event=>{ if(['Space','Enter'].includes(event.code)) { event.preventDefault(); down(`pad-key-${button.dataset.button}`,controls(({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',c:'KeyC',start:'Enter',select:'ShiftRight'})[button.dataset.button])); } };
+  button.onkeydown=event=>{ if(['Space','Enter'].includes(event.code)) { event.preventDefault(); down(`pad-key-${button.dataset.button}`,controls(({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',a:'KeyX',b:'KeyZ',c:'KeyC',d:'KeyV',start:'Enter',select:'ShiftRight'})[button.dataset.button])); } };
   button.onkeyup=event=>{ if(['Space','Enter'].includes(event.code)) { event.preventDefault(); up(`pad-key-${button.dataset.button}`); } };
   button.onblur=()=>up(`pad-key-${button.dataset.button}`);
 }
@@ -264,16 +266,17 @@ if(fleet) {
     $('tape-controls').hidden=false;
     for(const [id,playing] of [['tape-play',true],['tape-stop',false]])$(id).onclick=async()=>{try {await rpc('transport',tape.id,playing);status(playing?'Tape playing.':'Tape stopped.');}catch(error){status(String(error),true);}};
   }
-  for(const firmware of variant.firmware)firmwareInput(firmware.id,firmware.display_name+(firmware.optional?' (optional)':''),firmware.optional);
+  for(const firmware of variant.firmware){const input=firmwareInput(firmware.id,firmware.display_name+(firmware.optional?' (optional)':''),firmware.optional);if(firmware.accept)input.accept=firmware.accept;}
   for(const entry of slots) { const option=document.createElement('option'); option.value=entry.id; option.textContent=entry.display_name; $('slot').append(option); }
   $('slot-label').hidden=slots.length<2;
   $('slot').onchange=()=>{ exampleMedia=undefined; $('media').value=''; $('media').accept=slot()?.accept || ''; persistence?.mediaChanged(); status('Choose media for this slot.'); };
   $('choose-media').textContent=cartridge?'Change cartridge':'Choose media';
   if(mouseMachine) { $('capture-mouse').hidden=false; $('mouse-hint').hidden=false; }
-  if(system.family==='sega-mega-drive') {
-    const actions=root.querySelector('#pad .actions'), face=name=>actions.querySelector(`[data-button=${name}]`);
-    face('c').hidden=false; actions.append(face('a'),face('b'),face('c'));
-    for(const button of root.querySelectorAll('#pad .system-buttons button'))button.textContent=button.dataset.button==='start'?'Start':'Mode';
+  if(extraButtons[system.family]) {
+    // Face buttons read A B C (D) from the left, as on the real pads.
+    const actions=root.querySelector('#pad .actions'), faces=['a','b',...Object.keys(extraButtons[system.family])];
+    for(const name of faces){const button=actions.querySelector(`[data-button=${name}]`);button.hidden=false;actions.append(button);}
+    for(const button of root.querySelectorAll('#pad .system-buttons button'))button.textContent=button.dataset.button==='start'?'Start':system.family==='sega-mega-drive'?'Mode':'Select';
   }
   else if(cartridge && !system.family.startsWith('nintendo-')) {
     for(const button of root.querySelectorAll('#pad .actions button'))button.textContent=button.dataset.button==='a'?'1':'2';
