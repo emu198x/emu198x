@@ -40,7 +40,7 @@ const PORT_INPUT_PULLUPS: u8 = 0x17;
 /// back with no Ultimate fitted rather than with a duplicated connection,
 /// which is the honest answer: the copy is not the thing holding the socket.
 #[derive(Debug, Default)]
-struct UciSlot(Option<peripheral_ultimate_uci_net::UltimateUciNet>);
+struct UciSlot(Option<emu198x_peripheral_ultimate_uci_net::UltimateUciNet>);
 
 impl Clone for UciSlot {
     fn clone(&self) -> Self {
@@ -1050,7 +1050,9 @@ impl C64 {
     /// it and can open sockets through it instead of bit-banging the user
     /// port.
     pub fn attach_ultimate_uci(&mut self) {
-        self.uci = UciSlot(Some(peripheral_ultimate_uci_net::UltimateUciNet::new()));
+        self.uci = UciSlot(Some(
+            emu198x_peripheral_ultimate_uci_net::UltimateUciNet::new(),
+        ));
     }
 
     /// Remove it again. Probing then reads open bus, as with no cartridge.
@@ -1060,7 +1062,7 @@ impl C64 {
 
     /// The fitted Ultimate, for host-side diagnostics.
     #[must_use]
-    pub fn ultimate_uci(&self) -> Option<&peripheral_ultimate_uci_net::UltimateUciNet> {
+    pub fn ultimate_uci(&self) -> Option<&emu198x_peripheral_ultimate_uci_net::UltimateUciNet> {
         self.uci.0.as_ref()
     }
 

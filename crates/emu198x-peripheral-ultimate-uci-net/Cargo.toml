@@ -1,0 +1,17 @@
+[package]
+name = "emu198x-peripheral-ultimate-uci-net"
+description = "Network target of the Ultimate Command Interface, as exposed by 1541 Ultimate-II and Ultimate 64 hardware"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["c64", "ultimate", "network", "emulator"]
+categories = ["emulators"]
+
+[lints]
+workspace = true

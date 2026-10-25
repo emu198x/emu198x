@@ -1,4 +1,4 @@
-# peripheral-ultimate-uci-net
+# emu198x-peripheral-ultimate-uci-net
 
 The **network target** of the Ultimate Command Interface, as 1541 Ultimate-II(+),
 Ultimate-II+L, Ultimate 64 and Commodore 64 Ultimate firmware expose it.
@@ -23,7 +23,7 @@ reads and writes at whatever addresses that machine decodes — `$DF1C`-`$DF1F`
 on a C64 — and calls `poll` to let the transport breathe.
 
 ```rust
-use peripheral_ultimate_uci_net::UltimateUciNet;
+use emu198x_peripheral_ultimate_uci_net::UltimateUciNet;
 
 let mut uci = UltimateUciNet::new();
 let identification = uci.read(UltimateUciNet::REG_COMMAND); // 0xC9
@@ -43,3 +43,12 @@ let identification = uci.read(UltimateUciNet::REG_COMMAND); // 0xC9
 Target `0x03` is the network. `OPEN_TCP` returns a socket handle, `READ`
 returns a little-endian length followed by that many bytes, `WRITE` returns the
 number of bytes accepted, and `CLOSE` releases the socket.
+
+## Provenance
+
+Part of [Emu198x](https://github.com/emu198x/emu198x), a family of cycle-accurate
+retro-computing emulator cores. This crate is published so siblings and outside
+projects can use it on its own; it is versioned independently of the
+Emu198x suite and bumps only when it changes.
+
+Licensed GPL-2.0-or-later.

@@ -602,3 +602,11 @@ summary = "The Amiga keyboard's serial protocol: power-up sequence, keycodes and
 consumers = "Used by the Amiga machines."
 # 95.79% line coverage on 2026-10-25.
 coverage_floor = 95
+
+[[repo]]
+name = "peripheral-ultimate-uci-net"
+crates = ["emu198x-peripheral-ultimate-uci-net"]
+summary = "The network target of the Ultimate Command Interface, as 1541 Ultimate-II and Ultimate 64 firmware expose it."
+consumers = "Used by the Commodore 64."
+# 89.45% line coverage on 2026-10-25.
+coverage_floor = 89
