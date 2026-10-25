@@ -53,11 +53,11 @@ use emu198x_commodore_agnus_ocs::{
     bits,
 };
 use emu198x_commodore_paula_8364::{IntSource, Paula8364};
+use emu198x_peripheral_commodore_amiga_floppy::{AmigaFloppyChain, AmigaFloppyDrive};
+use emu198x_peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
-use peripheral_commodore_amiga_floppy::{AmigaFloppyChain, AmigaFloppyDrive};
-use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 
 /// One entry in the copper-MOVE debug log: `(cck, vpos, hpos, reg, val)`.
 pub type CopperMoveLogEntry = (u64, u16, u16, u16, u16);

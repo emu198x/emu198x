@@ -4,8 +4,8 @@
 //! pin is active-low horizontal sync. These tests cover both board
 //! connections and the delayed, counter-visible TOD update.
 
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_LINE_TICKS, RamConfig};
-use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 const ICR_FLAG: u8 = 0x10; // CIA ICR bit 4 = FLAG.
 const ICR_ALARM: u8 = 0x04;

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+The first release under the `emu198x-peripheral-commodore-amiga-floppy` name.
+Until now the crate was `peripheral-commodore-amiga-floppy`, versioned with
+the Emu198x suite and unpublished; earlier entries are from that name.
+
 ### Added
 
 - Add a read-only diagnostic snapshot for mounted-media, mechanical timing, drive-ID, status-pin, and write-buffer state.

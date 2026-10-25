@@ -3,11 +3,11 @@
 
 mod common;
 
+use emu198x_peripheral_commodore_amiga_floppy::DD;
 use emu198x_shell::{
     DebugPrimitives, HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet,
     NullAudioSink, NullFrameSink, NullTraceSink, SessionQueryProvider,
 };
-use peripheral_commodore_amiga_floppy::DD;
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA1200Runtime, AmigaEcsRuntime,
     AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime, AmigaRuntimeKind,

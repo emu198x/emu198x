@@ -2,7 +2,7 @@
 //! archive mounted read-only authentically asserts `/DSKPROT` (and a SAVE
 //! is rejected), while a writable work disk does not.
 
-use peripheral_commodore_amiga_floppy::{Adf, DD};
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 fn blank_adf() -> Adf {

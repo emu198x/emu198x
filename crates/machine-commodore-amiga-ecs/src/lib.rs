@@ -24,9 +24,9 @@ pub use agnus::{
     PAL_LINE_CCKS, PAL_LINE_TICKS, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
-pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use copper::Copper;
 pub use denise::{Denise, DeniseEcs, FB_HEIGHT, FB_WIDTH};
+pub use emu198x_commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use emu198x_commodore_denise_ecs::DeniseEcsBlankingStages;
 pub use emu198x_commodore_gary::{ChipSelect, Gary};
 pub use emu198x_commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
@@ -38,12 +38,12 @@ use emu198x_commodore_paula_8364::decode as paula_decode;
 pub use emu198x_commodore_paula_8364::{
     AudioControls, AudioField, IntSource, Paula8364, PaulaChannel,
 };
-pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
-pub use peripheral_commodore_amiga_floppy::Adf;
-pub use peripheral_commodore_amiga_floppy::{
+pub use emu198x_peripheral_commodore_amiga_floppy::Adf;
+pub use emu198x_peripheral_commodore_amiga_floppy::{
     AmigaFloppyChain, AmigaFloppyDrive, DriveStatus, MAX_DRIVES,
 };
-pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
+pub use emu198x_peripheral_commodore_amiga_keyboard::AmigaKeyboard;
+pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
 
 use motorola_68000::Cpu68000;
@@ -2492,12 +2492,12 @@ impl AmigaDriver for AmigaEcs {
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
+    use emu198x_peripheral_commodore_amiga_floppy::DD;
+    use emu198x_peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
     use motorola_68000::CpuModel;
     use motorola_68000::bus::{BusStatus, FunctionCode};
     use motorola_68000::cpu::State;
     use motorola_68000::microcode::MicroOp;
-    use peripheral_commodore_amiga_floppy::DD;
-    use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 
     fn machine() -> AmigaEcs {
         AmigaEcs::new(vec![0; 512 * 1024])

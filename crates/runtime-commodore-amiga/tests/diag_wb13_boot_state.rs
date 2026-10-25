@@ -9,8 +9,10 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use peripheral_commodore_amiga_floppy::Adf;
-use peripheral_commodore_amiga_floppy::mfm::{MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track};
+use emu198x_peripheral_commodore_amiga_floppy::Adf;
+use emu198x_peripheral_commodore_amiga_floppy::mfm::{
+    MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track,
+};
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {

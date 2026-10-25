@@ -16,9 +16,9 @@ use emu198x_commodore_agnus_ocs::{
     AgnusBlitterCompletionDiagnosticPhase, BlitterBusDiagnosticAuthority, BlitterDmaOp,
     PaulaReturnProgressPolicy, SlotOwner,
 };
+use emu198x_peripheral_commodore_amiga_floppy::MAX_DRIVES;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use motorola_68000::CpuModel;
-use peripheral_commodore_amiga_floppy::MAX_DRIVES;
 use serde_json::{Value, json};
 
 use crate::live_access::AmigaLiveAccess;

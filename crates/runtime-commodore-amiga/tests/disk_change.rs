@@ -1,6 +1,6 @@
 //! Mount policy across the runtime enum used by script, MCP and native hosts.
+use emu198x_peripheral_commodore_amiga_floppy::DD;
 use emu198x_shell::{DebugPrimitives, MachineCore, MediaImage, MediaKind, MediaSet, ResetKind};
-use peripheral_commodore_amiga_floppy::DD;
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 const MODELS: [Model; 8] = [

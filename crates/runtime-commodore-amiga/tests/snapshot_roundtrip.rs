@@ -28,6 +28,8 @@ use std::error::Error;
 use common::dummy_a1000_bootstrap_rom;
 use common_commodore_amiga::driver::AmigaDriver;
 use emu198x_commodore_agnus_ocs::{BlitterDmaOp, OriginalAgnusRevision};
+use emu198x_peripheral_commodore_amiga_floppy::DD;
+use emu198x_peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink,
@@ -35,8 +37,6 @@ use emu198x_shell::{
 use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
-use peripheral_commodore_amiga_floppy::DD;
-use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 use runtime_commodore_amiga::{
     AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
     AmigaRuntime, Model,

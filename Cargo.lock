@@ -426,14 +426,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "commodore-amiga-autoconfig"
-version = "0.44.2"
-dependencies = [
- "postcard",
- "serde",
-]
-
-[[package]]
 name = "commodore-denise-aga"
 version = "0.44.2"
 dependencies = [
@@ -459,13 +451,13 @@ dependencies = [
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
+ "emu198x-peripheral-commodore-amiga-keyboard",
  "motorola-68000",
  "motorola-68010",
  "motorola-68020",
  "motorola-68030",
  "motorola-68040",
- "peripheral-commodore-amiga-floppy",
- "peripheral-commodore-amiga-keyboard",
  "postcard",
  "serde",
  "web-time",
@@ -1168,6 +1160,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-commodore-amiga-autoconfig"
+version = "0.1.0"
+dependencies = [
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-commodore-denise-ecs"
 version = "0.1.0"
 dependencies = [
@@ -1645,6 +1645,21 @@ dependencies = [
  "png",
  "runtime-oric-atmos",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-peripheral-commodore-amiga-floppy"
+version = "0.1.0"
+dependencies = [
+ "format198x-commodore-amiga-adf",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-commodore-amiga-keyboard"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -2576,7 +2591,7 @@ dependencies = [
 name = "gvp-a530"
 version = "0.44.2"
 dependencies = [
- "commodore-amiga-autoconfig",
+ "emu198x-commodore-amiga-autoconfig",
  "motorola-68k-common",
  "postcard",
  "serde",
@@ -3081,24 +3096,24 @@ dependencies = [
 name = "machine-commodore-amiga-a1200"
 version = "0.44.2"
 dependencies = [
- "commodore-amiga-autoconfig",
  "commodore-denise-aga",
  "common-commodore-amiga",
  "emu198x-commodore-agnus-aga",
  "emu198x-commodore-agnus-ecs",
  "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-amiga-autoconfig",
  "emu198x-commodore-denise-ecs",
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-gary",
  "emu198x-commodore-gayle",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
+ "emu198x-peripheral-commodore-amiga-keyboard",
  "emu198x-test-skip",
  "machine-commodore-amiga-ocs",
  "motorola-68000",
  "motorola-68020",
- "peripheral-commodore-amiga-floppy",
- "peripheral-commodore-amiga-keyboard",
  "png",
  "postcard",
  "serde",
@@ -3109,20 +3124,20 @@ dependencies = [
 name = "machine-commodore-amiga-ecs"
 version = "0.44.2"
 dependencies = [
- "commodore-amiga-autoconfig",
  "common-commodore-amiga",
  "emu198x-commodore-agnus-ecs",
  "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-amiga-autoconfig",
  "emu198x-commodore-denise-ecs",
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-gary",
  "emu198x-commodore-gayle",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
+ "emu198x-peripheral-commodore-amiga-keyboard",
  "machine-commodore-amiga-ocs",
  "motorola-68000",
- "peripheral-commodore-amiga-floppy",
- "peripheral-commodore-amiga-keyboard",
  "png",
  "serde",
  "zip",
@@ -3132,19 +3147,19 @@ dependencies = [
 name = "machine-commodore-amiga-ocs"
 version = "0.44.2"
 dependencies = [
- "commodore-amiga-autoconfig",
  "common-commodore-amiga",
  "emu198x-commodore-agnus-ecs",
  "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-amiga-autoconfig",
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-gary",
  "emu198x-commodore-paula-8364",
  "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
+ "emu198x-peripheral-commodore-amiga-keyboard",
  "emu198x-test-skip",
  "gvp-a530",
  "motorola-68000",
- "peripheral-commodore-amiga-floppy",
- "peripheral-commodore-amiga-keyboard",
  "png",
  "postcard",
  "serde",
@@ -4349,21 +4364,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "peripheral-commodore-amiga-floppy"
-version = "0.44.2"
-dependencies = [
- "format198x-commodore-amiga-adf",
- "serde",
-]
-
-[[package]]
-name = "peripheral-commodore-amiga-keyboard"
-version = "0.44.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "peripheral-divmmc"
 version = "0.44.2"
 dependencies = [
@@ -4853,6 +4853,7 @@ dependencies = [
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-gary",
  "emu198x-commodore-gayle",
+ "emu198x-peripheral-commodore-amiga-floppy",
  "emu198x-shell",
  "emu198x-test-skip",
  "gvp-a530",
@@ -4861,7 +4862,6 @@ dependencies = [
  "machine-commodore-amiga-ocs",
  "motorola-68000",
  "motorola-68k-common",
- "peripheral-commodore-amiga-floppy",
  "png",
  "postcard",
  "serde",

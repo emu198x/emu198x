@@ -282,8 +282,8 @@ out of the build:
 - `crates/commodore-paula-8364`
 - `crates/emu198x-commodore-gary`
 - `crates/emu198x-mos-cia-8520`
-- `crates/peripheral-commodore-amiga-floppy`
-- `crates/peripheral-commodore-amiga-keyboard`
+- `crates/emu198x-peripheral-commodore-amiga-floppy`
+- `crates/emu198x-peripheral-commodore-amiga-keyboard`
 
 Reasons to keep them around archived (not deleted):
 - Slow-RAM golden passes against current chipsets — there's correct

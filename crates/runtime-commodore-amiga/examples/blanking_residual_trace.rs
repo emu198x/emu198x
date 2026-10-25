@@ -1,6 +1,6 @@
 //! Trace guest field publication and live ECS output selectors.
+use emu198x_peripheral_commodore_amiga_floppy::Adf;
 use emu198x_shell::HeadlessSession;
-use peripheral_commodore_amiga_floppy::Adf;
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

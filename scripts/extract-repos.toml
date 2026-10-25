@@ -578,3 +578,27 @@ summary = "The Atari 8-bit SIO serial bus and the disk drives on it, at byte gra
 consumers = "Used by the Atari 800XL."
 # 94.53% line coverage on 2026-10-25.
 coverage_floor = 94
+
+[[repo]]
+name = "commodore-amiga-autoconfig"
+crates = ["emu198x-commodore-amiga-autoconfig"]
+summary = "The Amiga's Zorro II autoconfig protocol, with a fast-RAM board."
+consumers = "Used by the Amiga machines and the GVP A530, which stays with the 68k family."
+# 92.73% line coverage on 2026-10-25.
+coverage_floor = 92
+
+[[repo]]
+name = "peripheral-commodore-amiga-floppy"
+crates = ["emu198x-peripheral-commodore-amiga-floppy"]
+summary = "The Amiga floppy drive mechanism: stepping, motor, disk change and MFM track encoding."
+consumers = "Used by the Amiga machines."
+# 95.50% line coverage on 2026-10-25.
+coverage_floor = 95
+
+[[repo]]
+name = "peripheral-commodore-amiga-keyboard"
+crates = ["emu198x-peripheral-commodore-amiga-keyboard"]
+summary = "The Amiga keyboard's serial protocol: power-up sequence, keycodes and the host handshake."
+consumers = "Used by the Amiga machines."
+# 95.79% line coverage on 2026-10-25.
+coverage_floor = 95

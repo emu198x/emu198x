@@ -417,7 +417,7 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     // to prove the trackdisk path actually executed: KS 2.04 issues
     // hundreds of step pulses to load Workbench, so step_events well
     // above the early "calibrate to TK0" handful proves the disk was
-    // read. A spinup-timer regression (peripheral-commodore-amiga-floppy
+    // read. A spinup-timer regression (emu198x-peripheral-commodore-amiga-floppy
     // resetting on every PRB write) used to cap step_events at ~12
     // before the loader gave up.
     let steps = provider

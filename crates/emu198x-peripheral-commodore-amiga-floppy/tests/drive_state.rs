@@ -14,8 +14,8 @@
 //! write-capture round-trip. Both are lifted into the live crate
 //! verbatim when Phase 2 / Phase 3 land.
 
-use peripheral_commodore_amiga_floppy::{Adf, DD};
-use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, INTERNAL_DRIVE_ID};
+use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
+use emu198x_peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, INTERNAL_DRIVE_ID};
 
 /// Matches the archive's private `MOTOR_SPINUP_TICKS` constant.
 const MOTOR_SPINUP_TICKS: u32 = 350_000;

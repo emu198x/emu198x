@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::AmigaConfig;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
-use peripheral_commodore_amiga_floppy::MAX_DRIVES;
+use emu198x_peripheral_commodore_amiga_floppy::MAX_DRIVES;
 
 // Version 50 retains Copper's historical BFD-blocked reason and the complete
 // Agnus service-stage owner, the Copper word read in the first fetch cell,
@@ -157,11 +157,10 @@ pub(crate) fn decode<M: AmigaMachine>(
             }
             continue;
         };
-        let adf = peripheral_commodore_amiga_floppy::Adf::from_bytes(bytes.clone()).map_err(
-            |reason| MachineError::InvalidSnapshot {
+        let adf = emu198x_peripheral_commodore_amiga_floppy::Adf::from_bytes(bytes.clone())
+            .map_err(|reason| MachineError::InvalidSnapshot {
                 reason: format!("invalid persisted DF{unit} image: {reason}"),
-            },
-        )?;
+            })?;
         persisted_adfs.push((unit, adf, writable));
     }
 
@@ -251,9 +250,9 @@ fn validate_framebuffer_pixels(actual: usize, expected: usize) -> Result<(), Mac
 mod tests {
     use common_commodore_amiga::driver::AmigaDriver;
     use emu198x_commodore_agnus_ocs::{DmaTransfer, DmaTransferTarget};
+    use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
     use machine_commodore_amiga_ocs::AmigaOcs;
     use motorola_68000::CpuModel;
-    use peripheral_commodore_amiga_floppy::{Adf, DD};
 
     use super::*;
     use crate::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model};
