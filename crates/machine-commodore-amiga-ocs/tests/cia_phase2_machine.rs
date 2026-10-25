@@ -1,7 +1,7 @@
 //! CIA-8520 Phase 2 machine-level integration tests.
 //!
 //! Covers tasks #111–#115 — the port-the-full-chip-into-the-machine
-//! phase. Phase 1 characterisation tests (in `mos-cia-8520/tests`)
+//! phase. Phase 1 characterisation tests (in `emu198x-mos-cia-8520/tests`)
 //! already exercise the chip in isolation. These tests exercise the
 //! *wiring* — how the machine routes CIA state through the custom-
 //! chip bus, the memory overlay line, and Paula's INTREQ latches.

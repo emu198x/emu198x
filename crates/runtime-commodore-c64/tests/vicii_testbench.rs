@@ -18,8 +18,8 @@ use std::path::PathBuf;
 
 use common::local_rom_firmware;
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use emu198x_mos_vic_ii::{FB_HEIGHT, FB_WIDTH};
 use emu198x_shell::HeadlessSession;
-use mos_vic_ii::{FB_HEIGHT, FB_WIDTH};
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES,
     DEFAULT_TYPE_SETTLE_FRAMES, Model, type_string,
@@ -202,7 +202,7 @@ fn decode_reference_png(path: &PathBuf) -> RefImage {
 /// colour *index*, not raw RGB.
 fn nearest_c64_index(r: u8, g: u8, b: u8) -> u8 {
     let mut best = (u32::MAX, 0u8);
-    for (i, &argb) in mos_vic_ii::palette::PALETTE.iter().enumerate() {
+    for (i, &argb) in emu198x_mos_vic_ii::palette::PALETTE.iter().enumerate() {
         let (pr, pg, pb) = ((argb >> 16) as u8, (argb >> 8) as u8, argb as u8);
         let d = (i32::from(r) - i32::from(pr)).pow(2)
             + (i32::from(g) - i32::from(pg)).pow(2)
@@ -989,7 +989,7 @@ fn survey_testbench_categories() {
                     "width": 384,
                     "height": 272,
                 },
-                "palette_argb": mos_vic_ii::palette::PALETTE,
+                "palette_argb": emu198x_mos_vic_ii::palette::PALETTE,
                 "assertion_boundary": "digital-colour-index-output-not-analogue-colour",
             },
             "cases": cases,

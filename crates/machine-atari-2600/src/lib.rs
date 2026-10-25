@@ -52,7 +52,7 @@ use supercharger::ArEffect;
 
 use atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
 use emu198x_mos_6502::M6502;
-use mos_riot_6532::Riot6532;
+use emu198x_mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
 
 /// Atari 2600 region.

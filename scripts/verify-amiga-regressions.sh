@@ -60,7 +60,7 @@ run_group "Amiga library regressions" \
         -p commodore-amiga-autoconfig \
         -p commodore-gary \
         -p commodore-gayle \
-        -p mos-cia-8520 \
+        -p emu198x-mos-cia-8520 \
         -p peripheral-commodore-amiga-floppy \
         -p peripheral-commodore-amiga-keyboard \
         -p machine-commodore-amiga-ocs \

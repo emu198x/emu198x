@@ -103,7 +103,7 @@ class VerifyAmigaClosureTests(unittest.TestCase):
             "-p commodore-denise-aga",
             "-p emu198x-commodore-paula-8364",
             "-p commodore-gayle",
-            "-p mos-cia-8520",
+            "-p emu198x-mos-cia-8520",
             "-p peripheral-commodore-amiga-floppy",
             "-p machine-commodore-amiga-a1200",
             "-p runtime-commodore-amiga",

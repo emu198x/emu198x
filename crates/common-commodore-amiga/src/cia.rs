@@ -14,7 +14,7 @@
 //! Everything else (register peek/read/write, timer/TOD snapshots,
 //! port pin drive) lives on `Cia8520` directly.
 
-pub use mos_cia_8520::Cia8520 as Cia;
+pub use emu198x_mos_cia_8520::Cia8520 as Cia;
 
 /// Machine-side extension methods on top of `Cia8520`.
 pub trait CiaExt {

@@ -11,15 +11,15 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
 
+use emu198x_mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ as ACIA_XTAL_HZ};
 use emu198x_motorola_6809::{Mc6809, Mc6809ClockPhase};
+use emu198x_motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
+use emu198x_motorola_sam_6883::Sam6883;
 use emu198x_motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
     VdgControl, VdgPalette,
 };
 use format_dragon_disk::DragonDiskImage;
-use mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ as ACIA_XTAL_HZ};
-use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
-use motorola_sam_6883::Sam6883;
 use serde::{Deserialize, Serialize};
 
 /// Dragon 32 RAM size.
@@ -4691,13 +4691,13 @@ mod tests {
         let (value, event) = memory.read_bus(0xFF05);
 
         // Hardware reset status: TDRE set, DCD/DSR asserted, no IRQ.
-        assert_eq!(value, mos_acia_6551::status::TDRE);
+        assert_eq!(value, emu198x_mos_acia_6551::status::TDRE);
         assert_eq!(
             event,
             Some(MemoryEvent::DeviceRead {
                 device: DeviceRegion::Acia,
                 addr: 0xFF05,
-                value: mos_acia_6551::status::TDRE,
+                value: emu198x_mos_acia_6551::status::TDRE,
             })
         );
     }

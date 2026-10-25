@@ -599,8 +599,8 @@ impl MachineCore for Vic20Runtime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            mos_vic_i::PAL_PIXEL_CLOCK_HZ,
-            mos_vic_i::NTSC_PIXEL_CLOCK_HZ,
+            emu198x_mos_vic_i::PAL_PIXEL_CLOCK_HZ,
+            emu198x_mos_vic_i::NTSC_PIXEL_CLOCK_HZ,
         )
     }
 

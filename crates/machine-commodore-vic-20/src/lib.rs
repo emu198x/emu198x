@@ -23,7 +23,7 @@
 //!   character ROM at `$8000` (unlike the C64, BASIC is at `$C000`, not
 //!   `$A000` — `$A000-$BFFF` is the BLK5 cartridge block)
 //!
-//! The VIC chip lives in the dedicated [`mos_vic_i`] chip crate
+//! The VIC chip lives in the dedicated [`emu198x_mos_vic_i`] chip crate
 //! (text-mode video plus the three-tone + noise sound sources). Two MOS
 //! 6522 VIAs handle
 //! I/O: VIA #1 at `$9110-$911F` (RESTORE key → NMI, user port) and
@@ -35,9 +35,9 @@
 pub mod input;
 mod keyboard;
 
+pub use emu198x_mos_vic_i::{Vic6560, framebuffer_height, framebuffer_width};
 pub use input::Vic20Key;
 pub use keyboard::KeyboardState;
-pub use mos_vic_i::{Vic6560, framebuffer_height, framebuffer_width};
 
 use emu198x_mos_6502::M6502;
 use emu198x_mos_via_6522::Via6522;

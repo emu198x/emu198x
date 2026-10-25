@@ -4,7 +4,7 @@
 //! - `docs/plans/2026-04-12-emulator-suite-coherent-development-plan.md`
 //! - `knowledge/decisions/archives-as-source.md`
 //! - Adapted from `../Emu198x-Older/crates/machine-commodore-c64/src/config.rs`
-//! - Adapted from `../Emu198x-Older/crates/mos-vic-ii/src/lib.rs`
+//! - Adapted from `../Emu198x-Older/crates/emu198x-mos-vic-ii/src/lib.rs`
 
 /// Shared visible framebuffer width used by the archived VIC-II implementation.
 pub const FRAMEBUFFER_WIDTH: u16 = 416;
