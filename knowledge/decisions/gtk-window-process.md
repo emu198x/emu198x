@@ -33,14 +33,36 @@ needs a window:
   sending these messages.
 - The first message carries `PROTOCOL_VERSION`. A window that speaks
   another version answers `Incompatible` and exits.
-- The machine binary looks for the window beside its own executable, or
-  at `EMU198X_GTK_WINDOW`. If the window is missing, will not start, is
-  incompatible or does not say `Ready` within 15 seconds, the machine
-  binary opens its built-in winit window, as it did before.
-  `EMU198X_UI=winit` skips the GTK window.
+- The machine binary looks for the window at `EMU198X_GTK_WINDOW`, then
+  beside its own executable, then in `libexec/` beside it, then in
+  `share/<binary>/libexec/` under its prefix. If the window is missing,
+  will not start, is incompatible or does not say `Ready` within 15
+  seconds, the machine binary opens its built-in winit window, as it did
+  before. `EMU198X_UI=winit` skips the GTK window.
 - If the machine binary goes, the window sees its input close and shuts.
   If the user closes the window or picks Quit, the window sends `Closed`
   and the machine binary ends the session as it does for the winit window.
+
+## How it ships
+
+Every Linux release archive carries the window as
+`libexec/emu198x-gtk-window`, beside the machine binary. The release job
+builds it there before dist packs the archives
+(`scripts/build-gtk-window.sh`). dist's `include` list is the same for
+every target, so the macOS and Windows archives carry `libexec/` empty.
+
+Homebrew installs the archive's extra files into the formula's
+`share/<formula>/` directory rather than `bin/`. That is where the machine
+binary finds the window, and it means the thirty formulae never collide
+over one `bin/emu198x-gtk-window`.
+
+The window uses the system's GTK, 4.6 or later, and the formulae declare
+no GTK dependency. dist can only declare a Homebrew dependency for every
+platform, which would install GTK on macOS too. On Linux it would not help
+either: the prebuilt window has no search path into Homebrew's prefix, so
+it would not find a GTK that Homebrew installed. GNOME desktops have GTK 4
+already. Where it is missing, the window cannot load, and the machine
+binary says so and opens the winit window.
 
 ## Why
 
@@ -75,6 +97,10 @@ Stop and re-read this record if you are about to:
   start a machine of its own.
 - **Change a message without bumping `PROTOCOL_VERSION`,** once a release
   has shipped the window.
+- **Add a Homebrew `depends_on "gtk4"`.** It would install GTK on macOS as
+  well, and the prebuilt window would not find it on Linux.
+- **Install the window into a formula's `bin/`.** Thirty formulae would
+  collide over the one name.
 - **Print to standard output in the window process.** Standard output is
   the protocol; diagnostics go to standard error.
 
@@ -91,3 +117,4 @@ Stop and re-read this record if you are about to:
 | Date | Event |
 |------|-------|
 | 2026-10-26 | Adopted. Steve asked for headless modes not to depend on GTK; the window moved out of `emu198x-ui` into its own process. |
+| 2026-10-26 | Shipped in the Linux release archives, on by default (Steve). Uses the system's GTK; no Homebrew GTK dependency. |

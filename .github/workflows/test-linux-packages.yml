@@ -87,7 +87,7 @@ jobs:
             sudo timeout 120 apt-get "${apt_opts[@]}" update \
               || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
             if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
-                 libasound2-dev libudev-dev pkg-config; then
+                 libasound2-dev libudev-dev pkg-config libgtk-4-dev; then
               exit 0
             fi
             echo "::warning::apt-get install attempt ${attempt} failed; retrying"
@@ -109,6 +109,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${dist_version}/cargo-dist-installer.sh" -o "$RUNNER_TEMP/install-dist.sh"
           sh "$RUNNER_TEMP/install-dist.sh"
           mkdir -p target
+          bash scripts/build-gtk-window.sh "$PACKAGE_TARGET"
           dist build --artifacts=all --target "$PACKAGE_TARGET" --output-format=json > target/package-test-manifest.json
       - name: Fetch the actual release packages
         if: inputs.plan != '' || inputs.release_run != ''

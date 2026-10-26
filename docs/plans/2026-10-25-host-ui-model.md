@@ -232,9 +232,12 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
 - Menu items show the catalogue's shortcuts through the menu model's
   `accel` attribute, which only labels them: the keys still go to the core,
   so a machine that maps F9 to F11 keeps them.
-- Still to come before Linux opens GTK by default: shipping
-  `emu198x-gtk-window` in the Linux release archives (it is `dist = false`
-  until then), with the GTK dependency that brings to the Homebrew formulae.
+- Linux opens GTK by default: every Linux release archive carries the
+  window in `libexec/`, and Homebrew installs it under the formula's
+  `share/` directory. It uses the system's GTK; the formulae declare no GTK
+  dependency, because dist cannot limit one to Linux and a prebuilt binary
+  would not find Homebrew's GTK anyway
+  (`knowledge/decisions/gtk-window-process.md`, "How it ships").
 
 Verification:
 - The catalogue test from step 1 passes for the GTK host.
@@ -246,6 +249,8 @@ Verification:
 - `ldd` on a machine binary lists no GTK library, and `--headless` runs
   with no display. With the window missing, or unable to start GTK, the
   machine opens the winit window.
+- The Linux package test installs each generated formula and checks that
+  `share/<formula>/libexec/emu198x-gtk-window` is there and links GTK 4.
 
 ## Not in this plan
 

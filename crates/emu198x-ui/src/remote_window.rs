@@ -8,7 +8,7 @@
 //! window instead. See `knowledge/decisions/gtk-window-process.md`.
 
 use std::io::{BufReader, BufWriter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
@@ -23,7 +23,7 @@ use crate::window_protocol::{
 };
 use crate::{UiError, UiSystem, VideoFilter, overlay};
 
-/// The window program's name, looked for beside the running binary.
+/// The window program's name.
 const WINDOW_PROGRAM: &str = "emu198x-gtk-window";
 
 /// How long the window may take to open before this binary gives up on it.
@@ -38,9 +38,9 @@ pub(crate) enum Outcome<S: UiSystem> {
     Unavailable(HostCore<S>),
 }
 
-/// Where the window program is: `$EMU198X_GTK_WINDOW`, or beside this
-/// binary. `None` when it is not there, or `EMU198X_UI=winit` asks for the
-/// winit window.
+/// Where the window program is: `$EMU198X_GTK_WINDOW`, or the first of
+/// [`window_candidates`] that exists. `None` when there is none, or
+/// `EMU198X_UI=winit` asks for the winit window.
 fn window_program() -> Option<PathBuf> {
     if std::env::var("EMU198X_UI").is_ok_and(|ui| ui == "winit") {
         return None;
@@ -48,8 +48,36 @@ fn window_program() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("EMU198X_GTK_WINDOW").filter(|path| !path.is_empty()) {
         return Some(PathBuf::from(path));
     }
-    let path = std::env::current_exe().ok()?.parent()?.join(WINDOW_PROGRAM);
-    path.is_file().then_some(path)
+    let exe = std::env::current_exe().ok()?;
+    window_candidates(&exe)
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+/// The places the window program can be, for a machine binary at `exe`:
+///
+/// - beside it, as in a cargo build's `target/` directory;
+/// - in `libexec/` beside it, as in an unpacked release archive;
+/// - in `share/<binary>/libexec/` under its prefix, where Homebrew puts the
+///   archive's extra files (the formula's `pkgshare`).
+fn window_candidates(exe: &Path) -> Vec<PathBuf> {
+    let Some(dir) = exe.parent() else {
+        return Vec::new();
+    };
+    let mut candidates = vec![
+        dir.join(WINDOW_PROGRAM),
+        dir.join("libexec").join(WINDOW_PROGRAM),
+    ];
+    if let (Some(prefix), Some(name)) = (dir.parent(), exe.file_stem()) {
+        candidates.push(
+            prefix
+                .join("share")
+                .join(name)
+                .join("libexec")
+                .join(WINDOW_PROGRAM),
+        );
+    }
+    candidates
 }
 
 /// Run `core` in the GTK window process until the window closes.
@@ -92,7 +120,7 @@ pub(crate) fn run<S: UiSystem>(mut core: HostCore<S>, video: VideoFilter) -> Out
         );
     if !opened {
         eprintln!(
-            "window: {} did not open; using the built-in window",
+            "window: {} did not open (it needs GTK 4.6 or later); using the built-in window",
             program.display()
         );
         stop(&mut child);
@@ -430,5 +458,25 @@ impl Shell for RemoteShell {
         if self.send(&request) {
             self.wait_for(|event| (*event == FromWindow::MessageClosed).then_some(()));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_candidates;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn the_window_is_looked_for_beside_in_libexec_and_in_pkgshare() {
+        let exe = Path::new("/opt/brew/Cellar/emu198x-spectrum/0.44.0/bin/emu198x-spectrum");
+        assert_eq!(
+            window_candidates(exe),
+            [
+                "/opt/brew/Cellar/emu198x-spectrum/0.44.0/bin/emu198x-gtk-window",
+                "/opt/brew/Cellar/emu198x-spectrum/0.44.0/bin/libexec/emu198x-gtk-window",
+                "/opt/brew/Cellar/emu198x-spectrum/0.44.0/share/emu198x-spectrum/libexec/emu198x-gtk-window",
+            ]
+            .map(PathBuf::from)
+        );
     }
 }

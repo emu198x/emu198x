@@ -173,6 +173,12 @@ jobs:
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
+      # Added by hand (allow-dirty = ["ci"]). Every archive includes
+      # target/gtk-window/libexec; on Linux this builds the GTK window into it,
+      # elsewhere it stays empty. See scripts/build-gtk-window.sh.
+      - name: Build the GTK window
+        shell: bash
+        run: bash scripts/build-gtk-window.sh "${{ join(matrix.targets, ',') }}"
       # Added by hand (allow-dirty = ["ci"]). macOS signing and notarisation
       # switch on together, and only when all six secrets exist; with none of
       # them the build is unsigned exactly as before, and a partial set fails
