@@ -217,6 +217,15 @@ impl UiSystem for SpectrumSystem {
         (self.kempston_mouse && hosts_kempston_mouse(self.current)).then_some("mouse-1")
     }
 
+    // A count is one step of the Kempston interface's counters, and a
+    // framebuffer pixel is one Spectrum pixel. Each program decides how far
+    // a count moves its own pointer, so there is no better figure than one,
+    // and with no system pointer to find, the counts replay the cursor's
+    // movement at this rate.
+    fn pointer_counts_per_pixel(&self, _runtime: &Self::Runtime) -> (f64, f64) {
+        (1.0, 1.0)
+    }
+
     fn button_map(&self) -> &'static ButtonInputMap {
         if uses_if2(self.current) {
             &IF2_BUTTONS
@@ -405,6 +414,19 @@ mod tests {
         assert_eq!(system.mouse_device(), Some("mouse-1"));
         system.current = Model::SpectrumPlus3;
         assert_eq!(system.mouse_device(), None, "the +3 hosts no Kempston");
+    }
+
+    #[test]
+    fn a_kempston_count_is_one_framebuffer_pixel() {
+        let system = SpectrumSystem {
+            current: Model::Spectrum48KPal,
+            kempston_mouse: true,
+        };
+        let runtime = SpectrumRuntimeKind::Spectrum48K(Box::new(
+            runtime_sinclair_zx_spectrum::Spectrum48kRuntime::blank(),
+        ));
+        assert_eq!(system.guest_pointer(&runtime), None, "no system pointer");
+        assert_eq!(system.pointer_counts_per_pixel(&runtime), (1.0, 1.0));
     }
 
     fn check_host_characters() {

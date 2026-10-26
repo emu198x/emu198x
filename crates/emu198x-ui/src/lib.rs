@@ -290,7 +290,8 @@ pub trait UiSystem {
     /// clicks into `InputEvent::PointerButton`, both tagged with this device
     /// name. The counts chase the guest's own pointer when
     /// [`guest_pointer`](Self::guest_pointer) can locate it, and otherwise
-    /// replay the cursor's movement in framebuffer pixels.
+    /// replay the cursor's movement, converted from framebuffer pixels by
+    /// [`pointer_counts_per_pixel`](Self::pointer_counts_per_pixel).
     fn mouse_device(&self) -> Option<&'static str> {
         None
     }
@@ -311,10 +312,12 @@ pub trait UiSystem {
     }
 
     /// Mouse counts that move the guest pointer one framebuffer pixel on each
-    /// axis, before any acceleration the guest applies. Default one count per
-    /// pixel. The closed loop corrects for an inexact figure, so this only has
-    /// to be about right; it sets how quickly the pointer catches up.
-    fn pointer_counts_per_pixel(&self) -> (f64, f64) {
+    /// axis, before any acceleration the guest applies, in the display the
+    /// runtime shows now. Default one count per pixel. Relative motion is
+    /// sent at this rate, so it sets how far the guest pointer moves with the
+    /// cursor; the closed loop corrects for an inexact figure, where it only
+    /// sets how quickly the pointer catches up.
+    fn pointer_counts_per_pixel(&self, _runtime: &Self::Runtime) -> (f64, f64) {
         (1.0, 1.0)
     }
 

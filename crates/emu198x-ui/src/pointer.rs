@@ -4,10 +4,10 @@
 //! its pointer's position. The harness has two ways to keep that pointer under
 //! the host cursor:
 //!
-//! - [`RelativeMotion`] sends the cursor's own movement. It carries the
-//!   fraction of a pixel each event leaves over, so slow movement is not lost
-//!   to rounding. It cannot correct for guest acceleration or for the guest
-//!   pointer stopping at a screen edge.
+//! - [`RelativeMotion`] sends the cursor's own movement, in the guest's mouse
+//!   counts. It carries the fraction of a count each event leaves over, so
+//!   slow movement is not lost to rounding. It cannot correct for guest
+//!   acceleration or for the guest pointer stopping at a screen edge.
 //! - [`PointerSync`] closes the loop for a machine that can report where its
 //!   pointer is. Each frame it compares the guest pointer with the cursor and
 //!   sends the counts that close part of the gap, so the two meet whatever the
@@ -30,7 +30,7 @@ const MAX_STEP: i32 = 100;
 /// say — must not have corrections pile up and land at once.
 const MAX_WAIT_FRAMES: u32 = 4;
 
-/// Relative cursor motion with the sub-pixel remainder carried forward.
+/// Relative cursor motion with the part-count remainder carried forward.
 #[derive(Debug, Default)]
 pub(crate) struct RelativeMotion {
     last: Option<(f64, f64)>,
@@ -38,12 +38,18 @@ pub(crate) struct RelativeMotion {
 }
 
 impl RelativeMotion {
-    /// The whole-pixel movement from the last position to `to`, or `None` for
-    /// the first sample and for movement that rounds to nothing yet.
-    pub(crate) fn motion_to(&mut self, to: (f64, f64)) -> Option<(i32, i32)> {
+    /// The whole mouse counts for the movement from the last position to
+    /// `to`, both in framebuffer pixels, or `None` for the first sample and
+    /// for movement that rounds to nothing yet. `counts_per_pixel` converts
+    /// pixels to the counts the guest moves its pointer by.
+    pub(crate) fn motion_to(
+        &mut self,
+        to: (f64, f64),
+        counts_per_pixel: (f64, f64),
+    ) -> Option<(i32, i32)> {
         let from = self.last.replace(to)?;
-        let x = to.0 - from.0 + self.remainder.0;
-        let y = to.1 - from.1 + self.remainder.1;
+        let x = (to.0 - from.0) * counts_per_pixel.0 + self.remainder.0;
+        let y = (to.1 - from.1) * counts_per_pixel.1 + self.remainder.1;
         let (dx, dy) = (x.round(), y.round());
         self.remainder = (x - dx, y - dy);
         let delta = (dx as i32, dy as i32);
@@ -101,7 +107,10 @@ impl PointerSync {
         }
         let step = |gap: f64, scale: f64| {
             let counts = gap * scale;
-            if counts.abs() < 0.5 {
+            // Half a count or less is as close as whole counts can get: one
+            // more would overshoot by as much, and the next correction would
+            // send it back.
+            if counts.abs() <= 0.5 {
                 return 0;
             }
             // At least one count, or a small gap would never close.
@@ -137,20 +146,22 @@ impl PointerSync {
 mod tests {
     use super::*;
 
+    const ONE: (f64, f64) = (1.0, 1.0);
+
     #[test]
     fn the_first_sample_only_sets_the_baseline() {
         let mut motion = RelativeMotion::default();
-        assert_eq!(motion.motion_to((10.0, 10.0)), None);
-        assert_eq!(motion.motion_to((13.0, 8.0)), Some((3, -2)));
+        assert_eq!(motion.motion_to((10.0, 10.0), ONE), None);
+        assert_eq!(motion.motion_to((13.0, 8.0), ONE), Some((3, -2)));
     }
 
     #[test]
     fn slow_motion_adds_up_instead_of_rounding_away() {
         let mut motion = RelativeMotion::default();
-        motion.motion_to((0.0, 0.0));
+        motion.motion_to((0.0, 0.0), ONE);
         let mut moved = 0;
         for step in 1..=10 {
-            if let Some((dx, _)) = motion.motion_to((f64::from(step) * 0.4, 0.0)) {
+            if let Some((dx, _)) = motion.motion_to((f64::from(step) * 0.4, 0.0), ONE) {
                 moved += dx;
             }
         }
@@ -158,13 +169,30 @@ mod tests {
     }
 
     #[test]
+    fn motion_is_sent_in_the_guests_counts() {
+        // An Atari ST in low resolution: one count is two framebuffer
+        // pixels across and one down.
+        let scale = (0.5, 1.0);
+        let mut motion = RelativeMotion::default();
+        motion.motion_to((0.0, 0.0), scale);
+        assert_eq!(motion.motion_to((20.0, 20.0), scale), Some((10, 20)));
+        let mut moved = 0;
+        for step in 1..=10 {
+            if let Some((dx, _)) = motion.motion_to((20.0 + f64::from(step), 20.0), scale) {
+                moved += dx;
+            }
+        }
+        assert_eq!(moved, 5, "ten pixels one at a time are five counts");
+    }
+
+    #[test]
     fn a_reset_drops_the_baseline_and_the_remainder() {
         let mut motion = RelativeMotion::default();
-        motion.motion_to((0.0, 0.0));
-        motion.motion_to((0.4, 0.0));
+        motion.motion_to((0.0, 0.0), ONE);
+        motion.motion_to((0.4, 0.0), ONE);
         motion.reset();
-        assert_eq!(motion.motion_to((5.0, 5.0)), None);
-        assert_eq!(motion.motion_to((5.4, 5.0)), None);
+        assert_eq!(motion.motion_to((5.0, 5.0), ONE), None);
+        assert_eq!(motion.motion_to((5.4, 5.0), ONE), None);
     }
 
     /// A guest that moves its pointer by `scale` pixels per count, with an
@@ -255,6 +283,18 @@ mod tests {
             sync.correction((0.0, 0.0), (1.0, 1.0)).is_some(),
             "a guest that ignored the correction gets another"
         );
+    }
+
+    #[test]
+    fn a_pointer_half_a_count_away_is_left_alone() {
+        // Two framebuffer pixels a count: a cursor one pixel off cannot be
+        // matched more closely, and chasing it would hop either side.
+        let mut sync = PointerSync::default();
+        sync.set_target(Some((101.0, 50.0)));
+        assert_eq!(sync.correction((100.0, 50.0), (0.5, 1.0)), None);
+        // Over half a count away it moves.
+        sync.set_target(Some((101.5, 50.0)));
+        assert_eq!(sync.correction((100.0, 50.0), (0.5, 1.0)), Some((1, 0)));
     }
 
     #[test]
