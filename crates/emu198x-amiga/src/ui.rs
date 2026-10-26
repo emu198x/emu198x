@@ -188,7 +188,7 @@ impl UiSystem for AmigaSystem {
     // and one line down, and the framebuffer has two pixels and two rows for
     // each. Speed and acceleration preferences change this; the closed loop
     // corrects for them.
-    fn pointer_counts_per_pixel(&self) -> (f64, f64) {
+    fn pointer_counts_per_pixel(&self, _runtime: &Self::Runtime) -> (f64, f64) {
         (0.5, 0.5)
     }
 

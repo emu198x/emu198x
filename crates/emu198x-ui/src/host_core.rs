@@ -588,8 +588,8 @@ impl<S: UiSystem> HostCore<S> {
     /// Follow the host cursor with the guest's mouse. A system that can say
     /// where its pointer is ([`UiSystem::guest_pointer`]) has the cursor
     /// recorded as the target for [`Self::queue_pointer_correction`]; any
-    /// other gets the cursor's movement as relative `PointerMotion`, the first
-    /// event after focus only setting the baseline. No-op for a system with no
+    /// other gets the cursor's movement as relative `PointerMotion`, in the
+    /// guest's counts, the first event after focus only setting the baseline. No-op for a system with no
     /// mouse.
     fn queue_mouse_motion(&mut self, x: f64, y: f64, window: Option<(u32, u32)>) {
         let Some(device) = self.system.mouse_device() else {
@@ -602,7 +602,8 @@ impl<S: UiSystem> HostCore<S> {
             return;
         }
         self.pointer_sync.reset();
-        let Some((dx, dy)) = self.relative_motion.motion_to(position) else {
+        let scale = self.system.pointer_counts_per_pixel(&self.runner.runtime);
+        let Some((dx, dy)) = self.relative_motion.motion_to(position, scale) else {
             return;
         };
         self.pending_inputs.push(InputEvent::PointerMotion {
@@ -629,7 +630,7 @@ impl<S: UiSystem> HostCore<S> {
             self.pointer_sync.reset();
             return;
         };
-        let scale = self.system.pointer_counts_per_pixel();
+        let scale = self.system.pointer_counts_per_pixel(&self.runner.runtime);
         if let Some((dx, dy)) = self.pointer_sync.correction(guest, scale) {
             self.pending_inputs.push(InputEvent::PointerMotion {
                 device: device.into(),

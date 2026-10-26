@@ -263,6 +263,14 @@ impl UiSystem for C64System {
         Some("mouse-1")
     }
 
+    // A count is one 1351 count, which the 1351 manual's driver turns into
+    // one step of its pointer: a hires pixel across, a line down, so one
+    // framebuffer pixel each way. With no system pointer to find, the counts
+    // replay the cursor's movement at this rate.
+    fn pointer_counts_per_pixel(&self, _runtime: &Self::Runtime) -> (f64, f64) {
+        (1.0, 1.0)
+    }
+
     fn variants(&self) -> Vec<VariantInfo> {
         C64Variant::all()
             .into_iter()
@@ -483,6 +491,15 @@ mod tests {
             model: Model::C64PalBreadbin.into(),
             keyboard_joystick: false,
         }
+    }
+
+    #[test]
+    fn a_1351_count_is_one_framebuffer_pixel() {
+        let system = blank_system();
+        let runtime = C64RuntimeKind::blank(Model::C64PalBreadbin.into());
+        assert_eq!(system.mouse_device(), Some("mouse-1"));
+        assert_eq!(system.guest_pointer(&runtime), None, "no system pointer");
+        assert_eq!(system.pointer_counts_per_pixel(&runtime), (1.0, 1.0));
     }
 
     #[test]
