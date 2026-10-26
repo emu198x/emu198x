@@ -78,6 +78,10 @@ use crate::variants::C64FamilyMachine;
 /// restore during the three-cycle bus handover could make the next matrix or
 /// sprite access valid at the wrong Phi2 phase.
 ///
+/// Version 22 adds each 1351 mouse's motion waiting for the next frame and
+/// the counts it has let through this frame, and its counts become the
+/// mouse's own, two pot steps each.
+///
 /// Version 21 adds the CMD SuperCPU: the machine carries the live board, and
 /// the envelope its firmware and SuperRAM size, so a reset after a restore
 /// fits it again.
@@ -94,7 +98,7 @@ use crate::variants::C64FamilyMachine;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 21;
+const SNAPSHOT_VERSION: u32 = 22;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,

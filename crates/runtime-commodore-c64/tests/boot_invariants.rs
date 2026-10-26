@@ -141,9 +141,10 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// colour entries joined it (#1661), and to 18 when the separate mechanical
 /// SHIFT LOCK contact joined the keyboard state. Version 19 retains the
 /// 1541/1571 VIA timer 2 load phase (#1677), version 20 the 1571's and
-/// 1581's WD1770 byte pacing, and version 21 the CMD SuperCPU (#2064).
+/// 1581's WD1770 byte pacing, version 21 the CMD SuperCPU (#2064), and
+/// version 22 the 1351 mouse's motion waiting for the next frame.
 #[test]
-fn snapshot_envelope_version_is_locked_at_v21() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v22() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -154,8 +155,8 @@ fn snapshot_envelope_version_is_locked_at_v21() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 21,
-        "C64 snapshot envelope version should be 21 (got {})",
+        bytes[0], 22,
+        "C64 snapshot envelope version should be 22 (got {})",
         bytes[0]
     );
     Ok(())
