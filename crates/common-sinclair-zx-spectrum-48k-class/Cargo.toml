@@ -9,14 +9,14 @@ repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.44.0" }
-peripheral-divmmc = { path = "../peripheral-divmmc", version = "0.44.0" }
-ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.44.0" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.44.0" }
-peripheral-kempston-mouse = { path = "../peripheral-kempston-mouse", version = "0.44.0" }
-peripheral-sinclair-interface1 = { path = "../peripheral-sinclair-interface1", version = "0.44.0" }
+emu198x-peripheral-sinclair-zx-spectrum-divmmc = { path = "../emu198x-peripheral-sinclair-zx-spectrum-divmmc", version = "0.1.0" }
+emu198x-ferranti-ula-6c001e = { path = "../emu198x-ferranti-ula-6c001e", version = "0.1.0" }
+emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick", version = "0.1.0" }
+emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse", version = "0.1.0" }
+emu198x-peripheral-sinclair-zx-spectrum-interface1 = { path = "../emu198x-peripheral-sinclair-zx-spectrum-interface1", version = "0.1.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
-peripheral-multiface = { path = "../peripheral-multiface", version = "0.44.0" }
+emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface = { path = "../emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface", version = "0.1.0" }
 
 [lints]
 workspace = true

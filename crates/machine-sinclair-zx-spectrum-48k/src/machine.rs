@@ -15,8 +15,8 @@ use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum48kMemory};
 use common_sinclair_zx_spectrum_48k_class::{
     Spectrum48kMarker, SpectrumMachineCore, Variant48kClass,
 };
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonButton;
 use emu198x_shell::InputEvent;
-use peripheral_kempston_joystick::KempstonButton;
 
 /// Machine-local state for a stock ZX Spectrum 48K.
 pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
@@ -84,7 +84,7 @@ mod tests {
     use common_sinclair_zx_spectrum::audio::SpeakerChannel;
     use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-    use ferranti_ula_6c001e::UlaRevision;
+    use emu198x_ferranti_ula_6c001e::UlaRevision;
     use std::fs;
     use std::path::PathBuf;
 

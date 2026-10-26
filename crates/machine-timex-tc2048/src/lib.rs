@@ -30,10 +30,10 @@ use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonJoystick;
+use emu198x_timex_scld::TimexScld;
 use emu198x_zilog_z80::{BusOp, Z80};
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
-use peripheral_kempston_joystick::KempstonJoystick;
-use timex_scld::TimexScld;
 
 use crate::memory::MemoryTC2048;
 

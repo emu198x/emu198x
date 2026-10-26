@@ -15,7 +15,6 @@
 
 pub mod memory;
 
-use beta_disk_interface::BetaDisk;
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
@@ -30,9 +29,10 @@ use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_PENTAGON};
 use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
+use emu198x_pentagon_ula::PentagonUla;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonJoystick;
+use emu198x_peripheral_technology_research_sinclair_zx_spectrum_beta_disk::BetaDisk;
 use emu198x_zilog_z80::{BusOp, Z80};
-use pentagon_ula::PentagonUla;
-use peripheral_kempston_joystick::KempstonJoystick;
 
 use crate::memory::MemoryPentagon;
 

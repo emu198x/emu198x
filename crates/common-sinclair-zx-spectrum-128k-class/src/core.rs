@@ -29,13 +29,15 @@ use common_sinclair_zx_spectrum::timing::{
 };
 use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonJoystick;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_mouse::KempstonMouse;
+use emu198x_peripheral_romantic_robot_sinclair_zx_spectrum_multiface::{
+    Multiface, MultifaceModel, MultifaceRomError,
+};
+use emu198x_peripheral_sinclair_zx_spectrum_divmmc::{DivMmc, DivMmcEepromError};
+use emu198x_peripheral_sinclair_zx_spectrum_interface1::{Interface1, Interface1RomError};
+use emu198x_sinclair_ula_7k010e::SinclairUla;
 use emu198x_zilog_z80::{BusOp, Z80};
-use peripheral_divmmc::{DivMmc, DivMmcEepromError};
-use peripheral_kempston_joystick::KempstonJoystick;
-use peripheral_kempston_mouse::KempstonMouse;
-use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
-use peripheral_sinclair_interface1::{Interface1, Interface1RomError};
-use sinclair_ula_7k010e::SinclairUla;
 
 use crate::memory::Memory128K;
 use crate::variant::Class128kVariant;

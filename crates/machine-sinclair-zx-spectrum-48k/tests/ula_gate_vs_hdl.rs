@@ -26,7 +26,7 @@
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::ula_engine::HDL_HC_LEAD_PIXELS;
-use ferranti_ula_6c001e::hdl_model::{HdlGate, Pins};
+use emu198x_ferranti_ula_6c001e::hdl_model::{HdlGate, Pins};
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 
 const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
@@ -93,7 +93,7 @@ fn hdl_hc(pixel: u16) -> u16 {
 }
 
 /// Replay a recording through the model and return where they differ.
-fn replay(trace: &[ferranti_ula_6c001e::UlaTick]) -> (Vec<Divergence>, usize) {
+fn replay(trace: &[emu198x_ferranti_ula_6c001e::UlaTick]) -> (Vec<Divergence>, usize) {
     let first = trace.first().expect("recording should not be empty");
     let mut gate = HdlGate::with_clock(hdl_hc(first.pixel), first.clock_high_before);
     let mut out = Vec::new();

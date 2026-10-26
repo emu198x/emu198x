@@ -1,0 +1,21 @@
+[package]
+name = "emu198x-sinclair-zx-spectrum-ula"
+description = "The ZX Spectrum ULA's shared video engine — screen fetch, two-stage shifter, border, flash, interrupt timing and floating bus — that every Spectrum-family ULA crate wraps"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["zx-spectrum", "ula", "video", "sinclair", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+emu198x-bus-sinclair-zx-spectrum = { path = "../emu198x-bus-sinclair-zx-spectrum", version = "0.1.0" }
+serde = { workspace = true }
+
+[lints]
+workspace = true

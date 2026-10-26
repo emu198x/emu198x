@@ -21,7 +21,6 @@ use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use std::marker::PhantomData;
 
-use amstrad_ula_40077::AmstradGateArray;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
@@ -34,11 +33,14 @@ use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{FrameTiming, TIMING_PLUS2A};
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use common_sinclair_zx_spectrum::ula::Ula;
+use emu198x_amstrad_ula_40077::AmstradGateArray;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_nec_upd765a::Upd765a;
+use emu198x_peripheral_romantic_robot_sinclair_zx_spectrum_multiface::{
+    Multiface, MultifaceModel, MultifaceRomError,
+};
+use emu198x_peripheral_sinclair_zx_spectrum_divmmc::{DivMmc, DivMmcEepromError};
 use emu198x_zilog_z80::{BusOp, Z80};
-use peripheral_divmmc::{DivMmc, DivMmcEepromError};
-use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
 
 use crate::memory::MemoryPlus;
 use crate::variant::{AmstradVariant, Plus3Marker};

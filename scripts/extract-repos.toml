@@ -626,3 +626,115 @@ summary = "The Ricoh 2C02 NES PPU, dot-stepped, reaching the cartridge through a
 consumers = "Used by the NES, whose cartridge boards implement its PpuCartridge trait."
 # 96.28% line coverage on 2026-10-26.
 coverage_floor = 96
+
+[[repo]]
+name = "bus-sinclair-zx-spectrum"
+crates = ["emu198x-bus-sinclair-zx-spectrum"]
+summary = "The ZX Spectrum family's wiring: the Ula, MemoryBus, Peripheral and MemoryIntercept traits and the FrameTiming data."
+consumers = "Implemented by the Spectrum-family ULAs and edge-connector peripherals, and called by the Spectrum, Timex, Pentagon and Scorpion machines."
+# 72.46% line coverage on 2026-10-26.
+coverage_floor = 72
+
+[[repo]]
+name = "sinclair-zx-spectrum-ula"
+crates = ["emu198x-sinclair-zx-spectrum-ula"]
+summary = "The video engine every ZX Spectrum-family ULA wraps."
+consumers = "Used by the Ferranti 6C001E, Sinclair 7K010E, Amstrad 40077, Timex SCLD, Pentagon and Scorpion ULAs."
+# 69.77% line coverage on 2026-10-26.
+coverage_floor = 69
+
+[[repo]]
+name = "ferranti-ula-6c001e"
+crates = ["emu198x-ferranti-ula-6c001e"]
+summary = "The Ferranti 6C001E, the ZX Spectrum 16K and 48K's ULA."
+consumers = "Used by the 16K, 48K and Spectrum+."
+# 70.88% line coverage on 2026-10-26.
+coverage_floor = 70
+
+[[repo]]
+name = "sinclair-ula-7k010e"
+crates = ["emu198x-sinclair-ula-7k010e"]
+summary = "The Sinclair 7K010E, the ZX Spectrum 128K and +2's ULA."
+consumers = "Used by the 128K and +2."
+# 61.99% line coverage on 2026-10-26.
+coverage_floor = 61
+
+[[repo]]
+name = "amstrad-ula-40077"
+crates = ["emu198x-amstrad-ula-40077"]
+summary = "The Amstrad 40077 gate array, the ZX Spectrum +2A, +2B and +3's ULA."
+consumers = "Used by the +2A, +2B and +3."
+# 53.57% line coverage on 2026-10-26.
+coverage_floor = 53
+
+[[repo]]
+name = "timex-scld"
+crates = ["emu198x-timex-scld"]
+summary = "The Timex SCLD of the TC2048, TC2068 and TS2068."
+consumers = "Used by the TC2048 and TS2068."
+# 12.14% line coverage on 2026-10-26.
+coverage_floor = 12
+
+[[repo]]
+name = "pentagon-ula"
+crates = ["emu198x-pentagon-ula"]
+summary = "The Pentagon 128's uncontended ULA."
+consumers = "Used by the Pentagon 128."
+# 60.94% line coverage on 2026-10-26.
+coverage_floor = 60
+
+[[repo]]
+name = "scorpion-ula"
+crates = ["emu198x-scorpion-ula"]
+summary = "The Scorpion ZS-256's uncontended ULA."
+consumers = "Used by the Scorpion ZS-256."
+# 59.02% line coverage on 2026-10-26.
+coverage_floor = 59
+
+[[repo]]
+name = "peripheral-sinclair-zx-spectrum-interface1"
+crates = ["emu198x-peripheral-sinclair-zx-spectrum-interface1"]
+summary = "Sinclair's ZX Interface 1 and up to eight ZX Microdrives."
+consumers = "Used by the Spectrum machines that accept one."
+# 96.56% line coverage on 2026-10-26.
+coverage_floor = 96
+
+[[repo]]
+name = "peripheral-kempston-sinclair-zx-spectrum-joystick"
+crates = ["emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick"]
+summary = "The Kempston Interface joystick."
+consumers = "Used by the Spectrum machines that accept one."
+# 100.00% line coverage on 2026-10-26.
+coverage_floor = 100
+
+[[repo]]
+name = "peripheral-kempston-sinclair-zx-spectrum-mouse"
+crates = ["emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse"]
+summary = "The Kempston mouse interface."
+consumers = "Used by the Spectrum machines that accept one."
+# 100.00% line coverage on 2026-10-26.
+coverage_floor = 100
+
+[[repo]]
+name = "peripheral-romantic-robot-sinclair-zx-spectrum-multiface"
+crates = ["emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface"]
+summary = "Romantic Robot's Multiface 128 and Multiface 3."
+consumers = "Used by the 48K-, 128K- and +2A-class Spectrums."
+# 96.39% line coverage on 2026-10-26.
+coverage_floor = 96
+
+[[repo]]
+name = "peripheral-technology-research-sinclair-zx-spectrum-beta-disk"
+crates = ["emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk"]
+summary = "Technology Research's Beta 128 disk interface and TR-DOS paging."
+consumers = "Used by the Pentagon 128 and Scorpion ZS-256."
+# 63.49% line coverage on 2026-10-26.
+coverage_floor = 63
+
+[[repo]]
+name = "peripheral-sinclair-zx-spectrum-divmmc"
+crates = ["emu198x-peripheral-sinclair-zx-spectrum-divmmc"]
+summary = "The DivMMC SD card interface."
+consumers = "Used by the Spectrum machines that accept one."
+# 96.47% line coverage on 2026-10-26.
+coverage_floor = 96

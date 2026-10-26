@@ -31,13 +31,15 @@ use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
+use emu198x_ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonJoystick;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_mouse::KempstonMouse;
+use emu198x_peripheral_romantic_robot_sinclair_zx_spectrum_multiface::{
+    Multiface, MultifaceModel, MultifaceRomError,
+};
+use emu198x_peripheral_sinclair_zx_spectrum_divmmc::{DivMmc, DivMmcEepromError};
+use emu198x_peripheral_sinclair_zx_spectrum_interface1::{Interface1, Interface1RomError};
 use emu198x_zilog_z80::{BusOp, Z80};
-use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
-use peripheral_divmmc::{DivMmc, DivMmcEepromError};
-use peripheral_kempston_joystick::KempstonJoystick;
-use peripheral_kempston_mouse::KempstonMouse;
-use peripheral_multiface::{Multiface, MultifaceModel, MultifaceRomError};
-use peripheral_sinclair_interface1::{Interface1, Interface1RomError};
 
 use crate::tape_input::TapeInput;
 use crate::variant::Variant48kClass;
@@ -1743,7 +1745,7 @@ mod divmmc_tests {
     }
 
     fn card() -> Vec<u8> {
-        let mut card = vec![0; peripheral_divmmc::SD_IMAGE_UNIT];
+        let mut card = vec![0; emu198x_peripheral_sinclair_zx_spectrum_divmmc::SD_IMAGE_UNIT];
         for (i, byte) in card[512..1024].iter_mut().enumerate() {
             *byte = (i as u8) ^ 0x5A;
         }

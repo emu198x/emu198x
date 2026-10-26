@@ -43,7 +43,7 @@ struct SerdeSkipAudit {
 #[cfg(test)]
 const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
     SerdeSkipAudit {
-        path: "crates/common-sinclair-zx-spectrum/src/ula_engine.rs",
+        path: "crates/emu198x-sinclair-zx-spectrum-ula/src/lib.rs",
         expected: 8,
         justification: "Two-stage shifter pipeline + AOLatch border + \
                         config + M-cycle fall counter: pipeline state drains \

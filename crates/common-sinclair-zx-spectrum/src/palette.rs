@@ -125,25 +125,8 @@ pub const SPECTRUM_PALETTE: [u32; 16] = [
     rgba(true, true, true, true),    // 15: bright white
 ];
 
-/// Convert a Spectrum attribute byte to ink and paper palette indices.
-///
-/// Attribute format: FBPPPIII
-///   F = flash, B = bright, PPP = paper colour (0-7), III = ink colour (0-7)
-///
-/// Returns (ink_index, paper_index) into the 16-colour palette.
-#[inline]
-pub fn attr_to_indices(attr: u8) -> (u8, u8) {
-    let bright = if attr & 0x40 != 0 { 8 } else { 0 };
-    let ink = (attr & 0x07) | bright;
-    let paper = ((attr >> 3) & 0x07) | bright;
-    (ink, paper)
-}
-
-/// Check if an attribute has the FLASH bit set.
-#[inline]
-pub fn attr_flash(attr: u8) -> bool {
-    attr & 0x80 != 0
-}
+/// The ULA's attribute decoding is the ULA engine's own; re-exported here.
+pub use emu198x_sinclair_zx_spectrum_ula::{attr_flash, attr_to_indices};
 
 #[cfg(test)]
 mod tests {

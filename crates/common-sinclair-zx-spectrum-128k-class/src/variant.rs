@@ -4,7 +4,7 @@
 //! composition. Their ROMs and interrupt phases differ. The marker selects
 //! the ULA profile both at construction and after saved-state restoration.
 
-use sinclair_ula_7k010e::SinclairUla;
+use emu198x_sinclair_ula_7k010e::SinclairUla;
 
 /// Marker trait for the supported 128K-class variants.
 ///
