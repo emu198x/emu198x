@@ -14,7 +14,7 @@ keywords = ["denise", "amiga", "ecs", "emulator"]
 categories = ["emulators"]
 
 [dependencies]
-emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
+emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.1" }
 serde = { workspace = true }
 
 [lints]

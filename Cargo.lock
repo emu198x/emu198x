@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-denise-ocs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde-big-array",
