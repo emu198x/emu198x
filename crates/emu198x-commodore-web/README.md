@@ -34,13 +34,17 @@ corresponding source are ignored by Git. No deployment or npm publishing occurs.
 
 - Click the screen to type. Keys follow physical positions; on C64, Shift+2
   produces a quotation mark. Escape maps to RUN/STOP, Alt to Commodore.
-- Select **Arrows + Space as joystick** for control port 2. On Amiga, click the
-  screen or **Capture Amiga mouse** to capture relative mouse input. Only the
-  Amiga pointer is visible while captured; **Escape** releases it. The first
-  click only captures, so it cannot activate an unrelated guest control.
-  Uncaptured hovering does not move the guest. Pause, restart and focus loss
-  release capture and held buttons. A desktop browser with Pointer Lock support
-  is required for mouse control; capture failure is reported beside the button.
+- Select **Arrows + Space as joystick** for control port 2. On Amiga, while
+  the machine can find its own pointer (sprite 0, as Workbench and AROS draw
+  it), hovering the screen steers that pointer to the cursor and hides the
+  cursor, and clicks go to the Amiga. Otherwise, as in a game that moves the
+  pointer itself, click the screen or **Capture Amiga mouse** to capture
+  relative mouse input. Only the Amiga pointer is visible while captured;
+  **Escape** releases it. Without a pointer to follow, the first click only
+  captures, so it cannot activate an unrelated guest control, and uncaptured
+  hovering does not move the guest. Pause, restart and focus loss release
+  capture and held buttons. Capture needs a desktop browser with Pointer Lock
+  support; capture failure is reported beside the button.
 - **Pause**, **One frame**, and **Start / restart** permit inspection and a fresh
   boot. Restart discards media and session changes. Losing window focus or
   hiding the tab pauses playback and releases held input; resume explicitly.
@@ -150,17 +154,26 @@ still need inspection; the UI check is not an OCR assertion of the BASIC result.
 The mouse check opens a focused Chromium window (required for native pointer
 lock on macOS) and exercises real browser capture, first-click suppression, Escape
 release, held button/key cleanup, pause/restart and C64 isolation. It also checks
-that resizing the canvas does not change relative mouse counts. The browser
-does not try to align an absolute host cursor with a guest-controlled cursor:
-Amiga software owns mouse acceleration, clipping and pointer warps.
+that resizing the canvas does not change relative mouse counts. Where the
+machine finds its pointer, it checks that hover only steers it, hides the
+cursor and passes clicks to the Amiga; Kickstart's insert-disk screen may show
+no pointer, and the check reports which case it ran. The page never puts the
+guest pointer at the cursor itself: Amiga software owns acceleration, clipping
+and warps, so the machine sends the counts that close the gap each frame and
+checks where the pointer went (`emu198x-pointer`).
 
 Browser movement can be a fraction of a pixel, so the counts sent carry each
-event's fraction into the next instead of rounding it away. That arithmetic
-needs no browser:
+event's fraction into the next instead of rounding it away. That arithmetic,
+and the mapping from page to framebuffer, need no browser:
 
 ```sh
 node scripts/check-mouse-counts.mjs
+DOM_PACKAGE=/path/to/happy-dom/lib/index.js node scripts/check-mouse-follow.mjs
 ```
+
+The second runs the page's side of following in happy-dom: hover sends
+targets and hides the cursor, clicks reach the guest, leaving stops steering,
+and without a guest pointer a click captures.
 
 For the A501 default and optional AROS path:
 

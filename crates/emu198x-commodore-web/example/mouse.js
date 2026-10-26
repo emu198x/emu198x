@@ -15,16 +15,38 @@ export function relativeCounts() {
   };
 }
 
-// An Amiga mouse is relative input. Its guest cursor cannot be aligned to a
-// browser's absolute cursor by subtracting a canvas offset (the guest owns
-// acceleration, clipping and warps). Capture exposes only the guest cursor.
+// Where a page position falls on the picture, in framebuffer pixels. `box`
+// is the canvas's client rectangle and `size` its framebuffer; `contain` is
+// true when the canvas letterboxes the picture (`object-fit: contain`).
+export function toFramebuffer(box, size, contain, clientX, clientY) {
+  let sx = box.width / size[0], sy = box.height / size[1], ox = 0, oy = 0;
+  if (contain) {
+    sx = sy = Math.min(sx, sy);
+    ox = (box.width - size[0] * sx) / 2;
+    oy = (box.height - size[1] * sy) / 2;
+  }
+  return [(clientX - box.left - ox) / sx, (clientY - box.top - oy) / sy];
+}
+
+// An Amiga mouse is relative input: the guest owns acceleration, clipping
+// and warps, so its pointer cannot be put under the browser's cursor by
+// subtracting a canvas offset. Two ways keep them together:
+//
+// - Following. While the machine can say where its pointer is (`setGuestPointer`),
+//   hovering the screen sends the cursor's framebuffer position as a target
+//   and hides the cursor, and the machine sends the counts that bring its
+//   pointer there each frame. Clicks go to the guest.
+// - Capture (pointer lock), the fallback: relative counts, and the only
+//   choice while the machine cannot find its pointer, as in a game.
 export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
-  let enabled = false, wasLocked = false;
+  let enabled = false, wasLocked = false, guestPointer = false, hovering = false;
+  let queuedTarget = null;
   const motion = relativeCounts();
   const listeners = new AbortController();
   const listen = (target, type, handler, capture = false) => target.addEventListener(type, handler, {capture, signal:listeners.signal});
   const held = new Set();
   const locked = () => canvas.getRootNode().pointerLockElement === canvas;
+  const following = () => enabled && guestPointer && !locked();
   const message = error => { hint.textContent = error; };
   function update() {
     button.disabled = !enabled;
@@ -32,11 +54,21 @@ export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
     button.setAttribute('aria-pressed', String(locked()));
     hint.textContent = locked()
       ? 'Mouse captured. Use the Amiga pointer; press Escape to release.'
-      : 'Click the Amiga screen or Capture Amiga mouse. Escape releases it.';
+      : following()
+        ? 'The Amiga pointer follows your cursor over the screen. Capture the mouse for games that move it themselves.'
+        : 'Click the Amiga screen or Capture Amiga mouse. Escape releases it.';
+    const hidden = following() && hovering;
+    canvas.style.cursor = hidden ? 'none' : '';
+    canvas.dataset.pointer = following() ? 'follows' : '';
   }
   function releaseButtons() {
     if (held.size) send([...held].map(name => ['mouse', name, false]));
     held.clear();
+  }
+  // Stop steering the guest pointer; it stays where it is.
+  function leave() {
+    queuedTarget = null;
+    send([['leave']]);
   }
   function release() {
     releaseButtons();
@@ -56,15 +88,47 @@ export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
       message('Mouse capture failed. Click the screen to try again.');
     }
   }
+  // One target a display frame is enough: the machine corrects once a frame.
+  function target(event) {
+    const box = canvas.getBoundingClientRect();
+    const contain = getComputedStyle(canvas).objectFit === 'contain';
+    const first = !queuedTarget;
+    queuedTarget = toFramebuffer(box, [canvas.width, canvas.height], contain, event.clientX, event.clientY);
+    if (first) requestAnimationFrame(() => {
+      if (queuedTarget && following()) send([['target', ...queuedTarget]]);
+      queuedTarget = null;
+    });
+  }
   listen(button, 'click', () => locked() ? release() : capture());
+  listen(canvas, 'mousemove', event => {
+    if (!following()) return;
+    if (!hovering) { hovering = true; update(); }
+    target(event);
+  });
+  listen(canvas, 'mouseleave', () => {
+    if (!hovering) return;
+    hovering = false; update();
+    if (following()) leave();
+  });
+  listen(canvas, 'contextmenu', event => { if (following()) event.preventDefault(); });
   listen(canvas, 'mousedown', event => {
-    if (!enabled || locked() || event.button !== 0) return;
+    if (!enabled || locked()) return;
+    if (following()) {
+      // The guest's pointer is under the cursor, so a click is the guest's.
+      const name = ['left','middle','right'][event.button];
+      if (!name || held.has(name)) return;
+      event.preventDefault(); canvas.focus();
+      held.add(name); send([['mouse', name, true]]);
+      return;
+    }
+    if (event.button !== 0) return;
     event.preventDefault();
     capture(); // The activation click never clicks an unrelated guest control.
   });
   listen(document, 'pointerlockchange', () => {
     motion.reset(); // A new capture starts from a whole count.
     if (locked() && !enabled) { release(); return; }
+    if (locked()) leave(); // Captured movement takes over from following.
     if (!locked() && wasLocked) { releaseButtons(); releaseKeys(); }
     wasLocked = locked();
     update();
@@ -100,7 +164,19 @@ export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
   return {
     setEnabled(value) {
       enabled = value;
-      if (!value) release();
+      if (!value) { release(); hovering = false; }
+      update();
+    },
+    // Whether the machine can say where its pointer is, from each frame.
+    setGuestPointer(point) {
+      const known = Boolean(point);
+      if (known === guestPointer) return;
+      const wasFollowing = following();
+      guestPointer = known;
+      // A pointer that has gone stops the machine's loop by itself; one that
+      // appears under a cursor already over the screen starts following it.
+      if (!wasFollowing && following()) hovering = false;
+      if (wasFollowing && !following()) releaseButtons();
       update();
     },
     release,

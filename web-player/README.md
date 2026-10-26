@@ -94,7 +94,9 @@ that every title or peripheral works.
 - Firmware/media come from file inputs and stay local. Open ROMs and AROS are
   accepted as user-selected inputs, with distinct compatibility expectations.
 - Computer input uses a physical keyboard. Console families also have touch buttons.
-  Tab leaves the screen; Amiga mouse capture releases with Escape.
+  Tab leaves the screen. Over an Amiga screen whose pointer the machine can
+  find, the pointer follows the cursor; otherwise Amiga mouse capture takes
+  relative input and releases with Escape.
 - The Mega Drive pad has three face buttons: X, Z and C are A, B and C, Enter
   is Start and right Shift is Mode. It needs no BIOS, since TMSS is not
   modelled, and runs Master System cartridges through the Power Base Converter.

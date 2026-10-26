@@ -23,8 +23,9 @@ self.onmessage = async ({ data: { id, command, args = [] } }) => {
         const elapsed = performance.now() - start;
         const pixels = frames ? machine.pixels() : new Uint8Array();
         const audio = machine.audio();
+        const pointer = machine.guest_pointer() ?? null;
         self.postMessage({ id, result: { frames, elapsed, pixels, audio,
-          width: machine.width(), height: machine.height() } }, [pixels.buffer, audio.buffer]);
+          width: machine.width(), height: machine.height(), pointer } }, [pixels.buffer, audio.buffer]);
         return;
       } else if (command === 'benchmark') {
         // Bounded and intentionally excludes presentation/transfer time.
@@ -46,6 +47,8 @@ self.onmessage = async ({ data: { id, command, args = [] } }) => {
           else if (type === 'joystick') machine.joystick(...values);
           else if (type === 'move') machine.mouse_move(...values);
           else if (type === 'mouse') machine.mouse_button(...values);
+          else if (type === 'target') machine.pointer_target(...values);
+          else if (type === 'leave') machine.pointer_leave();
           else throw new Error(`Unknown input: ${type}`);
         }
       } else throw new Error(`Unknown command: ${command}`);

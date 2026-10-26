@@ -24,3 +24,14 @@ counts.take(0.4, 0.4);
 counts.reset();
 assert.deepEqual(counts.take(0.4, 0.4), [0, 0], 'a reset drops the fraction');
 console.log('Passed: fractional mouse movement adds up to whole counts');
+
+// Page positions to framebuffer pixels, stretched and letterboxed.
+const {toFramebuffer} = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+const box = {left: 10, top: 20, width: 1536, height: 1152};
+assert.deepEqual(toFramebuffer(box, [768, 576], false, 10, 20), [0, 0]);
+assert.deepEqual(toFramebuffer(box, [768, 576], false, 10 + 300, 20 + 100), [150, 50]);
+// Letterboxed into a wider box: scaled by height, centred across.
+const wide = {left: 0, top: 0, width: 2000, height: 1152};
+assert.deepEqual(toFramebuffer(wide, [768, 576], true, 232, 0), [0, 0]);
+assert.deepEqual(toFramebuffer(wide, [768, 576], true, 1000, 576), [384, 288]);
+console.log('Passed: page positions map onto the framebuffer');
