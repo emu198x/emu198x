@@ -1,7 +1,7 @@
 //! Sprite clocks are independent of playfield clocks; phase constrained by
 //! the neutral A1200 DMA probe, not by resizing a lores image.
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 fn stream(playfield: u16, spres: u16, ctl: u16, data: u16) -> Vec<u8> {
     let mut chip = DeniseAga::new();

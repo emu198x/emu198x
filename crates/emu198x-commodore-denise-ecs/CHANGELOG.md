@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `DeniseChip` for `DeniseEcs`, moved here from the Amiga family's glue
+  crate now that the trait belongs to `emu198x-commodore-denise-ocs`.
+
 ## 0.1.0
 
 ### Added

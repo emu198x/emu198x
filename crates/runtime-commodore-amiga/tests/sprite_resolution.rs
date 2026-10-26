@@ -1,6 +1,6 @@
 //! Restore Lisa inside a fractional-position, wide hires sprite stream.
-use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
 
 #[test]
 fn pending_hires_sprite_clock_and_wide_data_survive_restore() {

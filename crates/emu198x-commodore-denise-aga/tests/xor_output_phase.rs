@@ -1,7 +1,7 @@
 //! BPLAM phase qualified by the reference counter, not its padded storage origin.
 //! Early RGA updates at counter 260; XOR becomes visible at 261.5 (six samples).
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 #[test]
 fn playfield_xor_crosses_the_output_stage_six_native_samples_after_the_write() {

@@ -1,6 +1,6 @@
 //! Restore Lisa border eligibility with a sprite in its retained output stage.
-use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
 
 #[test]
 fn border_sprite_resumes_without_a_bitplane_arrival() {

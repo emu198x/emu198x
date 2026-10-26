@@ -100,7 +100,7 @@ class VerifyAmigaClosureTests(unittest.TestCase):
             "-p motorola-68000",
             "-p motorola-68040",
             "-p emu198x-commodore-agnus-ocs",
-            "-p commodore-denise-aga",
+            "-p emu198x-commodore-denise-aga",
             "-p emu198x-commodore-paula-8364",
             "-p emu198x-commodore-gayle",
             "-p emu198x-mos-cia-8520",

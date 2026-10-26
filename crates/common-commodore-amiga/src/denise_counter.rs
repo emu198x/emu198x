@@ -4,6 +4,17 @@
 //! Agnus's beam. See `amiga-denise-horizontal-counter.md` for source provenance.
 
 pub use emu198x_commodore_agnus_ocs::DmaStrobe as DeniseStrobe;
+use emu198x_commodore_denise_ocs::TimingStrobe;
+
+/// The strobe Agnus put on the RGA bus, as the Denise chip receives it.
+#[must_use]
+pub const fn timing_strobe(strobe: DeniseStrobe) -> TimingStrobe {
+    match strobe {
+        DeniseStrobe::Equalisation => TimingStrobe::Equalisation,
+        DeniseStrobe::VerticalBlank => TimingStrobe::VerticalBlank,
+        DeniseStrobe::Horizontal => TimingStrobe::Horizontal,
+    }
+}
 
 /// Saved state of the normal strobe stage and the two-tick counter commit.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

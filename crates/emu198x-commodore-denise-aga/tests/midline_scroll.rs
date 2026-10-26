@@ -1,7 +1,7 @@
 //! Physical copy timing must remain independent for the two playfields.
 //! Reference: FS-UAE drawing.cpp::lts_unaligned_aga and update_bplcon1.
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 #[test]
 fn changing_scroll_retargets_pending_copy_without_loading_the_other_group() {

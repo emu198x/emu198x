@@ -1,13 +1,13 @@
 //! Render scroll delays through Agnus grants, chip RAM and Denise output.
 //! HRM PF1H/PF2H mapping: reference/by-system/commodore-amiga/amiga-graphics-display.md.
 //! Resolution/fetch masks: vendored WinUAE drawing.cpp update_bplcon1().
-use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::{
     denise::{BitplaneDmaFetch, Denise},
     denise_chip::DeniseChip,
     memory::Memory,
 };
 use emu198x_commodore_agnus_ocs::Agnus;
+use emu198x_commodore_denise_aga::DeniseAga;
 use emu198x_commodore_denise_ocs::DeniseOcs;
 use machine_commodore_amiga_ecs::DeniseEcs;
 

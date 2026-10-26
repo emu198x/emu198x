@@ -1,16 +1,21 @@
 [package]
-name = "commodore-denise-aga"
+name = "emu198x-commodore-denise-aga"
 description = "Commodore Lisa (AGA Denise) — thin wrapper over emu198x-commodore-denise-ecs that adds the 24-bit / 256-entry palette, HAM8, BPLCON4 (bitplane XOR + sprite bank), and FMODE-driven wide sprite handling. Used by AGA machines (A1200, A4000, CD32)."
 edition.workspace = true
-version.workspace = true
-publish = false
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["lisa", "amiga", "aga", "video", "emulator"]
+categories = ["emulators"]
 
 [dependencies]
 emu198x-commodore-denise-ecs = { path = "../emu198x-commodore-denise-ecs", version = "0.1.0" }
 emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
-common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.44.0" }
 serde = { workspace = true }
 
 [lints]

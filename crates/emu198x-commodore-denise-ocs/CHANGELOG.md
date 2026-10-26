@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DeniseChip`, the surface a board-level Denise wrapper drives, with the
+  `HorizontalDiwComparatorPhase`, `HorizontalBlanking` and `TimingStrobe`
+  types that cross it, and its implementation for `DeniseOcs`. They moved
+  here from the Amiga family's glue crate, which re-exports them, so that
+  every Denise variant can implement the trait without depending on the
+  glue. `TimingStrobe` is new: the strobe as Denise receives it, where the
+  glue passed Agnus's own strobe type.
+
 - Remember the last position and control word that armed each sprite, and how
   many times one has, in the sprite snapshot, so a frontend can find the
   mouse pointer after sprite DMA has loaded the 0/0 terminator

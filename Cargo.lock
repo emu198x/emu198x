@@ -459,16 +459,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "commodore-denise-aga"
-version = "0.44.2"
-dependencies = [
- "common-commodore-amiga",
- "emu198x-commodore-denise-ecs",
- "emu198x-commodore-denise-ocs",
- "serde",
-]
-
-[[package]]
 name = "common-acorn-cassette"
 version = "0.44.2"
 dependencies = [
@@ -480,6 +470,7 @@ name = "common-commodore-amiga"
 version = "0.44.2"
 dependencies = [
  "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-aga",
  "emu198x-commodore-denise-ecs",
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-paula-8364",
@@ -1198,6 +1189,15 @@ name = "emu198x-commodore-amiga-autoconfig"
 version = "0.1.0"
 dependencies = [
  "postcard",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-commodore-denise-aga"
+version = "0.1.0"
+dependencies = [
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
  "serde",
 ]
 
@@ -3460,12 +3460,12 @@ dependencies = [
 name = "machine-commodore-amiga-a1200"
 version = "0.44.2"
 dependencies = [
- "commodore-denise-aga",
  "common-commodore-amiga",
  "emu198x-commodore-agnus-aga",
  "emu198x-commodore-agnus-ecs",
  "emu198x-commodore-agnus-ocs",
  "emu198x-commodore-amiga-autoconfig",
+ "emu198x-commodore-denise-aga",
  "emu198x-commodore-denise-ecs",
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-gary",
@@ -5222,9 +5222,9 @@ dependencies = [
 name = "runtime-commodore-amiga"
 version = "0.44.2"
 dependencies = [
- "commodore-denise-aga",
  "common-commodore-amiga",
  "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-denise-aga",
  "emu198x-commodore-denise-ocs",
  "emu198x-commodore-gary",
  "emu198x-commodore-gayle",

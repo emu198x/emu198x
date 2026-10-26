@@ -27,6 +27,7 @@ serde = { workspace = true }
 web-time = "1.1"
 
 [dev-dependencies]
+emu198x-commodore-denise-aga = { path = "../emu198x-commodore-denise-aga", version = "0.1.0" }
 postcard = { workspace = true }
 
 [lints]

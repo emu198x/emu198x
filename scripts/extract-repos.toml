@@ -421,11 +421,11 @@ data = [
 
 [[repo]]
 name = "commodore-denise"
-crates = ["emu198x-commodore-denise-ocs", "emu198x-commodore-denise-ecs"]
-summary = "Commodore's Denise line: the OCS Denise and the ECS Super Denise built on it."
-consumers = "Used by the Amiga machines and by the AGA Lisa, which stays with the family for now."
-# 86.32% line coverage on 2026-10-25.
-coverage_floor = 86
+crates = ["emu198x-commodore-denise-ocs", "emu198x-commodore-denise-ecs", "emu198x-commodore-denise-aga"]
+summary = "Commodore's Denise line: the OCS Denise, the ECS Super Denise built on it, and the AGA Lisa built on that, with the DeniseChip trait all three implement."
+consumers = "Used by the Amiga machines: OCS, ECS and AGA."
+# 89.46% line coverage on 2026-10-26, with Lisa joining the repository.
+coverage_floor = 89
 
 [[repo]]
 name = "commodore-gary"

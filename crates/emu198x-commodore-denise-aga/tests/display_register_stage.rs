@@ -1,6 +1,6 @@
 //! Lisa normal RGA stage, separate from the raw register input.
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 #[test]
 fn resolution_reaches_the_same_normal_stage_as_the_existing_selectors() {

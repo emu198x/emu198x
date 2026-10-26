@@ -71,57 +71,9 @@ pub struct PendingBitplaneDma {
     pub words: [u16; 4],
 }
 
-/// External horizontal-blank levels at the four 35 ns positions in one
-/// lores output tick. Hires callers supply levels held over each pair.
-///
-/// The machine layer advances the chipset-specific comparator latches and
-/// supplies their resulting levels. The renderer therefore has no register,
-/// comparator, or selector policy of its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HorizontalBlanking {
-    output_samples: [bool; 4],
-}
-
-impl HorizontalBlanking {
-    /// Disable external programmable horizontal blanking.
-    #[must_use]
-    pub const fn disabled() -> Self {
-        Self::from_level(false)
-    }
-
-    /// Apply one horizontal-blank level to both samples in this output tick.
-    #[must_use]
-    pub const fn from_level(active: bool) -> Self {
-        Self {
-            output_samples: [active; 4],
-        }
-    }
-
-    /// Apply independently composed levels to the two output samples in this
-    /// tick. Lisa uses this form because one fine comparator can split the
-    /// pair.
-    #[must_use]
-    pub const fn from_output_samples(output_samples: [bool; 2]) -> Self {
-        Self {
-            output_samples: [
-                output_samples[0],
-                output_samples[0],
-                output_samples[1],
-                output_samples[1],
-            ],
-        }
-    }
-
-    /// Independent blank levels at each 35 ns boundary in a lores period.
-    #[must_use]
-    pub const fn from_superhires_samples(output_samples: [bool; 4]) -> Self {
-        Self { output_samples }
-    }
-
-    fn contains_output_sample(self, subpixel: u8, samples_per_lores: u32) -> bool {
-        self.output_samples[usize::from(subpixel) * 4 / samples_per_lores as usize]
-    }
-}
+/// External horizontal-blank levels for one lores output tick; the OCS
+/// Denise crate owns the type, re-exported here.
+pub use emu198x_commodore_denise_ocs::HorizontalBlanking;
 
 /// Display signals composed by the concrete machine around the shared Denise
 /// renderer for one output tick.
@@ -431,7 +383,8 @@ impl<C: DeniseChip> Denise<C> {
     /// `begin_counter_output_tick` then consumes this same retained descriptor.
     pub fn prepare_output_timing_strobe(&mut self) {
         if let Some(strobe) = self.horizontal_counter.output_strobe() {
-            self.ocs.retire_timing_strobe(strobe);
+            self.ocs
+                .retire_timing_strobe(crate::denise_counter::timing_strobe(strobe));
         }
     }
 
@@ -973,7 +926,8 @@ impl<C: DeniseChip> Denise<C> {
     }
 }
 
-pub(crate) fn rgb12_to_argb(c12: u16) -> u32 {
+#[cfg(test)]
+fn rgb12_to_argb(c12: u16) -> u32 {
     let r = ((c12 >> 8) & 0xF) as u32;
     let g = ((c12 >> 4) & 0xF) as u32;
     let b = (c12 & 0xF) as u32;

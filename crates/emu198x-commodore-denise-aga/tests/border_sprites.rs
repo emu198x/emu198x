@@ -1,6 +1,6 @@
 //! Lisa BRDRSPRT: ECSENA-gated BPLCON3 bit 1 bypasses DIW and BPL1DAT clipping.
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 fn fixture(ecsena: bool, control: u16, bpl1dat: bool, data: u16) -> DeniseAga {
     let mut denise = DeniseAga::new();

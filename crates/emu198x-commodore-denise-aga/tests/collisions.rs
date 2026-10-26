@@ -1,7 +1,7 @@
 //! Collision truth tables from Minimig denise_collision.v and WinUAE
 //! expand_colmask(): BP7/BP8 extend the odd/even comparisons before latching.
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 fn fixture(mask: u8, clxcon: u16, extension: u16) -> DeniseAga {
     let mut denise = DeniseAga::new();
