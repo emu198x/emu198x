@@ -1,4 +1,4 @@
-//! GTK key events in the winit vocabulary [`crate::UiSystem`] speaks.
+//! GTK key events in the winit vocabulary the machines' key maps speak.
 //!
 //! The machine key maps are written against winit's physical [`KeyCode`],
 //! so the GTK host translates into it rather than asking 30 systems to learn

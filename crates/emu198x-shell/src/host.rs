@@ -19,7 +19,7 @@ pub enum PixelFormat {
 
 /// Electrical source supplied alongside a raw framebuffer.
 /// Receiver settings and GPU resources belong to the host, not the machine.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignalEncoding {
     /// Normalised Y, U, V levels; PAL reverses V on alternate physical lines.
     /// `separate_chroma` records whether the machine exposes that connection.
@@ -33,7 +33,7 @@ pub enum SignalEncoding {
 
 /// Raster coordinates and oscillator phase of the retained picture.
 /// This describes a crop of a raster; it does not reconstruct missing sync.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SignalTiming {
     /// Source pixel clock in Hz.
     pub pixel_hz: f64,
@@ -50,7 +50,7 @@ pub struct SignalTiming {
 }
 
 /// Parity of the rows written by one interlaced field in a retained raster.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldParity {
     /// The field occupies rows 0, 2, 4, … .
     Even,
@@ -59,7 +59,7 @@ pub enum FieldParity {
 }
 
 /// A completed interlaced field. Opposite-parity rows may be from an older field.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoField {
     /// Machine field counter; repeated host redraws retain this identity.
     pub sequence: u64,

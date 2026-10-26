@@ -1,47 +1,34 @@
 //! The GTK menu bar, built from the command catalogue.
 //!
 //! Every item is a GTK action on the application. Activating one sends the
-//! matching [`AppCommand`] to the core's channel, the same one the keyboard
-//! shortcuts use. Radio and check items are stateful actions; the core moves
-//! their marks through [`set_state`] once a command has taken effect, so a
-//! refused command leaves the mark where it was.
+//! matching [`AppCommand`] to the machine binary, whose core takes it on the
+//! same channel as the keyboard shortcuts. Radio and check items are
+//! stateful actions; the core moves their marks (through [`set_state`]) once
+//! a command has taken effect, so a refused command leaves the mark where it
+//! was.
 
 use std::borrow::Cow;
-use std::sync::mpsc::Sender;
 
 use emu198x_shell::commands::{Shortcut, ShortcutKey, expect_command};
-use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
+use emu198x_shell::{MediaKind, MediaTransportAction};
+use emu198x_ui::window_protocol::{
+    AppCommand, FILTER_OPTIONS, FromWindow, SCALE_OPTIONS, WindowSetup, filter_name,
+};
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 
-use crate::VideoFilter;
-use crate::menu::{AppCommand, FILTER_OPTIONS, SCALE_OPTIONS, filter_name};
-use crate::{DrivePortInfo, VariantInfo};
-
-/// What the menu needs to know about the machine.
-pub(super) struct MachineInfo<'a> {
-    pub title: &'a str,
-    pub media_slots: &'a [MediaSlot],
-    pub variants: &'a [VariantInfo],
-    pub current_variant: Option<&'a str>,
-    pub drive_ports: &'a [DrivePortInfo],
-    pub host_keyboard: Option<bool>,
-    pub state_open: bool,
-    pub tape_export: bool,
-    pub scale: u32,
-    pub filter: VideoFilter,
-}
+use crate::outbox::Outbox;
 
 /// The action name for device `device`'s drive radio.
-pub(super) fn drive_action(device: u8) -> String {
+pub(crate) fn drive_action(device: u8) -> String {
     format!("drive-{device}")
 }
 
 /// Build the menu bar and register its actions on `app`.
-pub(super) fn build(
+pub(crate) fn build(
     app: &gtk4::Application,
-    machine: &MachineInfo<'_>,
-    commands: &Sender<AppCommand>,
+    machine: &WindowSetup,
+    commands: &Outbox,
 ) -> gio::Menu {
     let bar = gio::Menu::new();
 
@@ -49,7 +36,7 @@ pub(super) fn build(
     let file = gio::Menu::new();
     if !machine.media_slots.is_empty() {
         let slots = gio::Menu::new();
-        for slot in machine.media_slots {
+        for slot in &machine.media_slots {
             slots.append(
                 Some(&expect_command("media.open").label_for(&slot.display_name)),
                 Some(&detailed("app.open-media", &slot.id)),
@@ -63,7 +50,7 @@ pub(super) fn build(
         let kinds: Vec<(Cow<'static, str>, MediaKind)> = machine
             .media_slots
             .iter()
-            .map(|slot| (slot.id.clone(), slot.kind))
+            .map(|slot| (Cow::Owned(slot.id.clone()), slot.kind))
             .collect();
         add_string_action(app, "open-media", commands, move |slot| {
             kinds
@@ -91,7 +78,10 @@ pub(super) fn build(
     file.append_section(None, &quit);
     let quit_action = gio::SimpleAction::new("quit", None);
     let quit_app = app.downgrade();
+    let quit_out = commands.clone();
     quit_action.connect_activate(move |_, _| {
+        // The same as closing the window: the machine binary ends the session.
+        quit_out.send(&FromWindow::Closed);
         if let Some(app) = quit_app.upgrade() {
             app.quit();
         }
@@ -103,22 +93,22 @@ pub(super) fn build(
     let machine_menu = gio::Menu::new();
     if !machine.variants.is_empty() {
         let section = gio::Menu::new();
-        let mut groups: Vec<(Cow<'static, str>, gio::Menu)> = Vec::new();
-        for variant in machine.variants {
+        let mut groups: Vec<(&str, gio::Menu)> = Vec::new();
+        for variant in &machine.variants {
             let item = gio::MenuItem::new(Some(&variant.label), None);
             item.set_action_and_target_value(
                 Some("app.variant"),
-                Some(&variant.id.as_ref().to_variant()),
+                Some(&variant.id.as_str().to_variant()),
             );
             match &variant.group {
                 Some(group) => {
-                    if let Some((_, menu)) = groups.iter().find(|(name, _)| name == group) {
+                    if let Some((_, menu)) = groups.iter().find(|(name, _)| *name == group) {
                         menu.append_item(&item);
                     } else {
                         let menu = gio::Menu::new();
                         menu.append_item(&item);
                         section.append_submenu(Some(group), &menu);
-                        groups.push((group.clone(), menu));
+                        groups.push((group, menu));
                     }
                 }
                 None => section.append_item(&item),
@@ -128,21 +118,21 @@ pub(super) fn build(
         add_radio_action(
             app,
             "variant",
-            machine.current_variant.unwrap_or_default(),
+            machine.current_variant.as_deref().unwrap_or_default(),
             commands,
             |id| Some(AppCommand::SwitchVariant(Cow::Owned(id.to_owned()))),
         );
     }
     if !machine.drive_ports.is_empty() {
         let drives = gio::Menu::new();
-        for port in machine.drive_ports {
+        for port in &machine.drive_ports {
             let options = gio::Menu::new();
             let name = drive_action(port.device);
             for option in &port.options {
                 let item = gio::MenuItem::new(Some(&option.label), None);
                 item.set_action_and_target_value(
                     Some(&format!("app.{name}")),
-                    Some(&option.id.as_ref().to_variant()),
+                    Some(&option.id.as_str().to_variant()),
                 );
                 options.append_item(&item);
             }
@@ -209,7 +199,7 @@ pub(super) fn build(
             "tape-play",
             commands,
             AppCommand::MediaTransport {
-                slot: slot.id.clone(),
+                slot: Cow::Owned(slot.id.clone()),
                 action: MediaTransportAction::Start,
             },
         );
@@ -218,7 +208,7 @@ pub(super) fn build(
             "tape-stop",
             commands,
             AppCommand::MediaTransport {
-                slot: slot.id.clone(),
+                slot: Cow::Owned(slot.id.clone()),
                 action: MediaTransportAction::Stop,
             },
         );
@@ -226,7 +216,7 @@ pub(super) fn build(
             gio::SimpleAction::new_stateful("fast-forward", None, &false.to_variant());
         let sender = commands.clone();
         fast_action.connect_activate(move |_, _| {
-            let _ = sender.send(AppCommand::ToggleTurbo);
+            sender.command(AppCommand::ToggleTurbo);
         });
         app.add_action(&fast_action);
         if machine.tape_export {
@@ -352,7 +342,7 @@ fn accel_string(shortcut: Shortcut) -> String {
 }
 
 /// Move a stateful action's mark to `value`.
-pub(super) fn set_state(app: &gtk4::Application, name: &str, value: glib::Variant) {
+pub(crate) fn set_state(app: &gtk4::Application, name: &str, value: glib::Variant) {
     if let Some(action) = app
         .lookup_action(name)
         .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
@@ -365,16 +355,11 @@ fn detailed(action: &str, target: &str) -> String {
     gio::Action::print_detailed_name(action, Some(&target.to_variant())).to_string()
 }
 
-fn add_action(
-    app: &gtk4::Application,
-    name: &str,
-    commands: &Sender<AppCommand>,
-    command: AppCommand,
-) {
+fn add_action(app: &gtk4::Application, name: &str, commands: &Outbox, command: AppCommand) {
     let action = gio::SimpleAction::new(name, None);
     let sender = commands.clone();
     action.connect_activate(move |_, _| {
-        let _ = sender.send(command.clone());
+        sender.command(command.clone());
     });
     app.add_action(&action);
 }
@@ -382,7 +367,7 @@ fn add_action(
 fn add_string_action(
     app: &gtk4::Application,
     name: &str,
-    commands: &Sender<AppCommand>,
+    commands: &Outbox,
     command: impl Fn(&str) -> Option<AppCommand> + 'static,
 ) {
     let action = gio::SimpleAction::new(name, Some(glib::VariantTy::STRING));
@@ -391,7 +376,7 @@ fn add_string_action(
         if let Some(value) = parameter.and_then(|p| p.str())
             && let Some(command) = command(value)
         {
-            let _ = sender.send(command);
+            sender.command(command);
         }
     });
     app.add_action(&action);
@@ -404,7 +389,7 @@ fn add_radio_action(
     app: &gtk4::Application,
     name: &str,
     initial: &str,
-    commands: &Sender<AppCommand>,
+    commands: &Outbox,
     command: impl Fn(&str) -> Option<AppCommand> + 'static,
 ) {
     let action =
@@ -414,7 +399,7 @@ fn add_radio_action(
         if let Some(value) = parameter.and_then(|p| p.str())
             && let Some(command) = command(value)
         {
-            let _ = sender.send(command);
+            sender.command(command);
         }
     });
     app.add_action(&action);
@@ -429,7 +414,12 @@ mod tests {
         // The View menu's filter radio carries each filter as its text form
         // and parses it back into the command.
         for &filter in FILTER_OPTIONS {
-            assert_eq!(filter.to_string().parse::<VideoFilter>(), Ok(filter));
+            assert_eq!(
+                filter
+                    .to_string()
+                    .parse::<emu198x_native_video::VideoFilter>(),
+                Ok(filter)
+            );
         }
     }
 

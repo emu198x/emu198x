@@ -59,7 +59,7 @@ pub enum CaptureError {
 }
 
 /// Owned electrical source preserved through the latest-frame handoff.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CapturedSignal {
     /// Completed field identity copied from the machine.
     pub field: Option<crate::VideoField>,
@@ -74,7 +74,7 @@ pub struct CapturedSignal {
 }
 
 /// Owned copy of one emitted frame.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CapturedFrame {
     /// Machine timestamp associated with the frame.
     pub timestamp: MachineTime,

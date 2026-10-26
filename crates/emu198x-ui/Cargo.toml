@@ -10,8 +10,13 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 emu198x-native-video = { path = "../emu198x-native-video", version = "0.44.0" }
-winit = { workspace = true }
+# `serde` for the window protocol, which carries winit's key types to the
+# GTK window process (src/window_protocol.rs).
+winit = { workspace = true, features = ["serde"] }
 thiserror.workspace = true
+# The window protocol's encoding.
+postcard = { workspace = true }
+serde = { workspace = true }
 # Decodes the embedded application icon (src/icon.rs).
 png = { workspace = true }
 # Native file dialogs for the File → Open menu. Builds cross-platform (its Linux
@@ -46,15 +51,6 @@ objc2-app-kit = { workspace = true, features = [
     "NSView",
 ] }
 objc2-foundation = { workspace = true, features = ["std", "NSData", "NSGeometry"] }
-
-# The GTK4 Linux host, off by default while it is brought up
-# (knowledge/decisions/host-ui-model.md § 12). It needs the system's
-# libgtk-4-dev to build.
-[target.'cfg(target_os = "linux")'.dependencies]
-gtk4 = { workspace = true, optional = true }
-
-[features]
-gtk = ["dep:gtk4"]
 
 [lints]
 workspace = true
