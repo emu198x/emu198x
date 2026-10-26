@@ -207,7 +207,11 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
   machine's pixel aspect and the largest whole-number scale that fits,
   with nearest-neighbour filtering. GTK keycodes are translated into
   winit's `KeyCode`, so every `UiSystem` key map works unchanged.
-- File choosers are `GtkFileDialog`, and messages are `GtkAlertDialog`.
+- The host is written against GTK 4.6, so it runs on Ubuntu 22.04 (the
+  release builders' base, with 4.6) and Debian 12 (4.8). File choosers are
+  `GtkFileChooserNative`, which uses the desktop portal where there is one,
+  and messages are `GtkMessageDialog`. Every picture reaches GTK already
+  composed at device pixels, so GTK never scales it.
 - The `gtk4` dependency and the system `libgtk-4-dev` it needs are
   confined to that feature. A `GTK host` CI job lints and tests it.
   `muda` stays stubbed on Linux, so the gtk3-rs tree and its Dependabot

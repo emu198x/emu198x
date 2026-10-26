@@ -58,24 +58,6 @@ impl GtkShell<'_> {
         main_loop.run();
         result.take()
     }
-
-    fn filters(filter: FileFilter<'_>, all_files: bool) -> gio::ListStore {
-        let store = gio::ListStore::new::<gtk4::FileFilter>();
-        let (label, extensions) = filter;
-        let main = gtk4::FileFilter::new();
-        main.set_name(Some(label));
-        for extension in extensions {
-            main.add_suffix(extension);
-        }
-        store.append(&main);
-        if all_files {
-            let all = gtk4::FileFilter::new();
-            all.set_name(Some("All files"));
-            all.add_pattern("*");
-            store.append(&all);
-        }
-        store
-    }
 }
 
 impl Shell for GtkShell<'_> {
@@ -127,18 +109,15 @@ impl Shell for GtkShell<'_> {
     }
 
     fn pick_file(&mut self, title: &str, filter: FileFilter<'_>) -> Option<PathBuf> {
-        let dialog = gtk4::FileDialog::builder()
-            .title(title)
-            .modal(true)
-            .filters(&Self::filters(filter, true))
-            .build();
-        let window = self.window.clone();
-        Self::wait_for(move |done| {
-            dialog.open(Some(&window), None::<&gio::Cancellable>, move |result| {
-                done(result.ok().and_then(|file| file.path()));
-            });
-        })
-        .flatten()
+        let dialog = gtk4::FileChooserNative::new(
+            Some(title),
+            Some(self.window),
+            gtk4::FileChooserAction::Open,
+            None,
+            None,
+        );
+        Self::add_filters(&dialog, filter, true);
+        Self::run_chooser(&dialog)
     }
 
     fn pick_save_file(
@@ -148,36 +127,77 @@ impl Shell for GtkShell<'_> {
         filter: FileFilter<'_>,
         all_files: bool,
     ) -> Option<PathBuf> {
-        let dialog = gtk4::FileDialog::builder()
-            .title(title)
-            .modal(true)
-            .initial_name(file_name)
-            .filters(&Self::filters(filter, all_files))
-            .build();
-        let window = self.window.clone();
-        Self::wait_for(move |done| {
-            dialog.save(Some(&window), None::<&gio::Cancellable>, move |result| {
-                done(result.ok().and_then(|file| file.path()));
-            });
-        })
-        .flatten()
+        let dialog = gtk4::FileChooserNative::new(
+            Some(title),
+            Some(self.window),
+            gtk4::FileChooserAction::Save,
+            None,
+            None,
+        );
+        dialog.set_current_name(file_name);
+        Self::add_filters(&dialog, filter, all_files);
+        Self::run_chooser(&dialog)
     }
 
     fn message(&mut self, title: &str, level: Notice, text: &str) {
-        let heading = match level {
-            Notice::Info => title.to_owned(),
-            Notice::Warning => format!("{title}: warning"),
-            Notice::Error => format!("{title}: error"),
-        };
-        let dialog = gtk4::AlertDialog::builder()
-            .message(heading)
-            .detail(text)
-            .modal(true)
-            .build();
-        let window = self.window.clone();
+        let dialog = gtk4::MessageDialog::new(
+            Some(self.window),
+            gtk4::DialogFlags::MODAL,
+            match level {
+                Notice::Info => gtk4::MessageType::Info,
+                Notice::Warning => gtk4::MessageType::Warning,
+                Notice::Error => gtk4::MessageType::Error,
+            },
+            gtk4::ButtonsType::Ok,
+            title,
+        );
+        dialog.set_secondary_text(Some(text));
         Self::wait_for(move |done| {
-            dialog.choose(Some(&window), None::<&gio::Cancellable>, move |_| done(()));
+            let done = RefCell::new(Some(done));
+            dialog.connect_response(move |dialog, _| {
+                dialog.close();
+                if let Some(done) = done.take() {
+                    done(());
+                }
+            });
+            dialog.present();
         });
+    }
+}
+
+impl GtkShell<'_> {
+    fn add_filters(dialog: &gtk4::FileChooserNative, filter: FileFilter<'_>, all_files: bool) {
+        let (label, extensions) = filter;
+        let main = gtk4::FileFilter::new();
+        main.set_name(Some(label));
+        for extension in extensions {
+            main.add_suffix(extension);
+        }
+        dialog.add_filter(&main);
+        if all_files {
+            let all = gtk4::FileFilter::new();
+            all.set_name(Some("All files"));
+            all.add_pattern("*");
+            dialog.add_filter(&all);
+        }
+    }
+
+    /// Show a file chooser and wait for the path chosen, if any.
+    fn run_chooser(dialog: &gtk4::FileChooserNative) -> Option<PathBuf> {
+        let dialog = dialog.clone();
+        Self::wait_for(move |done| {
+            let done = RefCell::new(Some(done));
+            dialog.connect_response(move |dialog, response| {
+                let path = (response == gtk4::ResponseType::Accept)
+                    .then(|| dialog.file().and_then(|file| file.path()))
+                    .flatten();
+                if let Some(done) = done.take() {
+                    done(path);
+                }
+            });
+            dialog.show();
+        })
+        .flatten()
     }
 }
 
@@ -285,6 +305,8 @@ impl<S: UiSystem> GtkHost<S> {
             );
             return;
         }
+        // No GPU: scale the raw frame by nearest neighbour into a picture
+        // the size of the widget, letterboxed in black.
         let pixels = match emu198x_native_video::frame_rgba_pixels(frame, &mut self.scratch) {
             Ok(pixels) => pixels,
             Err(err) => {
@@ -292,20 +314,65 @@ impl<S: UiSystem> GtkHost<S> {
                 return;
             }
         };
-        let (Ok(width), Ok(height)) = (i32::try_from(frame.width), i32::try_from(frame.height))
-        else {
+        let (width, height) = self.screen.device_size();
+        let rect = screen::fit(
+            i32::try_from(frame.width).unwrap_or(0),
+            i32::try_from(frame.height).unwrap_or(0),
+            profile.pixel_aspect_ratio,
+            width as f32,
+            height as f32,
+        );
+        let composed = nearest_into(pixels, frame.width, frame.height, width, height, &rect);
+        let (Ok(texture_w), Ok(texture_h)) = (i32::try_from(width), i32::try_from(height)) else {
             return;
         };
         let texture = gdk::MemoryTexture::new(
-            width,
-            height,
+            texture_w,
+            texture_h,
             gdk::MemoryFormat::R8g8b8a8,
-            &glib::Bytes::from(pixels),
-            frame.width as usize * 4,
+            &glib::Bytes::from_owned(composed),
+            width as usize * 4,
         );
-        self.screen
-            .show_frame(texture.upcast(), profile.pixel_aspect_ratio);
+        self.screen.show_composed(
+            texture.upcast(),
+            (frame.width, frame.height),
+            profile.pixel_aspect_ratio,
+        );
     }
+}
+
+/// Scale an RGBA frame by nearest neighbour into `rect` of a black
+/// `width` × `height` picture.
+fn nearest_into(
+    pixels: &[u8],
+    frame_w: u32,
+    frame_h: u32,
+    width: u32,
+    height: u32,
+    rect: &gtk4::graphene::Rect,
+) -> Vec<u8> {
+    let mut out = vec![0u8; width as usize * height as usize * 4];
+    for pixel in out.as_chunks_mut::<4>().0 {
+        pixel[3] = 0xFF;
+    }
+    let (x0, y0) = (rect.x().max(0.0) as u32, rect.y().max(0.0) as u32);
+    let (rw, rh) = (rect.width().max(1.0), rect.height().max(1.0));
+    let x1 = (rect.x() + rect.width()).min(width as f32).max(0.0) as u32;
+    let y1 = (rect.y() + rect.height()).min(height as f32).max(0.0) as u32;
+    for y in y0..y1 {
+        let sy = (((y - y0) as f32 + 0.5) * frame_h as f32 / rh) as u32;
+        let sy = sy.min(frame_h.saturating_sub(1)) as usize;
+        for x in x0..x1 {
+            let sx = (((x - x0) as f32 + 0.5) * frame_w as f32 / rw) as u32;
+            let sx = sx.min(frame_w.saturating_sub(1)) as usize;
+            let src = (sy * frame_w as usize + sx) * 4;
+            let dst = (y as usize * width as usize + x as usize) * 4;
+            if let (Some(from), Some(to)) = (pixels.get(src..src + 4), out.get_mut(dst..dst + 4)) {
+                to.copy_from_slice(from);
+            }
+        }
+    }
+    out
 }
 
 /// The wgpu presenter, rendering offscreen at the picture widget's size,
@@ -648,4 +715,36 @@ fn mouse_event<S: UiSystem + 'static>(host: &SharedHost<S>, button: u32, pressed
 /// default when built in; `EMU198X_UI=winit` picks the winit window.
 pub(crate) fn chosen() -> bool {
     std::env::var("EMU198X_UI").map_or(true, |value| value != "winit")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_into;
+    use gtk4::graphene::Rect;
+
+    #[test]
+    fn the_fallback_scales_by_nearest_into_the_letterbox() {
+        // A 2 × 1 frame, red then blue, into the middle 4 × 2 of a 6 × 2
+        // picture: each source pixel becomes a 2 × 2 block, and the
+        // letterbox columns stay opaque black.
+        let red = [0xFF, 0, 0, 0xFF];
+        let blue = [0, 0, 0xFF, 0xFF];
+        let out = nearest_into(
+            &[red, blue].concat(),
+            2,
+            1,
+            6,
+            2,
+            &Rect::new(1.0, 0.0, 4.0, 2.0),
+        );
+        let at = |x: usize, y: usize| &out[(y * 6 + x) * 4..(y * 6 + x) * 4 + 4];
+        for y in 0..2 {
+            assert_eq!(at(0, y), &[0, 0, 0, 0xFF]);
+            assert_eq!(at(1, y), &red);
+            assert_eq!(at(2, y), &red);
+            assert_eq!(at(3, y), &blue);
+            assert_eq!(at(4, y), &blue);
+            assert_eq!(at(5, y), &[0, 0, 0, 0xFF]);
+        }
+    }
 }
