@@ -48,12 +48,22 @@ def shipping_crates() -> set[str]:
     entry point, a chip you link against does not. Verified equivalent when
     it landed — it reproduces all 30 registry entries exactly, and the only
     crates it drops are the six chips the denylist would have had to list.
+
+    A crate whose manifest opts out of the release (`dist = false`) does not
+    ship, whatever entry point it has: `emu198x-gtk-window` is the window a
+    machine binary opens, not a machine.
     """
     return {
         p.name
         for p in (ROOT / "crates").glob("emu198x-*")
-        if p.is_dir() and (p / "src" / "main.rs").exists()
+        if p.is_dir() and (p / "src" / "main.rs").exists() and not opts_out_of_release(p)
     }
+
+
+def opts_out_of_release(crate: pathlib.Path) -> bool:
+    manifest = tomllib.loads((crate / "Cargo.toml").read_text())
+    dist = manifest.get("package", {}).get("metadata", {}).get("dist", {})
+    return dist.get("dist") is False
 
 
 def declared_machines() -> set[str]:
