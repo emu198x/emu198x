@@ -307,3 +307,74 @@ fn emutos_runs_a_floppy_boot_sector_through_the_dma_chip() {
     let marker: Vec<u8> = (0x600..0x604).map(|a| machine.peek(a)).collect();
     assert_eq!(marker, [0xCA, 0xFE, 0xBA, 0xBE]);
 }
+
+#[test]
+fn the_display_origin_is_where_the_first_pixel_lands() {
+    // Low resolution's pixel is two framebuffer pixels wide, medium's one.
+    for (resolution, width) in [(0u16, 2), (1, 1)] {
+        let mut machine = st(Model::St520, VideoStandard::Pal, Monitor::Colour);
+        let mut io = |address, is_word, value| {
+            machine
+                .write(address, is_word, value, true)
+                .expect("I/O write");
+        };
+        io(0xFF_8201, false, 0x01); // the screen at $10000
+        io(0xFF_8203, false, 0x00);
+        io(0xFF_8240, true, 0x000);
+        io(0xFF_8242, true, 0x777);
+        io(0xFF_8260, false, resolution);
+        // The screen's first pixel, alone, in colour 1.
+        machine.poke(0x1_0000, 0x80);
+        machine.run_frame();
+        machine.run_frame();
+        let frame_width = machine.frame_width();
+        let lit: Vec<(usize, usize)> = machine
+            .framebuffer()
+            .iter()
+            .enumerate()
+            .filter(|&(_, &pixel)| pixel == 0xFF_FFFF)
+            .map(|(i, _)| (i % frame_width, i / frame_width))
+            .collect();
+        let (x, y) = machine.display_origin();
+        let expected: Vec<(usize, usize)> = (x..x + width).map(|x| (x, y)).collect();
+        assert_eq!(lit, expected, "resolution {resolution}");
+    }
+}
+
+#[test]
+fn line_a_init_needs_a_handler() {
+    // The loop ROM installs no line-A handler: the vector is zero.
+    let mut machine = st(Model::St520, VideoStandard::Pal, Monitor::Colour);
+    machine.run_frame();
+    assert_eq!(machine.line_a_base(), None);
+}
+
+#[test]
+fn emutos_answers_line_a_init_and_its_vdi_follows_the_mouse() {
+    let Some(rom) = emutos() else {
+        emu198x_test_skip::skip!("EmuTOS 192K image not in ~/.emu198x/test-data/emutos");
+    };
+    let mut machine =
+        AtariSt::new(Model::St520, VideoStandard::Pal, Monitor::Colour, rom).expect("EmuTOS");
+    for _ in 0..50 * 12 {
+        machine.run_frame();
+    }
+    let base = machine.line_a_base().expect("$A000 answered");
+    let ram_before = machine.ram().to_vec();
+    assert_eq!(machine.line_a_base(), Some(base), "the same base again");
+    assert!(
+        machine.ram() == ram_before.as_slice(),
+        "asking changed nothing"
+    );
+    // GCURX and GCURY, 602 and 600 bytes below the base.
+    let cursor = |m: &AtariSt| {
+        let word = |at: u32| i16::from_be_bytes([m.peek(at), m.peek(at + 1)]);
+        (word(base - 602), word(base - 600))
+    };
+    let before = cursor(&machine);
+    machine.mouse_move(10, -7);
+    for _ in 0..2 {
+        machine.run_frame();
+    }
+    assert_eq!(cursor(&machine), (before.0 + 10, before.1 - 7));
+}

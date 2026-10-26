@@ -66,6 +66,7 @@
 
 pub mod dma;
 pub mod ikbd;
+mod line_a;
 
 pub use emu198x_atari_st_glue_mmu::Frequency;
 use emu198x_atari_st_glue_mmu::GlueMmu;
@@ -109,6 +110,8 @@ const BORDER_CYCLES: u16 = 32;
 /// 12 cycles after the first. Medium resolution's groups come sooner, so its
 /// picture sits 8 cycles further left inside the same border.
 const SHIFTER_DELAY: u16 = 12;
+/// How much sooner medium resolution's picture starts than low's.
+const MEDIUM_LEAD_CYCLES: u16 = 8;
 const BORDER_LINES: u16 = 29;
 /// CPU cycles per byte the floppy delivers at double density (32 µs).
 const DMA_BYTE_CYCLES: u16 = 256;
@@ -610,6 +613,23 @@ impl AtariSt {
         } else {
             COLOUR_HEIGHT
         }
+    }
+
+    /// Where the screen's top-left pixel is in the framebuffer: inside the
+    /// border on a colour monitor, eight cycles further left in medium
+    /// resolution (see [`SHIFTER_DELAY`]), and at the corner on the
+    /// monochrome one.
+    #[must_use]
+    pub fn display_origin(&self) -> (usize, usize) {
+        if self.frame_mono {
+            return (0, 0);
+        }
+        let cycles = if self.shifter.read_resolution() == 1 {
+            BORDER_CYCLES - MEDIUM_LEAD_CYCLES
+        } else {
+            BORDER_CYCLES
+        };
+        (usize::from(cycles) * 2, usize::from(BORDER_LINES))
     }
 
     // ---- Audio ----

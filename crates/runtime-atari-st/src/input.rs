@@ -15,6 +15,9 @@
 use emu198x_shell::InputEvent;
 use machine_atari_st::{AtariSt, Stick};
 
+/// The mouse's device name.
+pub(crate) const MOUSE_DEVICE: &str = "mouse-1";
+
 /// Apply one host input event to the machine.
 pub(crate) fn apply_input_event(machine: &mut AtariSt, event: &InputEvent) {
     match event {
@@ -23,14 +26,14 @@ pub(crate) fn apply_input_event(machine: &mut AtariSt, event: &InputEvent) {
                 machine.key(code, *pressed);
             }
         }
-        InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == "mouse-1" => {
+        InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == MOUSE_DEVICE => {
             machine.mouse_move(*dx, *dy);
         }
         InputEvent::PointerButton {
             device,
             button,
             pressed,
-        } if device.as_ref() == "mouse-1" => match button.as_ref() {
+        } if device.as_ref() == MOUSE_DEVICE => match button.as_ref() {
             "left" => machine.mouse_button(true, *pressed),
             "right" => machine.mouse_button(false, *pressed),
             _ => {}
