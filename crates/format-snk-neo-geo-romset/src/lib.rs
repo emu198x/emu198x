@@ -170,10 +170,13 @@ pub fn from_zip(bytes: &[u8]) -> Result<RomSet, RomSetError> {
     let mut files = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(zip_error)?;
-        if entry.is_dir() || classify(entry.name()).is_none() {
+        if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_owned();
+        let name = entry.name().map_err(zip_error)?.into_owned();
+        if classify(&name).is_none() {
+            continue;
+        }
         let mut contents = Vec::with_capacity(entry.size() as usize);
         entry
             .read_to_end(&mut contents)

@@ -1976,7 +1976,10 @@ fn load_media_bytes(
         let entry = archive
             .by_index(i)
             .map_err(|err| ToolError::Execution(format!("zip entry {i}: {err}")))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|err| ToolError::Execution(format!("zip entry {i} name: {err}")))?
+            .into_owned();
         if entry.is_dir() {
             continue;
         }
@@ -2014,7 +2017,10 @@ fn load_media_bytes(
     let mut entry = archive
         .by_index(chosen_index)
         .map_err(|err| ToolError::Execution(format!("re-open zip entry: {err}")))?;
-    let entry_name = entry.name().to_string();
+    let entry_name = entry
+        .name()
+        .map_err(|err| ToolError::Execution(format!("zip entry name: {err}")))?
+        .into_owned();
     let mut buf = Vec::with_capacity(entry.size() as usize);
     std::io::copy(&mut entry, &mut buf)
         .map_err(|err| ToolError::Execution(format!("read zip entry: {err}")))?;
