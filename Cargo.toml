@@ -299,7 +299,7 @@ criterion = { version = "0.8", default-features = false, features = ["cargo_benc
 gilrs = "0.11"
 # The GTK4 Linux host (emu198x-ui, `gtk` feature). Calls GTK's own widgets, so it
 # is a native frontend under knowledge/decisions/native-ui-strategy.md.
-gtk4 = { version = "0.11", features = ["v4_10"] }
+gtk4 = { version = "0.11", features = ["v4_6"] }
 # muda 0.19 gates its Linux GTK backend behind the `gtk` feature
 # (default-on upstream). We disable it because we don't yet wire native
 # menus on Linux (the `init_for_gtk_window` path is the `track-1c` TODO

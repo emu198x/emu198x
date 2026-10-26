@@ -2,14 +2,14 @@
 //!
 //! It shows the latest frame at the machine's pixel aspect, centred on black,
 //! at the largest whole-number scale that fits, and smaller than scale 1 only
-//! when the window is. Pixels are drawn with nearest-neighbour filtering, so
-//! at a whole-number scale every source pixel is a solid block.
+//! when the window is. The picture arrives already composed at the widget's
+//! size in device pixels, so it is drawn one to one.
 
 use std::cell::{Cell, RefCell};
 
 use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
-use gtk4::{gdk, glib, graphene, gsk};
+use gtk4::{gdk, glib, graphene};
 
 mod imp {
     use super::*;
@@ -22,9 +22,6 @@ mod imp {
         pub natural: Cell<(i32, i32)>,
         /// The picture size at scale 1, the smallest the window allows.
         pub minimum: Cell<(i32, i32)>,
-        /// Whether the texture is already the whole widget, composed by the
-        /// video presenter at device pixels, rather than a frame to fit.
-        pub composed: Cell<bool>,
         /// The machine frame's size, for finding the picture in a composed
         /// texture.
         pub frame_size: Cell<(i32, i32)>,
@@ -37,7 +34,6 @@ mod imp {
                 pixel_aspect: Cell::new(1.0),
                 natural: Cell::new((0, 0)),
                 minimum: Cell::new((0, 0)),
-                composed: Cell::new(false),
                 frame_size: Cell::new((0, 0)),
             }
         }
@@ -73,20 +69,9 @@ mod imp {
             let Some(texture) = self.texture.borrow().clone() else {
                 return;
             };
-            if self.composed.get() {
-                // One texture pixel per device pixel, so nearest is exact.
-                let rect = graphene::Rect::new(0.0, 0.0, width, height);
-                snapshot.append_scaled_texture(&texture, gsk::ScalingFilter::Nearest, &rect);
-                return;
-            }
-            let rect = super::fit(
-                texture.width(),
-                texture.height(),
-                self.pixel_aspect.get(),
-                width,
-                height,
-            );
-            snapshot.append_scaled_texture(&texture, gsk::ScalingFilter::Nearest, &rect);
+            // The texture is the whole widget at one texture pixel per
+            // device pixel, composed by the presenter or the fallback.
+            snapshot.append_texture(&texture, &graphene::Rect::new(0.0, 0.0, width, height));
         }
     }
 }
@@ -94,7 +79,7 @@ mod imp {
 glib::wrapper! {
     pub struct Screen(ObjectSubclass<imp::Screen>)
         @extends gtk4::Widget,
-        @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
+        @implements gtk4::Buildable, gtk4::ConstraintTarget;
 }
 
 impl Default for Screen {
@@ -104,16 +89,6 @@ impl Default for Screen {
 }
 
 impl Screen {
-    /// Show `texture`, whose pixels are `pixel_aspect` times as wide as high.
-    pub fn show_frame(&self, texture: gdk::Texture, pixel_aspect: f32) {
-        let imp = self.imp();
-        imp.frame_size.set((texture.width(), texture.height()));
-        imp.texture.replace(Some(texture));
-        imp.pixel_aspect.set(pixel_aspect);
-        imp.composed.set(false);
-        self.queue_draw();
-    }
-
     /// Show a picture the video presenter has already composed for the
     /// whole widget, at its size in device pixels, from a machine frame of
     /// `frame_size`.
@@ -125,7 +100,6 @@ impl Screen {
         ));
         imp.texture.replace(Some(texture));
         imp.pixel_aspect.set(pixel_aspect);
-        imp.composed.set(true);
         self.queue_draw();
     }
 
@@ -168,7 +142,13 @@ fn round_size((width, height): (f64, f64)) -> (i32, i32) {
 /// Where a `tex_w` × `tex_h` picture with this pixel aspect goes in a
 /// `width` × `height` area: centred, at the largest whole-number scale that
 /// fits, or shrunk to fit when even scale 1 does not.
-fn fit(tex_w: i32, tex_h: i32, pixel_aspect: f32, width: f32, height: f32) -> graphene::Rect {
+pub(super) fn fit(
+    tex_w: i32,
+    tex_h: i32,
+    pixel_aspect: f32,
+    width: f32,
+    height: f32,
+) -> graphene::Rect {
     let display_w = tex_w as f32 * pixel_aspect.max(f32::MIN_POSITIVE);
     let display_h = tex_h as f32;
     if display_w <= 0.0 || display_h <= 0.0 {
