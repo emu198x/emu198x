@@ -96,6 +96,23 @@ import Testing
         #expect(json.contains("\"id\":\"spectrum_48k\""))
     }
 
+    @Test func theCommandCatalogueDecodes() throws {
+        let commands = try CommandCatalogue.load()
+        #expect(Set(commands.map(\.id)).count == commands.count, "ids are unique")
+        let reset = try #require(commands.first { $0.id == "machine.reset" })
+        #expect(reset.group == "machine")
+        #expect(reset.needs == "running")
+        #expect(reset.shortcut == CommandCatalogue.Shortcut(key: .function(12), host: false, shift: false))
+        let host = try #require(commands.first { $0.id == "machine.keyboard.host" })
+        #expect(host.shortcut == CommandCatalogue.Shortcut(key: .letter("K"), host: true, shift: true))
+        let open = try #require(commands.first { $0.id == "media.open" })
+        #expect(open.param == "media-slot")
+        #expect(open.mcpVerb == "load_media")
+        #expect(open.label(for: "Cassette Tape") == "Open Cassette Tape…")
+        let about = try #require(commands.first { $0.id == "app.about" })
+        #expect(about.shortcut == nil)
+    }
+
     @Test(.enabled(if: stagedSpectrumROM() != nil, "needs the 48K ROM (EMU198X_SPECTRUM_48K_ROM)"))
     func theRealROMBootsToTheCopyrightScreen() throws {
         let machine = try spectrum(rom: try #require(stagedSpectrumROM()))

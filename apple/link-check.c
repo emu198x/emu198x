@@ -23,6 +23,12 @@ int main(void) {
     }
     emu198x_buffer_free(catalogue);
 
+    Emu198xBuffer commands = {0};
+    if (emu198x_commands(&commands) != EMU198X_OK || commands.len < 2) {
+        return fail("commands");
+    }
+    emu198x_buffer_free(commands);
+
     Emu198xMachine *machine = NULL;
     if (emu198x_machine_create("sinclair-zx-spectrum", "spectrum_48k", &machine) != EMU198X_OK) {
         return fail("create a Spectrum 48K");

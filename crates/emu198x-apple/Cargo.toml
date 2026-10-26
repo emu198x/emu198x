@@ -23,12 +23,16 @@ sinclair-zx-spectrum = ["emu198x-fleet-web/sinclair-zx-spectrum"]
 
 [dependencies]
 emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.44.0", default-features = false }
+# The command catalogue every host builds its menus from (emu198x_commands).
+emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 
 [dev-dependencies]
 # The tests drive the repository's synthetic Game Boy cartridge, so their
 # build links that family whichever features the caller selected.
 emu198x-apple = { path = ".", features = ["nintendo-game-boy", "sinclair-zx-spectrum"] }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
+# Decodes emu198x_commands the way the Swift host does.
+serde_json = { workspace = true }
 
 # The workspace forbids unsafe code, and `forbid` cannot be relaxed by an
 # `allow`, so this crate carries its own copy of the workspace lints with

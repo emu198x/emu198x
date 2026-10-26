@@ -394,6 +394,37 @@ fn the_catalogue_lists_compiled_variants() {
 }
 
 #[test]
+fn the_commands_are_the_shell_catalogue() {
+    let mut buffer = empty_buffer();
+    // SAFETY: a writable buffer.
+    common::check(unsafe { ffi::emu198x_commands(&raw mut buffer) }).expect("commands");
+    let json = String::from_utf8(take(buffer)).expect("UTF-8");
+    let commands: Vec<serde_json::Value> = serde_json::from_str(&json).expect("a JSON array");
+    let ids: Vec<&str> = commands
+        .iter()
+        .map(|command| command["id"].as_str().expect("every command has an id"))
+        .collect();
+    let expected: Vec<&str> = emu198x_shell::commands::CATALOGUE
+        .iter()
+        .map(|spec| spec.id)
+        .collect();
+    assert_eq!(ids, expected);
+    // The fields the Swift decoder reads, in the shape it reads them.
+    let reset = &commands[ids
+        .iter()
+        .position(|id| *id == "machine.reset")
+        .expect("reset")];
+    assert_eq!(reset["group"], "machine");
+    assert_eq!(reset["needs"], "running");
+    assert_eq!(reset["shortcut"]["key"]["Function"], 12);
+    assert_eq!(reset["shortcut"]["host"], false);
+
+    // SAFETY: a null destination, which is the case under test.
+    let code = unsafe { ffi::emu198x_commands(std::ptr::null_mut()) };
+    assert_eq!(code, status::INVALID_ARGUMENT);
+}
+
+#[test]
 fn machines_tear_down_repeatedly() {
     for _ in 0..100 {
         let mut machine = booted_game_boy();
