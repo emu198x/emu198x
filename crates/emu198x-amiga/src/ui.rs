@@ -21,7 +21,7 @@
 //!   switch resolves the runtime's conventional firmware and rebuilds the
 //!   machine; inserted disks and launch overrides are not carried across.
 //! - **Reset**: [`after_reset`](UiSystem::after_reset) re-inserts the DF0 ADF so
-//!   F12 keeps the disk (the bespoke runner dropped it).
+//!   Machine → Reset keeps the disk (the bespoke runner dropped it).
 //!
 //! Compiled only with the `ui` Cargo feature; the shared launcher opens the
 //! window when no automation flag is given, with the runtime `app.rs` built.
@@ -228,7 +228,7 @@ impl UiSystem for AmigaSystem {
 
     fn after_reset(&mut self, runtime: &mut Self::Runtime) -> Result<(), MachineError> {
         // Re-insert the DF0 ADF after a hard reset — the bespoke runner dropped
-        // the disk on F12; the harness's reset path runs this hook so the disk
+        // the disk on reset; the harness's reset path runs this hook so the disk
         // survives.
         let Some(path) = &self.disk else {
             return Ok(());

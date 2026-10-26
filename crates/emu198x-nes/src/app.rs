@@ -320,7 +320,8 @@ impl MachineApp for Nes {
     --smoke-screenshot-dir PATH
                     write one PNG per successful smoke row";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     F8              FDS: eject the disk, then insert the next side
     Arrow keys      D-pad
     Z               B

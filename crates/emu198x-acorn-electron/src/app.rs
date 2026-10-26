@@ -45,7 +45,8 @@ impl MachineApp for Electron {
                     acorn-electron-adfs (repeatable)
     --rom-dir DIR   firmware directory (or set EMU198X_ELECTRON_ROM_DIR)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the Electron keyboard (cursor keys are real Electron keys)
     Shift / Ctrl    the Electron SHIFT / CTRL keys; Alt = FUNC; End = COPY";
 

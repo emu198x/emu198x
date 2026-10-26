@@ -51,8 +51,15 @@ Verification:
   are updated, and `swift test` decodes the JSON and checks it against
   the catalogue. The Mac menus are built from it.
 - The Mac app's own shortcuts (⌘P pause, ⇧⌘R restart, ⌘T tape) and the
-  baseline's (F9–F12) differ today. Settle them in the catalogue here;
-  this step adds pause and restart as catalogue entries.
+  baseline's (F9–F12) differed. Settled 2026-10-26 (decision § 3): the
+  Mac's keys, on the host modifier, on every host. The catalogue gains
+  `machine.pause`; reset moves to ⇧⌘R, tape play/stop to ⌘T and
+  fast-forward to ⇧⌘F. The winit and GTK windows gain Pause, and match key
+  chords against the catalogue itself. Still for the Mac session: the Mac
+  menus' ⌘S and ⇧⌘O open file dialogs today, where the catalogue's ⌘S and
+  ⌘L quick-save and quick-load a slot.
+- Done so far: `emu198x_commands` and `CommandCatalogue` (#2130), and the
+  shortcuts above.
 
 - A View menu item for each of Play, Peek, Inspect and Debug (⌘1–⌘4),
   generated from the catalogue.

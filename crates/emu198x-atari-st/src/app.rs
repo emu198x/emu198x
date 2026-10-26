@@ -62,7 +62,8 @@ impl MachineApp for AtariSt {
     --mono          plug in the SM124 monochrome monitor
                     (also --monitor colour|mono)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Keyboard        the ST keyboard; Page Up is Help, Page Down Undo
     Mouse           the ST mouse (click in the window to capture it)
     Gamepad         joystick in the joystick port";

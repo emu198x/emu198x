@@ -25,7 +25,7 @@ pub use crate::menu::{AppCommand, FILTER_OPTIONS, SCALE_OPTIONS, filter_name};
 use crate::{DrivePortInfo, VariantInfo, VideoFilter};
 
 /// Changed whenever a message changes shape.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// The largest message either end will read. A frame is a few hundred
 /// kilobytes; this only stops a corrupt length from allocating gigabytes.
@@ -131,6 +131,7 @@ pub enum MarkChange {
     PortDrive { device: u8, kind_id: String },
     Turbo(bool),
     HostKeyboard(bool),
+    Paused(bool),
 }
 
 /// How serious a message box is.

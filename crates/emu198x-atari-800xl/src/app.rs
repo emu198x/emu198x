@@ -79,7 +79,8 @@ impl MachineApp for Atari800xl {
     --no-basic      hold OPTION at boot to disable the built-in BASIC
     --region MODE   ntsc | pal [default: ntsc]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the Atari keyboard
     Enter / Space / Delete / Tab   the matching Atari keys
     Arrow keys      joystick (player 1)

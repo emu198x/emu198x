@@ -80,7 +80,8 @@ Each entry has:
 
 - a stable id, such as `media.tape.play`;
 - a label and a menu group;
-- a shortcut for each platform;
+- a shortcut, written with the host modifier (⌘ on the Mac, Ctrl
+  elsewhere), the same on every platform;
 - an availability key, such as "needs a running machine" or "needs a tape
   slot";
 - the MCP verb that does the same thing, if there is one.
@@ -97,6 +98,23 @@ operations stable names (`media-transport`).
 A test in each host checks that every catalogue id it claims to support
 appears in its menus. Adding a command to the catalogue without wiring it
 up fails that host's build.
+
+The shortcuts are the Mac app's (settled by Steve, 2026-10-26), and every
+one holds the host modifier, so none is a key the guest uses:
+
+| Command | Mac | Elsewhere |
+|---|---|---|
+| Pause | ⌘P | Ctrl+P |
+| Reset | ⇧⌘R | Ctrl+Shift+R |
+| Play or stop the tape | ⌘T | Ctrl+T |
+| Fast-forward while playing | ⇧⌘F | Ctrl+Shift+F |
+| Export the tape recording | ⇧⌘E | Ctrl+Shift+E |
+| Host or original keyboard | ⇧⌘K | Ctrl+Shift+K |
+| Save state | ⌘S | Ctrl+S |
+| Load state | ⌘L | Ctrl+L |
+
+They replace the baseline's F9 to F12, which some machines (the Amstrad
+CPC, Atari ST and BBC Micro) use as keys of their own.
 
 ### 4. One rendering default
 
@@ -268,3 +286,4 @@ Stop and re-read this record if you find yourself:
 | 2026-10-25 | Proposed, with mockups and a plan. |
 | 2026-10-25 | **Approved** (Steve). Section 9 amends `debugger-architecture.md` § 6; section 12 brings the GTK4 Linux frontend forward; `.emu198x` is the shared save format. |
 | 2026-10-25 | Host order recorded (Steve): macOS, then tvOS as its variant, then WinUI. |
+| 2026-10-26 | Shortcuts settled (Steve): one set on every host, the Mac app's, all on the host modifier. F9 to F12 go back to the machines. |

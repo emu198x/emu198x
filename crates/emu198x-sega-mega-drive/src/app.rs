@@ -73,7 +73,8 @@ impl MachineApp for MegaDrive {
                     full profile id (alias: --variant) [default: the
                     cartridge header's region, else genesis]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      d-pad (player 1)
     Z / X / C       A, B and C
     A / S / D       X, Y and Z (six-button pad)

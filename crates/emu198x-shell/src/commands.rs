@@ -84,8 +84,9 @@ pub enum ShortcutKey {
 /// A keyboard shortcut.
 ///
 /// `host` is the host modifier: Command on macOS, Control elsewhere. A
-/// shortcut without it must be a key the guest never sees, which is why the
-/// bare-key shortcuts here are function keys.
+/// shortcut without it would be a key the guest also uses, so every shortcut
+/// in the catalogue holds it. The Mac app's keys set the catalogue's
+/// (`knowledge/decisions/host-ui-model.md` § 3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Shortcut {
     /// The key.
@@ -97,14 +98,6 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-    const fn function(n: u8) -> Self {
-        Self {
-            key: ShortcutKey::Function(n),
-            host: false,
-            shift: false,
-        }
-    }
-
     const fn host(letter: char) -> Self {
         Self {
             key: ShortcutKey::Letter(letter),
@@ -217,10 +210,19 @@ pub const CATALOGUE: &[CommandSpec] = &[
         mcp_verb: None,
     },
     CommandSpec {
+        id: "machine.pause",
+        label: "Pause",
+        group: CommandGroup::Machine,
+        shortcut: Some(Shortcut::host('P')),
+        needs: Availability::Running,
+        param: Some(CommandParam::Toggle),
+        mcp_verb: None,
+    },
+    CommandSpec {
         id: "machine.reset",
         label: "Reset",
         group: CommandGroup::Machine,
-        shortcut: Some(Shortcut::function(12)),
+        shortcut: Some(Shortcut::host_shift('R')),
         needs: Availability::Running,
         param: None,
         mcp_verb: Some("reset"),
@@ -245,11 +247,13 @@ pub const CATALOGUE: &[CommandSpec] = &[
         param: None,
         mcp_verb: None,
     },
+    // Play and Stop share one shortcut, which sits on Play: it plays a stopped
+    // tape and stops a playing one.
     CommandSpec {
         id: "media.tape.play",
         label: "Play",
         group: CommandGroup::Tape,
-        shortcut: Some(Shortcut::function(9)),
+        shortcut: Some(Shortcut::host('T')),
         needs: Availability::TapeSlot,
         param: None,
         mcp_verb: Some("media_transport"),
@@ -258,7 +262,7 @@ pub const CATALOGUE: &[CommandSpec] = &[
         id: "media.tape.stop",
         label: "Stop",
         group: CommandGroup::Tape,
-        shortcut: Some(Shortcut::function(10)),
+        shortcut: None,
         needs: Availability::TapeSlot,
         param: None,
         mcp_verb: Some("media_transport"),
@@ -267,7 +271,7 @@ pub const CATALOGUE: &[CommandSpec] = &[
         id: "media.tape.fast-forward",
         label: "Fast-Forward While Playing",
         group: CommandGroup::Tape,
-        shortcut: Some(Shortcut::function(11)),
+        shortcut: Some(Shortcut::host_shift('F')),
         needs: Availability::TapeSlot,
         param: Some(CommandParam::Toggle),
         mcp_verb: None,
@@ -397,17 +401,12 @@ mod tests {
     }
 
     #[test]
-    fn bare_shortcuts_are_function_keys() {
-        // A bare letter would be swallowed from the guest's keyboard.
+    fn every_shortcut_holds_the_host_modifier() {
+        // A key without it would be swallowed from the guest's keyboard:
+        // some machines use F9 to F12 as keys of their own.
         for spec in CATALOGUE {
-            if let Some(shortcut) = spec.shortcut
-                && !shortcut.host
-            {
-                assert!(
-                    matches!(shortcut.key, ShortcutKey::Function(_)),
-                    "`{}` has a bare letter shortcut",
-                    spec.id
-                );
+            if let Some(shortcut) = spec.shortcut {
+                assert!(shortcut.host, "`{}` has a shortcut without ⌘/Ctrl", spec.id);
             }
         }
     }

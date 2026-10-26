@@ -100,7 +100,8 @@ impl MachineApp for Zx81 {
     --hires BOARD   memotech, quicksilva, g007 or none [default: none]
     --hires-rom PATH  the board's 2 KB EPROM image";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 . Space the ZX81 membrane keyboard
     Shift           SHIFT (the function/symbol layer — hold with another key)
     Enter           NEWLINE";

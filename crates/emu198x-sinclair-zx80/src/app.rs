@@ -63,7 +63,8 @@ impl MachineApp for Zx80 {
                          play: type LOAD (W), then use `media_transport` start
                          on slot `tape-1`. Switching machines ejects the tape.";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 . Space the ZX80 membrane keyboard
     Shift           SHIFT (the function/symbol layer — hold with another key)
     Enter           NEWLINE";

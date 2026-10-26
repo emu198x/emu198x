@@ -56,7 +56,8 @@ impl MachineApp for Snes {
                     profile id (alias: --variant) [default: the
                     cartridge header's destination, else snes-ntsc]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      d-pad (player 1)
     Z / X           B and A
     A / S           Y and X

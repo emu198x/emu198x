@@ -98,7 +98,8 @@ impl MachineApp for Vic20 {
                     with AT+UART_CUR support); CIPSTART opens a real
                     TCP connection (64-byte frame reassembly)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the VIC-20 keyboard
     Right / Down    the two cursor keys; Tab = RUN/STOP, Alt = Commodore
     Gamepad         joystick (single control port)";

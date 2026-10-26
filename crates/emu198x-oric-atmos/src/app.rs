@@ -40,7 +40,8 @@ impl MachineApp for Oric {
     --model NAME    oric-1 | atmos [default: atmos]
     --serial        fit a 6551 ACIA serial card at $031C-$031F";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the Oric keyboard (cursor keys are real Oric keys)
     Shift / Ctrl    the Oric shift / control keys
     Gamepad         IJK joystick (player 1, left stick)";
