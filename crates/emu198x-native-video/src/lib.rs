@@ -1335,6 +1335,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn offscreen_raw_frames_blend_only_at_fractional_edges() {
         // Two pixels with a pixel aspect of 1.5 fill three output pixels:
