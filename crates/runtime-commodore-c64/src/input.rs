@@ -460,9 +460,9 @@ mod tests {
         m.attach_mouse_1351(2);
         m.cpu_write(0xDC00, 0x80); // select control port 2
 
-        // Motion accumulates into the POT counters (POTX = (dx & 0x7f) + 0x40).
+        // Motion moves the mouse's count, which POTX carries in bits 1-6.
         apply_input_event(&mut m, &pointer_motion("mouse-1", 5, 0));
-        assert_eq!(m.cpu_read(0xD419), 0x45, "pointer motion drives POTX");
+        assert_eq!(m.cpu_read(0xD419), 0x40 + 10, "pointer motion drives POTX");
 
         // Left button pulls FIRE (bit 4) low on the main gameport.
         apply_input_event(&mut m, &pointer_button("mouse-1", "left", true));

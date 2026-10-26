@@ -154,28 +154,75 @@ impl JoystickState {
 /// A Commodore 1351 proportional mouse plugged into one control port.
 ///
 /// The 1351 reports movement as *deltas on the analogue POT lines*, not as
-/// an absolute position: each axis is a free-running counter whose low 7 bits
-/// reach the SID pot register offset by `0x40`, so a read returns `0x40..=0xBF`
-/// (`mouse_get_1351_x` in VICE `mouse_1351.c`). Software reads the pot twice
-/// and sign-extends the 7-bit difference to recover the movement since the
-/// last read. The two buttons are digital lines shared with the joystick:
-/// left → FIRE (bit 4), right → UP (bit 0).
+/// an absolute position. Each axis is a free-running count of the mouse's
+/// movement, which reaches the SID pot register modulo 64 in bits 1–6, with
+/// bit 0 left to noise (the *Commodore 1351 Mouse User's Manual*'s
+/// proportional mode, as C64-Wiki's "Mouse 1351" page summarises it; the
+/// reference library holds no copy yet). Software reads the pot, takes the
+/// 7-bit difference from its last reading and halves it: the manual's
+/// driver, which cc65's `libsrc/c64/mou/c64-1351.s` carries, adds that to the
+/// pointer's X and subtracts it from its Y, one count to one step of the
+/// pointer. So one count here moves the pot by
+/// two, X rises to the right and Y rises as the mouse moves *up*. The pot
+/// reads `0x40..=0xBF` (VICE `mouse_get_1351_x`). The two buttons are
+/// digital lines shared with the joystick: left → FIRE (bit 4), right → UP
+/// (bit 0).
+///
+/// A difference of 32 counts or more between two readings looks like
+/// movement the other way, so host motion is let through at most
+/// [`MOUSE_1351_COUNTS_PER_FRAME`] counts an axis a frame, and the rest
+/// waits for the next frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Mouse1351 {
-    /// Free-running X/Y position counters. Only the low 7 bits are observable;
-    /// `i16` keeps a wide accumulation range so fast host motion wraps cleanly.
+    /// Free-running X/Y counts. Only the low 6 bits are observable; `i16`
+    /// keeps a wide accumulation range so fast host motion wraps cleanly.
     x: i16,
     y: i16,
     left: bool,
     right: bool,
+    /// Host motion not yet let through, as the mouse's own counts.
+    pending: (i32, i32),
+    /// Counts let through so far this frame.
+    this_frame: (i32, i32),
 }
 
+/// Most counts a 1351 axis moves in one frame. Software that reads the
+/// mouse once a frame then sees at most twice this between readings, since
+/// a frame's motion can straddle a reading, which stays under the 32 that
+/// would wrap.
+const MOUSE_1351_COUNTS_PER_FRAME: i32 = 15;
+
 impl Mouse1351 {
-    /// The POT reading for one axis (0 = X, 1 = Y): the low 7 bits of the
-    /// running counter, offset by `0x40`. Matches VICE `mouse_get_1351_x/y`.
+    /// The POT reading for one axis (0 = X, 1 = Y): the low 6 bits of the
+    /// count in bits 1–6, with the noise bit clear, offset by `0x40`.
     const fn pot(self, axis: usize) -> u8 {
         let counter = if axis == 0 { self.x } else { self.y };
-        ((counter & 0x7F) as u8) + 0x40
+        (((counter << 1) & 0x7E) as u8) + 0x40
+    }
+
+    /// Let through as much pending motion as this frame allows.
+    fn release(&mut self) {
+        let step = |pending: &mut i32, done: &mut i32| {
+            let step = (*pending).clamp(
+                -MOUSE_1351_COUNTS_PER_FRAME - *done,
+                MOUSE_1351_COUNTS_PER_FRAME - *done,
+            );
+            *pending -= step;
+            *done += step;
+            step as i16
+        };
+        self.x = self
+            .x
+            .wrapping_add(step(&mut self.pending.0, &mut self.this_frame.0));
+        self.y = self
+            .y
+            .wrapping_add(step(&mut self.pending.1, &mut self.this_frame.1));
+    }
+
+    /// A new frame: let through what waited.
+    fn start_frame(&mut self) {
+        self.this_frame = (0, 0);
+        self.release();
     }
 
     /// Active-low digital-line mask for the two buttons, ANDed into the port:
@@ -626,18 +673,31 @@ impl C64 {
         matches!(port, 1 | 2) && self.mice[usize::from(port - 1)].is_some()
     }
 
-    /// Accumulates a host mouse-motion delta into the 1351 on control port 1
-    /// or 2. The deltas move the free-running POT counters directly; the guest
-    /// reads the pots twice and diffs. Returns `false` if no mouse is plugged
-    /// into that port.
+    /// Moves the 1351 on control port 1 or 2 by a host delta, in the mouse's
+    /// own counts: `dx` to the right and `dy` *down*, as hosts report it. The
+    /// 1351 counts Y upwards, so `dy` is subtracted. Motion beyond what a
+    /// frame lets through waits for the next frame. Returns `false` if no
+    /// mouse is plugged into that port.
     pub fn move_mouse_1351(&mut self, port: u8, dx: i32, dy: i32) -> bool {
         let Some(Some(mouse)) = self.mouse_slot_mut(port) else {
             return false;
         };
-        mouse.x = mouse.x.wrapping_add(dx as i16);
-        mouse.y = mouse.y.wrapping_add(dy as i16);
+        mouse.pending.0 = mouse.pending.0.saturating_add(dx);
+        mouse.pending.1 = mouse.pending.1.saturating_sub(dy);
+        mouse.release();
         self.refresh_paddle_pots();
         true
+    }
+
+    /// A frame ended: each 1351 lets through the motion that waited.
+    fn start_mouse_frame(&mut self) {
+        if self.mice.iter().all(Option::is_none) {
+            return;
+        }
+        for mouse in self.mice.iter_mut().flatten() {
+            mouse.start_frame();
+        }
+        self.refresh_paddle_pots();
     }
 
     /// Presses or releases a 1351 button (`"left"` or `"right"`) on control
@@ -974,6 +1034,7 @@ impl C64 {
 
         if self.vic.take_frame_complete() {
             self.frame_count = self.frame_count.saturating_add(1);
+            self.start_mouse_frame();
             return true;
         }
 
@@ -1014,6 +1075,7 @@ impl C64 {
 
         if self.vic.take_frame_complete() {
             self.frame_count = self.frame_count.saturating_add(1);
+            self.start_mouse_frame();
             return true;
         }
 
@@ -2658,31 +2720,90 @@ mod tests {
         assert!(!machine.set_paddle(1, 2, 0x10));
     }
 
+    /// The 1351 manual's movement check, as cc65's `c64-1351.s` carries it:
+    /// the 7-bit difference between two pot readings, halved, or `None` for
+    /// no movement.
+    fn manual_driver_delta(old: u8, new: u8) -> Option<i32> {
+        let difference = new.wrapping_sub(old) & 0x7F;
+        if difference < 0x40 {
+            let delta = difference >> 1;
+            (delta != 0).then_some(i32::from(delta))
+        } else {
+            let delta = (difference | 0xC0) as i8;
+            (delta != -1).then_some(i32::from(delta >> 1))
+        }
+    }
+
+    /// Where the manual's driver moves its pointer for one host move, read
+    /// from control port 2.
+    fn driver_moves(machine: &mut C64, dx: i32, dy: i32) -> (i32, i32) {
+        let before = (machine.cpu_read(0xD419), machine.cpu_read(0xD41A));
+        assert!(machine.move_mouse_1351(2, dx, dy));
+        let after = (machine.cpu_read(0xD419), machine.cpu_read(0xD41A));
+        (
+            manual_driver_delta(before.0, after.0).unwrap_or(0),
+            // The driver subtracts the Y movement from its pointer's Y.
+            -manual_driver_delta(before.1, after.1).unwrap_or(0),
+        )
+    }
+
     #[test]
-    fn mouse_1351_pots_report_low_seven_bits_offset_by_0x40() {
+    fn mouse_1351_pots_carry_six_bits_of_count_above_the_noise_bit() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         machine.cpu_write(0xDC02, 0xFF); // CIA1 DDRA: PA6/PA7 outputs
         machine.cpu_write(0xDC00, 0x80); // select control port 2
 
         assert!(machine.attach_mouse_1351(2));
-        // Centred at zero → (0 & 0x7f) + 0x40 = 0x40 on both axes.
+        // Centred at zero → 0x40 on both axes.
         assert_eq!(machine.cpu_read(0xD419), 0x40, "centred POTX");
         assert_eq!(machine.cpu_read(0xD41A), 0x40, "centred POTY");
 
-        // A positive delta moves the running counter; only the low 7 bits
-        // reach the pot, offset by 0x40 (VICE mouse_get_1351_x).
-        assert!(machine.move_mouse_1351(2, 5, -3));
-        assert_eq!(machine.cpu_read(0xD419), 0x45, "POTX = (5 & 0x7f) + 0x40");
+        // Five counts right and three down: the count sits in bits 1-6 and
+        // Y counts upwards.
+        assert!(machine.move_mouse_1351(2, 5, 3));
+        assert_eq!(machine.cpu_read(0xD419), 0x40 + 10, "POTX");
         assert_eq!(
             machine.cpu_read(0xD41A),
-            (((-3i16) & 0x7F) as u8) + 0x40,
-            "POTY wraps the signed counter into 7 bits"
+            0x40 + (((-3i16 << 1) & 0x7E) as u8)
         );
 
-        // Past 7 bits the counter wraps, exactly as the guest's diff logic
-        // expects: 0x40 + 3 units of movement past a 128-count boundary.
-        assert!(machine.move_mouse_1351(2, 0x80 - 5, 0));
-        assert_eq!(machine.cpu_read(0xD419), 0x40, "POTX wraps at 128 counts");
+        // The count wraps at 64: 64 counts on, the pot reads the same.
+        let pot = machine.cpu_read(0xD419);
+        for _ in 0..8 {
+            assert!(machine.move_mouse_1351(2, 8, 0));
+            machine.start_mouse_frame();
+        }
+        assert_eq!(machine.cpu_read(0xD419), pot, "POTX wraps at 64 counts");
+    }
+
+    #[test]
+    fn the_manual_driver_moves_one_pixel_a_count_with_y_down() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF);
+        machine.cpu_write(0xDC00, 0x80);
+        assert!(machine.attach_mouse_1351(2));
+        assert_eq!(driver_moves(&mut machine, 5, 3), (5, 3));
+        assert_eq!(driver_moves(&mut machine, -7, -2), (-7, -2));
+        assert_eq!(driver_moves(&mut machine, 1, -1), (1, -1));
+    }
+
+    #[test]
+    fn fast_host_motion_waits_rather_than_wrapping() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF);
+        machine.cpu_write(0xDC00, 0x80);
+        assert!(machine.attach_mouse_1351(2));
+        // 100 counts in one go would wrap; a frame lets 15 through.
+        let mut moved = driver_moves(&mut machine, 100, -40);
+        assert_eq!(moved, (15, -15));
+        for _ in 0..10 {
+            let before = (machine.cpu_read(0xD419), machine.cpu_read(0xD41A));
+            machine.start_mouse_frame();
+            let after = (machine.cpu_read(0xD419), machine.cpu_read(0xD41A));
+            moved.0 += manual_driver_delta(before.0, after.0).unwrap_or(0);
+            moved.1 -= manual_driver_delta(before.1, after.1).unwrap_or(0);
+        }
+        assert_eq!(moved, (100, -40), "all of it arrives");
     }
 
     #[test]
