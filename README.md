@@ -20,6 +20,11 @@ brew install emu198x/tap/emu198x-amiga
 Each released machine has its own formula. ROM requirements are unchanged;
 Homebrew installs the emulator, not copyrighted firmware or games.
 
+On Linux the window has a menu bar when GTK 4.6 or later is installed, as it is
+on GNOME desktops. Without GTK it opens a plain window, and every command is
+still on its keyboard shortcut. Set `EMU198X_UI=winit` to choose the plain
+window anyway.
+
 ## Capability surfaces
 
 Use these surface names when describing support. Avoid vague claims like “supported” without naming the surface.
@@ -123,7 +128,7 @@ not implemented.
 
 Choose **Machine → Keyboard → Original Keyboard** for direct target controls:
 Shift is CAPS SHIFT and Alt/Option is SYMBOL SHIFT. Use this mode for games or other software that depend on raw target keys.
-**Cmd/Ctrl+Shift+K** switches modes (including on Linux, which has no native menu).
+**Cmd/Ctrl+Shift+K** switches modes, including in Linux's plain window, which has no menu.
 The window title shows the active mode. Switching modes or losing window focus
 releases held target keys; releasing a translated key uses the combination chosen
 when it was pressed, even if a host modifier has changed in the meantime.
@@ -145,8 +150,8 @@ If no decodable recording is available, the UI explains how to make one first.
 To check the file independently, close the session and start the emulator with
 `--tape greeting.tap --autoload-tape`. After loading, use BASIC `LIST` and `RUN`
 and make another edit. The desktop File menu also provides the tape-slot picker;
-start playback with Tape → Play after issuing `LOAD ""` in BASIC. Linux uses the
-export shortcut because the shared UI currently has no native menu there.
+start playback with Tape → Play after issuing `LOAD ""` in BASIC. Linux's plain
+window, used where GTK is not installed, has no menu; use the export shortcut there.
 
 Representative commands:
 

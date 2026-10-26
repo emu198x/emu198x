@@ -8,6 +8,15 @@ case "$package" in
   emu198x-*) "$package_bin/$package" --help > "$fixture_dir/help.txt"; test -s "$fixture_dir/help.txt" ;;
   *) echo "Unexpected package: $package" >&2; exit 1 ;;
 esac
+# On Linux every formula carries the GTK window, which Homebrew installs
+# under share/, not bin/ (knowledge/decisions/gtk-window-process.md). It must
+# be the GTK build, so the machine opens it rather than falling back.
+if [ "$(uname -s)" = Linux ]; then
+  window="$package_bin/../share/$package/libexec/emu198x-gtk-window"
+  test -x "$window" || { echo "$package: no GTK window at $window" >&2; exit 1; }
+  readelf -d "$window" | grep 'NEEDED.*libgtk-4\.so' >/dev/null \
+    || { echo "$package: $window does not link GTK 4" >&2; exit 1; }
+fi
 # NES needs no external firmware: exercise a real frame using a tiny NROM
 # cartridge authored here. Every other machine still checks native loading.
 if [ "$package" = emu198x-nes ]; then

@@ -7,9 +7,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# Not in the release archives yet: shipping it, and the GTK dependency that
-# comes with it, is the step that turns the GTK window on by default
-# (docs/plans/2026-10-25-host-ui-model.md, step 12).
+# Not a release of its own: it ships inside every Linux machine archive, as
+# libexec/emu198x-gtk-window, built there by scripts/build-gtk-window.sh
+# before dist runs (knowledge/decisions/gtk-window-process.md).
 [package.metadata.dist]
 dist = false
 
