@@ -315,11 +315,14 @@ pub enum VideoPresenterError {
     /// The surface hit an unrecoverable error (e.g. a validation failure).
     #[error("native video surface hit an unrecoverable error")]
     SurfaceUnrecoverable,
+    /// An offscreen picture could not be read back from the GPU.
+    #[error("the offscreen picture could not be read back from the GPU")]
+    OffscreenReadback,
 }
 
 /// Shared `wgpu` presenter for one native emulator window.
 pub struct WgpuVideoPresenter {
-    surface: wgpu::Surface<'static>,
+    target: Target,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -449,7 +452,87 @@ impl WgpuVideoPresenter {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
+        Ok(Self::from_device(
+            device,
+            queue,
+            config,
+            Target::Surface(surface),
+            frame_width,
+            frame_height,
+        ))
+    }
 
+    /// Creates a presenter that renders into an offscreen image of `width` ×
+    /// `height` pixels instead of a window. After each present the picture is
+    /// in [`Self::offscreen_pixels`], for a host that draws with its own
+    /// toolkit, such as the GTK window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host has no usable GPU adapter or device.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new_offscreen(
+        width: u32,
+        height: u32,
+        frame_width: u32,
+        frame_height: u32,
+    ) -> Result<Self, VideoPresenterError> {
+        pollster::block_on(async {
+            let instance =
+                wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    force_fallback_adapter: false,
+                    compatible_surface: None,
+                    apply_limit_buckets: false,
+                })
+                .await
+                .map_err(|_| VideoPresenterError::NoAdapter)?;
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor {
+                    label: Some("emu198x-native-video offscreen device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    ..Default::default()
+                })
+                .await?;
+            let width = width.max(1);
+            let height = height.max(1);
+            let config = wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                // Not sRGB, like the surface format the window presenter
+                // prefers, so both write the same bytes.
+                format: OFFSCREEN_FORMAT,
+                color_space: wgpu::SurfaceColorSpace::Auto,
+                width,
+                height,
+                present_mode: wgpu::PresentMode::AutoVsync,
+                desired_maximum_frame_latency: 2,
+                alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                view_formats: vec![],
+            };
+            let offscreen = Offscreen::new(&device, width, height);
+            Ok(Self::from_device(
+                device,
+                queue,
+                config,
+                Target::Offscreen(offscreen),
+                frame_width,
+                frame_height,
+            ))
+        })
+    }
+
+    fn from_device(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        config: wgpu::SurfaceConfiguration,
+        target: Target,
+        frame_width: u32,
+        frame_height: u32,
+    ) -> Self {
+        let format = config.format;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("emu198x-native-video shader"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -537,8 +620,8 @@ impl WgpuVideoPresenter {
             frame_height,
         );
 
-        Ok(Self {
-            surface,
+        Self {
+            target,
             device,
             queue,
             config,
@@ -556,7 +639,19 @@ impl WgpuVideoPresenter {
             signal_bind_group: None,
             phosphor: None,
             phosphor_bindings: None,
-        })
+        }
+    }
+
+    /// The last picture an offscreen presenter rendered, as tightly packed
+    /// RGBA rows, with its width and height. `None` for a window presenter.
+    #[must_use]
+    pub fn offscreen_pixels(&self) -> Option<(&[u8], u32, u32)> {
+        match &self.target {
+            Target::Offscreen(offscreen) => {
+                Some((&offscreen.pixels, offscreen.width, offscreen.height))
+            }
+            Target::Surface(_) => None,
+        }
     }
 
     /// Resizes the host surface.
@@ -567,7 +662,12 @@ impl WgpuVideoPresenter {
 
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        match &mut self.target {
+            Target::Surface(surface) => surface.configure(&self.device, &self.config),
+            Target::Offscreen(offscreen) => {
+                *offscreen = Offscreen::new(&self.device, width, height)
+            }
+        }
     }
 
     /// Uploads and presents one machine frame.
@@ -678,25 +778,34 @@ impl WgpuVideoPresenter {
         profile: &PresentationProfile,
         frame: &CapturedFrame,
     ) -> Result<bool, VideoPresenterError> {
-        let output = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(output)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface.configure(&self.device, &self.config);
-                return Ok(false);
-            }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(false);
-            }
-            wgpu::CurrentSurfaceTexture::Validation => {
-                return Err(VideoPresenterError::SurfaceUnrecoverable);
-            }
+        let output = match &self.target {
+            Target::Surface(surface) => match surface.get_current_texture() {
+                wgpu::CurrentSurfaceTexture::Success(output)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(output) => Some(output),
+                wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                    surface.configure(&self.device, &self.config);
+                    return Ok(false);
+                }
+                wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                    return Ok(false);
+                }
+                wgpu::CurrentSurfaceTexture::Validation => {
+                    return Err(VideoPresenterError::SurfaceUnrecoverable);
+                }
+            },
+            Target::Offscreen(_) => None,
         };
         let mut uniforms = ShaderUniforms::new(profile.filter, self.frame_width, self.frame_height);
 
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = match (&output, &self.target) {
+            (Some(output), _) => output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            (None, Target::Offscreen(offscreen)) => offscreen
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            (None, Target::Surface(_)) => return Ok(false),
+        };
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -810,10 +919,142 @@ impl WgpuVideoPresenter {
             pass.set_bind_group(0, bindings, &[]);
             pass.draw(0..6, 0..1);
         }
+        if let Target::Offscreen(offscreen) = &self.target {
+            offscreen.encode_copy(&mut encoder);
+        }
         self.queue.submit(Some(encoder.finish()));
-        self.queue.present(output);
+        match (output, &mut self.target) {
+            (Some(output), _) => self.queue.present(output),
+            (None, Target::Offscreen(offscreen)) => offscreen.read_back(&self.device)?,
+            (None, Target::Surface(_)) => {}
+        }
         Ok(true)
     }
+}
+
+/// The colour format of an offscreen picture: RGBA bytes, not sRGB.
+const OFFSCREEN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// Where a presenter draws.
+enum Target {
+    /// A window's surface.
+    Surface(wgpu::Surface<'static>),
+    /// An image the host reads back and draws itself.
+    Offscreen(Offscreen),
+}
+
+/// An offscreen picture and the buffer it is copied into for reading.
+struct Offscreen {
+    texture: wgpu::Texture,
+    buffer: wgpu::Buffer,
+    width: u32,
+    height: u32,
+    /// Row pitch in the readback buffer, padded to wgpu's copy alignment.
+    padded_row: u32,
+    /// The last picture, tightly packed.
+    pixels: Vec<u8>,
+}
+
+impl Offscreen {
+    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let width = width.max(1);
+        let height = height.max(1);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("emu198x-native-video offscreen picture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: OFFSCREEN_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let padded_row = padded_row_bytes(width);
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("emu198x-native-video offscreen readback"),
+            size: u64::from(padded_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        Self {
+            texture,
+            buffer,
+            width,
+            height,
+            padded_row,
+            pixels: vec![0; width as usize * height as usize * 4],
+        }
+    }
+
+    fn encode_copy(&self, encoder: &mut wgpu::CommandEncoder) {
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.padded_row),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    /// Wait for the copy, then unpad its rows into `pixels`.
+    fn read_back(&mut self, device: &wgpu::Device) -> Result<(), VideoPresenterError> {
+        let slice = self.buffer.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        match receiver.recv() {
+            Ok(Ok(())) => {}
+            _ => return Err(VideoPresenterError::OffscreenReadback),
+        }
+        {
+            let mapped = slice
+                .get_mapped_range()
+                .map_err(|_| VideoPresenterError::OffscreenReadback)?;
+            let row = self.width as usize * 4;
+            for (out, padded) in self
+                .pixels
+                .chunks_exact_mut(row)
+                .zip(mapped.chunks_exact(self.padded_row as usize))
+            {
+                out.copy_from_slice(&padded[..row]);
+            }
+            // A window surface shows the picture opaque whatever alpha the
+            // filters leave, and a host compositing this image would not, so
+            // make it opaque here to match.
+            for pixel in self.pixels.as_chunks_mut::<4>().0 {
+                pixel[3] = 0xFF;
+            }
+        }
+        self.buffer.unmap();
+        Ok(())
+    }
+}
+
+/// Bytes per row in a texture-to-buffer copy: four per pixel, rounded up to
+/// wgpu's required alignment.
+fn padded_row_bytes(width: u32) -> u32 {
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    (width.saturating_mul(4)).div_ceil(align) * align
 }
 
 fn choose_surface_format(caps: &wgpu::SurfaceCapabilities) -> Option<wgpu::TextureFormat> {
@@ -1040,6 +1281,54 @@ mod tests {
         let rgba = frame_rgba_pixels(&frame, &mut scratch).expect("frame should expand");
 
         assert_eq!(rgba, &[0xA0, 0xB0, 0xC0, 0xFF, 0x01, 0x02, 0x03, 0xFF]);
+    }
+
+    #[test]
+    fn offscreen_raw_frames_scale_by_whole_pixels() {
+        // Four colours in a 2 × 2 frame, drawn raw into a 4 × 4 picture:
+        // each source pixel must come back as a solid 2 × 2 block.
+        let colours: [[u8; 4]; 4] = [
+            [0xFF, 0x00, 0x00, 0xFF],
+            [0x00, 0xFF, 0x00, 0xFF],
+            [0x00, 0x00, 0xFF, 0xFF],
+            [0xFF, 0xFF, 0xFF, 0xFF],
+        ];
+        let frame = CapturedFrame {
+            signal: None,
+            timestamp: MachineTime::new(0),
+            format: PixelFormat::Rgba8888,
+            width: 2,
+            height: 2,
+            palette: None,
+            pixels: colours.concat(),
+        };
+        let mut presenter = match WgpuVideoPresenter::new_offscreen(4, 4, 2, 2) {
+            Ok(presenter) => presenter,
+            Err(VideoPresenterError::NoAdapter) => {
+                emu198x_test_skip::skip!("no GPU adapter for an offscreen presenter");
+            }
+            Err(err) => panic!("offscreen presenter: {err}"),
+        };
+        assert!(
+            presenter
+                .present_with_status(&frame, &PresentationProfile::raw())
+                .expect("present")
+        );
+        let (pixels, width, height) = presenter.offscreen_pixels().expect("offscreen");
+        assert_eq!((width, height), (4, 4));
+        let at = |x: usize, y: usize| &pixels[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+        for (x, y, colour) in [
+            (0, 0, 0),
+            (1, 1, 0),
+            (2, 0, 1),
+            (3, 1, 1),
+            (0, 2, 2),
+            (1, 3, 2),
+            (2, 2, 3),
+            (3, 3, 3),
+        ] {
+            assert_eq!(at(x, y), colours[colour], "pixel ({x}, {y})");
+        }
     }
 
     #[test]

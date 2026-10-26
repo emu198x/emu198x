@@ -22,6 +22,12 @@ mod imp {
         pub natural: Cell<(i32, i32)>,
         /// The picture size at scale 1, the smallest the window allows.
         pub minimum: Cell<(i32, i32)>,
+        /// Whether the texture is already the whole widget, composed by the
+        /// video presenter at device pixels, rather than a frame to fit.
+        pub composed: Cell<bool>,
+        /// The machine frame's size, for finding the picture in a composed
+        /// texture.
+        pub frame_size: Cell<(i32, i32)>,
     }
 
     impl Default for Screen {
@@ -31,6 +37,8 @@ mod imp {
                 pixel_aspect: Cell::new(1.0),
                 natural: Cell::new((0, 0)),
                 minimum: Cell::new((0, 0)),
+                composed: Cell::new(false),
+                frame_size: Cell::new((0, 0)),
             }
         }
     }
@@ -65,6 +73,12 @@ mod imp {
             let Some(texture) = self.texture.borrow().clone() else {
                 return;
             };
+            if self.composed.get() {
+                // One texture pixel per device pixel, so nearest is exact.
+                let rect = graphene::Rect::new(0.0, 0.0, width, height);
+                snapshot.append_scaled_texture(&texture, gsk::ScalingFilter::Nearest, &rect);
+                return;
+            }
             let rect = super::fit(
                 texture.width(),
                 texture.height(),
@@ -93,9 +107,35 @@ impl Screen {
     /// Show `texture`, whose pixels are `pixel_aspect` times as wide as high.
     pub fn show_frame(&self, texture: gdk::Texture, pixel_aspect: f32) {
         let imp = self.imp();
+        imp.frame_size.set((texture.width(), texture.height()));
         imp.texture.replace(Some(texture));
         imp.pixel_aspect.set(pixel_aspect);
+        imp.composed.set(false);
         self.queue_draw();
+    }
+
+    /// Show a picture the video presenter has already composed for the
+    /// whole widget, at its size in device pixels, from a machine frame of
+    /// `frame_size`.
+    pub fn show_composed(&self, texture: gdk::Texture, frame_size: (u32, u32), pixel_aspect: f32) {
+        let imp = self.imp();
+        imp.frame_size.set((
+            i32::try_from(frame_size.0).unwrap_or(0),
+            i32::try_from(frame_size.1).unwrap_or(0),
+        ));
+        imp.texture.replace(Some(texture));
+        imp.pixel_aspect.set(pixel_aspect);
+        imp.composed.set(true);
+        self.queue_draw();
+    }
+
+    /// The widget's size in device pixels.
+    pub fn device_size(&self) -> (u32, u32) {
+        let scale = self.scale_factor().max(1);
+        (
+            u32::try_from(self.width().max(1) * scale).unwrap_or(1),
+            u32::try_from(self.height().max(1) * scale).unwrap_or(1),
+        )
     }
 
     /// Set the picture's size at scale 1 (the minimum) and at the chosen
@@ -109,10 +149,11 @@ impl Screen {
 
     /// The rectangle the picture currently fills inside the widget.
     pub fn picture_rect(&self) -> Option<graphene::Rect> {
-        let texture = self.imp().texture.borrow().clone()?;
+        self.imp().texture.borrow().as_ref()?;
+        let (frame_w, frame_h) = self.imp().frame_size.get();
         Some(fit(
-            texture.width(),
-            texture.height(),
+            frame_w,
+            frame_h,
             self.imp().pixel_aspect.get(),
             self.width() as f32,
             self.height() as f32,
