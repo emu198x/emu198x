@@ -34,8 +34,7 @@ use std::ops::{Deref, DerefMut};
 pub use emu198x_commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
 pub use emu198x_commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDebug};
 
-use common_commodore_amiga::denise_counter::DeniseStrobe;
-use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
+use emu198x_commodore_denise_ocs::{DeniseChip, HorizontalBlanking, TimingStrobe};
 
 /// Lisa's strobe-driven vertical blanking, retained across horizontal edges.
 /// Fixed and programmed events are independent (WinUAE `handle_strobes`,
@@ -50,8 +49,8 @@ pub struct DeniseAgaVerticalBlanking {
 }
 
 impl DeniseAgaVerticalBlanking {
-    fn strobe(&mut self, strobe: DeniseStrobe) {
-        let horizontal = strobe == DeniseStrobe::Horizontal;
+    fn strobe(&mut self, strobe: TimingStrobe) {
+        let horizontal = strobe == TimingStrobe::Horizontal;
         if horizontal != self.previous_horizontal_strobe {
             self.pending_fixed = Some(!horizontal);
             self.pending_programmed = Some(!horizontal);
@@ -59,7 +58,11 @@ impl DeniseAgaVerticalBlanking {
         self.previous_horizontal_strobe = horizontal;
     }
 
-    fn edge(&mut self, programmed: bool, start: bool) {
+    /// Take a fixed (`programmed == false`) or programmable horizontal
+    /// blank comparator edge, starting or stopping the blank. An edge
+    /// applies only when it matches the event the last strobe left
+    /// pending, and consumes it.
+    pub fn edge(&mut self, programmed: bool, start: bool) {
         let (pending, active) = if programmed {
             (&mut self.pending_programmed, &mut self.programmed_active)
         } else {
@@ -517,6 +520,13 @@ impl DeniseAga {
         self.programmed_hblank_active
     }
 
+    /// Lisa's strobe-driven blanking latch, for a board or test that drives
+    /// its comparator edges directly. [`Self::diagnostic_snapshot`] reads
+    /// it without the borrow.
+    pub fn vertical_blanking_mut(&mut self) -> &mut DeniseAgaVerticalBlanking {
+        &mut self.vertical_blanking
+    }
+
     /// AGA Lisa ID register value, as reported by DENISEID ($DFF07C).
     /// Real silicon returns $F8 in the low byte; the high byte is $00
     /// (WinUAE returns $00F8 for A1200, $FCF8 for A4000).
@@ -824,7 +834,7 @@ impl From<DeniseAga> for InnerDeniseEcs {
 // surface the requirement.
 
 impl DeniseChip for DeniseAga {
-    fn retire_timing_strobe(&mut self, strobe: DeniseStrobe) {
+    fn retire_timing_strobe(&mut self, strobe: TimingStrobe) {
         self.vertical_blanking.strobe(strobe);
     }
 
@@ -1171,7 +1181,7 @@ impl DeniseChip for DeniseAga {
 #[cfg(test)]
 mod tests {
     use super::{BPLCON2_RDRAM, DeniseAga, LISA_DENISE_ID};
-    use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
+    use emu198x_commodore_denise_ocs::{DeniseChip, HorizontalBlanking};
 
     fn settle_programmed_hblank_inputs(
         denise: &mut DeniseAga,
@@ -1198,34 +1208,6 @@ mod tests {
         assert!(denise.palette_24.iter().all(|&c| c == 0));
         assert!(denise.palette_genlock.iter().all(|flag| !flag));
         assert!(!denise.programmed_hblank_active());
-    }
-
-    #[test]
-    fn lisa_window_matches_reach_output_at_the_counter_equality() {
-        let denise = DeniseAga::new();
-
-        let mut window = common_commodore_amiga::denise_window::DeniseWindow::default();
-        window.queue_write(0x08E, 129, true, true, true);
-        window.queue_write(0x090, 193, true, true, true);
-        for _ in 0..3 {
-            window.begin_output_tick();
-        }
-        let mut active = false;
-        // Independent UAE counter trace: the start match is composed at 129,
-        // while the stop match at 449 already selects border.
-        for position in 128..=450 {
-            let gates = window.output_gates(
-                &mut active,
-                position,
-                true,
-                denise.horizontal_diw_comparator_phase(),
-            );
-            assert_eq!(
-                gates,
-                [(129..449).contains(&position); 4],
-                "counter {position}"
-            );
-        }
     }
 
     #[test]
@@ -1365,16 +1347,16 @@ mod tests {
 
     #[test]
     fn lisa_vertical_blank_waits_for_selected_horizontal_edges() {
-        use common_commodore_amiga::denise_counter::DeniseStrobe;
+        use emu198x_commodore_denise_ocs::TimingStrobe;
         for programmed in [false, true] {
             let mut denise = DeniseAga::new();
             denise.write_word(0x106, u16::from(programmed));
             settle_programmed_hblank_inputs(&mut denise, 1, 0x80, 0xA0);
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
             // Starting and ending VBL are distinct events. Repeated vertical
             // strobes (including STREQU) must not erase the pending change.
-            denise.retire_timing_strobe(DeniseStrobe::VerticalBlank);
-            denise.retire_timing_strobe(DeniseStrobe::Equalisation);
+            denise.retire_timing_strobe(TimingStrobe::VerticalBlank);
+            denise.retire_timing_strobe(TimingStrobe::Equalisation);
             let (start, stop) = if programmed { (255, 319) } else { (15, 92) };
             let output = |d: &mut DeniseAga, counter: u16| {
                 d.programmed_hblank_for_output_phase(
@@ -1395,8 +1377,8 @@ mod tests {
                 output(&mut denise, stop),
                 HorizontalBlanking::from_level(true)
             );
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
             assert_eq!(
                 output(&mut denise, 100),
                 HorizontalBlanking::from_level(true)
@@ -1406,41 +1388,17 @@ mod tests {
     }
 
     #[test]
-    fn lisa_strobe_uses_the_existing_normal_stage_once_per_cck() {
-        use common_commodore_amiga::denise::Denise;
-        use common_commodore_amiga::denise_counter::DeniseStrobe;
-        let mut board = Denise::<DeniseAga>::new();
-        board.service_timing_strobe(DeniseStrobe::Horizontal);
-        for _ in 0..2 {
-            board.prepare_output_timing_strobe();
-            assert!(!board.ocs.vertical_blanking.previous_horizontal_strobe);
-            board.begin_counter_output_tick();
-            board.end_counter_output_tick();
-        }
-        board.prepare_output_timing_strobe();
-        assert!(board.ocs.vertical_blanking.previous_horizontal_strobe);
-        assert_eq!(board.ocs.vertical_blanking.pending_programmed, Some(false));
-        board.begin_counter_output_tick();
-        board.end_counter_output_tick();
-        // A stop comparator in the first half consumes the event. Delivering
-        // the strobe again in the second half must not resurrect it.
-        board.ocs.vertical_blanking.edge(true, false);
-        board.prepare_output_timing_strobe();
-        assert_eq!(board.ocs.vertical_blanking.pending_programmed, None);
-    }
-
-    #[test]
     fn lisa_vertical_blank_release_retains_all_eight_fine_stop_phases() {
-        use common_commodore_amiga::denise_counter::DeniseStrobe;
+        use emu198x_commodore_denise_ocs::TimingStrobe;
         for fine in 0..8 {
             let mut denise = DeniseAga::new();
             let stop = 0xA0 | fine << 8;
             denise.write_word(0x106, 1);
             settle_programmed_hblank_inputs(&mut denise, 1, 0x80, stop);
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
-            denise.retire_timing_strobe(DeniseStrobe::VerticalBlank);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::VerticalBlank);
             let _ = denise.programmed_hblank_for_output_phase(127, 1, 1, 0x80, stop);
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
             // Reference stop $A0.fine compares with the next lores counter.
             // The interval below straddles every possible quarter-pixel phase.
             for sample in (159 * 8)..(162 * 8) {
@@ -1467,11 +1425,11 @@ mod tests {
 
     #[test]
     fn lisa_fixed_and_programmed_vertical_events_survive_selector_changes() {
-        use common_commodore_amiga::denise_counter::DeniseStrobe;
+        use emu198x_commodore_denise_ocs::TimingStrobe;
         let mut denise = DeniseAga::new();
         settle_programmed_hblank_inputs(&mut denise, 1, 0x80, 0xA0);
-        denise.retire_timing_strobe(DeniseStrobe::Horizontal);
-        denise.retire_timing_strobe(DeniseStrobe::VerticalBlank);
+        denise.retire_timing_strobe(TimingStrobe::Horizontal);
+        denise.retire_timing_strobe(TimingStrobe::VerticalBlank);
         let _ = denise.programmed_hblank_for_output_phase(7, 1, 1, 0x80, 0xA0);
         assert_eq!(denise.vertical_blanking.pending_fixed, None);
         assert_eq!(denise.vertical_blanking.pending_programmed, Some(true));
@@ -1479,7 +1437,7 @@ mod tests {
         settle_programmed_hblank_inputs(&mut denise, 1, 0x80, 0xA0);
         let _ = denise.programmed_hblank_for_output_phase(127, 1, 1, 0x80, 0xA0);
         assert!(denise.vertical_blanking.programmed_active);
-        denise.retire_timing_strobe(DeniseStrobe::Horizontal);
+        denise.retire_timing_strobe(TimingStrobe::Horizontal);
         let _ = denise.programmed_hblank_for_output_phase(159, 1, 1, 0x80, 0xA0);
         assert!(!denise.vertical_blanking.programmed_active);
         assert!(denise.vertical_blanking.fixed_active);
@@ -1498,15 +1456,15 @@ mod tests {
 
     #[test]
     fn lisa_equal_and_wrapping_edges_consume_vertical_events() {
-        use common_commodore_amiga::denise_counter::DeniseStrobe;
+        use emu198x_commodore_denise_ocs::TimingStrobe;
         for (start, stop) in [(0xA0, 0xA0), (0xFF, 0)] {
             let mut denise = DeniseAga::new();
             denise.write_word(0x106, 1);
             settle_programmed_hblank_inputs(&mut denise, 1, start, stop);
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
-            denise.retire_timing_strobe(DeniseStrobe::VerticalBlank);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::VerticalBlank);
             let _ = denise.programmed_hblank_for_output_phase(start - 1, 1, 1, start, stop);
-            denise.retire_timing_strobe(DeniseStrobe::Horizontal);
+            denise.retire_timing_strobe(TimingStrobe::Horizontal);
             // A repeated strobe is not a new event. The retained stop must
             // survive a 9-bit counter wrap, including HBSTOP zero.
             let stop_counter = (stop * 2).wrapping_sub(1) & 511;

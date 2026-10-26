@@ -17,6 +17,7 @@
 
 mod chip;
 mod debug;
+mod denise_chip;
 mod viewport;
 
 /// Raster framebuffer width: 227 CCKs × 8 superhires pixels.
@@ -32,4 +33,5 @@ pub use debug::{
     DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
     DeniseSpriteDiagnosticSnapshot,
 };
+pub use denise_chip::{DeniseChip, HorizontalBlanking, HorizontalDiwComparatorPhase, TimingStrobe};
 pub use viewport::{ViewportBounds, ViewportImage, ViewportPreset, pixel_aspect_ratio};

@@ -34,8 +34,8 @@ fn guest_cpu_write_reaches_lisas_extended_collision_controls() {
 
 #[test]
 fn pending_sprite_and_extended_plane_comparison_resume_together() {
-    use commodore_denise_aga::DeniseAga;
     use common_commodore_amiga::DeniseChip;
+    use emu198x_commodore_denise_aga::DeniseAga;
     let mut original = DeniseAga::new();
     original.set_bplcon0(0x0410); // dual playfield, eight planes
     original.write_word(0x098, 0);

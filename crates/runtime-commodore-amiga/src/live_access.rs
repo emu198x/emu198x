@@ -32,14 +32,14 @@
 //!
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
 
-use commodore_denise_aga::{
-    DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot, DeniseAgaProgrammedHblankRegisters,
-};
 use common_commodore_amiga::ActiveCpuDiagnosticSnapshot;
 use common_commodore_amiga::board::MotherboardBridgeDiagnosticSnapshot;
 use common_commodore_amiga::denise::DeniseBoardPipelineDiagnosticSnapshot;
 use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
 use emu198x_commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
+use emu198x_commodore_denise_aga::{
+    DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot, DeniseAgaProgrammedHblankRegisters,
+};
 use emu198x_commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use emu198x_commodore_gary::GaryDiagnosticSnapshot;
 use emu198x_commodore_gayle::GayleDiagnosticSnapshot;
@@ -118,7 +118,7 @@ pub struct AgaLisaSnapshot {
     pub spr_width: u8,
     pub ham_prev_rgb24: u32,
     pub programmed_hblank_active: bool,
-    pub vertical_blanking: commodore_denise_aga::DeniseAgaVerticalBlanking,
+    pub vertical_blanking: emu198x_commodore_denise_aga::DeniseAgaVerticalBlanking,
     pub delayed_color_write: Option<DeniseAgaDelayedColorWrite>,
     pub pending_early_color_write: Option<DeniseAgaDelayedColorWrite>,
     pub programmed_hblank_input: DeniseAgaProgrammedHblankRegisters,

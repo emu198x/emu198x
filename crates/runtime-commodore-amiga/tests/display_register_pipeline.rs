@@ -1,7 +1,7 @@
 //! Pending Alice/Lisa register stages must survive a save-state boundary.
-use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::DeniseChip;
 use emu198x_commodore_agnus_ocs::Agnus;
+use emu198x_commodore_denise_aga::DeniseAga;
 use emu198x_commodore_denise_ocs::DeniseOcs;
 
 #[test]

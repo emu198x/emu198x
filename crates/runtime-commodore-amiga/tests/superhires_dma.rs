@@ -1,12 +1,12 @@
 //! Lisa's 35 ns serial stream through real Agnus grants and chip RAM.
 //! Fetch cadence: reference/by-system/commodore-amiga/amiga-graphics-display.md.
 //! Scroll masks: vendored WinUAE drawing.cpp update_bplcon1().
-use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::{
     denise::{BitplaneDmaFetch, Denise},
     memory::Memory,
 };
 use emu198x_commodore_agnus_ocs::Agnus;
+use emu198x_commodore_denise_aga::DeniseAga;
 
 const GREEN: u32 = 0xFF00_FF00;
 const BLACK: u32 = 0xFF00_0000;

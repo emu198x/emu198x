@@ -1,7 +1,7 @@
 //! Lisa PF2OF address selection, independently specified by WinUAE's
 //! dblpfofs[] and Minimig's denise_playfields.v lookup table.
-use commodore_denise_aga::DeniseAga;
-use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
+use emu198x_commodore_denise_ocs::DeniseChip;
 
 const OFFSETS: [u8; 8] = [0, 2, 4, 8, 16, 32, 64, 128];
 

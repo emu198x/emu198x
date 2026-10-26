@@ -6,6 +6,10 @@ The chip exposes its state as public fields and is stepped by the machine on
 the master clock, so it owns no bus and makes no callbacks: the machine reads
 and drives its pins between ticks, the same as every Emu198x chip.
 
+The crate also defines `DeniseChip`, the surface a board drives on any Denise:
+this OCS chip, the ECS Super Denise and the AGA Lisa each implement it in their
+own crates, so one board can be written for all three.
+
 ## Provenance
 
 Part of [Emu198x](https://github.com/emu198x/emu198x), a family of cycle-accurate

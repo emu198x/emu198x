@@ -726,7 +726,7 @@ impl AmigaA1200 {
     /// BPLCON3 / BPLCON4 / palette_24 / sprite-width state that the
     /// generic `Denise` wrapper doesn't surface.
     #[must_use]
-    pub fn denise_aga(&self) -> &commodore_denise_aga::DeniseAga {
+    pub fn denise_aga(&self) -> &emu198x_commodore_denise_aga::DeniseAga {
         &self.denise.ocs
     }
 

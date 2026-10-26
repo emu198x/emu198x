@@ -293,7 +293,7 @@ mod tests {
         }
         check::<emu198x_commodore_denise_ocs::DeniseOcs>(false);
         check::<machine_commodore_amiga_ecs::DeniseEcs>(true);
-        check::<commodore_denise_aga::DeniseAga>(true);
+        check::<emu198x_commodore_denise_aga::DeniseAga>(true);
     }
 
     #[test]

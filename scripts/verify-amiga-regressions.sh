@@ -55,7 +55,7 @@ run_group "Amiga library regressions" \
         -p emu198x-commodore-agnus-aga \
         -p emu198x-commodore-denise-ocs \
         -p emu198x-commodore-denise-ecs \
-        -p commodore-denise-aga \
+        -p emu198x-commodore-denise-aga \
         -p emu198x-commodore-paula-8364 \
         -p emu198x-commodore-amiga-autoconfig \
         -p emu198x-commodore-gary \

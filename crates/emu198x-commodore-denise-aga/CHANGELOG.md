@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+### Added
+
+- The crate depends only on the OCS and ECS Denise crates. `DeniseChip`,
+  `HorizontalBlanking` and the timing strobe now come from
+  `emu198x-commodore-denise-ocs` instead of the Amiga family's glue, and
+  `retire_timing_strobe` takes that crate's `TimingStrobe`.
+- `DeniseAga::vertical_blanking_mut` and `DeniseAgaVerticalBlanking::edge`
+  are public, so a board can drive Lisa's blanking latch directly. The two
+  tests that drive Lisa through the glue's board wrapper moved to the glue.
+- First release under the `emu198x-commodore-denise-aga` name. Until now the crate was
+  `commodore-denise-aga`, versioned with the Emu198x suite and unpublished; the entries below are from that name.
+
 ### Added
 
 - Expose a complete side-effect-free diagnostic snapshot of Lisa-owned

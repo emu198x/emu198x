@@ -1,6 +1,6 @@
 //! Preserve live Lisa palette selection across runtime serialization.
-use commodore_denise_aga::DeniseAga;
 use common_commodore_amiga::DeniseChip;
+use emu198x_commodore_denise_aga::DeniseAga;
 
 #[test]
 fn changing_pf2_offset_preserves_pending_serial_data_and_snapshot_restore() {

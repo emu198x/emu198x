@@ -6,6 +6,8 @@
 
 use std::ops::{Deref, DerefMut};
 
+mod denise_chip;
+
 pub use emu198x_commodore_denise_ocs::DeniseOcs as InnerDeniseOcs;
 
 const BPLCON0_SHRES: u16 = 0x0040;
