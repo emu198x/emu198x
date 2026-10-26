@@ -1,0 +1,17 @@
+[package]
+name = "emu198x-bus-sinclair-zx-spectrum"
+description = "ZX Spectrum family wiring: the Ula, MemoryBus, Peripheral and MemoryIntercept traits and the FrameTiming data ULAs and peripherals connect through"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["zx-spectrum", "ula", "bus", "sinclair", "emulator"]
+categories = ["emulators"]
+
+[lints]
+workspace = true

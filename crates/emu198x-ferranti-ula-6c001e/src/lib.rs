@@ -1,0 +1,587 @@
+//! Ferranti 6C001E ULA wrapper.
+//!
+//! Source references:
+//! - `knowledge/chips/ferranti-6c001e.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/ferranti-ula-6c001e/src/lib.rs`
+
+#[doc(hidden)]
+pub mod hdl_model;
+
+use emu198x_bus_sinclair_zx_spectrum::MemoryBus;
+use emu198x_bus_sinclair_zx_spectrum::Ula;
+use emu198x_bus_sinclair_zx_spectrum::timing::{self, FrameTiming};
+use emu198x_sinclair_zx_spectrum_ula::{self as ula_engine, DELAY_TABLE_48K, UlaEngine};
+
+/// Ferranti 6C001E ULA — the 48K ZX Spectrum's custom chip.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct FerrantiUla {
+    engine: UlaEngine,
+    revision: UlaRevision,
+
+    /// Half-cycle recorder, off unless explicitly armed.
+    ///
+    /// Records what `tick` was *given* and what it *decided*, from inside
+    /// the ULA. That is the only place the question can be answered
+    /// without assuming anything about the driver: two separate attempts
+    /// to reproduce the driver's tick order in a test harness both got it
+    /// wrong by a half-cycle, in opposite directions, and a half-cycle is
+    /// exactly the width of the window `IOREQTW3` opens and closes in.
+    #[serde(skip)]
+    trace: Option<Vec<UlaTick>>,
+}
+
+/// One half-cycle as the ULA saw it. `_before` fields are sampled prior to
+/// the contention decision, which is the state that decision was made on.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UlaTick {
+    pub pixel: u16,
+    pub video: bool,
+    pub addr: u16,
+    pub mreq: bool,
+    pub iorq: bool,
+    pub clock_high_before: bool,
+    pub ioreq_tw3_before: bool,
+    pub mreq_t23_before: bool,
+    /// `UlaEngine::mcycle_fall` as the decision saw it. Already advanced for
+    /// this half-cycle — unlike the `_before` fields, that *is* the state the
+    /// decision was made on.
+    pub mcycle_fall: u8,
+    pub cpu_clock_after: bool,
+}
+
+/// Which family of the 48K-class Ferranti ULA this machine carries.
+///
+/// Per Smith Chapter 24, six ULA revisions exist (5C102E / 5C112E /
+/// 6C001E-6 / 6C001E-7 / 6C011E / 7K010E-5), but only one boundary
+/// is *software-visible*: the EAR-feedback bit on port $FE differs
+/// between the 5C family (Issue 1 + Issue 2 boards) and the 6C
+/// family (Issue 3 + Issue 4 boards). 5C/6C subvariants within each
+/// family differ only in DRAM-margin handling — invisible to
+/// software. The 128K's 7K010E lives on its own ULA crate
+/// (`sinclair-ula-7k010e`); this enum only covers the 48K-class.
+///
+/// **Variant order is load-bearing for serde.** `Ferranti5C` maps
+/// to where `Issue2` was; `Ferranti6C` to where `Issue3` was. Both
+/// are still tag index 0 / 1 in postcard, so on-the-wire snapshot
+/// bytes remain byte-identical across this rename.
+///
+/// Mapped to historical board issues:
+/// - `Ferranti5C` — used in Issue 1 + Issue 2 boards. EAR
+///   feedback (bit 6 of `$FE` read) reflects `(MIC | EAR)` from the
+///   last write. Games detect the family by writing `$08` to `$FE`
+///   and reading bit 6 back as `1`.
+/// - `Ferranti6C` — used in Issue 3, Issue 4, and most later 48K
+///   boards. EAR feedback reflects only the `EAR` bit; `MIC`
+///   alone does not drive bit 6 high.
+///
+/// See `knowledge/decisions/spectrum-architecture-review.md` for
+/// the rationale on tying revision identity to the ULA chip rather
+/// than the PCB issue number.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum UlaRevision {
+    /// 5C102E (Issue 1) or 5C112E (Issue 2). EAR feedback = MIC | EAR.
+    Ferranti5C,
+    /// 6C001E (Issue 3+). EAR feedback = EAR only.
+    Ferranti6C,
+}
+
+impl FerrantiUla {
+    pub fn new(revision: UlaRevision) -> Self {
+        Self {
+            engine: UlaEngine::new(&ula_engine::CONFIG_48K),
+            revision,
+            trace: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> UlaRevision {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn border_color(&self) -> u8 {
+        self.engine.border
+    }
+
+    /// The speaker bit (bit 4) of the last write to port `$FE`.
+    #[must_use]
+    pub fn speaker(&self) -> bool {
+        self.engine.beeper
+    }
+
+    /// Debug raster probe: `(scan, pixel, video, idle, bus_data)`. Used by
+    /// floating-bus / interrupt-phase investigations to map a frame
+    /// T-state onto the ULA's internal beam position.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn debug_raster(&self) -> (u16, u16, bool, bool, u8) {
+        (
+            self.engine.scan,
+            self.engine.pixel,
+            self.engine.video,
+            self.engine.idle,
+            self.engine.bus_data,
+        )
+    }
+
+    /// Arm the half-cycle recorder, discarding anything already held.
+    #[doc(hidden)]
+    pub fn debug_trace_start(&mut self) {
+        self.trace = Some(Vec::new());
+    }
+
+    /// Take the recording and disarm.
+    #[doc(hidden)]
+    pub fn debug_trace_take(&mut self) -> Vec<UlaTick> {
+        self.trace.take().unwrap_or_default()
+    }
+
+    /// Reinstall the 48K timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and falls back to the
+    /// 48K config on deserialise. The Ferranti happens to want the 48K
+    /// config too, so this method is currently a structural mirror of
+    /// the 128K and Amstrad cases — it documents that every variant
+    /// must reattach explicitly rather than relying on the fallback,
+    /// so the pattern doesn't silently break if the default ever
+    /// changes.
+    pub fn reattach_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_48K);
+    }
+
+    /// Compute the EAR feedback bit (bit 6) for a port-$FE read.
+    ///
+    /// With no tape signal driving the EAR line, real hardware reflects
+    /// the last write to port $FE back onto bit 6 — but the 5C-family
+    /// (Issue 1/2) and 6C-family (Issue 3+) boards do this differently:
+    ///
+    /// - **Ferranti 5C** (Issue 1/2): bit 6 reads as `(MIC | EAR)` from
+    ///   the last write. Either bit 3 (MIC) or bit 4 (EAR) being high
+    ///   drives bit 6 high.
+    /// - **Ferranti 6C** (Issue 3+): bit 6 reads as just `EAR` from the
+    ///   last write. Bit 3 (MIC) alone does not set bit 6 high.
+    ///
+    /// Games that probe the ULA family use exactly this distinction:
+    /// write `$08` to `$FE`, read back, and check bit 6.
+    fn ear_feedback_bit(&self) -> u8 {
+        let beeper_bit = self.engine.beeper;
+        let mic_bit = self.engine.mic;
+        let high = match self.revision {
+            UlaRevision::Ferranti5C => beeper_bit || mic_bit,
+            UlaRevision::Ferranti6C => beeper_bit,
+        };
+        if high { 0x40 } else { 0x00 }
+    }
+}
+
+impl Ula for FerrantiUla {
+    fn tick(
+        &mut self,
+        memory: &dyn MemoryBus,
+        cpu_addr: u16,
+        cpu_mreq: bool,
+        cpu_iorq: bool,
+        cpu_rfsh: bool,
+        framebuffer: &mut [u8],
+    ) {
+        let e = &mut self.engine;
+        let pixel = e.pixel;
+        // SpecIde's control mask is active at fetch-counter phases 3..14:
+        // evaluate C2|C3 for the upcoming control phase, not the fetch edge.
+        let phase = (usize::from(pixel) + 1) & 0x0f;
+
+        // Diagnostic count of strobe-free falling edges. Before the
+        // decision, and before `tick_rendering`, because it names *this*
+        // half-cycle rather than the one just finished — see
+        // `UlaEngine::track_mcycle_fall`. Outside the contention window for
+        // the same reason the latches are: it clocks on every `CPUClk` edge,
+        // border or not, and an M-cycle straddling the window's edge must
+        // arrive with its position already correct.
+        e.track_mcycle_fall(cpu_addr, cpu_mreq, cpu_iorq);
+
+        // /Border opens at counter 0; the first fetch is at counter 8.
+        // Use the physical counter, independent of the rendering latch.
+        let contend_window =
+            e.scan < ula_engine::CONTENDED_LINES && e.pixel < ula_engine::CONTENDED_PIXELS_PER_LINE;
+
+        // Snow: a CPU refresh with I in screen-RAM range collides with
+        // the video fetch (the Ferranti ULA ignores /RFSH). gap #12.
+        let snow = ula_engine::snow_address(cpu_rfsh, cpu_addr);
+
+        // Rendering: video fetch, pixel output, counters, interrupt
+        e.tick_rendering(memory, framebuffer, snow);
+
+        // State as it stands before the contention decision, kept for the
+        // recorder. Cheap enough to take unconditionally; the push is what
+        // is gated.
+        let before = (
+            pixel & 0x0f,
+            e.video,
+            e.z80_clock_high,
+            e.ioreq_tw3,
+            e.mreq_t23,
+        );
+
+        // The ULA answers even ports (`spec48_port_from_ula`); the HDL
+        // folds that decode into the pin, `ioreq_n = a[0] | iorq_n`.
+        // Outside the window because the latches clock on every `CPUClk`
+        // edge, border or not.
+        let ula_io = (cpu_addr & 1) == 0;
+
+        // Contention (48K model): memory + I/O + internal
+        if contend_window {
+            let contended_addr = memory.is_contended(cpu_addr);
+            // The access-count gate below retains the established memory
+            // and port transaction rules. The stored MREQT23/IOREQTW3
+            // latches remain available for separate gate-level comparison.
+
+            // Three lookups, not one level.
+            //
+            // FUSE's `C:n` is *one* contention lookup followed by n
+            // T-states, so what distinguishes its four port classes is how
+            // many discrete lookups happen inside the I/O M-cycle: 2 for a
+            // contended even port, 4 for a contended odd one, 1 for an
+            // uncontended even one, 0 for an uncontended odd one. A level
+            // test held across half-cycles can reproduce 0 and 4 — never
+            // asserted, and asserted throughout — and cannot reproduce 1 or
+            // 2, because a count of discrete events is not a property a
+            // level has. Every one of the 21,510 disagreements the previous
+            // gate scored sat in the two classes needing 1 and 2. See
+            // `knowledge/decisions/io-contention-is-a-count-not-a-level.md`
+            // for the derivation and the lookup-offset table.
+            //
+            // The three terms below are FUSE's three branches, each placed
+            // on the falling half-cycle its offset names — the offsets are
+            // pinned by `machine-sinclair-zx-spectrum-48k`'s
+            // `the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles`.
+            let arming = e.gate_arms_this_halfcycle();
+            // Ordinary memory and the port's first lookup see an address
+            // before any strobe is asserted, on T1 falling. The corrected
+            // IORQ edge is already visible at T2 falling.
+            let strobe_free = !cpu_mreq && !cpu_iorq;
+            let mem_contention = contended_addr && arming && strobe_free;
+
+            // The answered-port lookup is at offset 1 (T2 falling). The
+            // corrected CPU asserts IORQ at T2 rising, so this is its first
+            // visible arming edge, not a second strobe-free edge. History
+            // freezes with a stalled CPU, preserving the lookup until the
+            // raster permits the edge; later I/O falls do not re-arm it.
+            let port_answered = ula_io && arming && cpu_iorq && !e.z80_iorq_prev;
+
+            // `ula_contend_port_late`, the branch taken when the ULA does
+            // *not* answer the port and the page is contended: three further
+            // lookups, at offsets 1, 2 and 3. IORQ is visible on all three
+            // falling edges after its corrected T2-rising assertion.
+            let port_unanswered = contended_addr && !ula_io && arming && cpu_iorq;
+
+            let contention = mem_contention || port_answered || port_unanswered;
+            e.cpu_clock = !(contention && DELAY_TABLE_48K[phase]);
+        } else {
+            e.cpu_clock = true;
+        }
+
+        // Record before `track_z80_clock` advances the latches, so the
+        // captured state is the state the decision above was made on.
+        if let Some(trace) = &mut self.trace {
+            trace.push(UlaTick {
+                pixel: before.0,
+                video: before.1,
+                addr: cpu_addr,
+                mreq: cpu_mreq,
+                iorq: cpu_iorq,
+                clock_high_before: before.2,
+                ioreq_tw3_before: before.3,
+                mreq_t23_before: before.4,
+                mcycle_fall: self.engine.mcycle_fall,
+                cpu_clock_after: self.engine.cpu_clock,
+            });
+        }
+
+        let e = &mut self.engine;
+        // Track Z80 clock phase
+        e.track_z80_clock(cpu_iorq, cpu_mreq, cpu_iorq && ula_io);
+    }
+
+    fn cpu_clock_active(&self) -> bool {
+        self.engine.cpu_clock
+    }
+
+    fn interrupt_active(&self) -> bool {
+        self.engine.int_active
+    }
+
+    fn floating_bus(&self) -> u8 {
+        if self.engine.idle {
+            0xFF
+        } else {
+            self.engine.bus_data
+        }
+    }
+
+    fn read_fe(&self, port: u16, keyboard: &[u8; 8]) -> u8 {
+        // Start with the shared engine's keyboard + high-bit result.
+        // Bit 6 (EAR) needs revision-specific handling — the shared
+        // engine always returns bit 6 high, which is only correct when
+        // the tape input is idle on a Ferranti6C board with no recent
+        // writes.
+        let mut val = self.engine.read_fe(port, keyboard);
+        val &= !0x40; // clear bit 6 so we can set it based on the revision
+        val |= self.ear_feedback_bit();
+        val
+    }
+
+    fn write_fe(&mut self, val: u8) {
+        self.engine.write_fe(val);
+    }
+
+    fn frame_timing(&self) -> &FrameTiming {
+        &timing::TIMING_48K
+    }
+
+    fn end_frame(&mut self) {
+        self.engine.end_frame();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The half-cycle recorder must capture the state each contention
+    /// decision was made *on*, not the state left behind after it.
+    ///
+    /// This is not hypothetical. The recorder first captured `pixel`
+    /// after `tick_rendering` had advanced it, while the phase the gate
+    /// consults is computed before — a one-pixel skew that exactly
+    /// cancelled a known table rotation and made the engine and the HDL
+    /// model appear to agree perfectly when they did not. The check that
+    /// caught it lives in `machine-sinclair-zx-spectrum-48k`'s
+    /// differential, which is `#[ignore]`d because it needs a real ROM.
+    /// Nothing about the recorder needs one, so the guard belongs here
+    /// where it runs.
+    #[test]
+    fn the_recorder_captures_the_state_each_decision_was_made_on() {
+        use emu198x_bus_sinclair_zx_spectrum::timing;
+
+        let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+        let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+
+        ula.engine.scan = 100;
+        ula.engine.pixel = 0;
+        let first_pixel = ula.engine.pixel;
+
+        ula.debug_trace_start();
+        for _ in 0..8 {
+            Ula::tick(
+                &mut ula,
+                &ContendedMemory,
+                0x4000,
+                true,
+                false,
+                false,
+                &mut fb,
+            );
+        }
+        let trace = ula.debug_trace_take();
+
+        assert_eq!(trace.len(), 8, "one entry per tick, no more and no less");
+        for (i, tick) in trace.iter().enumerate() {
+            assert_eq!(
+                tick.pixel,
+                first_pixel + i as u16,
+                "entry {i} must hold the pixel the decision was made on; \
+                 an off-by-one here is the skew that hid a real disagreement",
+            );
+            assert_eq!(tick.addr, 0x4000, "entry {i} must record the CPU address");
+            assert!(tick.mreq, "entry {i} must record /MREQ as asserted");
+            assert!(!tick.iorq, "entry {i} must record /IORQ as idle");
+        }
+
+        assert!(
+            ula.debug_trace_take().is_empty(),
+            "taking the recording must also disarm it",
+        );
+    }
+
+    /// Independent control mask from SpecIde ULA.cc, tested for both
+    /// possible CPU edge parities at every physical counter phase.
+    #[test]
+    fn effective_delay_table() {
+        const REFERENCE: [bool; 16] = [
+            false, false, false, true, true, true, true, true, true, true, true, true, true, true,
+            true, false,
+        ];
+        for arrival in 0..16u16 {
+            for arms_now in [false, true] {
+                let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+                ula.engine.scan = 100;
+                ula.engine.pixel = 128 + arrival;
+                ula.engine.z80_clock_high = !arms_now;
+                let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+                let initial = u32::from(!arms_now);
+                let mut expected = initial;
+                while REFERENCE[(usize::from(arrival) + expected as usize) & 15] {
+                    expected += 1;
+                }
+                let mut actual = 0;
+                loop {
+                    let arming = ula.engine.gate_arms_this_halfcycle();
+                    ula.tick(&ContendedMemory, 0x4000, false, false, false, &mut fb);
+                    if arming && ula.cpu_clock_active() {
+                        break;
+                    }
+                    actual += 1;
+                    assert!(actual < 32, "clock must resume");
+                }
+                assert_eq!(actual, expected, "counter={arrival} arms_now={arms_now}");
+            }
+        }
+    }
+
+    use emu198x_bus_sinclair_zx_spectrum::timing;
+
+    struct ContendedMemory;
+
+    impl MemoryBus for ContendedMemory {
+        fn read(&self, _addr: u16) -> u8 {
+            0
+        }
+
+        fn write(&mut self, _addr: u16, _value: u8) {}
+
+        fn is_contended(&self, _addr: u16) -> bool {
+            true
+        }
+    }
+
+    /// Committing an access must suppress contention that would
+    /// otherwise fire — the `/MREQT23` term (Smith Chapter 18, pp.
+    /// 192-193 and 197).
+    ///
+    /// Keying the gate off `MREQ` being inactive *right now* also matches
+    /// the trailing T-state of a memory cycle, where the contended
+    /// address is still on the bus, so every M-cycle past `M1` was
+    /// charged a second full 8-T-state rotation. `M1` hid the fault: the
+    /// cycle following its access is the refresh, whose address is
+    /// uncontended, so single-M-cycle instructions measured exact while
+    /// everything else drifted.
+    ///
+    /// Written as a differential rather than a fixed expectation. Two
+    /// runs are driven from the same point with the same pin sequence
+    /// except that one asserts `MREQ` to commit an access; the pixel
+    /// counter advances whether or not the CPU clock is held, so the runs
+    /// stay phase-aligned and are directly comparable. The test demands
+    /// a tick where the committed run runs and the uncommitted run
+    /// stalls. A gate without `MREQT23` produces identical traces —
+    /// once `MREQ` is low again it has no memory of the access — so this
+    /// cannot pass vacuously, and it does fail against the old gate.
+    #[test]
+    #[ignore = "KNOWN DIVERGENCE: passes only with the MREQT23 latch wired into the gate; \
+                blocked on the floating-bus derivation — see \
+                knowledge/decisions/spectrum-contention-vs-floating-bus.md"]
+    fn a_committed_access_suppresses_contention_that_would_otherwise_fire() {
+        fn clock_trace(commit: bool) -> Vec<bool> {
+            let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+            let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+            let tick = |ula: &mut _, mreq: bool, fb: &mut [u8]| {
+                Ula::tick(ula, &ContendedMemory, 0x4000, mreq, false, false, fb);
+            };
+
+            // Into the contended window, then on to the free window that
+            // releases the CPU — the delay table ends a stall, not MREQ.
+            for _ in 0..256 {
+                tick(&mut ula, false, &mut fb);
+                if !ula.cpu_clock_active() {
+                    break;
+                }
+            }
+            for _ in 0..256 {
+                tick(&mut ula, false, &mut fb);
+                if ula.cpu_clock_active() {
+                    break;
+                }
+            }
+
+            // Optionally commit an access, then record what the gate does
+            // once MREQ is low again in both runs.
+            for _ in 0..3 {
+                tick(&mut ula, commit, &mut fb);
+            }
+            (0..6)
+                .map(|_| {
+                    tick(&mut ula, false, &mut fb);
+                    ula.cpu_clock_active()
+                })
+                .collect()
+        }
+
+        let committed = clock_trace(true);
+        let uncommitted = clock_trace(false);
+
+        assert!(
+            uncommitted.iter().any(|running| !running),
+            "the uncommitted run should stall, or the comparison proves nothing"
+        );
+        assert!(
+            committed
+                .iter()
+                .zip(&uncommitted)
+                .any(|(with, without)| *with && !*without),
+            "committing an access did not suppress any contention: the \
+             /MREQT23 term is missing, and the gate re-arms in the trailing \
+             T-state, charging a second rotation to every M-cycle past M1\n\
+             committed:   {committed:?}\n\
+             uncommitted: {uncommitted:?}"
+        );
+    }
+
+    fn empty_keyboard() -> [u8; 8] {
+        [0xFF; 8]
+    }
+
+    #[test]
+    fn ferranti6c_ear_reflects_only_bit4() {
+        let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+
+        // Write $00: everything clear. Bit 6 should be low.
+        ula.write_fe(0x00);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x00);
+
+        // Write $08 (MIC only): on Ferranti6C, bit 6 stays low.
+        ula.write_fe(0x08);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x00);
+
+        // Write $10 (EAR only): bit 6 goes high.
+        ula.write_fe(0x10);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x40);
+
+        // Write $18 (MIC + EAR): bit 6 stays high.
+        ula.write_fe(0x18);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x40);
+    }
+
+    #[test]
+    fn ferranti5c_ear_reflects_mic_or_ear() {
+        let mut ula = FerrantiUla::new(UlaRevision::Ferranti5C);
+
+        // Write $00: everything clear. Bit 6 should be low.
+        ula.write_fe(0x00);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x00);
+
+        // Write $08 (MIC only): on Ferranti5C, bit 6 goes high.
+        // This is the key distinction from Ferranti6C.
+        ula.write_fe(0x08);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x40);
+
+        // Write $10 (EAR only): bit 6 stays high.
+        ula.write_fe(0x10);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x40);
+
+        // Write $18 (MIC + EAR): bit 6 stays high.
+        ula.write_fe(0x18);
+        assert_eq!(ula.read_fe(0xFFFE, &empty_keyboard()) & 0x40, 0x40);
+    }
+}

@@ -25,7 +25,7 @@ pub use common_sinclair_zx_spectrum::memory::Spectrum48kMemory;
 pub use common_sinclair_zx_spectrum_48k_class::{
     SpectrumMachineCore, SpectrumPlusMarker, TapeInput,
 };
-pub use ferranti_ula_6c001e::UlaRevision;
+pub use emu198x_ferranti_ula_6c001e::UlaRevision;
 
 /// Machine-local state for a Sinclair ZX Spectrum+.
 ///

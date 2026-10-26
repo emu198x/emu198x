@@ -14,5 +14,5 @@ pub use common_sinclair_zx_spectrum::{
     keyboard::{KeyboardMatrix, SpectrumKey},
 };
 pub use common_sinclair_zx_spectrum_48k_class::{Spectrum16kMarker, TapeInput};
-pub use ferranti_ula_6c001e::UlaRevision;
+pub use emu198x_ferranti_ula_6c001e::UlaRevision;
 pub use machine::Spectrum16K;

@@ -8,7 +8,7 @@ network one is modelled here, which is what the `-net` in the name is for: a
 crate called `ultimate-uci` would promise the rest of the interface too.
 
 It is a peripheral rather than a chip: something plugged into a machine, in the
-same sense as [`peripheral-kempston-joystick`](../peripheral-kempston-joystick),
+same sense as [`emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick`](../emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick),
 not a part soldered inside one.
 
 Software talks to it through four registers rather than by timing a serial

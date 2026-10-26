@@ -20,6 +20,10 @@ use common_sinclair_zx_spectrum::timing::{
 };
 use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
 use emu198x_gi_ay_3_8912::Ay3_8912;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::{KempstonButton, KempstonJoystick};
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_mouse::{KempstonMouse, MouseButton};
+use emu198x_peripheral_sinclair_zx_spectrum_divmmc::DivMmc;
+use emu198x_peripheral_sinclair_zx_spectrum_interface1::Interface1;
 use emu198x_shell::{QueryError, QueryResult};
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
@@ -33,10 +37,6 @@ use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
-use peripheral_divmmc::DivMmc;
-use peripheral_kempston_joystick::{KempstonButton, KempstonJoystick};
-use peripheral_kempston_mouse::{KempstonMouse, MouseButton};
-use peripheral_sinclair_interface1::Interface1;
 use serde_json::{Value, json};
 
 /// Moves the Kempston mouse, plugging it in on the first event, as the

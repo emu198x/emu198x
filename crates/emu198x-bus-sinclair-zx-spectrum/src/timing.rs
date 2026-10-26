@@ -1,0 +1,382 @@
+//! Timing constants for the ZX Spectrum 48K.
+//!
+//! Source references:
+//! - `knowledge/systems/spectrum/overview.md`
+//! - `knowledge/systems/spectrum/contention.md`
+//! - Adapted from `../Emu198x-Older/crates/common-sinclair-zx-spectrum/src/timing.rs`
+//!
+//! This module holds the stable timing data for the Spectrum-family video
+//! configurations and the `FrameTiming` descriptor a ULA reports through
+//! [`Ula::frame_timing`](crate::Ula::frame_timing). The machine-side frame
+//! position and the 48K's contended-address test stay with the family's
+//! machines.
+
+/// Master crystal frequency in Hz for the 48K PAL machine.
+pub const MASTER_HZ_48K: u64 = 14_000_000;
+
+/// CPU clock frequency in Hz for the 48K PAL machine.
+pub const CPU_HZ_48K: u64 = 3_500_000;
+
+/// T-states per scanline.
+pub const TSTATES_PER_LINE_48K: u32 = 224;
+
+/// Total scanlines per frame.
+pub const LINES_PER_FRAME_48K: u32 = 312;
+
+/// Total T-states per frame.
+pub const TSTATES_PER_FRAME_48K: u32 = TSTATES_PER_LINE_48K * LINES_PER_FRAME_48K;
+
+/// Master crystal frequency in Hz for the 128K / +2 PAL machine.
+///
+/// This is 4× the PAL colour subcarrier (4.43361875 MHz × 4) and produces
+/// a CPU clock of 3.546895 MHz after divide-by-5.
+pub const MASTER_HZ_128K: u64 = 17_734_475;
+
+/// CPU clock frequency in Hz for the 128K / +2 PAL machine.
+pub const CPU_HZ_128K: u64 = MASTER_HZ_128K / 5;
+
+/// T-states per scanline on the 128K / +2.
+pub const TSTATES_PER_LINE_128K: u32 = 228;
+
+/// Total scanlines per frame on the 128K / +2.
+pub const LINES_PER_FRAME_128K: u32 = 311;
+
+/// Total T-states per frame on the 128K / +2.
+pub const TSTATES_PER_FRAME_128K: u32 = TSTATES_PER_LINE_128K * LINES_PER_FRAME_128K;
+
+/// Visible framebuffer width including border.
+/// 352 pixels: the 256-pixel display with 48 of border either side.
+///
+/// **A little narrower than a set's window**, which at the 48K's 7 MHz pixel
+/// clock over 52.0 µs is 364. The 48 comes from the ULA's border cycles
+/// rather than from the window, and the two differ by six pixels a side. The
+/// #1054 audit reads it as 97%.
+///
+/// Not moved, because the catalogue's committed frame hashes are taken against
+/// these dimensions — see the goldens note in
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
+pub const SCREEN_WIDTH_48K: usize = 352;
+
+/// Visible framebuffer height including border.
+/// 296 lines: the 192-line display with 52 of border above and below.
+///
+/// **A little taller than a set's window** of 288, so about four lines each
+/// side are raster a television hides. Same origin as the width — the ULA's
+/// border count rather than the field — and the same reason for leaving it.
+pub const SCREEN_HEIGHT_48K: usize = 296;
+
+/// Standard Spectrum framebuffer width including border.
+pub const SCREEN_WIDTH: usize = SCREEN_WIDTH_48K;
+
+/// Standard Spectrum framebuffer height including border.
+pub const SCREEN_HEIGHT: usize = SCREEN_HEIGHT_48K;
+
+/// Hi-res framebuffer width for Timex-class modes.
+pub const SCREEN_WIDTH_HIRES: usize = 704;
+
+/// Per-8-T-state contention delay pattern for the Ferranti 6C001E ULA.
+pub const CONTENTION_PATTERN_48K: [u8; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
+
+/// Frame timing constants for one Spectrum-family video configuration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrameTiming {
+    /// Master crystal frequency in Hz.
+    pub master_hz: u64,
+    /// Master-clock ticks per CPU T-state.
+    pub cpu_divisor: u32,
+    /// T-states per scanline.
+    pub tstates_per_line: u32,
+    /// Master-clock ticks per scanline.
+    pub halfcycles_per_line: u32,
+    /// Total scanlines per frame.
+    pub lines_per_frame: u32,
+    /// Total master-clock ticks per frame.
+    pub halfcycles_per_frame: u32,
+    /// Total T-states per frame.
+    pub tstates_per_frame: u32,
+    /// First visible border line.
+    pub first_border_line: u32,
+    /// First active display line.
+    pub first_screen_line: u32,
+    /// Last active display line plus one.
+    pub last_screen_line: u32,
+    /// Last visible border line plus one.
+    pub last_border_line: u32,
+    /// T-state offset where screen pixels begin.
+    pub first_screen_tstate: u32,
+    /// Number of screen pixels per line.
+    pub screen_pixels_per_line: u32,
+    /// T-state offset where the left border begins.
+    pub left_border_tstate: u32,
+    /// T-state offset where the right border ends.
+    pub right_border_tstate: u32,
+    /// T-state within the frame where contention starts.
+    pub contention_start_tstate: u32,
+    /// Eight-step contention delay pattern.
+    pub contention_pattern: [u8; 8],
+    /// Pattern phase offset.
+    pub contention_phase: u32,
+    /// Number of contended T-states per line.
+    pub contention_tstates_per_line: u32,
+    /// T-state where INT asserts.
+    pub interrupt_start_tstate: u32,
+    /// INT duration in T-states.
+    pub interrupt_length_tstates: u32,
+}
+
+/// ZX Spectrum 48K (Ferranti 6C001E ULA, PAL).
+pub const TIMING_48K: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_48K,
+    cpu_divisor: 4,
+    tstates_per_line: TSTATES_PER_LINE_48K,
+    halfcycles_per_line: TSTATES_PER_LINE_48K * 4,
+    lines_per_frame: LINES_PER_FRAME_48K,
+    halfcycles_per_frame: TSTATES_PER_LINE_48K * 4 * LINES_PER_FRAME_48K,
+    tstates_per_frame: TSTATES_PER_FRAME_48K,
+    first_border_line: 8,
+    first_screen_line: 64,
+    last_screen_line: 256,
+    last_border_line: 304,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_335,
+    contention_pattern: CONTENTION_PATTERN_48K,
+    contention_phase: 0,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+/// Per-8-T-state contention delay pattern for the Amstrad 40077 gate
+/// array (+2A/+2B/+3). Completely different from the Sinclair 6-step
+/// ramp.
+pub const CONTENTION_PATTERN_PLUS2A: [u8; 8] = [1, 0, 7, 6, 5, 4, 3, 2];
+
+/// ZX Spectrum 128K / +2 (Sinclair 7K010E ULA, PAL).
+///
+/// Same contention delay pattern as the 48K but with phase offset 1 (the
+/// pattern starts one T-state later in the line) and a wider line at
+/// 228 T-states. Contention starts at T-state 14_361 instead of 14_335.
+pub const TIMING_128K: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_128K,
+    cpu_divisor: 5,
+    tstates_per_line: TSTATES_PER_LINE_128K,
+    halfcycles_per_line: TSTATES_PER_LINE_128K * 5,
+    lines_per_frame: LINES_PER_FRAME_128K,
+    halfcycles_per_frame: TSTATES_PER_LINE_128K * 5 * LINES_PER_FRAME_128K,
+    tstates_per_frame: TSTATES_PER_FRAME_128K,
+    first_border_line: 7,
+    first_screen_line: 63,
+    last_screen_line: 255,
+    last_border_line: 303,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_361,
+    contention_pattern: CONTENTION_PATTERN_48K,
+    contention_phase: 1,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 36,
+};
+
+/// Pentagon 128 (Russian Spectrum clone, no contention).
+///
+/// Different crystal (14.336 MHz, slightly faster than the 48K), 224
+/// T-states/line, 320 lines (extra VBlank). The CPU runs at full
+/// speed — the Pentagon ULA never gates the clock.
+pub const TIMING_PENTAGON: FrameTiming = FrameTiming {
+    master_hz: 14_336_000,
+    cpu_divisor: 4,
+    tstates_per_line: 224,
+    halfcycles_per_line: 224 * 4,
+    lines_per_frame: 320,
+    halfcycles_per_frame: 224 * 4 * 320,
+    tstates_per_frame: 224 * 320,
+    first_border_line: 16,
+    first_screen_line: 80,
+    last_screen_line: 272,
+    last_border_line: 312,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 0,
+    contention_pattern: [0; 8],
+    contention_phase: 0,
+    contention_tstates_per_line: 0,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+/// Scorpion ZS-256 (Russian extended Spectrum, no contention,
+/// 48K-style frame geometry).
+pub const TIMING_SCORPION: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_48K,
+    cpu_divisor: 4,
+    tstates_per_line: TSTATES_PER_LINE_48K,
+    halfcycles_per_line: TSTATES_PER_LINE_48K * 4,
+    lines_per_frame: LINES_PER_FRAME_48K,
+    halfcycles_per_frame: TSTATES_PER_LINE_48K * 4 * LINES_PER_FRAME_48K,
+    tstates_per_frame: TSTATES_PER_FRAME_48K,
+    first_border_line: 8,
+    first_screen_line: 64,
+    last_screen_line: 256,
+    last_border_line: 304,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 0,
+    contention_pattern: [0; 8],
+    contention_phase: 0,
+    contention_tstates_per_line: 0,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+/// ZX Spectrum +2A / +2B / +3 (Amstrad 40077 gate array, PAL).
+///
+/// Shares the 128K's clock and line layout but uses a completely
+/// different contention pattern (`[1, 0, 7, 6, 5, 4, 3, 2]`) and has
+/// no I/O contention or internal-op contention — the gate array is
+/// MREQ-only.
+///
+/// Video/INT geometry verified against FUSE/libspectrum (issue #11):
+/// `timings_frame_amstrad_asic` has the identical border/screen/retrace
+/// breakdown to the 128K's `timings_frame_ferranti_7c` (H 24/128/24/52,
+/// V 48/192/48/23), so aliasing the display geometry to the 128K's is
+/// correct. The real deltas are the contention pattern, MREQ-only
+/// behaviour and shorter INT pulse: 32 T-states versus the Sinclair
+/// 128K's 36. The matching `UlaConfig` values drive the live IRQ line.
+pub const TIMING_PLUS2A: FrameTiming = FrameTiming {
+    master_hz: MASTER_HZ_128K,
+    cpu_divisor: 5,
+    tstates_per_line: TSTATES_PER_LINE_128K,
+    halfcycles_per_line: TSTATES_PER_LINE_128K * 5,
+    lines_per_frame: LINES_PER_FRAME_128K,
+    halfcycles_per_frame: TSTATES_PER_LINE_128K * 5 * LINES_PER_FRAME_128K,
+    tstates_per_frame: TSTATES_PER_FRAME_128K,
+    first_border_line: 7,
+    first_screen_line: 63,
+    last_screen_line: 255,
+    last_border_line: 303,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_361,
+    contention_pattern: CONTENTION_PATTERN_PLUS2A,
+    contention_phase: 0,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+impl FrameTiming {
+    /// Converts a T-state count to master-clock counter units.
+    #[must_use]
+    pub const fn tstates_to_hc(&self, tstates: u32) -> u32 {
+        tstates * self.cpu_divisor
+    }
+
+    /// Converts master-clock counter units to T-states, rounding down.
+    #[must_use]
+    pub const fn hc_to_tstates(&self, hc: u32) -> u32 {
+        hc / self.cpu_divisor
+    }
+
+    /// Splits a frame T-state into scanline and line-local position.
+    #[must_use]
+    pub const fn tstate_to_line_pos(&self, tstate: u32) -> (u32, u32) {
+        (
+            tstate / self.tstates_per_line,
+            tstate % self.tstates_per_line,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_dimensions_match_documented_values() {
+        assert_eq!(TSTATES_PER_FRAME_48K, 69_888);
+        assert_eq!(SCREEN_WIDTH_48K, 352);
+        assert_eq!(SCREEN_HEIGHT_48K, 296);
+        assert_eq!(TIMING_48K.halfcycles_per_frame, 279_552);
+    }
+
+    #[test]
+    fn frame_dimensions_match_documented_values_128k() {
+        assert_eq!(TSTATES_PER_FRAME_128K, 70_908);
+        assert_eq!(CPU_HZ_128K, 3_546_895);
+        assert_eq!(TIMING_128K.halfcycles_per_frame, 354_540);
+        assert_eq!(TIMING_128K.contention_start_tstate, 14_361);
+        assert_eq!(TIMING_128K.contention_phase, 1);
+        assert_eq!(TIMING_128K.interrupt_length_tstates, 36);
+    }
+
+    #[test]
+    fn contention_pattern_matches_reference() {
+        assert_eq!(CONTENTION_PATTERN_48K, [6, 5, 4, 3, 2, 1, 0, 0]);
+    }
+
+    #[test]
+    fn timing_conversion_helpers_match_reference_values() {
+        assert_eq!(TIMING_48K.tstates_to_hc(224), 896);
+        assert_eq!(TIMING_48K.hc_to_tstates(896), 224);
+        assert_eq!(TIMING_48K.tstate_to_line_pos(224), (1, 0));
+    }
+
+    /// Issue #11: the +2A/+3 (Amstrad 40077/40078 ASIC) shares the 128K's
+    /// display geometry — verified against FUSE/libspectrum, whose
+    /// `timings_frame_amstrad_asic` has the same border/screen/retrace
+    /// breakdown as the 128K's `timings_frame_ferranti_7c`. Only the
+    /// contention behaviour differs. This pins that relationship so a
+    /// future edit can't silently desync the +2A video geometry.
+    #[test]
+    fn plus2a_video_geometry_matches_128k() {
+        // Clock + line/frame layout.
+        assert_eq!(TIMING_PLUS2A.master_hz, TIMING_128K.master_hz);
+        assert_eq!(TIMING_PLUS2A.cpu_divisor, TIMING_128K.cpu_divisor);
+        assert_eq!(TIMING_PLUS2A.tstates_per_line, TIMING_128K.tstates_per_line);
+        assert_eq!(TIMING_PLUS2A.lines_per_frame, TIMING_128K.lines_per_frame);
+        // Display window position.
+        assert_eq!(
+            TIMING_PLUS2A.first_screen_line,
+            TIMING_128K.first_screen_line
+        );
+        assert_eq!(TIMING_PLUS2A.last_screen_line, TIMING_128K.last_screen_line);
+        assert_eq!(
+            TIMING_PLUS2A.first_screen_tstate,
+            TIMING_128K.first_screen_tstate
+        );
+        assert_eq!(
+            TIMING_PLUS2A.contention_start_tstate,
+            TIMING_128K.contention_start_tstate
+        );
+        assert_eq!(
+            TIMING_PLUS2A.interrupt_start_tstate,
+            TIMING_128K.interrupt_start_tstate
+        );
+
+        // ...but the contention behaviour is the real delta: a different
+        // pattern, phase 0 (vs the 128K's phase 1).
+        assert_eq!(TIMING_PLUS2A.contention_pattern, CONTENTION_PATTERN_PLUS2A);
+        assert_eq!(TIMING_PLUS2A.contention_phase, 0);
+        assert_eq!(TIMING_PLUS2A.interrupt_length_tstates, 32);
+        assert_ne!(
+            TIMING_PLUS2A.interrupt_length_tstates,
+            TIMING_128K.interrupt_length_tstates
+        );
+        assert_ne!(
+            TIMING_PLUS2A.contention_pattern,
+            TIMING_128K.contention_pattern
+        );
+    }
+}

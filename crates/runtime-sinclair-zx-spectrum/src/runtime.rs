@@ -156,13 +156,15 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     }
 
     /// The DivMMC, if the variant hosts one. Default `None`.
-    fn divmmc(&self) -> Option<&peripheral_divmmc::DivMmc> {
+    fn divmmc(&self) -> Option<&emu198x_peripheral_sinclair_zx_spectrum_divmmc::DivMmc> {
         None
     }
 
     /// Mutable access to the DivMMC, if the variant hosts one. Default
     /// `None`.
-    fn divmmc_mut(&mut self) -> Option<&mut peripheral_divmmc::DivMmc> {
+    fn divmmc_mut(
+        &mut self,
+    ) -> Option<&mut emu198x_peripheral_sinclair_zx_spectrum_divmmc::DivMmc> {
         None
     }
 
@@ -180,13 +182,17 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     }
 
     /// The Interface 1, if the variant hosts one. Default `None`.
-    fn interface1(&self) -> Option<&peripheral_sinclair_interface1::Interface1> {
+    fn interface1(
+        &self,
+    ) -> Option<&emu198x_peripheral_sinclair_zx_spectrum_interface1::Interface1> {
         None
     }
 
     /// Mutable access to the Interface 1, if the variant hosts one.
     /// Default `None`.
-    fn interface1_mut(&mut self) -> Option<&mut peripheral_sinclair_interface1::Interface1> {
+    fn interface1_mut(
+        &mut self,
+    ) -> Option<&mut emu198x_peripheral_sinclair_zx_spectrum_interface1::Interface1> {
         None
     }
 
@@ -667,7 +673,7 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     fn attached_divmmc_mut(
         &mut self,
         slot: &str,
-    ) -> Result<&mut peripheral_divmmc::DivMmc, MachineError> {
+    ) -> Result<&mut emu198x_peripheral_sinclair_zx_spectrum_divmmc::DivMmc, MachineError> {
         match self.machine.divmmc_mut() {
             Some(divmmc) if divmmc.is_attached() => Ok(divmmc),
             _ => Err(MachineError::UnknownMediaSlot {
@@ -690,7 +696,8 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     fn attached_interface1_mut(
         &mut self,
         slot: &str,
-    ) -> Result<&mut peripheral_sinclair_interface1::Interface1, MachineError> {
+    ) -> Result<&mut emu198x_peripheral_sinclair_zx_spectrum_interface1::Interface1, MachineError>
+    {
         match self.machine.interface1_mut() {
             Some(if1) if if1.is_attached() => Ok(if1),
             _ => Err(MachineError::UnknownMediaSlot {
@@ -709,7 +716,17 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
                 reason: err.to_string(),
             }
         })?;
-        self.attached_interface1_mut(slot)?.insert(drive, &image);
+        // A parsed image always holds 10 to 254 whole sectors, which the
+        // Interface 1's tape accepts.
+        let tape = emu198x_peripheral_sinclair_zx_spectrum_interface1::MicrodriveTape::new(
+            image.data().to_vec(),
+            image.write_protected,
+        )
+        .ok_or_else(|| MachineError::InvalidMedia {
+            slot: slot.to_owned(),
+            reason: "the image does not fit a Microdrive tape".to_owned(),
+        })?;
+        self.attached_interface1_mut(slot)?.insert(drive, &tape);
         Ok(())
     }
 
@@ -1038,7 +1055,7 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                 .machine
                 .interface1()
                 .and_then(|if1| if1.cartridge(drive))
-                .map(|image| image.to_bytes())
+                .map(|tape| mdr_image(&tape).to_bytes())
                 .ok_or_else(|| MachineError::InvalidMedia {
                     slot: slot.to_owned(),
                     reason: "no cartridge in this Microdrive".to_owned(),
@@ -1171,10 +1188,26 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
 /// The DivMMC's SD card slot.
 pub const SD_CARD_SLOT: &str = "sd-card-1";
 
+/// The `.mdr` image of a Microdrive tape: its sectors and its
+/// write-protect byte. The Interface 1 keeps a tape at the length it was
+/// inserted with, so the parse holds; a blank of the same length stands in
+/// if it ever does not.
+fn mdr_image(
+    tape: &emu198x_peripheral_sinclair_zx_spectrum_interface1::MicrodriveTape,
+) -> format_sinclair_zx_spectrum_mdr::MdrImage {
+    let mut bytes = tape.sectors().to_vec();
+    bytes.push(u8::from(tape.write_protected));
+    format_sinclair_zx_spectrum_mdr::MdrImage::parse(&bytes).unwrap_or_else(|_| {
+        format_sinclair_zx_spectrum_mdr::MdrImage::blank(
+            tape.sectors().len() / format_sinclair_zx_spectrum_mdr::SECTOR_LEN,
+        )
+    })
+}
+
 /// The drive a `microdrive-1` … `microdrive-8` slot names, from 0.
 fn microdrive_index(slot: &str) -> Option<usize> {
     let n: usize = slot.strip_prefix("microdrive-")?.parse().ok()?;
-    (1..=peripheral_sinclair_interface1::MICRODRIVE_COUNT)
+    (1..=emu198x_peripheral_sinclair_zx_spectrum_interface1::MICRODRIVE_COUNT)
         .contains(&n)
         .then(|| n - 1)
 }

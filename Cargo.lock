@@ -90,14 +90,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amstrad-ula-40077"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
 name = "android-activity"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -192,14 +184,6 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-
-[[package]]
-name = "beta-disk-interface"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
 
 [[package]]
 name = "bit-set"
@@ -529,7 +513,9 @@ dependencies = [
 name = "common-sinclair-zx-spectrum"
 version = "0.44.2"
 dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
+ "emu198x-sinclair-zx-spectrum-ula",
  "emu198x-tape-playback",
  "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-snapshot",
@@ -544,15 +530,15 @@ version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse",
+ "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface",
+ "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
+ "emu198x-peripheral-sinclair-zx-spectrum-interface1",
+ "emu198x-sinclair-ula-7k010e",
  "emu198x-zilog-z80",
- "peripheral-divmmc",
- "peripheral-kempston-joystick",
- "peripheral-kempston-mouse",
- "peripheral-multiface",
- "peripheral-sinclair-interface1",
  "serde",
  "serde_json",
- "sinclair-ula-7k010e",
 ]
 
 [[package]]
@@ -560,13 +546,13 @@ name = "common-sinclair-zx-spectrum-48k-class"
 version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-ferranti-ula-6c001e",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse",
+ "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface",
+ "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
+ "emu198x-peripheral-sinclair-zx-spectrum-interface1",
  "emu198x-zilog-z80",
- "ferranti-ula-6c001e",
- "peripheral-divmmc",
- "peripheral-kempston-joystick",
- "peripheral-kempston-mouse",
- "peripheral-multiface",
- "peripheral-sinclair-interface1",
  "serde",
  "serde_json",
 ]
@@ -575,13 +561,13 @@ dependencies = [
 name = "common-sinclair-zx-spectrum-amstrad-class"
 version = "0.44.2"
 dependencies = [
- "amstrad-ula-40077",
  "common-sinclair-zx-spectrum",
+ "emu198x-amstrad-ula-40077",
  "emu198x-gi-ay-3-8912",
  "emu198x-nec-upd765a",
+ "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface",
+ "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
  "emu198x-zilog-z80",
- "peripheral-divmmc",
- "peripheral-multiface",
  "serde",
  "serde_json",
 ]
@@ -957,6 +943,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-amstrad-ula-40077"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "emu198x-sinclair-zx-spectrum-ula",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-app-icon"
 version = "0.44.2"
 dependencies = [
@@ -1104,6 +1099,10 @@ dependencies = [
  "serde",
  "serde-big-array",
 ]
+
+[[package]]
+name = "emu198x-bus-sinclair-zx-spectrum"
+version = "0.1.0"
 
 [[package]]
 name = "emu198x-c64"
@@ -1305,6 +1304,15 @@ name = "emu198x-esp-at-modem"
 version = "0.44.2"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-ferranti-ula-6c001e"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "emu198x-sinclair-zx-spectrum-ula",
+ "serde",
 ]
 
 [[package]]
@@ -1691,6 +1699,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-pentagon-ula"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "emu198x-sinclair-zx-spectrum-ula",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-peripheral-commodore-amiga-floppy"
 version = "0.1.0"
 dependencies = [
@@ -1702,6 +1719,54 @@ dependencies = [
 name = "emu198x-peripheral-commodore-amiga-keyboard"
 version = "0.1.0"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-sinclair-zx-spectrum-divmmc"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-sinclair-zx-spectrum-interface1"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
  "serde",
 ]
 
@@ -1729,6 +1794,15 @@ dependencies = [
 name = "emu198x-ricoh-rp5c01"
 version = "0.1.0"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-scorpion-ula"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "emu198x-sinclair-zx-spectrum-ula",
  "serde",
 ]
 
@@ -1825,6 +1899,23 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "zip",
+]
+
+[[package]]
+name = "emu198x-sinclair-ula-7k010e"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "emu198x-sinclair-zx-spectrum-ula",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-sinclair-zx-spectrum-ula"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
 ]
 
 [[package]]
@@ -2017,6 +2108,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-timex-scld"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "emu198x-sinclair-zx-spectrum-ula",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-ui"
 version = "0.44.2"
 dependencies = [
@@ -2146,14 +2246,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
-]
-
-[[package]]
-name = "ferranti-ula-6c001e"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
 ]
 
 [[package]]
@@ -3726,14 +3818,14 @@ dependencies = [
 name = "machine-pentagon-128"
 version = "0.44.2"
 dependencies = [
- "beta-disk-interface",
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
+ "emu198x-pentagon-ula",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-z80",
- "pentagon-ula",
- "peripheral-kempston-joystick",
  "png",
  "serde",
 ]
@@ -3742,14 +3834,14 @@ dependencies = [
 name = "machine-scorpion-zs256"
 version = "0.44.2"
 dependencies = [
- "beta-disk-interface",
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
+ "emu198x-scorpion-ula",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-z80",
- "peripheral-kempston-joystick",
- "scorpion-ula",
  "serde",
 ]
 
@@ -3810,8 +3902,8 @@ version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
+ "emu198x-ferranti-ula-6c001e",
  "emu198x-test-skip",
- "ferranti-ula-6c001e",
 ]
 
 [[package]]
@@ -3820,12 +3912,12 @@ version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
+ "emu198x-ferranti-ula-6c001e",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
- "ferranti-ula-6c001e",
  "format198x-sinclair-zx-spectrum-tap",
- "peripheral-kempston-joystick",
  "png",
  "serde",
 ]
@@ -3836,8 +3928,8 @@ version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
+ "emu198x-ferranti-ula-6c001e",
  "emu198x-test-skip",
- "ferranti-ula-6c001e",
 ]
 
 [[package]]
@@ -3964,14 +4056,14 @@ name = "machine-timex-tc2048"
 version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-test-skip",
+ "emu198x-timex-scld",
  "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-snapshot",
- "peripheral-kempston-joystick",
  "png",
  "serde",
  "serde-big-array",
- "timex-scld",
 ]
 
 [[package]]
@@ -3980,14 +4072,14 @@ version = "0.44.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-test-skip",
+ "emu198x-timex-scld",
  "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-snapshot",
- "peripheral-kempston-joystick",
  "png",
  "serde",
  "serde-big-array",
- "timex-scld",
 ]
 
 [[package]]
@@ -4738,59 +4830,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "pentagon-ula"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
-
-[[package]]
-name = "peripheral-divmmc"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
-name = "peripheral-kempston-joystick"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
-name = "peripheral-kempston-mouse"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
-name = "peripheral-multiface"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
-name = "peripheral-sinclair-interface1"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "format-sinclair-zx-spectrum-mdr",
- "serde",
-]
 
 [[package]]
 name = "pin-project"
@@ -5492,6 +5535,10 @@ dependencies = [
  "common-sinclair-zx-spectrum-amstrad-class",
  "criterion",
  "emu198x-gi-ay-3-8912",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse",
+ "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
+ "emu198x-peripheral-sinclair-zx-spectrum-interface1",
  "emu198x-shell",
  "emu198x-tape-playback",
  "emu198x-test-skip",
@@ -5517,10 +5564,6 @@ dependencies = [
  "machine-sinclair-zx-spectrum-plus3",
  "machine-timex-tc2048",
  "machine-timex-ts2068",
- "peripheral-divmmc",
- "peripheral-kempston-joystick",
- "peripheral-kempston-mouse",
- "peripheral-sinclair-interface1",
  "png",
  "postcard",
  "serde",
@@ -5679,14 +5722,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scorpion-ula"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
 name = "sctk-adwaita"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5804,14 +5839,6 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
-
-[[package]]
-name = "sinclair-ula-7k010e"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
-]
 
 [[package]]
 name = "slab"
@@ -5977,14 +6004,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "timex-scld"
-version = "0.44.2"
-dependencies = [
- "common-sinclair-zx-spectrum",
- "serde",
 ]
 
 [[package]]

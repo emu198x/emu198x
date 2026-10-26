@@ -18,7 +18,7 @@ mod tests {
     use super::*;
     use common_sinclair_zx_spectrum::memory::MemoryBus;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-    use ferranti_ula_6c001e::UlaRevision;
+    use emu198x_ferranti_ula_6c001e::UlaRevision;
 
     #[test]
     fn machine_defaults_to_ferranti6c() {

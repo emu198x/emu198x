@@ -1,9 +1,14 @@
 //! Shared Sinclair ZX Spectrum family building blocks.
 //!
 //! This crate holds the shared Spectrum-family hardware pieces that are stable
-//! across concrete variants: memory contracts, timing data, palette handling,
-//! beeper/tape audio, pulse-driven tape playback, and the shared ULA rendering
-//! engine.
+//! across concrete variants: memory, palette handling, beeper/tape audio,
+//! pulse-driven tape playback and snapshots.
+//!
+//! The wiring ULAs and peripherals implement — the `Ula`, `MemoryBus`,
+//! `Peripheral` and `MemoryIntercept` traits and the frame timing data — is
+//! `emu198x-bus-sinclair-zx-spectrum`'s, and the shared ULA rendering engine
+//! is `emu198x-sinclair-zx-spectrum-ula`. Both are re-exported here under
+//! their old module names (`ula`, `peripheral`, `timing`, `ula_engine`).
 
 pub mod audio;
 pub mod driver;
@@ -13,15 +18,15 @@ pub mod keyboard;
 pub mod memory;
 pub mod memory_watch;
 pub mod palette;
-pub mod peripheral;
+pub use emu198x_bus_sinclair_zx_spectrum::peripheral;
 pub mod screen_text;
 mod serde_skip_audit;
 pub mod snapshot;
 pub mod tape;
 pub mod tape_recorder;
 pub mod timing;
-pub mod ula;
-pub mod ula_engine;
+pub use emu198x_bus_sinclair_zx_spectrum::ula;
+pub use emu198x_sinclair_zx_spectrum_ula as ula_engine;
 
 pub use audio::{AudioControls, BeeperAudio, SpeakerChannel, SpeakerMixer};
 // Relocated into the shared AY chip crate so the whole AY fleet captures

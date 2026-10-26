@@ -12,7 +12,8 @@
 id = "spectrum"
 # Routing versions the captured hashes encode. Verified at run-time
 # against AUDIO_ROUTING_VERSION (common-sinclair-zx-spectrum::audio) and
-# FRAME_ROUTING_VERSION (common-sinclair-zx-spectrum::ula_engine).
+# FRAME_ROUTING_VERSION (emu198x-sinclair-zx-spectrum-ula, re-exported as
+# common-sinclair-zx-spectrum::ula_engine).
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
 #

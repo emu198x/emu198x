@@ -64,12 +64,15 @@ GATED_CRATES = [
     "common-sinclair-zx-spectrum-48k-class",
     "common-sinclair-zx-spectrum-128k-class",
     "common-sinclair-zx-spectrum-amstrad-class",
+    # The wiring the family glue re-exports
+    "emu198x-bus-sinclair-zx-spectrum",
     # Chip crates the Spectrum drives today
-    "amstrad-ula-40077",
-    "ferranti-ula-6c001e",
+    "emu198x-amstrad-ula-40077",
+    "emu198x-ferranti-ula-6c001e",
     "emu198x-gi-ay-3-8912",
     "emu198x-nec-upd765a",
-    "sinclair-ula-7k010e",
+    "emu198x-sinclair-ula-7k010e",
+    "emu198x-sinclair-zx-spectrum-ula",
     "emu198x-zilog-z80",
     # Format crates
     "format-amstrad-dsk",
@@ -88,7 +91,7 @@ GATED_CRATES = [
     "machine-sinclair-zx-spectrum-plus2b",
     "machine-sinclair-zx-spectrum-plus3",
     # Peripheral crates
-    "peripheral-kempston-joystick",
+    "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
     # Runtime
     "runtime-sinclair-zx-spectrum",
 ]
@@ -97,14 +100,14 @@ GATED_CRATES = [
 # without an October deadline. Promoted into GATED_CRATES when their
 # engineering bar work lands.
 REPORTED_CRATES = [
-    "beta-disk-interface",
+    "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
     "machine-pentagon-128",
     "machine-scorpion-zs256",
     "machine-timex-tc2048",
     "machine-timex-ts2068",
-    "pentagon-ula",
-    "scorpion-ula",
-    "timex-scld",
+    "emu198x-pentagon-ula",
+    "emu198x-scorpion-ula",
+    "emu198x-timex-scld",
 ]
 
 # Data-only crates exempt from the line-coverage gate per
