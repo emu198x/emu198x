@@ -639,6 +639,29 @@ pub unsafe extern "C" fn emu198x_catalogue(out: *mut Emu198xBuffer) -> i32 {
     })
 }
 
+/// Exports the command catalogue, which every host builds its menus from, as
+/// UTF-8 JSON. See `emu198x_shell::commands`.
+///
+/// # Safety
+/// See `put`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn emu198x_commands(out: *mut Emu198xBuffer) -> i32 {
+    settle(|| {
+        if out.is_null() {
+            return Err(Failure::Invalid("out is null"));
+        }
+        let json = emu198x_shell::commands::catalogue_json();
+        // SAFETY: the caller guarantees `out` is writable; null is rejected.
+        unsafe {
+            put(
+                out,
+                Emu198xBuffer::from_vec(json.into_bytes()),
+                "out is null",
+            )
+        }
+    })
+}
+
 /// Releases a buffer this library returned. A null buffer is ignored.
 ///
 /// # Safety

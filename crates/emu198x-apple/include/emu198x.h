@@ -43,6 +43,10 @@ typedef struct Emu198xBuffer {
 
 /* The compiled families and variants as UTF-8 JSON (not NUL-terminated). */
 int32_t emu198x_catalogue(Emu198xBuffer *out);
+/* The command catalogue, which every host builds its menus from, as UTF-8
+ * JSON (not NUL-terminated): an array of commands with id, label, group,
+ * shortcut, needs, param and mcp_verb. See emu198x_shell::commands. */
+int32_t emu198x_commands(Emu198xBuffer *out);
 
 /* Creates an unbooted machine. *out is null on failure. */
 int32_t emu198x_machine_create(const char *family, const char *variant, Emu198xMachine **out);

@@ -970,7 +970,9 @@ version = "0.44.2"
 dependencies = [
  "emu198x-apple",
  "emu198x-fleet-web",
+ "emu198x-shell",
  "emu198x-test-skip",
+ "serde_json",
 ]
 
 [[package]]

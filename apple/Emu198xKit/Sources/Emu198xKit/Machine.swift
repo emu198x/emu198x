@@ -77,6 +77,13 @@ public final class Machine {
         return take(buffer)
     }
 
+    /// The command catalogue, as UTF-8 JSON. ``CommandCatalogue`` decodes it.
+    public static func commands() throws -> Data {
+        var buffer = Emu198xBuffer(data: nil, len: 0)
+        try check(emu198x_commands(&buffer))
+        return take(buffer)
+    }
+
     public func supplyFirmware(id: String, data: Data) throws {
         try data.withUnsafeBytes { bytes in
             let base = bytes.bindMemory(to: UInt8.self).baseAddress
