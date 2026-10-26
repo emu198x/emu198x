@@ -85,6 +85,18 @@ impl AmigaRuntimeKind {
     }
 }
 
+impl AmigaRuntimeKind {
+    /// Mouse counts that move Intuition's pointer one framebuffer pixel
+    /// across and down. One count moves it about one lores pixel across and
+    /// one line down, and the framebuffer has two pixels and two rows for
+    /// each. Speed and acceleration preferences change this; a host's closed
+    /// loop corrects for them.
+    #[must_use]
+    pub fn mouse_counts_per_pixel(&self) -> (f64, f64) {
+        (0.5, 0.5)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

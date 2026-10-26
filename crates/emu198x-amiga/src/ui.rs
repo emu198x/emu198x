@@ -184,12 +184,8 @@ impl UiSystem for AmigaSystem {
         runtime.mouse_pointer()
     }
 
-    // One mouse count moves Intuition's pointer about one lores pixel across
-    // and one line down, and the framebuffer has two pixels and two rows for
-    // each. Speed and acceleration preferences change this; the closed loop
-    // corrects for them.
-    fn pointer_counts_per_pixel(&self, _runtime: &Self::Runtime) -> (f64, f64) {
-        (0.5, 0.5)
+    fn pointer_counts_per_pixel(&self, runtime: &Self::Runtime) -> (f64, f64) {
+        runtime.mouse_counts_per_pixel()
     }
 
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {

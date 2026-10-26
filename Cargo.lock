@@ -1274,6 +1274,7 @@ dependencies = [
 name = "emu198x-commodore-web"
 version = "0.44.2"
 dependencies = [
+ "emu198x-pointer",
  "emu198x-shell",
  "emu198x-web",
  "machine-commodore-amiga-ocs",
@@ -1326,6 +1327,7 @@ name = "emu198x-fleet-web"
 version = "0.44.2"
 dependencies = [
  "emu198x-fleet-web",
+ "emu198x-pointer",
  "emu198x-shell",
  "emu198x-spectrum-web",
  "emu198x-test-skip",
