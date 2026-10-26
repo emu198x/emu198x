@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.6.1
+
+### Fixed
+
+- A triangle silenced by its length or linear counter holds its current
+  sequencer step instead of outputting 0, so it leaves a DC level as the real
+  DAC does (#1567).
+- The output stream runs at exactly 48,000 Hz. The downsampler now carries
+  its remainder; it emitted `cpu_hz / ceil(cpu_hz / 48,000)` before, about
+  1.9% sharp on NTSC (#1568). Snapshots from 0.6.0 still restore.
+
+### Changed
+
+- `AUDIO_ROUTING_VERSION` is 3. Audio captured with 0.6.0 (version 1) does
+  not match these fixes' output, so recorded hashes need re-capturing.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/ricoh-apu-2a03-v0.2.0) - 2026-06-04
 
 ### Added

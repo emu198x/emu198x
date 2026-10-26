@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.6.1
+
 ### Added
 
 - A CMOS core, `M6502::new_65c12` (`Variant::Cmos`): the 65SC02 instruction
@@ -22,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `M6502::variant` and `M6502::set_variant`. The variant is not serialised,
   so existing snapshots keep their layout; a machine with a CMOS part sets
   it again after restoring one.
+
+### Fixed
+
+- Keep the NMI edge detector running while RDY holds the CPU, so an edge
+  that arrives during a hold is still taken, and block new edges during an
+  interrupt's status push and first vector read, as the real detector does.
+  A short pulse there is lost; a level still asserted afterwards is taken
+  when the detector reopens. The Atari 8-bit's ANTIC NMIs depend on both.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-6502-v0.2.0) - 2026-06-04
 
