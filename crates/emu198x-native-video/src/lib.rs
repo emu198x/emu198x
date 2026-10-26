@@ -939,7 +939,9 @@ const OFFSCREEN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 enum Target {
     /// A window's surface.
     Surface(wgpu::Surface<'static>),
-    /// An image the host reads back and draws itself.
+    /// An image the host reads back and draws itself. Native only: only
+    /// `new_offscreen` makes one.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Offscreen(Offscreen),
 }
 
@@ -1283,6 +1285,8 @@ mod tests {
         assert_eq!(rgba, &[0xA0, 0xB0, 0xC0, 0xFF, 0x01, 0x02, 0x03, 0xFF]);
     }
 
+    // `new_offscreen` is native only; the browser has no blocking readback.
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn offscreen_raw_frames_scale_by_whole_pixels() {
         // Four colours in a 2 × 2 frame, drawn raw into a 4 × 4 picture:
