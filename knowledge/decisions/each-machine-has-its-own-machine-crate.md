@@ -42,6 +42,15 @@ These are **not** separate machines; they are profiles of one:
   trapdoor expansion such as the A501, an accelerator such as the GVP A530.
   An add-on with hardware of its own is a peripheral crate, not a machine.
 
+A different maker or brand is not a difference in itself, but check the
+board rather than assume either way. Another maker's machine usually has
+another board. A board sold under another name with nothing changed is a
+profile. A name is often set in the hardware, though. A CPC's start-up
+message comes from manufacturer-ID links read through the PPI (Amstrad,
+Schneider, Awa, Triumph and others), and a link is a circuit difference,
+so each of those boards is its own machine
+(`reference/by-system/amstrad-cpc/cpc-reference.md` § 10.2).
+
 When the code and the reference library disagree about what a board
 contains, the reference library decides. If it is silent, ask.
 
