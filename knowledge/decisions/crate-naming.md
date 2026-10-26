@@ -5,11 +5,13 @@
 | Category | Pattern | Example |
 |----------|---------|---------|
 | Chips | `{manufacturer}-{chipname}[-variant]` | `mos-6502`, `commodore-agnus-ocs` |
+| Buses and board protocols | `{manufacturer}-[{system}-]{name}` | `atari-sio`, `commodore-amiga-autoconfig` |
+| Bus interfaces (traits only) | `bus-{manufacturer}-{system}` | `bus-sinclair-zx-spectrum` |
 | Machine libraries | `machine-{manufacturer}-{system}` | `machine-commodore-amiga` |
 | Runtime libraries | `runtime-{manufacturer}-{system}` | `runtime-sinclair-zx-spectrum` |
 | Runner packages | `emu-{manufacturer}-{system}` | `emu-sinclair-zx-spectrum` |
 | Formats | `format-{manufacturer}-{system}-{format}` | `format-sinclair-zx-spectrum-tap` |
-| Peripherals | `peripheral-{manufacturer}-{system}-{peripheral}` | — |
+| Peripherals | `peripheral-{manufacturer}[-{system}]-{peripheral}` | `peripheral-commodore-amiga-floppy`, `peripheral-ultimate-uci-net` |
 | Multi-vendor standards | No manufacturer prefix | MSX crates |
 | System-family common code | `{system}-common` | `common-sinclair-zx-spectrum` |
 | Cross-project shell | `emu198x-{role}` | `emu198x-shell` |
@@ -33,6 +35,14 @@ it. That is why the rule applies at publication and not before, and why the
 other ~214 crates here keep their unprefixed names.
 
 ### What is published, and why only these
+
+> **Scope superseded 2026-10-25.** This section records why the first six
+> were chosen. Since the 2026-10-25 amendments to
+> [`workspace-shape.md`](workspace-shape.md), every CPU, chip, bus, board
+> protocol and peripheral publishes, once it no longer depends on family glue
+> or a format layout; `scripts/extract-repos.toml` lists them. The naming
+> rules for the categories that brought in are in
+> § Amendment 2026-10-26 below.
 
 Six leaf crates, renamed and published 2026-08-26:
 
@@ -97,7 +107,64 @@ separate from the suite tag and changelog workflow above.
   exactly the reader the rename is for.
 - **"Publish a chip crate that has internal dependencies"** — not without
   deciding what happens to those dependencies' names first. The ADF half of
-  that question is settled; the rest is not.
+  that question is settled; the rest is not. *(Settled 2026-10-25: a
+  dependency is either published itself, under this record's names, or
+  untangled out of the crate first — see
+  [`workspace-shape.md`](workspace-shape.md).)*
+
+## Amendment 2026-10-26: buses, board protocols, bus interfaces and multi-system peripherals
+
+The 2026-10-25 amendments to [`workspace-shape.md`](workspace-shape.md) gave
+buses, board protocols and peripherals repositories of their own, so that
+anyone can assemble the pieces into an emulator of their own. The table above
+had no row for the first two, and its peripheral row assumed every device
+belongs to one system. These rules close those gaps. All of them sit under
+the 2026-08-26 amendment: a published crate takes `emu198x-` in front, and
+nothing is dropped.
+
+**Buses and board protocols are named like chips: `{manufacturer}-[{system}-]{name}`.**
+A crate that *implements* a bus or a board-level protocol — Atari's SIO
+command framing and the drives on it, the Amiga's Zorro II autoconfig
+handshake — models hardware behaviour the way a chip crate does, so it takes
+the chip pattern. The manufacturer is whoever defined the protocol. Add the
+system when the manufacturer alone would not say which machine's protocol it
+is: Atari defined SIO for one line of machines, so `atari-sio`; Commodore
+defined many buses, so `commodore-amiga-autoconfig`. A bus several
+manufacturers defined together takes no manufacturer, as the multi-vendor
+row already says for MSX.
+
+**Bus interfaces are named for the connection: `bus-{manufacturer}-{system}`.**
+Some crates model nothing. They hold only the traits and types that chips
+and peripherals are wired through — the Spectrum's `Ula`, `MemoryBus` and
+`Peripheral` traits are the first case — so that a ULA or an interface can
+be published without its family's glue. Such a crate takes the `bus-`
+category word, so it can never be mistaken for a device model, and it names
+the system whose wiring it describes. It holds no implementation beyond
+trait defaults: shared implementation (the Spectrum's ULA timing engine,
+say) lives with a chip or in a chip-named crate of its own.
+
+**A peripheral names its system only if it has one.**
+`peripheral-{manufacturer}-{system}-{peripheral}` stays the rule for a
+device built for one system. When one implementation serves several systems
+without branching on which is asking — the test the 2026-08-14 amendment
+uses for shared format parsing — the system part is dropped:
+`peripheral-ultimate-uci-net` serves every machine the Ultimate cartridges
+plug into. The manufacturer is the device's maker, not the host's. A
+peripheral that does branch on its host is two crates, as TAP is two
+formats.
+
+### Drift triggers
+
+- **"Put the shared ULA engine in the bus crate, it's only used by ULAs
+  anyway"** — no. A `bus-` crate holds the wiring, not a device. The moment
+  it carries behaviour, a reader can no longer tell from the name what they
+  are depending on.
+- **"Drop the system part, this peripheral might work elsewhere one day"** —
+  no. The system part goes only when one implementation already serves
+  several systems.
+- **"Name the bus crate after the connector (`edge-connector`, `expansion`)"**
+  — no. Connectors differ between models of one system; the system name is
+  what a stranger searches for.
 
 ## Format naming: always namespace by system
 
