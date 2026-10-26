@@ -26,7 +26,7 @@
 use emu198x_gi_ay_3_8910::Ay3_8910;
 use serde::{Deserialize, Serialize};
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// The 5B's YM2149 clock as the AY model counts it: half the NTSC CPU
@@ -107,6 +107,23 @@ impl Fme7 {
     }
 }
 
+impl PpuCartridge for Fme7 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for Fme7 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -161,21 +178,6 @@ impl Mapper for Fme7 {
             0xE000 => self.audio.write_data(value),
             _ => {}
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[self.chr_index(addr)]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            let index = self.chr_index(addr);
-            self.chr[index] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn irq_pending(&self) -> bool {

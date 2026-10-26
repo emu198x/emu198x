@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// Action 53 (Mapper 28): multicart mapper with switchable 16/32 KiB
@@ -84,6 +84,30 @@ impl Action53 {
     }
 }
 
+impl PpuCartridge for Action53 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr[bank * 8192 + offset]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr[bank * 8192 + offset] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        match self.mode & 0x03 {
+            0 => Mirroring::SingleScreenLower,
+            1 => Mirroring::SingleScreenUpper,
+            2 => Mirroring::Vertical,
+            3 => Mirroring::Horizontal,
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Mapper for Action53 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -118,28 +142,6 @@ impl Mapper for Action53 {
                 _ => {}
             },
             _ => {}
-        }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
-        let offset = usize::from(addr) & 0x1FFF;
-        self.chr[bank * 8192 + offset]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
-        let offset = usize::from(addr) & 0x1FFF;
-        self.chr[bank * 8192 + offset] = value;
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        match self.mode & 0x03 {
-            0 => Mirroring::SingleScreenLower,
-            1 => Mirroring::SingleScreenUpper,
-            2 => Mirroring::Vertical,
-            3 => Mirroring::Horizontal,
-            _ => unreachable!(),
         }
     }
 

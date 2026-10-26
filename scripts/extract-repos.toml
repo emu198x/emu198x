@@ -618,3 +618,11 @@ summary = "The Game Boy's PPU, DMG and CGB, as a dot-stepped pixel FIFO."
 consumers = "Used by the Game Boy and Game Boy Color."
 # 71.65% line coverage on 2026-10-26.
 coverage_floor = 71
+
+[[repo]]
+name = "ricoh-ppu-2c02"
+crates = ["emu198x-ricoh-ppu-2c02"]
+summary = "The Ricoh 2C02 NES PPU, dot-stepped, reaching the cartridge through a trait it owns."
+consumers = "Used by the NES, whose cartridge boards implement its PpuCartridge trait."
+# 96.28% line coverage on 2026-10-26.
+coverage_floor = 96

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// NROM (Mapper 0): no bank switching.
@@ -59,6 +59,22 @@ impl Nrom {
     }
 }
 
+impl PpuCartridge for Nrom {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[(addr as usize) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            self.chr[(addr as usize) & 0x1FFF] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for Nrom {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -85,20 +101,6 @@ impl Mapper for Nrom {
         }
         // Writes to $8000-$FFFF are ignored on NROM — there is no
         // bank-switching register to latch into.
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[(addr as usize) & 0x1FFF]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            self.chr[(addr as usize) & 0x1FFF] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn save_ram(&self) -> &[u8] {

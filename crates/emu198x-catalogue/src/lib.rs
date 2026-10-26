@@ -784,12 +784,12 @@ fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
                 });
             }
             if let Some(found) = manifest.system.frame_routing_version
-                && found != ricoh_ppu_2c02::FRAME_ROUTING_VERSION
+                && found != emu198x_ricoh_ppu_2c02::FRAME_ROUTING_VERSION
             {
                 return Err(CatalogueError::RoutingVersionMismatch {
                     kind: "frame",
                     system: "nes".into(),
-                    expected: ricoh_ppu_2c02::FRAME_ROUTING_VERSION,
+                    expected: emu198x_ricoh_ppu_2c02::FRAME_ROUTING_VERSION,
                     found,
                 });
             }
@@ -3572,7 +3572,7 @@ hash = "xxh64:0000000000000000"
     fn routing_version_check_passes_for_nes_when_manifest_matches_runtime() {
         let manifest = nes_manifest_with_versions(
             Some(emu198x_ricoh_apu_2a03::AUDIO_ROUTING_VERSION),
-            Some(ricoh_ppu_2c02::FRAME_ROUTING_VERSION),
+            Some(emu198x_ricoh_ppu_2c02::FRAME_ROUTING_VERSION),
         );
         verify_routing_versions(&manifest).expect("matching NES versions should pass");
     }

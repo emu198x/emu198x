@@ -14,10 +14,11 @@
 //!
 //! The archive PPU took `chr_read: &mut dyn FnMut(u16) -> u8` and
 //! `mirroring: Mirroring` closures on every method. This port takes
-//! `&mut dyn Mapper` instead, matching the pin contract in
+//! `&mut dyn PpuCartridge` instead, matching the pin contract in
 //! [nes-clock-topology.md](../../../knowledge/decisions/nes-clock-topology.md).
-//! The mapper provides CHR reads/writes and mirroring — the PPU
-//! calls through it directly.
+//! The cartridge provides CHR reads/writes and mirroring — the PPU
+//! calls through it directly. [`PpuCartridge`] and [`Mirroring`] are
+//! this crate's own, so any cartridge model can implement them.
 //!
 //! NMI is a public `bool` field rather than an internal pin with
 //! edge-detection helpers. The machine layer routes `ppu.nmi` →
@@ -37,10 +38,10 @@
     clippy::manual_range_contains
 )]
 
+mod cartridge;
 pub mod palette;
 
-use nintendo_nes_cartridge::Mapper;
-pub use nintendo_nes_cartridge::Mirroring;
+pub use cartridge::{Mirroring, PpuCartridge};
 use palette::PALETTE;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -436,7 +437,7 @@ impl Ppu {
     /// Mirrors Mesen's `NesPpu::Run(runTo)` shape. The machine
     /// calls this with `target = internal_master_clock - 1` to
     /// realise the `_ppuOffset = 1` phase lag.
-    pub fn run(&mut self, mapper: &mut dyn Mapper, target_master_clock: u64) {
+    pub fn run(&mut self, mapper: &mut dyn PpuCartridge, target_master_clock: u64) {
         while self.ppu_clock + self.master_divider <= target_master_clock {
             self.tick(mapper);
         }
@@ -447,7 +448,7 @@ impl Ppu {
     /// The machine layer calls this once per PPU clock (every
     /// master clock division). The mapper is passed by reference
     /// so the PPU can read CHR ROM/RAM and query mirroring.
-    pub fn tick(&mut self, mapper: &mut dyn Mapper) {
+    pub fn tick(&mut self, mapper: &mut dyn PpuCartridge) {
         // Pre-render line
         if self.scanline == self.pre_render_line {
             self.tick_prerender(mapper);
@@ -517,7 +518,7 @@ impl Ppu {
         }
     }
 
-    fn tick_prerender(&mut self, mapper: &mut dyn Mapper) {
+    fn tick_prerender(&mut self, mapper: &mut dyn PpuCartridge) {
         if self.dot == 1 {
             // Clear VBlank flag, sprite 0 hit, sprite overflow,
             // AND the NMI latch — symmetric with VBL start (now
@@ -565,7 +566,7 @@ impl Ppu {
         }
     }
 
-    fn tick_visible(&mut self, mapper: &mut dyn Mapper) {
+    fn tick_visible(&mut self, mapper: &mut dyn PpuCartridge) {
         if self.rendering_enabled() {
             if self.dot >= 1 && self.dot <= 256 {
                 self.render_pixel();
@@ -617,7 +618,7 @@ impl Ppu {
     //  Background fetch pipeline
     // ════════════════════════════════════════════════════════════
 
-    fn bg_fetch_cycle(&mut self, mapper: &mut dyn Mapper) {
+    fn bg_fetch_cycle(&mut self, mapper: &mut dyn PpuCartridge) {
         // The scanline tail has two dummy nametable reads, not another
         // tile fetch or shift. Shifting here also makes the odd-frame
         // skipped dot change the first tile's pixel alignment (#1748).
@@ -796,7 +797,7 @@ impl Ppu {
     /// (cycles 1-256) followed by pattern fetch all at once. Production
     /// runs the state machine cycle-by-cycle via `sprite_eval_cycle`.
     #[cfg(test)]
-    fn evaluate_sprites(&mut self, mapper: &mut dyn Mapper) {
+    fn evaluate_sprites(&mut self, mapper: &mut dyn PpuCartridge) {
         let saved_dot = self.dot;
         for c in 1..=256u16 {
             self.dot = c;
@@ -942,7 +943,7 @@ impl Ppu {
     /// per-dot A12 / bus address across the fetch window is driven separately
     /// by [`update_sprite_bus_address`](Ppu::update_sprite_bus_address), so
     /// this does not touch `bus_address`.
-    fn load_sprite_pattern(&mut self, i: usize, mapper: &mut dyn Mapper) {
+    fn load_sprite_pattern(&mut self, i: usize, mapper: &mut dyn PpuCartridge) {
         let sprite_height: u16 = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
         let next_scanline = self.scanline;
         let sprite_y = u16::from(self.secondary_oam[i * 4]);
@@ -1010,7 +1011,7 @@ impl Ppu {
     /// `evaluate_sprites` test helper; production spreads the equivalent
     /// loads across dots 257-320 (see [`tick_visible`](Ppu::tick_visible)).
     #[cfg(test)]
-    fn fetch_sprite_patterns(&mut self, mapper: &mut dyn Mapper) {
+    fn fetch_sprite_patterns(&mut self, mapper: &mut dyn PpuCartridge) {
         for i in 0..8usize {
             if i < self.sprite_count as usize {
                 self.load_sprite_pattern(i, mapper);
@@ -1181,7 +1182,7 @@ impl Ppu {
     }
 
     /// CPU read from PPU register (`$2000-$2007` mirrored).
-    pub fn cpu_read(&mut self, reg: u16, mapper: &mut dyn Mapper) -> u8 {
+    pub fn cpu_read(&mut self, reg: u16, mapper: &mut dyn PpuCartridge) -> u8 {
         match reg & 0x07 {
             // $2002 - PPUSTATUS. Bits 7-5 are PPU-defined and
             // refresh those bits of the decay register; bits 4-0
@@ -1264,7 +1265,7 @@ impl Ppu {
     }
 
     /// CPU write to PPU register (`$2000-$2007` mirrored).
-    pub fn cpu_write(&mut self, reg: u16, val: u8, mapper: &mut dyn Mapper) {
+    pub fn cpu_write(&mut self, reg: u16, val: u8, mapper: &mut dyn PpuCartridge) {
         // Writes to ANY PPU register refresh the full decay
         // register (per nesdev `ppu_open_bus` table — every cell
         // in the write row is `-`).
@@ -1337,7 +1338,7 @@ impl Ppu {
     //  PPU memory access
     // ════════════════════════════════════════════════════════════
 
-    fn ppu_read(&mut self, addr: u16, mapper: &mut dyn Mapper) -> u8 {
+    fn ppu_read(&mut self, addr: u16, mapper: &mut dyn PpuCartridge) -> u8 {
         let addr = addr & 0x3FFF;
         self.bus_address = addr;
         mapper.notify_ppu_read(addr, self.rendering_active());
@@ -1357,7 +1358,7 @@ impl Ppu {
         }
     }
 
-    fn ppu_write(&mut self, addr: u16, val: u8, mapper: &mut dyn Mapper) {
+    fn ppu_write(&mut self, addr: u16, val: u8, mapper: &mut dyn PpuCartridge) {
         let addr = addr & 0x3FFF;
         match addr {
             0x0000..=0x1FFF => mapper.chr_write(addr, val),
@@ -1491,7 +1492,7 @@ impl Ppu {
 
     /// Check whether A12 changed on the PPU address bus and notify
     /// the mapper if it did. Called once per dot from `tick()`.
-    fn check_a12(&mut self, mapper: &mut dyn Mapper) {
+    fn check_a12(&mut self, mapper: &mut dyn PpuCartridge) {
         let a12 = self.bus_address & 0x1000 != 0;
         if a12 != self.prev_a12 {
             self.prev_a12 = a12;
@@ -1738,7 +1739,50 @@ fn flip_byte(mut b: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nintendo_nes_cartridge::Nrom;
+
+    /// The CHR side of an NROM board (mapper 0): 8 KiB of CHR ROM, or
+    /// 8 KiB of CHR RAM when built with no CHR data, and fixed
+    /// mirroring. The tests need a cartridge, and the cartridge crate
+    /// depends on this one, so they carry their own. The PRG argument
+    /// is ignored; it keeps the constructor's shape the same as the
+    /// cartridge crate's `Nrom::new`.
+    struct Nrom {
+        chr: Vec<u8>,
+        chr_is_ram: bool,
+        mirroring: Mirroring,
+    }
+
+    impl Nrom {
+        fn new(_prg_rom: Vec<u8>, chr_data: Vec<u8>, mirroring: Mirroring) -> Self {
+            let chr_is_ram = chr_data.is_empty();
+            let chr = if chr_is_ram {
+                vec![0u8; 8192]
+            } else {
+                chr_data
+            };
+            Self {
+                chr,
+                chr_is_ram,
+                mirroring,
+            }
+        }
+    }
+
+    impl PpuCartridge for Nrom {
+        fn chr_read(&mut self, addr: u16) -> u8 {
+            self.chr[(addr as usize) & 0x1FFF]
+        }
+
+        fn chr_write(&mut self, addr: u16, value: u8) {
+            if self.chr_is_ram {
+                self.chr[(addr as usize) & 0x1FFF] = value;
+            }
+        }
+
+        fn mirroring(&self) -> Mirroring {
+            self.mirroring
+        }
+    }
 
     /// Build a minimal NROM mapper with 8 KiB of zero CHR RAM and
     /// horizontal mirroring. Good enough for any test that doesn't
@@ -3101,13 +3145,7 @@ mod tests {
         }
     }
 
-    impl Mapper for RecordingMapper {
-        fn cpu_read(&self, addr: u16) -> u8 {
-            self.inner.cpu_read(addr)
-        }
-        fn cpu_write(&mut self, addr: u16, value: u8) {
-            self.inner.cpu_write(addr, value);
-        }
+    impl PpuCartridge for RecordingMapper {
         fn chr_read(&mut self, addr: u16) -> u8 {
             self.reads.push(addr);
             self.inner.chr_read(addr)
@@ -3117,9 +3155,6 @@ mod tests {
         }
         fn mirroring(&self) -> Mirroring {
             self.inner.mirroring()
-        }
-        fn snapshot(&self) -> nintendo_nes_cartridge::MapperSnapshot {
-            self.inner.snapshot()
         }
     }
 
@@ -3493,13 +3528,7 @@ mod tests {
             inner: Nrom,
             notifications: u32,
         }
-        impl Mapper for CountingMapper {
-            fn cpu_read(&self, addr: u16) -> u8 {
-                self.inner.cpu_read(addr)
-            }
-            fn cpu_write(&mut self, addr: u16, value: u8) {
-                self.inner.cpu_write(addr, value);
-            }
+        impl PpuCartridge for CountingMapper {
             fn chr_read(&mut self, addr: u16) -> u8 {
                 self.inner.chr_read(addr)
             }
@@ -3511,9 +3540,6 @@ mod tests {
             }
             fn notify_a12_rendering(&mut self, _high: bool, _ppu_cycle: u64) {
                 self.notifications += 1;
-            }
-            fn snapshot(&self) -> nintendo_nes_cartridge::MapperSnapshot {
-                self.inner.snapshot()
             }
         }
 
@@ -3628,13 +3654,7 @@ mod tests {
             nt_storage: [u8; 0x1000],
             owns_nametable: bool,
         }
-        impl Mapper for OverrideMapper {
-            fn cpu_read(&self, addr: u16) -> u8 {
-                self.inner.cpu_read(addr)
-            }
-            fn cpu_write(&mut self, addr: u16, value: u8) {
-                self.inner.cpu_write(addr, value);
-            }
+        impl PpuCartridge for OverrideMapper {
             fn chr_read(&mut self, addr: u16) -> u8 {
                 self.inner.chr_read(addr)
             }
@@ -3658,9 +3678,6 @@ mod tests {
                 } else {
                     false
                 }
-            }
-            fn snapshot(&self) -> nintendo_nes_cartridge::MapperSnapshot {
-                self.inner.snapshot()
             }
         }
 

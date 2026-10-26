@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// Camerica / Codemasters (Mapper 71): switchable 16 KiB low PRG
@@ -32,6 +32,20 @@ impl Camerica {
 
     fn prg_16k_count(&self) -> usize {
         (self.prg_rom.len() / 16384).max(1)
+    }
+}
+
+impl PpuCartridge for Camerica {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 }
 
@@ -64,18 +78,6 @@ impl Mapper for Camerica {
             0xC000..=0xFFFF => self.prg_bank = value,
             _ => {}
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr_ram[usize::from(addr) & 0x1FFF]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn snapshot(&self) -> MapperSnapshot {

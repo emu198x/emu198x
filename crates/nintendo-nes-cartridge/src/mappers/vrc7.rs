@@ -22,7 +22,7 @@ use emu198x_yamaha_ym2413::{Variant, Ym2413};
 use serde::{Deserialize, Serialize};
 
 use super::vrc_irq::VrcIrq;
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// The melody-pin sample one channel at full volume peaks at, measured
@@ -103,6 +103,28 @@ impl Vrc7 {
     }
 }
 
+impl PpuCartridge for Vrc7 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        match self.control & 0x03 {
+            0 => Mirroring::Vertical,
+            1 => Mirroring::Horizontal,
+            2 => Mirroring::SingleScreenLower,
+            _ => Mirroring::SingleScreenUpper,
+        }
+    }
+}
+
 impl Mapper for Vrc7 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -141,26 +163,6 @@ impl Mapper for Vrc7 {
             0xF000 => self.irq.set_control(value),
             0xF008 => self.irq.acknowledge(),
             _ => {}
-        }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[self.chr_index(addr)]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            let index = self.chr_index(addr);
-            self.chr[index] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        match self.control & 0x03 {
-            0 => Mirroring::Vertical,
-            1 => Mirroring::Horizontal,
-            2 => Mirroring::SingleScreenLower,
-            _ => Mirroring::SingleScreenUpper,
         }
     }
 

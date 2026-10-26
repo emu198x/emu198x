@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::vrc4::{chr_register, register};
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// Konami VRC2a (Mapper 22): two switchable 8 KiB PRG banks, fixed
@@ -64,6 +64,28 @@ impl Vrc2a {
     }
 }
 
+impl PpuCartridge for Vrc2a {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let slot = usize::from((addr & 0x1FFF) / 0x0400);
+        let offset = usize::from(addr & 0x03FF);
+        let index = self.chr_bank(slot) * 1024 + offset;
+        self.chr[index % self.chr.len()]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let slot = usize::from((addr & 0x1FFF) / 0x0400);
+            let offset = usize::from(addr & 0x03FF);
+            let index = (self.chr_bank(slot) * 1024 + offset) % self.chr.len();
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for Vrc2a {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -101,26 +123,6 @@ impl Mapper for Vrc2a {
             }
             _ => {}
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let slot = usize::from((addr & 0x1FFF) / 0x0400);
-        let offset = usize::from(addr & 0x03FF);
-        let index = self.chr_bank(slot) * 1024 + offset;
-        self.chr[index % self.chr.len()]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            let slot = usize::from((addr & 0x1FFF) / 0x0400);
-            let offset = usize::from(addr & 0x03FF);
-            let index = (self.chr_bank(slot) * 1024 + offset) % self.chr.len();
-            self.chr[index] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn snapshot(&self) -> MapperSnapshot {

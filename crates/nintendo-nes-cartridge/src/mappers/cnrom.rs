@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// CNROM (Mapper 3): fixed PRG ROM with switchable 8 KiB CHR ROM.
@@ -55,6 +55,22 @@ impl CnRom {
     }
 }
 
+impl PpuCartridge for CnRom {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank_offset = usize::from(self.chr_bank) * 8192;
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr_rom[(bank_offset + offset) % self.chr_rom.len()]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // CNROM has CHR ROM, not CHR RAM.
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for CnRom {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -77,20 +93,6 @@ impl Mapper for CnRom {
             let rom_byte = self.cpu_read(addr);
             self.chr_bank = value & rom_byte;
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let bank_offset = usize::from(self.chr_bank) * 8192;
-        let offset = usize::from(addr) & 0x1FFF;
-        self.chr_rom[(bank_offset + offset) % self.chr_rom.len()]
-    }
-
-    fn chr_write(&mut self, _addr: u16, _value: u8) {
-        // CNROM has CHR ROM, not CHR RAM.
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn save_ram(&self) -> &[u8] {

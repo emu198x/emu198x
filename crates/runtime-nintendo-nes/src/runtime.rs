@@ -658,8 +658,8 @@ impl MachineCore for NesRuntime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            ricoh_ppu_2c02::PAL_DOT_CLOCK_HZ,
-            ricoh_ppu_2c02::NTSC_DOT_CLOCK_HZ,
+            emu198x_ricoh_ppu_2c02::PAL_DOT_CLOCK_HZ,
+            emu198x_ricoh_ppu_2c02::NTSC_DOT_CLOCK_HZ,
         )
     }
 

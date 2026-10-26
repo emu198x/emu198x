@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// Color Dreams (Mapper 11): switchable 32 KiB PRG plus 8 KiB CHR ROM.
@@ -47,6 +47,20 @@ impl ColorDreams {
     }
 }
 
+impl PpuCartridge for ColorDreams {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
+        let offset = usize::from(addr) & 0x1FFF;
+        self.chr_rom[bank * 8192 + offset]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for ColorDreams {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -65,18 +79,6 @@ impl Mapper for ColorDreams {
             self.prg_bank = effective & 0x03;
             self.chr_bank = (effective >> 4) & 0x0F;
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let bank = usize::from(self.chr_bank) % self.chr_bank_count();
-        let offset = usize::from(addr) & 0x1FFF;
-        self.chr_rom[bank * 8192 + offset]
-    }
-
-    fn chr_write(&mut self, _addr: u16, _value: u8) {}
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn snapshot(&self) -> MapperSnapshot {

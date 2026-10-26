@@ -1138,13 +1138,13 @@ dependencies = [
  "emu198x-mos-sid-6581",
  "emu198x-mos-vic-ii",
  "emu198x-ricoh-apu-2a03",
+ "emu198x-ricoh-ppu-2c02",
  "emu198x-shell",
  "machine-sinclair-zx-spectrum-128k",
  "machine-sinclair-zx-spectrum-plus2",
  "machine-sinclair-zx-spectrum-plus2a",
  "machine-sinclair-zx-spectrum-plus2b",
  "machine-sinclair-zx-spectrum-plus3",
- "ricoh-ppu-2c02",
  "runtime-commodore-amiga",
  "runtime-commodore-c64",
  "runtime-nintendo-nes",
@@ -1619,10 +1619,10 @@ name = "emu198x-nes"
 version = "0.44.2"
 dependencies = [
  "emu198x-app-icon",
+ "emu198x-ricoh-ppu-2c02",
  "emu198x-shell",
  "emu198x-ui",
  "machine-nintendo-nes",
- "ricoh-ppu-2c02",
  "runtime-nintendo-nes",
  "serde",
  "serde_json",
@@ -1714,6 +1714,14 @@ version = "0.6.0"
 dependencies = [
  "postcard",
  "serde",
+]
+
+[[package]]
+name = "emu198x-ricoh-ppu-2c02"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -3679,10 +3687,10 @@ version = "0.44.2"
 dependencies = [
  "emu198x-mos-6502",
  "emu198x-ricoh-apu-2a03",
+ "emu198x-ricoh-ppu-2c02",
  "emu198x-test-skip",
  "format-nintendo-famicom-fds",
  "nintendo-nes-cartridge",
- "ricoh-ppu-2c02",
  "serde",
  "serde-big-array",
 ]
@@ -4200,6 +4208,7 @@ name = "nintendo-nes-cartridge"
 version = "0.44.2"
 dependencies = [
  "emu198x-gi-ay-3-8910",
+ "emu198x-ricoh-ppu-2c02",
  "emu198x-yamaha-ym2413",
  "format-nintendo-famicom-fds",
  "format-nintendo-nes-ines",
@@ -5054,15 +5063,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ricoh-ppu-2c02"
-version = "0.44.2"
-dependencies = [
- "nintendo-nes-cartridge",
- "serde",
- "serde-big-array",
-]
-
-[[package]]
 name = "rmp"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5386,12 +5386,12 @@ dependencies = [
 name = "runtime-nintendo-nes"
 version = "0.44.2"
 dependencies = [
+ "emu198x-ricoh-ppu-2c02",
  "emu198x-shell",
  "emu198x-test-skip",
  "machine-nintendo-nes",
  "nintendo-nes-cartridge",
  "postcard",
- "ricoh-ppu-2c02",
  "serde",
  "serde_json",
 ]

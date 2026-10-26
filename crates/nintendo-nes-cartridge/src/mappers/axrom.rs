@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// AxROM (Mapper 7): switchable 32 KiB PRG bank with single-screen
@@ -39,6 +39,20 @@ impl AxRom {
     }
 }
 
+impl PpuCartridge for AxRom {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for AxRom {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -61,18 +75,6 @@ impl Mapper for AxRom {
                 Mirroring::SingleScreenLower
             };
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr_ram[usize::from(addr) & 0x1FFF]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn snapshot(&self) -> MapperSnapshot {
