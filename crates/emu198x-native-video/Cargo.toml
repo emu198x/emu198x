@@ -45,6 +45,7 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
 runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
 runtime-nintendo-nes = { path = "../runtime-nintendo-nes" }

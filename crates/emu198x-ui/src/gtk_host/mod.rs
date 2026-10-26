@@ -5,9 +5,9 @@
 //! [`Shell`] with GTK's own dialogs. See
 //! `knowledge/decisions/host-ui-model.md` § 12.
 //!
-//! Still to come: the video filters (CRT and the rest need the wgpu
-//! presenter), shortcut text in the menus, and a matching rendering rule
-//! for fractional scales.
+//! The raw picture is drawn by GTK. Every other video filter is drawn by
+//! the same wgpu presenter the winit window uses, rendering offscreen at the
+//! picture's device-pixel size; the host shows the result one to one.
 
 mod keys;
 mod menu;
@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use emu198x_native_video::{PresentationProfile, WgpuVideoPresenter};
 use emu198x_shell::{CapturedFrame, MachineCore, MachineTime, PixelFormat};
 use gtk4::prelude::*;
 use gtk4::{gdk, gio, glib};
@@ -33,6 +34,7 @@ struct GtkShell<'a> {
     app: &'a gtk4::Application,
     window: &'a gtk4::ApplicationWindow,
     screen: &'a Screen,
+    filters: &'a mut Filters,
     /// Set when the core asks for a redraw; the frame is uploaded once the
     /// tick is over.
     redraw: bool,
@@ -97,7 +99,9 @@ impl Shell for GtkShell<'_> {
     }
 
     fn reset_video_history(&mut self) {
-        // This host has no temporal filters yet.
+        if let Some(video) = self.filters.presenter.as_mut() {
+            video.reset_temporal_history();
+        }
     }
 
     fn sync_menu(&mut self, change: MenuSync<'_>) {
@@ -105,7 +109,9 @@ impl Shell for GtkShell<'_> {
             MenuSync::Scale(scale) => {
                 menu::set_state(self.app, "scale", scale.to_string().to_variant());
             }
-            MenuSync::Filter(_) => {}
+            MenuSync::Filter(filter) => {
+                menu::set_state(self.app, "filter", filter.to_string().to_variant());
+            }
             MenuSync::Variant(id) => menu::set_state(self.app, "variant", id.to_variant()),
             MenuSync::PortDrive { device, kind_id } => {
                 menu::set_state(self.app, &menu::drive_action(device), kind_id.to_variant());
@@ -182,6 +188,7 @@ struct GtkHost<S: UiSystem> {
     screen: Screen,
     /// RGBA scratch for indexed frames.
     scratch: Vec<u8>,
+    filters: Filters,
     /// Physical keys held, so GTK's auto-repeat presses reach the core as
     /// repeats, as winit reports them.
     held_keys: HashSet<KeyCode>,
@@ -199,6 +206,7 @@ impl<S: UiSystem> GtkHost<S> {
             app: &self.app,
             window: &self.window,
             screen: &self.screen,
+            filters: &mut self.filters,
             redraw: false,
         };
         let result = f(&mut self.core, &mut shell);
@@ -241,9 +249,12 @@ impl<S: UiSystem> GtkHost<S> {
 
     /// Upload the latest frame, or the halt overlay, to the picture widget.
     fn present(&mut self) {
+        if let Some(fallback) = self.core.settle_presentation() {
+            menu::set_state(&self.app, "filter", fallback.to_string().to_variant());
+        }
         let core = &self.core;
         let overlay_frame;
-        let frame = if let Some(message) = &core.halt_message {
+        let (frame, profile) = if let Some(message) = &core.halt_message {
             let (width, height) = core.system.framebuffer_size(&core.runner.runtime);
             overlay_frame = CapturedFrame {
                 signal: None,
@@ -254,12 +265,26 @@ impl<S: UiSystem> GtkHost<S> {
                 palette: None,
                 pixels: overlay::build_halt_overlay(width, height, message),
             };
-            &overlay_frame
+            let mut profile = core.presentation;
+            profile.filter = VideoFilter::Raw;
+            (&overlay_frame, profile)
         } else if let Some(frame) = core.runner.frame() {
-            frame
+            (frame, core.presentation)
         } else {
             return;
         };
+        // Raw is drawn by GTK itself, which is exact at whole scales and
+        // costs nothing. Every other filter needs the wgpu presenter.
+        if profile.filter != VideoFilter::Raw
+            && let Some(texture) = self.filters.compose(&self.screen, frame, &profile)
+        {
+            self.screen.show_composed(
+                texture,
+                (frame.width, frame.height),
+                profile.pixel_aspect_ratio,
+            );
+            return;
+        }
         let pixels = match emu198x_native_video::frame_rgba_pixels(frame, &mut self.scratch) {
             Ok(pixels) => pixels,
             Err(err) => {
@@ -279,21 +304,91 @@ impl<S: UiSystem> GtkHost<S> {
             frame.width as usize * 4,
         );
         self.screen
-            .show_frame(texture.upcast(), core.presentation.pixel_aspect_ratio);
+            .show_frame(texture.upcast(), profile.pixel_aspect_ratio);
+    }
+}
+
+/// The video filters: the wgpu presenter, rendering offscreen at the picture
+/// widget's size, made the first time a filter other than raw is chosen.
+#[derive(Default)]
+struct Filters {
+    presenter: Option<WgpuVideoPresenter>,
+    /// Set once the presenter could not be made, so it is not tried on every
+    /// frame. The host then shows the raw picture.
+    unavailable: bool,
+    /// The last error a frame hit, reported once until it changes.
+    last_error: Option<String>,
+}
+
+impl Filters {
+    /// Compose `frame` for the whole widget, or `None` to fall back to raw.
+    fn compose(
+        &mut self,
+        screen: &Screen,
+        frame: &CapturedFrame,
+        profile: &PresentationProfile,
+    ) -> Option<gdk::Texture> {
+        if self.unavailable {
+            return None;
+        }
+        let (width, height) = screen.device_size();
+        if self.presenter.is_none() {
+            match WgpuVideoPresenter::new_offscreen(width, height, frame.width, frame.height) {
+                Ok(presenter) => self.presenter = Some(presenter),
+                Err(err) => {
+                    eprintln!("video: filters are unavailable, showing the raw picture: {err}");
+                    self.unavailable = true;
+                    return None;
+                }
+            }
+        }
+        let presenter = self.presenter.as_mut()?;
+        if presenter.offscreen_pixels().map(|(_, w, h)| (w, h)) != Some((width, height)) {
+            presenter.resize_surface(width, height);
+        }
+        match presenter.present_with_status(frame, profile) {
+            Ok(true) => self.last_error = None,
+            Ok(false) => return None,
+            Err(err) => {
+                let message = err.to_string();
+                if self.last_error.as_deref() != Some(message.as_str()) {
+                    eprintln!("video: {message}; showing the raw picture");
+                    self.last_error = Some(message);
+                }
+                return None;
+            }
+        }
+        let (pixels, width, height) = presenter.offscreen_pixels()?;
+        let texture = gdk::MemoryTexture::new(
+            i32::try_from(width).ok()?,
+            i32::try_from(height).ok()?,
+            gdk::MemoryFormat::R8g8b8a8,
+            &glib::Bytes::from(pixels),
+            width as usize * 4,
+        );
+        Some(texture.upcast())
     }
 }
 
 type SharedHost<S> = Rc<RefCell<Option<GtkHost<S>>>>;
 
 /// Tick the core, then schedule the next tick when it asks for one.
+///
+/// Ticks run below GTK's redraw priority. At default priority a tick that is
+/// always due (the machine catching up, or fast-forward) would starve the
+/// redraws, and the window would never show a frame.
 fn schedule_tick<S: UiSystem + 'static>(host: SharedHost<S>, after: Duration) {
-    glib::timeout_add_local_once(after, move || {
+    let mut host = Some(host);
+    glib::timeout_add_local_full(after, glib::Priority::DEFAULT_IDLE, move || {
+        let Some(host) = host.take() else {
+            return glib::ControlFlow::Break;
+        };
         // A dialog's nested main loop can fire this while the host is
         // already borrowed; try again shortly instead of re-entering.
         let wake = match host.try_borrow_mut() {
             Ok(mut guard) => match guard.as_mut() {
                 Some(host) => host.tick(),
-                None => return,
+                None => None,
             },
             Err(_) => Some(Wake::At(Instant::now() + Duration::from_millis(5))),
         };
@@ -304,6 +399,7 @@ fn schedule_tick<S: UiSystem + 'static>(host: SharedHost<S>, after: Duration) {
             }
             None => {}
         }
+        glib::ControlFlow::Break
     });
 }
 
@@ -367,6 +463,7 @@ fn open_window<S: UiSystem + 'static>(
             state_open: system.state_open_filter().is_some(),
             tape_export: system.tape_export_filter().is_some(),
             scale: core.scale,
+            filter: core.presentation.filter,
         },
         &commands,
     );
@@ -401,6 +498,7 @@ fn open_window<S: UiSystem + 'static>(
         window: window.clone(),
         screen: screen.clone(),
         scratch: Vec::new(),
+        filters: Filters::default(),
         held_keys: HashSet::new(),
         cursor_hidden: false,
         fatal_error: None,

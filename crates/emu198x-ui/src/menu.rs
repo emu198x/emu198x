@@ -159,8 +159,7 @@ impl AppCommand {
 pub const MENU_PREDEFINED: &[&str] = &["app.about", "app.quit"];
 
 /// The filter's name, which fills the catalogue's `view.filter` label.
-#[cfg(not(target_os = "linux"))]
-fn filter_name(filter: VideoFilter) -> &'static str {
+pub(crate) fn filter_name(filter: VideoFilter) -> &'static str {
     // VideoFilter is #[non_exhaustive]; a future addition shows a generic name
     // until it's named here.
     match filter {

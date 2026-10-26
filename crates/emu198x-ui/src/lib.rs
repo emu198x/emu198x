@@ -678,23 +678,12 @@ impl<S: UiSystem> App<S> {
             return Ok(());
         }
 
+        if let Some(fallback) = core.settle_presentation() {
+            self.app_menu.set_current_filter(fallback);
+        }
         let (Some(frame), Some(video)) = (core.runner.frame(), self.video.as_mut()) else {
             return Ok(());
         };
-        // Debug stepping and a switch to a variant without an electrical
-        // source must still display their raw state, rather than end the UI.
-        if frame.signal.is_none() && core.presentation.filter.uses_signal() {
-            let fallback = if core.presentation.filter.is_modern() {
-                VideoFilter::Raw
-            } else {
-                VideoFilter::Crt
-            };
-            core.presentation.filter = fallback;
-            self.app_menu.set_current_filter(fallback);
-            eprintln!("electrical video is unavailable for this frame; using {fallback} display");
-        }
-        let clock = core.runner.runtime.profile().clock.rate;
-        core.presentation.clock_hz = clock.numerator_hz as f64 / clock.denominator_hz as f64;
         let started = Instant::now();
         let presented = video.present_with_status(frame, &core.presentation)?;
         if let Some(stats) = self.frame_stats.as_mut() {

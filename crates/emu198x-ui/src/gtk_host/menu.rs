@@ -14,7 +14,8 @@ use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 
-use crate::menu::{AppCommand, SCALE_OPTIONS};
+use crate::VideoFilter;
+use crate::menu::{AppCommand, FILTER_OPTIONS, SCALE_OPTIONS, filter_name};
 use crate::{DrivePortInfo, VariantInfo};
 
 /// What the menu needs to know about the machine.
@@ -28,6 +29,7 @@ pub(super) struct MachineInfo<'a> {
     pub state_open: bool,
     pub tape_export: bool,
     pub scale: u32,
+    pub filter: VideoFilter,
 }
 
 /// The action name for device `device`'s drive radio.
@@ -276,17 +278,38 @@ pub(super) fn build(
     add_action(app, "save-as", commands, AppCommand::SaveState);
     bar.append_submenu(Some("State"), &state);
 
-    // View: window scale. The video filters need the wgpu presenter, which
-    // this host does not have yet, so it shows the raw picture only.
+    // View: window scale, then the video filters.
     let view = gio::Menu::new();
+    let scales = gio::Menu::new();
     for &scale in SCALE_OPTIONS {
         let item = gio::MenuItem::new(
             Some(&expect_command("view.scale").label_for(&scale.to_string())),
             None,
         );
         item.set_action_and_target_value(Some("app.scale"), Some(&scale.to_string().to_variant()));
-        view.append_item(&item);
+        scales.append_item(&item);
     }
+    view.append_section(None, &scales);
+    let filters = gio::Menu::new();
+    for &filter in FILTER_OPTIONS {
+        let item = gio::MenuItem::new(
+            Some(&expect_command("view.filter").label_for(filter_name(filter))),
+            None,
+        );
+        item.set_action_and_target_value(
+            Some("app.filter"),
+            Some(&filter.to_string().to_variant()),
+        );
+        filters.append_item(&item);
+    }
+    view.append_section(None, &filters);
+    add_radio_action(
+        app,
+        "filter",
+        &machine.filter.to_string(),
+        commands,
+        |value| value.parse().ok().map(AppCommand::SetFilter),
+    );
     add_radio_action(
         app,
         "scale",
@@ -385,4 +408,23 @@ fn add_radio_action(
         }
     });
     app.add_action(&action);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_targets_round_trip() {
+        // The View menu's filter radio carries each filter as its text form
+        // and parses it back into the command.
+        for &filter in FILTER_OPTIONS {
+            assert_eq!(filter.to_string().parse::<VideoFilter>(), Ok(filter));
+        }
+    }
+
+    #[test]
+    fn drive_actions_are_named_by_device() {
+        assert_eq!(drive_action(8), "drive-8");
+    }
 }

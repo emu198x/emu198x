@@ -1285,6 +1285,33 @@ impl<S: UiSystem> HostCore<S> {
         shell.request_redraw();
     }
 
+    /// Settle the presentation for the frame about to be drawn, and return
+    /// the filter it fell back to, if it had to, for the shell's menu.
+    ///
+    /// Debug stepping and a switch to a variant without an electrical source
+    /// must still display their raw state rather than end the UI, so a frame
+    /// without a signal drops an electrical filter. The phosphor clock is
+    /// taken from the running machine.
+    pub(crate) fn settle_presentation(&mut self) -> Option<VideoFilter> {
+        let mut fallback = None;
+        if let Some(frame) = self.runner.frame()
+            && frame.signal.is_none()
+            && self.presentation.filter.uses_signal()
+        {
+            let filter = if self.presentation.filter.is_modern() {
+                VideoFilter::Raw
+            } else {
+                VideoFilter::Crt
+            };
+            self.presentation.filter = filter;
+            eprintln!("electrical video is unavailable for this frame; using {filter} display");
+            fallback = Some(filter);
+        }
+        let clock = self.runner.runtime.profile().clock.rate;
+        self.presentation.clock_hz = clock.numerator_hz as f64 / clock.denominator_hz as f64;
+        fallback
+    }
+
     /// End the session: run the system's teardown hook.
     pub(crate) fn on_exit(&mut self) -> Result<(), String> {
         self.system.on_exit(&mut self.runner.runtime)

@@ -212,9 +212,14 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
   confined to that feature. A `GTK host` CI job lints and tests it.
   `muda` stays stubbed on Linux, so the gtk3-rs tree and its Dependabot
   alert never come back.
-- Still to come before the feature is on by default: the video filters
-  (they need the wgpu presenter), sharp bilinear at fractional scales,
-  shortcut text in the menus, and the release builds' GTK dependency.
+- The video filters use the same wgpu presenter as the winit window,
+  rendering offscreen at the picture's device-pixel size (its
+  `new_offscreen` mode); the raw picture is drawn by GTK itself. The CRT
+  picture is pixel-identical to the winit window's under Xvfb.
+- Still to come before the feature is on by default: sharp bilinear at
+  fractional scales (missing from the wgpu presenter too, so fixed there
+  for both desktop hosts), shortcut text in the menus, and the release
+  builds' GTK dependency.
 
 Verification:
 - The catalogue test from step 1 passes for the GTK host.
