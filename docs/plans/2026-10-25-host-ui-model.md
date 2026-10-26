@@ -221,8 +221,11 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
 - Raw uses sharp bilinear (decision § 4) in the presenter's shader, so both
   desktop hosts get it: exact nearest-neighbour at whole-number scales, and
   only the output pixels a block edge crosses blended at fractional ones.
-- Still to come before the feature is on by default: shortcut text in the
-  menus, and the release builds' GTK dependency.
+- Menu items show the catalogue's shortcuts through the menu model's
+  `accel` attribute, which only labels them: the keys still go to the core,
+  so a machine that maps F9 to F11 keeps them.
+- Still to come before the feature is on by default: the release builds'
+  GTK dependency.
 
 Verification:
 - The catalogue test from step 1 passes for the GTK host.
