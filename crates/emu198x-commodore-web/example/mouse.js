@@ -1,8 +1,26 @@
+// Whole mouse counts from browser movement, which can be fractional (a
+// high-resolution display or mouse reports parts of a pixel). Each event's
+// fraction is carried into the next, so slow movement adds up instead of
+// rounding away, as the native harness's RelativeMotion does.
+export function relativeCounts() {
+  let carried = [0, 0];
+  return {
+    take(dx, dy) {
+      const x = dx + carried[0], y = dy + carried[1];
+      const counts = [Math.round(x), Math.round(y)];
+      carried = [x - counts[0], y - counts[1]];
+      return counts;
+    },
+    reset() { carried = [0, 0]; },
+  };
+}
+
 // An Amiga mouse is relative input. Its guest cursor cannot be aligned to a
 // browser's absolute cursor by subtracting a canvas offset (the guest owns
 // acceleration, clipping and warps). Capture exposes only the guest cursor.
 export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
   let enabled = false, wasLocked = false;
+  const motion = relativeCounts();
   const listeners = new AbortController();
   const listen = (target, type, handler, capture = false) => target.addEventListener(type, handler, {capture, signal:listeners.signal});
   const held = new Set();
@@ -45,6 +63,7 @@ export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
     capture(); // The activation click never clicks an unrelated guest control.
   });
   listen(document, 'pointerlockchange', () => {
+    motion.reset(); // A new capture starts from a whole count.
     if (locked() && !enabled) { release(); return; }
     if (!locked() && wasLocked) { releaseButtons(); releaseKeys(); }
     wasLocked = locked();
@@ -55,7 +74,7 @@ export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
   });
   listen(document, 'mousemove', event => {
     if (!enabled || !locked()) return;
-    const dx = Math.round(event.movementX), dy = Math.round(event.movementY);
+    const [dx, dy] = motion.take(event.movementX, event.movementY);
     if (dx || dy) send([['move', dx, dy]]);
   });
   // Capture phase runs before the activation handler above: an unlocked click
