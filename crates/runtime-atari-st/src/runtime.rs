@@ -7,14 +7,15 @@
 //! counted in CPU cycles.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
-    RunResult, StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
+    MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat,
+    ResetKind, RunResult, StopReason,
 };
 use machine_atari_st::{AUDIO_SAMPLE_RATE, AtariSt, Monitor, disk_from_image};
 
 use crate::Model;
-use crate::input::apply_input_event;
+use crate::input::{MOUSE_DEVICE, apply_input_event};
+use crate::pointer::{self, GemPointer};
 use crate::profiles::{TOS_FIRMWARE_ID, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
@@ -32,6 +33,8 @@ pub struct AtariStRuntime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    /// Whether GEM's pointer variables follow the mouse. Not saved.
+    gem_pointer: GemPointer,
 }
 
 impl AtariStRuntime {
@@ -48,6 +51,7 @@ impl AtariStRuntime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            gem_pointer: GemPointer::default(),
         }
     }
 
@@ -148,6 +152,7 @@ impl AtariStRuntime {
 
     fn install(&mut self, machine: AtariSt) {
         self.machine = Some(machine);
+        self.gem_pointer = GemPointer::default();
         self.update_rgba_framebuffer();
     }
 
@@ -223,6 +228,23 @@ impl AtariStRuntime {
         {
             *rgba = [(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8, 0xFF];
         }
+    }
+
+    /// Where GEM's mouse pointer is, in framebuffer pixels, or `None` when
+    /// it is hidden or GEM's pointer variables have not been seen to follow
+    /// the mouse, as when a game has the mouse to itself.
+    #[must_use]
+    pub fn mouse_pointer(&self) -> Option<(f64, f64)> {
+        self.gem_pointer.position(self.machine.as_ref()?)
+    }
+
+    /// Mouse counts that move GEM's pointer one framebuffer pixel across and
+    /// down in the current resolution.
+    #[must_use]
+    pub fn mouse_counts_per_pixel(&self) -> (f64, f64) {
+        self.machine
+            .as_ref()
+            .map_or((1.0, 1.0), pointer::counts_per_pixel)
     }
 
     fn drive_for_slot(slot: &str) -> Result<usize, MachineError> {
@@ -371,6 +393,11 @@ impl MachineCore for AtariStRuntime {
         };
         for event in host.input_events {
             apply_input_event(machine, event);
+            if let InputEvent::PointerMotion { device, dx, dy } = event
+                && device.as_ref() == MOUSE_DEVICE
+            {
+                self.gem_pointer.sent(*dx, *dy);
+            }
         }
 
         while self.time < target {
@@ -380,6 +407,9 @@ impl MachineCore for AtariStRuntime {
                 .expect("machine checked above")
                 .run_frame();
             self.time = self.time.saturating_add(ticks);
+            if let Some(machine) = self.machine.as_ref() {
+                self.gem_pointer.after_frame(machine);
+            }
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {

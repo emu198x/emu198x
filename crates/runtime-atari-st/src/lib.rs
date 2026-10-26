@@ -10,6 +10,7 @@
 
 mod debug;
 mod input;
+mod pointer;
 mod profiles;
 mod queries;
 mod runtime;

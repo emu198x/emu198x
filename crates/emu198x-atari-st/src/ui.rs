@@ -9,6 +9,8 @@
 //!   keys have no host equivalent, so Page Up and Page Down stand in.
 //! - **Mouse**: [`mouse_device`](UiSystem::mouse_device) opts the window into
 //!   pointer capture as `mouse-1`; the left and right buttons pass through.
+//!   While GEM's pointer follows the mouse, the harness keeps it under the
+//!   host cursor ([`guest_pointer`](UiSystem::guest_pointer)).
 //! - **Joystick**: a gamepad drives the joystick port, port 1.
 //! - **Variants**: the four models. A switch cold-boots the new model with
 //!   the launch's TOS, the same monitor and the same disks.
@@ -231,6 +233,18 @@ impl UiSystem for AtariStSystem {
 
     fn mouse_device(&self) -> Option<&'static str> {
         Some(MOUSE_DEVICE)
+    }
+
+    /// GEM's pointer, from the VDI's line-A variables, once they have been
+    /// seen to follow the mouse.
+    fn guest_pointer(&self, runtime: &Self::Runtime) -> Option<(f64, f64)> {
+        runtime.mouse_pointer()
+    }
+
+    // GEM moves its pointer one screen pixel a count, and a low-resolution
+    // pixel is two framebuffer pixels wide.
+    fn pointer_counts_per_pixel(&self, runtime: &Self::Runtime) -> (f64, f64) {
+        runtime.mouse_counts_per_pixel()
     }
 }
 
