@@ -154,6 +154,14 @@ that resizing the canvas does not change relative mouse counts. The browser
 does not try to align an absolute host cursor with a guest-controlled cursor:
 Amiga software owns mouse acceleration, clipping and pointer warps.
 
+Browser movement can be a fraction of a pixel, so the counts sent carry each
+event's fraction into the next instead of rounding it away. That arithmetic
+needs no browser:
+
+```sh
+node scripts/check-mouse-counts.mjs
+```
+
 For the A501 default and optional AROS path:
 
 ```sh
