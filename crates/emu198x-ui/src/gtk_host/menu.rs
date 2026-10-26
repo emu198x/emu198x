@@ -9,7 +9,7 @@
 use std::borrow::Cow;
 use std::sync::mpsc::Sender;
 
-use emu198x_shell::commands::expect_command;
+use emu198x_shell::commands::{Shortcut, ShortcutKey, expect_command};
 use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
@@ -82,15 +82,12 @@ pub(super) fn build(
     }
     if machine.state_open {
         let section = gio::Menu::new();
-        section.append(
-            Some(expect_command("state.open").label),
-            Some("app.open-state"),
-        );
+        section.append_item(&command_item("state.open", "app.open-state"));
         file.append_section(None, &section);
         add_action(app, "open-state", commands, AppCommand::OpenState);
     }
     let quit = gio::Menu::new();
-    quit.append(Some(expect_command("app.quit").label), Some("app.quit"));
+    quit.append_item(&command_item("app.quit", "app.quit"));
     file.append_section(None, &quit);
     let quit_action = gio::SimpleAction::new("quit", None);
     let quit_app = app.downgrade();
@@ -170,10 +167,7 @@ pub(super) fn build(
         machine_menu.append_submenu(Some("Drives"), &drives);
     }
     let reset = gio::Menu::new();
-    reset.append(
-        Some(expect_command("machine.reset").label),
-        Some("app.reset"),
-    );
+    reset.append_item(&command_item("machine.reset", "app.reset"));
     machine_menu.append_section(None, &reset);
     add_action(app, "reset", commands, AppCommand::Reset);
     if let Some(host) = machine.host_keyboard {
@@ -184,6 +178,7 @@ pub(super) fn build(
         ] {
             let item = gio::MenuItem::new(Some(expect_command(id).label), None);
             item.set_action_and_target_value(Some("app.keyboard"), Some(&target.to_variant()));
+            show_shortcut(&item, id);
             keyboard.append_item(&item);
         }
         machine_menu.append_section(None, &keyboard);
@@ -204,19 +199,10 @@ pub(super) fn build(
         .find(|slot| slot.kind == MediaKind::Tape)
     {
         let tape = gio::Menu::new();
-        tape.append(
-            Some(expect_command("media.tape.play").label),
-            Some("app.tape-play"),
-        );
-        tape.append(
-            Some(expect_command("media.tape.stop").label),
-            Some("app.tape-stop"),
-        );
+        tape.append_item(&command_item("media.tape.play", "app.tape-play"));
+        tape.append_item(&command_item("media.tape.stop", "app.tape-stop"));
         let fast = gio::Menu::new();
-        fast.append(
-            Some(expect_command("media.tape.fast-forward").label),
-            Some("app.fast-forward"),
-        );
+        fast.append_item(&command_item("media.tape.fast-forward", "app.fast-forward"));
         tape.append_section(None, &fast);
         add_action(
             app,
@@ -245,10 +231,7 @@ pub(super) fn build(
         app.add_action(&fast_action);
         if machine.tape_export {
             let export = gio::Menu::new();
-            export.append(
-                Some(expect_command("media.tape.export").label),
-                Some("app.export-tape"),
-            );
+            export.append_item(&command_item("media.tape.export", "app.export-tape"));
             tape.append_section(None, &export);
             add_action(app, "export-tape", commands, AppCommand::ExportTape);
         }
@@ -258,20 +241,11 @@ pub(super) fn build(
     // State: the quick slot and Save State As.
     let state = gio::Menu::new();
     let quick = gio::Menu::new();
-    quick.append(
-        Some(expect_command("state.quick-save").label),
-        Some("app.quick-save"),
-    );
-    quick.append(
-        Some(expect_command("state.quick-load").label),
-        Some("app.quick-load"),
-    );
+    quick.append_item(&command_item("state.quick-save", "app.quick-save"));
+    quick.append_item(&command_item("state.quick-load", "app.quick-load"));
     state.append_section(None, &quick);
     let save_as = gio::Menu::new();
-    save_as.append(
-        Some(expect_command("state.save-as").label),
-        Some("app.save-as"),
-    );
+    save_as.append_item(&command_item("state.save-as", "app.save-as"));
     state.append_section(None, &save_as);
     add_action(app, "quick-save", commands, AppCommand::QuickSave);
     add_action(app, "quick-load", commands, AppCommand::QuickLoad);
@@ -321,7 +295,7 @@ pub(super) fn build(
 
     // Help: About.
     let help = gio::Menu::new();
-    help.append(Some(expect_command("app.about").label), Some("app.about"));
+    help.append_item(&command_item("app.about", "app.about"));
     let about = gio::SimpleAction::new("about", None);
     let title = machine.title.to_owned();
     let about_app = app.downgrade();
@@ -339,6 +313,42 @@ pub(super) fn build(
     bar.append_submenu(Some("Help"), &help);
 
     bar
+}
+
+/// A menu item for catalogue command `id`, firing `action`, showing the
+/// command's shortcut.
+fn command_item(id: &str, action: &str) -> gio::MenuItem {
+    let item = gio::MenuItem::new(Some(expect_command(id).label), Some(action));
+    show_shortcut(&item, id);
+    item
+}
+
+/// Show command `id`'s shortcut beside its menu item. The `accel` attribute
+/// only labels the item: the key itself still goes to the core, which
+/// decides whether it is a shortcut or a key for the machine (F9 to F11
+/// stay the machine's on systems that map them).
+fn show_shortcut(item: &gio::MenuItem, id: &str) {
+    if let Some(shortcut) = expect_command(id).shortcut {
+        item.set_attribute_value("accel", Some(&accel_string(shortcut).to_variant()));
+    }
+}
+
+/// A catalogue shortcut in GTK's accelerator syntax. The host modifier is
+/// Control on Linux.
+fn accel_string(shortcut: Shortcut) -> String {
+    let mut accel = String::new();
+    if shortcut.host {
+        accel.push_str("<Control>");
+    }
+    if shortcut.shift {
+        accel.push_str("<Shift>");
+    }
+    match shortcut.key {
+        ShortcutKey::Letter(letter) => accel.push(letter.to_ascii_lowercase()),
+        ShortcutKey::Function(n) => accel.push_str(&format!("F{n}")),
+        _ => {}
+    }
+    accel
 }
 
 /// Move a stateful action's mark to `value`.
@@ -420,6 +430,34 @@ mod tests {
         // and parses it back into the command.
         for &filter in FILTER_OPTIONS {
             assert_eq!(filter.to_string().parse::<VideoFilter>(), Ok(filter));
+        }
+    }
+
+    #[test]
+    fn shortcuts_render_in_gtk_accelerator_syntax() {
+        // Every shortcut in the catalogue, as GTK's accelerator syntax.
+        let expected = [
+            ("machine.reset", "F12"),
+            ("machine.keyboard.host", "<Control><Shift>k"),
+            ("media.tape.play", "F9"),
+            ("media.tape.stop", "F10"),
+            ("media.tape.fast-forward", "F11"),
+            ("media.tape.export", "<Control><Shift>e"),
+            ("state.quick-save", "<Control>s"),
+            ("state.quick-load", "<Control>l"),
+        ];
+        let with_shortcuts = emu198x_shell::commands::CATALOGUE
+            .iter()
+            .filter(|spec| spec.shortcut.is_some())
+            .count();
+        assert_eq!(
+            with_shortcuts,
+            expected.len(),
+            "a shortcut has no expected text"
+        );
+        for (id, text) in expected {
+            let shortcut = expect_command(id).shortcut.expect("has a shortcut");
+            assert_eq!(accel_string(shortcut), text, "{id}");
         }
     }
 
