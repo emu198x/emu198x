@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.7.0
+
+### Changed
+
+- Widen the saved audio period counter and the public `effective_period` and
+  `period_counter` diagnostic fields to `u32` so 65,536 is represented exactly.
+  This changes the types of two public fields, so it is a breaking release.
+
+### Fixed
+
+- Deliver attached volume at startup/high-byte entry and attached period at
+  low-byte entry, using the current AUDxDAT holding word. Match DMA request
+  phases, coalesce pending requests, repeat the buffer on underflow, and load
+  late-arriving words on high-byte entry.
+
+- Honour periods below 124 and reload zero as 65,536 CCKs. The recommended
+  DMA sampling period no longer clamps the digital countdown.
+
+- Deliver loop requests as the final sample word starts, not one word late,
+  in both DMA service paths (#1776).
+- Deliver DMA interrupts on their scheduled sample edges, one CCK after the
+  attachment-selected byte transition. The extra staged state changes the
+  saved layout, so snapshots taken with 0.6.0 do not restore.
+- Align modulation and DMA requests with byte transitions, use updated
+  periods when channels expire together, and keep nominal sample
+  amplitudes.
+- Keep playback intact across attachment changes, DMA mode changes, DMA
+  startup cancellation and early manual stops.
+
+## 0.6.0
+
 ### Added
 
 - Add side-effect-free diagnostic snapshots for Paula interrupt/control,
@@ -19,20 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Widen the saved audio period counter and the public `effective_period` and
-  `period_counter` diagnostic fields to `u32` so 65,536 is represented exactly.
 - Stage disk read-DMA requests by FIFO occupancy: one queued word requests D2,
   two request D1/D2, and three request D0/D1/D2.
-
-### Fixed
-
-- Deliver attached volume at startup/high-byte entry and attached period at
-  low-byte entry, using the current AUDxDAT holding word. Match DMA request
-  phases, coalesce pending requests, repeat the buffer on underflow, and load
-  late-arriving words on high-byte entry.
-
-- Honour periods below 124 and reload zero as 65,536 CCKs. The recommended
-  DMA sampling period no longer clamps the digital countdown.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-paula-8364-v0.2.0) - 2026-06-04
 

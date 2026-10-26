@@ -1240,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-paula-8364"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "serde",
 ]
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-gi-ay-3-8910"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-mos-6502"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "emu198x-test-skip",
  "serde",
@@ -1802,7 +1802,7 @@ version = "0.44.2"
 
 [[package]]
 name = "emu198x-ricoh-apu-2a03"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "postcard",
  "serde",
