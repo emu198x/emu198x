@@ -1,5 +1,6 @@
 //! Browser-only host boundary over the existing family runtime catalogue.
 //! A feature selects each downloadable family; native tools can enable all.
+use emu198x_pointer::PointerSync;
 use emu198x_shell::{
     ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, InputEvent, MediaKind,
     MediaTransportAction, MediaTransportCommand, NoAdditionalQueries, SessionQueryProvider,
@@ -30,6 +31,31 @@ trait Host {
     fn pixel_aspect_ratio(&self) -> f32;
     fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, String>;
     fn query(&self, path: &str) -> Result<Value, String>;
+    /// Where the guest's own mouse pointer is, in framebuffer pixels, with
+    /// the mouse counts that move it one pixel, or `None` when the machine
+    /// cannot say.
+    fn guest_pointer(&self) -> Option<GuestPointer>;
+}
+
+/// A guest pointer the host can drive: where it is, in framebuffer pixels,
+/// and the mouse counts that move it one pixel across and down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GuestPointer {
+    at: (f64, f64),
+    counts_per_pixel: (f64, f64),
+}
+
+/// The mouse counts that move a guest pointer toward the cursor after a
+/// frame, as a `mouse-1` motion, or `None`. A pointer that has gone stops the
+/// loop, so the page goes back to plain movement.
+fn pointer_correction(sync: &mut PointerSync, guest: Option<GuestPointer>) -> Option<InputEvent> {
+    let scale = guest.map_or((1.0, 1.0), |guest| guest.counts_per_pixel);
+    let (dx, dy) = sync.after_frame(guest.map(|guest| guest.at), scale)?;
+    Some(InputEvent::PointerMotion {
+        device: "mouse-1".into(),
+        dx,
+        dy,
+    })
 }
 /// `Q` answers the family's own query paths. Most families need none; the
 /// Spectrum's tape autoload waits on `boot.detected` and `tape.loaded`.
@@ -88,6 +114,25 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
             .query(path)
             .map(|result| result.value)
             .map_err(|e| e.to_string())
+    }
+    fn guest_pointer(&self) -> Option<GuestPointer> {
+        let runtime = self.web.runtime() as &dyn std::any::Any;
+        #[cfg(feature = "commodore-amiga")]
+        if let Some(r) = runtime.downcast_ref::<runtime_commodore_amiga::AmigaRuntimeKind>() {
+            return r.mouse_pointer().map(|at| GuestPointer {
+                at,
+                counts_per_pixel: r.mouse_counts_per_pixel(),
+            });
+        }
+        #[cfg(feature = "atari-st")]
+        if let Some(r) = runtime.downcast_ref::<runtime_atari_st::AtariStRuntime>() {
+            return r.mouse_pointer().map(|at| GuestPointer {
+                at,
+                counts_per_pixel: r.mouse_counts_per_pixel(),
+            });
+        }
+        let _ = runtime;
+        None
     }
     fn pixel_aspect_ratio(&self) -> f32 {
         let (width, height) = self.web.frame_size();
@@ -355,6 +400,8 @@ pub struct Fleet {
     /// it runs a frame: an Amiga counts its drives as Kickstart starts.
     media: Vec<(String, PendingMedia)>,
     host: Option<Box<dyn Host>>,
+    /// Keeps the guest's own mouse pointer under the page's cursor.
+    pointer: PointerSync,
 }
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl Fleet {
@@ -375,6 +422,7 @@ impl Fleet {
             firmware: BTreeMap::new(),
             media: Vec::new(),
             host: None,
+            pointer: PointerSync::default(),
         })
     }
     /// Supplies a named image before boot. The runtime validates its contents.
@@ -404,6 +452,7 @@ impl Fleet {
         }
         self.media.clear();
         self.host = Some(host);
+        self.pointer.reset();
         Ok(())
     }
     /// Advances wall-clock time.
@@ -411,7 +460,48 @@ impl Fleet {
     /// # Errors
     /// fails if unbooted or execution fails.
     pub fn advance(&mut self, elapsed: f64) -> Result<u32, String> {
-        self.host_mut()?.advance(elapsed)
+        let host = self.host.as_deref_mut().ok_or("boot the machine first")?;
+        let frames = host.advance(elapsed)?;
+        if frames > 0
+            && let Some(event) = pointer_correction(&mut self.pointer, host.guest_pointer())
+        {
+            host.input(event);
+        }
+        Ok(frames)
+    }
+    /// Where the guest's own mouse pointer is, `[x, y]` in framebuffer
+    /// pixels, or `None` when the machine cannot say: no pointer on screen,
+    /// or none it can find. While it is known, the page can hide its cursor
+    /// over the screen and send [`pointer_target`](Self::pointer_target)
+    /// instead of captured movement.
+    ///
+    /// # Errors
+    /// requires a booted machine.
+    pub fn guest_pointer(&self) -> Result<Option<Vec<f64>>, String> {
+        Ok(self
+            .host_ref()?
+            .guest_pointer()
+            .map(|guest| vec![guest.at.0, guest.at.1]))
+    }
+    /// The page's cursor is at `x`, `y` in framebuffer pixels. While the
+    /// guest pointer is known, each `advance` sends the mouse counts that
+    /// bring it there. Returns whether it is following, so the page knows to
+    /// fall back to captured movement when it is not.
+    ///
+    /// # Errors
+    /// requires a booted machine.
+    pub fn pointer_target(&mut self, x: f64, y: f64) -> Result<bool, String> {
+        if self.host_ref()?.guest_pointer().is_none() {
+            self.pointer.reset();
+            return Ok(false);
+        }
+        self.pointer.set_target(Some((x, y)));
+        Ok(true)
+    }
+    /// The page's cursor left the screen: the guest pointer stays where it
+    /// is.
+    pub fn pointer_leave(&mut self) {
+        self.pointer.reset();
     }
     /// Steps one frame.
     ///
@@ -586,6 +676,7 @@ impl Fleet {
     /// # Errors
     /// Rejects invalid state or unbooted use.
     pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.pointer.reset();
         self.host_mut()?.restore_state(bytes)
     }
     /// Exports a current disk image, or what has been saved to tape.
@@ -690,5 +781,97 @@ mod media_before_boot_tests {
             .expect("held until boot");
         assert!(machine.boot().is_err());
         assert!(machine.step().is_err(), "a failed boot leaves no machine");
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use super::*;
+
+    const LORES: (f64, f64) = (0.5, 0.5);
+
+    fn at(x: f64, y: f64) -> Option<GuestPointer> {
+        Some(GuestPointer {
+            at: (x, y),
+            counts_per_pixel: LORES,
+        })
+    }
+
+    #[test]
+    fn a_known_pointer_is_moved_toward_the_cursor_in_its_counts() {
+        let mut sync = PointerSync::default();
+        sync.set_target(Some((300.0, 100.0)));
+        // 200 pixels at half a count each is 100 counts; nine tenths of it.
+        assert_eq!(
+            pointer_correction(&mut sync, at(100.0, 100.0)),
+            Some(InputEvent::PointerMotion {
+                device: "mouse-1".into(),
+                dx: 90,
+                dy: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn nothing_is_sent_without_a_cursor_or_a_pointer() {
+        let mut sync = PointerSync::default();
+        assert_eq!(pointer_correction(&mut sync, at(0.0, 0.0)), None);
+        sync.set_target(Some((300.0, 100.0)));
+        assert_eq!(pointer_correction(&mut sync, None), None);
+        assert!(!sync.is_active(), "a vanished pointer stops the loop");
+    }
+}
+
+/// The browser path end to end on EmuTOS, without a browser: the page's
+/// calls in the order it makes them.
+#[cfg(all(test, feature = "atari-st"))]
+mod st_pointer_tests {
+    use super::*;
+
+    fn emutos() -> Option<Vec<u8>> {
+        let home = std::env::var_os("HOME")?;
+        let path = std::path::Path::new(&home).join(".emu198x/test-data/emutos/etos192us.img");
+        std::fs::read(path).ok()
+    }
+
+    #[test]
+    fn gems_pointer_follows_the_page_cursor() {
+        let Some(tos) = emutos() else {
+            emu198x_test_skip::skip!("EmuTOS 192K image not in ~/.emu198x/test-data/emutos");
+        };
+        let mut machine = Fleet::new("atari-st", "520st-pal").expect("variant");
+        machine
+            .firmware(runtime_atari_st::TOS_FIRMWARE_ID, &tos)
+            .expect("TOS");
+        machine.boot().expect("boot");
+        let frame_ms = machine.frame_ms().expect("booted");
+        let run = |machine: &mut Fleet, frames: u32| {
+            for _ in 0..frames {
+                assert_eq!(machine.advance(frame_ms).expect("advance"), 1);
+            }
+        };
+        run(&mut machine, 50 * 12);
+        assert_eq!(machine.guest_pointer().expect("booted"), None);
+        assert!(!machine.pointer_target(400.0, 150.0).expect("booted"));
+        // Captured movement shows GEM's variables are live.
+        for _ in 0..3 {
+            machine.mouse_move(4, 3).expect("booted");
+            run(&mut machine, 1);
+        }
+        assert!(machine.guest_pointer().expect("booted").is_some());
+        for (x, y) in [(400.0, 150.0), (65.0, 29.5), (321.3, 77.7)] {
+            assert!(machine.pointer_target(x, y).expect("booted"));
+            run(&mut machine, 40);
+            let guest = machine.guest_pointer().expect("booted").expect("pointer");
+            // Half a count: one framebuffer pixel across in low resolution.
+            assert!((guest[0] - x).abs() <= 1.0, "x {} for {x}", guest[0]);
+            assert!((guest[1] - y).abs() <= 0.5, "y {} for {y}", guest[1]);
+        }
+        // Leaving stops the loop and leaves the pointer where it is.
+        assert!(machine.pointer_target(10.0, 10.0).expect("booted"));
+        machine.pointer_leave();
+        let before = machine.guest_pointer().expect("booted");
+        run(&mut machine, 10);
+        assert_eq!(machine.guest_pointer().expect("booted"), before);
     }
 }

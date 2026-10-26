@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 emu198x-web = { path = "../emu198x-web", version = "0.44.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-pointer = { path = "../emu198x-pointer", version = "0.44.0" }
 runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.44.0" }
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.44.0" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.44.0" }

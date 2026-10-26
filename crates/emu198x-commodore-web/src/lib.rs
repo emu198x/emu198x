@@ -1,5 +1,6 @@
 //! Firmware-free, canvas-free C64/A500 prototype. The same binding runs natively
 //! for comparison; the browser owns file selection, presentation and workers.
+use emu198x_pointer::PointerSync;
 use emu198x_shell::{InputEvent, MediaKind};
 use emu198x_web::WebMachine;
 use machine_commodore_amiga_ocs::ExtendedRomWindow;
@@ -42,6 +43,8 @@ macro_rules! with_machine {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct Commodore {
     machine: Machine,
+    /// Keeps the Amiga's own mouse pointer under the page's cursor.
+    pointer: PointerSync,
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -60,6 +63,7 @@ impl Commodore {
         .map_err(|e| e.to_string())?;
         Ok(Self {
             machine: Machine::C64(Box::new(WebMachine::new(runtime))),
+            pointer: PointerSync::default(),
         })
     }
 
@@ -92,6 +96,7 @@ impl Commodore {
     /// # Errors
     /// Rejects invalid or incompatible state.
     pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.pointer.reset();
         with_machine!(&mut self.machine, m, m.restore_state(bytes)).map_err(|e| e.to_string())
     }
     /// Exports a working disk image to a new downloadable file.
@@ -114,7 +119,51 @@ impl Commodore {
     /// # Errors
     /// Returns a runtime execution failure.
     pub fn advance(&mut self, elapsed_ms: f64) -> Result<u32, String> {
-        with_machine!(&mut self.machine, m, m.advance(elapsed_ms)).map_err(|e| e.to_string())
+        let frames = with_machine!(&mut self.machine, m, m.advance(elapsed_ms))
+            .map_err(|e| e.to_string())?;
+        if frames > 0
+            && let Machine::Amiga(m) = &mut self.machine
+        {
+            let runtime = m.runtime();
+            let scale = runtime.mouse_counts_per_pixel();
+            if let Some((dx, dy)) = self.pointer.after_frame(runtime.mouse_pointer(), scale) {
+                m.queue_input(InputEvent::PointerMotion {
+                    device: "mouse-1".into(),
+                    dx,
+                    dy,
+                });
+            }
+        }
+        Ok(frames)
+    }
+
+    /// Where the Amiga's own mouse pointer is, `[x, y]` in framebuffer
+    /// pixels, or `None` with no pointer on screen and on the C64. While it
+    /// is known, the page can hide its cursor over the screen and send
+    /// [`pointer_target`](Self::pointer_target) instead of captured movement.
+    pub fn guest_pointer(&self) -> Option<Vec<f64>> {
+        let Machine::Amiga(m) = &self.machine else {
+            return None;
+        };
+        m.runtime().mouse_pointer().map(|(x, y)| vec![x, y])
+    }
+
+    /// The page's cursor is at `x`, `y` in framebuffer pixels. While the
+    /// Amiga's pointer is known, each `advance` sends the mouse counts that
+    /// bring it there. Returns whether it is following, so the page knows to
+    /// fall back to captured movement when it is not.
+    pub fn pointer_target(&mut self, x: f64, y: f64) -> bool {
+        if self.guest_pointer().is_none() {
+            self.pointer.reset();
+            return false;
+        }
+        self.pointer.set_target(Some((x, y)));
+        true
+    }
+
+    /// The page's cursor left the screen: the pointer stays where it is.
+    pub fn pointer_leave(&mut self) {
+        self.pointer.reset();
     }
 
     /// Runs exactly one frame for measurement and native/WASM comparison.
@@ -242,6 +291,7 @@ impl Commodore {
         }
         Ok(Self {
             machine: Machine::Amiga(Box::new(WebMachine::new(AmigaRuntimeKind::Ocs(runtime)))),
+            pointer: PointerSync::default(),
         })
     }
 }
@@ -249,6 +299,15 @@ impl Commodore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_c64_has_no_pointer_to_follow() {
+        let mut machine =
+            Commodore::c64(&[0; 8192], &[0; 8192], &[0; 4096], &[]).expect("valid sizes");
+        assert_eq!(machine.guest_pointer(), None);
+        assert!(!machine.pointer_target(10.0, 10.0));
+        machine.pointer_leave();
+    }
 
     #[test]
     fn malformed_firmware_is_rejected() {
