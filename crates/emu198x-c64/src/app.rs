@@ -83,7 +83,7 @@ pub struct C64 {
     pub autoload_tape: bool,
     pub start_tape: bool,
     /// Accepted for CLI compatibility with the rest of the fleet, but not a
-    /// startup switch: tape fast-load (turbo) is a runtime toggle (F11) shared by
+    /// startup switch: tape fast-load (turbo) is a runtime toggle (Cmd/Ctrl+Shift+F) shared by
     /// every harness system via [`emu198x_ui`], not an initial state. Arming it
     /// from the CLI would mean a new parameter on the shared `emu198x_ui::run`
     /// (all 28 callers) — deliberately declined here, matching the Spectrum.
@@ -191,7 +191,7 @@ impl MachineApp for C64 {
     --autoload-run       after --autoload-disk loads, wait for it and type RUN
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
-    --turbo-tape         (accepted; arm tape fast-load in the UI with F11)
+    --turbo-tape         (accepted; arm tape fast-load in the UI with Cmd/Ctrl+Shift+F)
     --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
     --reu KB             attach a 17xx REU RAM expansion (128, 256, or 512 KiB)
     --supercpu PATH      fit a CMD SuperCPU, booting from the CMD ROM at PATH
@@ -221,8 +221,10 @@ impl MachineApp for C64 {
                          S..E during autoload and the --frames run (headless)
     --trace-limit N      maximum traced events to retain [default: 512] (headless)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F9 / F10 / F11       start / stop tape, toggle tape turbo
-    F12                  hard reset
+    Cmd/Ctrl+T           start / stop tape
+    Cmd/Ctrl+Shift+F     toggle tape turbo
+    Cmd/Ctrl+Shift+R     hard reset
+    Cmd/Ctrl+P           pause / resume
     Cmd/Ctrl+S / +L      quick save / load state
     Page Up              toggle arrow/space joystick mode for gameport 2
     Arrow keys           C64 cursor keys

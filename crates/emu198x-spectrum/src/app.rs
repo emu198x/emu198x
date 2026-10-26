@@ -140,7 +140,7 @@ pub struct Spectrum {
     /// Run the BASIC autoload sequence on `tape-1` once boot is detected.
     pub autoload_tape: bool,
     /// `--turbo-tape`: accepted for compatibility; fast-load is armed in
-    /// the window with F11.
+    /// the window with Cmd/Ctrl+Shift+F.
     pub turbo_tape: bool,
     /// `--kempston-mouse`: capture the host mouse as a Kempston mouse on
     /// the machines that host one (16K, 48K, +, 128K, +2).
@@ -233,7 +233,7 @@ impl MachineApp for Spectrum {
                     the same)
     --play-tape     start tape transport on tape-1 immediately
     --autoload-tape wait for boot, type LOAD \"\", and start tape-1
-    --turbo-tape    (accepted; arm fast-load in the UI with F11)
+    --turbo-tape    (accepted; arm fast-load in the UI with Cmd/Ctrl+Shift+F)
     --kempston-mouse  capture the host mouse as a Kempston mouse
                     (16K, 48K, +, 128K and +2)
     --multiface PATH
@@ -250,11 +250,13 @@ impl MachineApp for Spectrum {
     --sd-card PATH  a raw SD card image, a whole number of 512 KB, for the
                     DivMMC; needs --divmmc";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
+    Cmd/Ctrl+T         start / stop tape
+    Cmd/Ctrl+Shift+F   toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
     Cmd/Ctrl+Shift+K  toggle Host / Original keyboard (also Machine → Keyboard)
     Home / Pause      EDIT / BREAK in Host keyboard mode
-    F12                hard reset
+    Cmd/Ctrl+Shift+R   hard reset
+    Cmd/Ctrl+P         pause / resume
     Cmd/Ctrl+S / +L    quick save / load state
     F5                 Multiface red button (NMI), with --multiface
     Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)

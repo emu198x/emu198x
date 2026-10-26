@@ -42,7 +42,8 @@ impl MachineApp for ColecoVision {
     --model ID      coleco-colecovision-ntsc | coleco-colecovision-pal
     --region MODE   ntsc | pal [default: ntsc]; last selector wins";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      joystick (player 1)
     Z / X           left and right fire buttons
     0-9             numeric keypad

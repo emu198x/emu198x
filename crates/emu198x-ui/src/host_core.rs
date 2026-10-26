@@ -15,6 +15,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use emu198x_native_video::PresentationProfile;
+use emu198x_shell::commands::{CATALOGUE, ShortcutKey};
 use emu198x_shell::{
     CapturedFrame, ControlCommand, HostIo, InputEvent, LatestFrameCapture, MachineCore, MediaKind,
     MediaTransportAction, MediaTransportCommand, NativeAudioOutput, NativeGamepadInput,
@@ -33,6 +34,8 @@ const MAX_AUDIO_BUFFER_MS: u32 = 250;
 /// Frames per tick while fast-loading a tape (turbo): run unthrottled in
 /// bounded bursts so the loader races ahead but the window stays responsive.
 const MAX_TURBO_FRAMES: u32 = 32;
+/// How often a paused core checks for queued commands, such as Resume.
+const PAUSED_WAKE: Duration = Duration::from_millis(100);
 
 /// A menu check mark the core has changed, for the shell to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +46,7 @@ pub(crate) enum MenuSync<'a> {
     PortDrive { device: u8, kind_id: &'a str },
     Turbo(bool),
     HostKeyboard(bool),
+    Paused(bool),
 }
 
 /// How serious a message box is.
@@ -178,10 +182,13 @@ pub(crate) struct HostCore<S: UiSystem> {
     gamepads: NativeGamepadInput,
     pub(crate) presentation: PresentationProfile,
     pub(crate) halt_message: Option<String>,
-    /// Tape fast-load (turbo) armed by the user (F11 / Tape → Fast-Forward
-    /// While Playing). Only races ahead while [`UiSystem::tape_playing`] is
+    /// Tape fast-load (turbo) armed by the user (Cmd/Ctrl+Shift+F / Tape →
+    /// Fast-Forward While Playing). Only races ahead while [`UiSystem::tape_playing`] is
     /// also true.
     turbo_armed: bool,
+    /// Paused by the user (Cmd/Ctrl+P / Machine → Pause): the machine does not
+    /// advance until resumed.
+    paused: bool,
     /// Command channel shared by menu clicks and keyboard shortcuts; drained at
     /// the frame boundary so an action never tears down state mid-frame.
     command_tx: Sender<AppCommand>,
@@ -229,6 +236,7 @@ impl<S: UiSystem> HostCore<S> {
             presentation,
             halt_message: None,
             turbo_armed: false,
+            paused: false,
             command_tx,
             command_rx,
         }
@@ -263,6 +271,10 @@ impl<S: UiSystem> HostCore<S> {
         // action never tears down state the current frame is using.
         while let Ok(command) = self.command_rx.try_recv() {
             self.handle_command(shell, command)?;
+        }
+        if self.paused {
+            // Nothing runs; input events wake the window sooner than this.
+            return Ok(Wake::At(Instant::now() + PAUSED_WAKE));
         }
         if self.advance_machine()? {
             shell.request_redraw();
@@ -379,9 +391,13 @@ impl<S: UiSystem> HostCore<S> {
         Ok(frame_completed)
     }
 
-    /// The window title: the system's, plus any keyboard notice or mode.
+    /// The window title: the system's, plus whether it is paused and any
+    /// keyboard notice or mode.
     pub(crate) fn window_title(&self) -> String {
-        let title = self.system.window_title();
+        let mut title = self.system.window_title();
+        if self.paused {
+            title.push_str(" — Paused");
+        }
         if let Some(notice) = &self.keyboard_notice {
             return format!("{title} — {notice}");
         }
@@ -815,82 +831,50 @@ impl<S: UiSystem> HostCore<S> {
         Ok(())
     }
 
-    /// Returns `true` if the key was consumed as a UI shortcut (harness F12,
-    /// the Cmd/Ctrl+S / +L save-state chords, or a per-system
-    /// [`UiSystem::handle_key`] shortcut), so it isn't also routed to the
-    /// machine.
+    /// Returns `true` if the key was consumed as a UI shortcut (a catalogue
+    /// shortcut this machine offers, or a per-system [`UiSystem::handle_key`]
+    /// shortcut), so it isn't also routed to the machine. Catalogue shortcuts
+    /// go through the command channel, so a shortcut and its menu item run the
+    /// same handler.
     fn handle_shortcut(&mut self, code: KeyCode, pressed: bool) -> bool {
-        if self.system.supports_host_keyboard()
-            && code == KeyCode::KeyK
-            && !self.modifiers.alt_key()
-            && self.modifiers.shift_key()
-            && (self.modifiers.super_key() || self.modifiers.control_key())
+        if let Some(id) = catalogue_shortcut(self.modifiers, code)
+            && let Some(command) = self.shortcut_command(id)
         {
             if pressed {
-                let _ = self
-                    .command_tx
-                    .send(AppCommand::SetHostKeyboard(!self.host_keyboard));
+                let _ = self.command_tx.send(command);
             }
             return true;
         }
-        if self.system.tape_export_filter().is_some() && tape_export_chord(self.modifiers, code) {
-            if pressed {
-                let _ = self.command_tx.send(AppCommand::ExportTape);
-            }
-            return true;
-        }
-        // Save-state chords. Gated on a host modifier (Cmd on macOS, Ctrl
-        // elsewhere) so they never shadow the bare S / L keys the machine
-        // keyboard uses, nor the F1-F10 function keys the home computers map.
-        // Routed through the command channel so the chord and the State menu
-        // run the identical handler.
-        match state_chord_action(self.modifiers, code, pressed) {
-            Some(StateAction::Save) => {
-                let _ = self.command_tx.send(AppCommand::QuickSave);
-                return true;
-            }
-            Some(StateAction::Load) => {
-                let _ = self.command_tx.send(AppCommand::QuickLoad);
-                return true;
-            }
-            None => {}
-        }
-        // Tape transport: F9 play / F10 stop / F11 toggle fast-load — but only
-        // for a system that has a tape slot, and only for a key the system
-        // doesn't itself map (so non-tape machines, and tape machines that use
-        // F9-F11 as keys, keep them). Routed through the command channel so the
-        // Tape menu and these shortcuts share one handler.
-        if let Some(shortcut) = tape_transport_shortcut(code)
-            && self.system.map_keys(code).is_none()
-            && let Some(slot) = self.tape_slot()
-        {
-            if pressed {
-                let _ = self.command_tx.send(match shortcut {
-                    TapeShortcut::Play => AppCommand::MediaTransport {
-                        slot,
-                        action: MediaTransportAction::Start,
-                    },
-                    TapeShortcut::Stop => AppCommand::MediaTransport {
-                        slot,
-                        action: MediaTransportAction::Stop,
-                    },
-                    TapeShortcut::ToggleTurbo => AppCommand::ToggleTurbo,
-                });
-            }
-            return true;
-        }
-        match code {
-            // Reset goes through the same `AppCommand::Reset` the Machine menu
-            // emits, so menu and shortcut share one path.
-            KeyCode::F12 => {
-                if pressed {
-                    let _ = self.command_tx.send(AppCommand::Reset);
-                }
-                true
-            }
-            _ => self
+        self.system
+            .handle_key(&mut self.runner.runtime, code, pressed)
+    }
+
+    /// The command a catalogue shortcut runs on this machine, or `None` when
+    /// the machine does not offer it, so the key goes to the machine instead.
+    fn shortcut_command(&self, id: &str) -> Option<AppCommand> {
+        match id {
+            "machine.pause" => Some(AppCommand::TogglePause),
+            "machine.reset" => Some(AppCommand::Reset),
+            "machine.keyboard.host" => self
                 .system
-                .handle_key(&mut self.runner.runtime, code, pressed),
+                .supports_host_keyboard()
+                .then_some(AppCommand::SetHostKeyboard(!self.host_keyboard)),
+            "media.tape.play" => self.tape_slot().map(|slot| AppCommand::MediaTransport {
+                slot,
+                action: if self.system.tape_playing(&self.runner.runtime) {
+                    MediaTransportAction::Stop
+                } else {
+                    MediaTransportAction::Start
+                },
+            }),
+            "media.tape.fast-forward" => self.tape_slot().map(|_| AppCommand::ToggleTurbo),
+            "media.tape.export" => self
+                .system
+                .tape_export_filter()
+                .map(|_| AppCommand::ExportTape),
+            "state.quick-save" => Some(AppCommand::QuickSave),
+            "state.quick-load" => Some(AppCommand::QuickLoad),
+            _ => None,
         }
     }
 
@@ -918,6 +902,7 @@ impl<S: UiSystem> HostCore<S> {
             AppCommand::OpenState => self.open_state(shell)?,
             AppCommand::SaveState => self.save_state(shell),
             AppCommand::ExportTape => self.export_tape(shell),
+            AppCommand::TogglePause => self.toggle_pause(shell),
             AppCommand::SetHostKeyboard(enabled) => {
                 self.release_all_keys();
                 self.keyboard_notice = None;
@@ -927,6 +912,20 @@ impl<S: UiSystem> HostCore<S> {
             }
         }
         Ok(())
+    }
+
+    /// Machine → Pause (or Cmd/Ctrl+P): stop or restart the machine. Held keys
+    /// are let go, so none is stuck down on resume, and pacing restarts from
+    /// the resume rather than racing to catch up the paused time.
+    fn toggle_pause(&mut self, shell: &mut impl Shell) {
+        self.paused = !self.paused;
+        self.release_all_keys();
+        if !self.paused {
+            self.restart_pacing();
+        }
+        shell.sync_menu(MenuSync::Paused(self.paused));
+        shell.set_title(&self.window_title());
+        println!("pause: {}", if self.paused { "paused" } else { "resumed" });
     }
 
     /// File → Open State…: ask for a file in the system's state formats, hand
@@ -1052,7 +1051,7 @@ impl<S: UiSystem> HostCore<S> {
         self.turbo_armed && self.system.tape_playing(&self.runner.runtime)
     }
 
-    /// Tape → Play / Stop (or F9 / F10): issue a transport command to the slot.
+    /// Tape → Play / Stop (or Cmd/Ctrl+T): issue a transport command to the slot.
     /// A rejected command is logged, never fatal; the running pacing loop picks
     /// up the new tape state on the next tick.
     fn media_transport(&mut self, slot: &str, action: MediaTransportAction) {
@@ -1063,7 +1062,7 @@ impl<S: UiSystem> HostCore<S> {
         }
     }
 
-    /// Tape → Fast-Forward While Playing (or F11): arm/disarm turbo. It only
+    /// Tape → Fast-Forward While Playing (or Cmd/Ctrl+Shift+F): arm/disarm turbo. It only
     /// races while a tape is playing ([`Self::turbo_active`]); a fresh
     /// baseline keeps pacing smooth when it turns off mid-load.
     fn toggle_turbo(&mut self, shell: &mut impl Shell) {
@@ -1316,57 +1315,74 @@ impl<S: UiSystem> HostCore<S> {
     }
 }
 
-pub(crate) fn tape_export_chord(modifiers: ModifiersState, code: KeyCode) -> bool {
-    code == KeyCode::KeyE
-        && modifiers.shift_key()
-        && (modifiers.super_key() || modifiers.control_key())
-        && !modifiers.alt_key()
-}
-
-/// A tape-transport action a function key maps to (only honoured on a system
-/// that has a tape slot and doesn't itself use the key).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TapeShortcut {
-    Play,
-    Stop,
-    ToggleTurbo,
-}
-
-/// The tape-transport shortcut for a key, if any: F9 play, F10 stop, F11
-/// toggle fast-load — matching the Spectrum/C64 bespoke runners.
-pub(crate) fn tape_transport_shortcut(code: KeyCode) -> Option<TapeShortcut> {
-    match code {
-        KeyCode::F9 => Some(TapeShortcut::Play),
-        KeyCode::F10 => Some(TapeShortcut::Stop),
-        KeyCode::F11 => Some(TapeShortcut::ToggleTurbo),
-        _ => None,
-    }
-}
-
-/// A save-state action a key event maps to, once the modifier gating is
-/// applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StateAction {
-    Save,
-    Load,
-}
-
-/// Decide whether a key event is a save-state chord. The chord fires only on
-/// key-*down* with Cmd (macOS) or Ctrl (elsewhere) held — never on a bare key,
-/// so the machine keyboard keeps its S / L and F-keys, and never on release.
-pub(crate) fn state_chord_action(
-    modifiers: ModifiersState,
-    code: KeyCode,
-    pressed: bool,
-) -> Option<StateAction> {
-    if !pressed || modifiers.alt_key() || !(modifiers.super_key() || modifiers.control_key()) {
+/// The catalogue command whose shortcut this key chord is, if any.
+///
+/// The host modifier is Command or Control, so a Mac keyboard and a PC
+/// keyboard both work everywhere; Shift must match the shortcut exactly, and
+/// Alt must be up. Every catalogue shortcut holds the host modifier, so a
+/// bare key never matches and always reaches the machine.
+pub(crate) fn catalogue_shortcut(modifiers: ModifiersState, code: KeyCode) -> Option<&'static str> {
+    if modifiers.alt_key() || !(modifiers.super_key() || modifiers.control_key()) {
         return None;
     }
-    match code {
-        KeyCode::KeyS => Some(StateAction::Save),
-        KeyCode::KeyL => Some(StateAction::Load),
-        _ => None,
-    }
+    CATALOGUE.iter().find_map(|spec| {
+        let shortcut = spec.shortcut?;
+        (shortcut.host
+            && shortcut.shift == modifiers.shift_key()
+            && shortcut_key_code(shortcut.key) == Some(code))
+        .then_some(spec.id)
+    })
+}
+
+/// The winit key for a catalogue shortcut key.
+pub(crate) fn shortcut_key_code(key: ShortcutKey) -> Option<KeyCode> {
+    Some(match key {
+        ShortcutKey::Letter(letter) => match letter.to_ascii_uppercase() {
+            'A' => KeyCode::KeyA,
+            'B' => KeyCode::KeyB,
+            'C' => KeyCode::KeyC,
+            'D' => KeyCode::KeyD,
+            'E' => KeyCode::KeyE,
+            'F' => KeyCode::KeyF,
+            'G' => KeyCode::KeyG,
+            'H' => KeyCode::KeyH,
+            'I' => KeyCode::KeyI,
+            'J' => KeyCode::KeyJ,
+            'K' => KeyCode::KeyK,
+            'L' => KeyCode::KeyL,
+            'M' => KeyCode::KeyM,
+            'N' => KeyCode::KeyN,
+            'O' => KeyCode::KeyO,
+            'P' => KeyCode::KeyP,
+            'Q' => KeyCode::KeyQ,
+            'R' => KeyCode::KeyR,
+            'S' => KeyCode::KeyS,
+            'T' => KeyCode::KeyT,
+            'U' => KeyCode::KeyU,
+            'V' => KeyCode::KeyV,
+            'W' => KeyCode::KeyW,
+            'X' => KeyCode::KeyX,
+            'Y' => KeyCode::KeyY,
+            'Z' => KeyCode::KeyZ,
+            _ => return None,
+        },
+        ShortcutKey::Function(n) => match n {
+            1 => KeyCode::F1,
+            2 => KeyCode::F2,
+            3 => KeyCode::F3,
+            4 => KeyCode::F4,
+            5 => KeyCode::F5,
+            6 => KeyCode::F6,
+            7 => KeyCode::F7,
+            8 => KeyCode::F8,
+            9 => KeyCode::F9,
+            10 => KeyCode::F10,
+            11 => KeyCode::F11,
+            12 => KeyCode::F12,
+            _ => return None,
+        },
+        _ => return None,
+    })
 }
 
 /// File-dialog filter (label + extensions) for a media kind. Extensions are a

@@ -93,7 +93,8 @@ impl MachineApp for Msx {
     --mapper2 KIND  slot-2 mapper [default: plain]
     --region MODE   ntsc | pal [default: ntsc]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the MSX keyboard (cursor keys are real MSX keys)
     Shift / Ctrl    the MSX SHIFT / CTRL keys (Alt = GRAPH)
     Gamepad         joystick (player 1)";

@@ -285,8 +285,10 @@ Headless harness (each of these selects headless mode; --frames is not accepted)
     --xroar-timeout-seconds N
                        hard XRoar run timeout in emulated seconds [default: 45]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F9 / F10 / F11   start / stop tape, toggle fast-load (turbo)
-    F12              hard reset
+    Cmd/Ctrl+T       start / stop tape
+    Cmd/Ctrl+Shift+F  toggle fast-load (turbo)
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P       pause / resume
     Cmd/Ctrl+S / +L  quick save / load state
     A-Z, 0-9         Dragon keyboard keys
     @ : ; , - . /    Dragon punctuation keys (shifted symbols via host Shift)

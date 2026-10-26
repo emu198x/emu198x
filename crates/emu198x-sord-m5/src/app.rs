@@ -38,7 +38,8 @@ impl MachineApp for SordM5 {
     --region MODE   ntsc | pal [default: ntsc]; last selector wins
     --cart PATH     cartridge ROM (optional)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the M5 keyboard
     Shift / Ctrl    the M5 SHIFT / CONTROL keys (Tab = FUNC)
     Gamepad         joystick (player 1, directions)";

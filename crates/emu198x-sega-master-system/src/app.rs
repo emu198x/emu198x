@@ -47,7 +47,8 @@ impl MachineApp for MasterSystem {
     --variant KIND  sms-ntsc | sms-japan-ntsc | sms-pal | sms1-ntsc | sms1-pal [default: sms-ntsc]
                     sms1 selects the early 315-5124 VDP";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      d-pad (player 1)
     Z / X           buttons 1 and 2
     Enter           Pause";

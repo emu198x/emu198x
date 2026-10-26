@@ -28,7 +28,8 @@ impl MachineApp for Atari5200 {
     --rom-dir DIR   BIOS directory (or set EMU198X_A5200_ROM_DIR)
     --region MODE   ntsc (the only standard the 5200 shipped in) [default: ntsc]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      analogue stick (player 1)
     Z / X           fire
     Enter           Start    Backspace  Pause    Delete  Reset (keypad)

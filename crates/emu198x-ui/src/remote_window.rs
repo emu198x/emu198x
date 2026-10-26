@@ -427,6 +427,7 @@ impl Shell for RemoteShell {
             },
             MenuSync::Turbo(armed) => MarkChange::Turbo(armed),
             MenuSync::HostKeyboard(host) => MarkChange::HostKeyboard(host),
+            MenuSync::Paused(paused) => MarkChange::Paused(paused),
         };
         self.send(&ToWindow::Mark(mark));
     }

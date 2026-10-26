@@ -34,7 +34,8 @@ impl MachineApp for Sg1000 {
     --model ID      sega-sg-1000-ntsc | sega-sg-1000-pal
     --region MODE   ntsc | pal [default: ntsc]; last selector wins";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      d-pad (player 1)
     Z / X           buttons 1 and 2
     Enter           Pause";

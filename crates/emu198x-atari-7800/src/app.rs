@@ -27,7 +27,8 @@ impl MachineApp for Atari7800 {
     --model ID      atari-7800-ntsc | atari-7800-pal
     --region MODE   ntsc | pal [default: ntsc]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      joystick (player 1)
     Z / X           fire buttons 1 and 2
     Enter           console Select

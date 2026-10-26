@@ -37,7 +37,8 @@ impl MachineApp for Aquarius {
     --expansion-kb N
                     RAM expansion in KB (0..=16) [default: 0]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the Aquarius keyboard
     Shift / Ctrl    the two Aquarius shift keys
     Arrow keys      hand controller disc (player 1)

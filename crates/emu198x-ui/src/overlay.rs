@@ -21,7 +21,11 @@ const GLYPH_W: u32 = 6; // 5px cell + 1px gap
 const GLYPH_H: u32 = 8;
 
 const HEADER_TEXT: &str = "EMULATION HALTED";
-const HINT_TEXT: &str = "F12 RESET  CLOSE TO QUIT";
+/// The reset shortcut, the catalogue's `machine.reset`, then how to quit.
+#[cfg(target_os = "macos")]
+const HINT_PARTS: [&str; 2] = ["SHIFT+CMD+R RESET", "CLOSE TO QUIT"];
+#[cfg(not(target_os = "macos"))]
+const HINT_PARTS: [&str; 2] = ["CTRL+SHIFT+R RESET", "CLOSE TO QUIT"];
 
 /// Builds an RGBA8888 overlay frame of `width`x`height` showing `message`,
 /// word-wrapped and centred under a header, with a reset/quit hint.
@@ -38,7 +42,9 @@ pub fn build_halt_overlay(width: u32, height: u32, message: &str) -> Vec<u8> {
     let max_cols = ((width / (GLYPH_W * scale)).max(1)).saturating_sub(1) as usize;
 
     let wrapped = wrap(message, max_cols.max(1));
-    let total_lines = 1 + 1 + wrapped.len() as u32 + 1 + 1; // header, gap, body…, gap, hint
+    let hint = hint_lines(max_cols.max(1));
+    // header, gap, body…, gap, hint…
+    let total_lines = 1 + 1 + wrapped.len() as u32 + 1 + hint.len() as u32;
     let block_h = total_lines * line_h;
     let mut y = (height.saturating_sub(block_h)) / 2;
 
@@ -58,9 +64,25 @@ pub fn build_halt_overlay(width: u32, height: u32, message: &str) -> Vec<u8> {
         y += line_h;
     }
     y += line_h;
-    canvas.draw_centered(y, HINT_TEXT, HINT, scale);
+    for line in &hint {
+        canvas.draw_centered(y, line, HINT, scale);
+        y += line_h;
+    }
 
     buf
+}
+
+/// The hint on one line where it fits, else a line per part.
+fn hint_lines(max_cols: usize) -> Vec<String> {
+    let one_line = HINT_PARTS.join("  ");
+    if one_line.len() <= max_cols {
+        vec![one_line]
+    } else {
+        HINT_PARTS
+            .iter()
+            .flat_map(|part| wrap(part, max_cols))
+            .collect()
+    }
 }
 
 /// Greedy word-wrap to `max_cols` columns (uppercased).
@@ -189,6 +211,7 @@ fn glyph(c: char) -> [u8; 8] {
         '!' => [0x20, 0x20, 0x20, 0x20, 0x20, 0x00, 0x20, 0x00],
         '?' => [0x70, 0x88, 0x08, 0x10, 0x20, 0x00, 0x20, 0x00],
         '/' => [0x08, 0x08, 0x10, 0x20, 0x40, 0x80, 0x80, 0x00],
+        '+' => [0x00, 0x20, 0x20, 0xF8, 0x20, 0x20, 0x00, 0x00],
         _ => [0x00; 8], // space + unknown
     }
 }
@@ -220,6 +243,19 @@ mod tests {
                 assert_ne!(glyph(ch), [0x00; 8], "missing glyph for {ch:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_hint_names_the_reset_shortcut_in_glyphs_the_font_has() {
+        for hint in ["SHIFT+CMD+R RESET", "CTRL+SHIFT+R RESET", "CLOSE TO QUIT"] {
+            for ch in hint.chars().filter(|ch| *ch != ' ') {
+                assert_ne!(glyph(ch), [0x00; 8], "missing glyph for {ch:?}");
+            }
+        }
+        // A wide frame takes it on one line; a 160-pixel one, 25 columns,
+        // takes a line per part rather than running off the edge.
+        assert_eq!(hint_lines(80).len(), 1);
+        assert_eq!(hint_lines(25), HINT_PARTS.map(String::from));
     }
 
     #[test]

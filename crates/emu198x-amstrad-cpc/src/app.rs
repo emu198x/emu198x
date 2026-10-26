@@ -72,7 +72,8 @@ impl MachineApp for Cpc {
                     motor itself, so playback follows the firmware rather
                     than a host transport control.";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the CPC keyboard
     Shift / Ctrl    the CPC SHIFT / CONTROL keys
     Arrows          the CPC cursor keys

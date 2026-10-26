@@ -39,7 +39,8 @@ impl MachineApp for Svi328 {
     --cart PATH     cartridge ROM (up to 16 KB at $8000-$BFFF)
     --bios PATH     legacy alias for the system firmware path";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the SVI-328 keyboard (cursor keys are real SVI keys)
     Shift / Ctrl    the SVI SHIFT / CTRL keys (Alt = GRAPH/CODE)
     Gamepad         joystick (player 1)";

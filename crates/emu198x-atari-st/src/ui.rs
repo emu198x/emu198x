@@ -256,7 +256,7 @@ mod tests {
     fn keys_map_to_names_the_runtime_knows() {
         assert_eq!(map_st_key(KeyCode::KeyA), Some(&["a"][..]));
         assert_eq!(map_st_key(KeyCode::PageUp), Some(&["help"][..]));
-        assert_eq!(map_st_key(KeyCode::F12), None, "F12 is the harness's reset");
+        assert_eq!(map_st_key(KeyCode::F12), None, "F12 is not an ST key");
         let system = AtariStSystem {
             model: Model::St520Pal,
             firmware: FirmwareOverrides::none(),

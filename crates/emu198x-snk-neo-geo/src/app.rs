@@ -88,7 +88,8 @@ impl MachineApp for NeoGeo {
                     of its files, or a bare P-ROM (a bare PATH is
                     accepted too)";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             emulator hard reset
+    Cmd/Ctrl+Shift+R  emulator hard reset
+    Cmd/Ctrl+P      pause / resume
     Arrow keys      joystick (player 1)
     Z / X / C / V   A, B, C and D
     Enter           Start

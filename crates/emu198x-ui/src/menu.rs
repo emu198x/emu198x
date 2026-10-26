@@ -69,7 +69,7 @@ pub const FILTER_OPTIONS: &[VideoFilter] = &[
 /// these (see `crate::window_protocol`).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AppCommand {
-    /// Hard-reset the machine (menu Machine → Reset, or the F12 shortcut).
+    /// Hard-reset the machine (menu Machine → Reset, or Cmd/Ctrl+Shift+R).
     Reset,
     /// Quick-save to the machine's slot (menu State → Save, or Cmd/Ctrl+S).
     QuickSave,
@@ -99,13 +99,13 @@ pub enum AppCommand {
         kind_id: Cow<'static, str>,
     },
     /// Start/stop the transport for a media slot (menu Tape → Play / Stop, or
-    /// the F9 / F10 shortcuts).
+    /// Cmd/Ctrl+T, which plays a stopped tape and stops a playing one).
     MediaTransport {
         slot: Cow<'static, str>,
         action: MediaTransportAction,
     },
     /// Toggle tape fast-load / turbo (menu Tape → Fast-Forward While
-    /// Playing, or F11).
+    /// Playing, or Cmd/Ctrl+Shift+F).
     ToggleTurbo,
     /// Open a file dialog and load an arbitrary state/snapshot file
     /// (menu File → Open State…), parsed by the system itself.
@@ -119,6 +119,8 @@ pub enum AppCommand {
     ExportTape,
     /// Select host-character translation or original key mapping.
     SetHostKeyboard(bool),
+    /// Pause or resume the machine (menu Machine → Pause, or Cmd/Ctrl+P).
+    TogglePause,
 }
 
 // Only the tests read these so far. The GTK4 host will route by them.
@@ -151,6 +153,7 @@ impl AppCommand {
             Self::ExportTape => "media.tape.export",
             Self::SetHostKeyboard(true) => "machine.keyboard.host",
             Self::SetHostKeyboard(false) => "machine.keyboard.original",
+            Self::TogglePause => "machine.pause",
         }
     }
 }
@@ -196,6 +199,8 @@ pub struct AppMenu {
     /// can follow the turbo state. `None` when the machine has no tape slot
     /// (no Tape menu).
     turbo_item: Option<CheckMenuItem>,
+    /// Machine → Pause, ticked while the machine is paused.
+    pause_item: CheckMenuItem,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -353,6 +358,10 @@ impl AppMenu {
                 .append(&PredefinedMenuItem::separator())
                 .expect("append machine separator");
         }
+        let pause_item =
+            CheckMenuItem::new(expect_command("machine.pause").label, true, false, None);
+        action_map.insert(pause_item.id().clone(), AppCommand::TogglePause);
+        machine_menu.append(&pause_item).expect("append pause");
         let reset_item = MenuItem::new(expect_command("machine.reset").label, true, None);
         action_map.insert(reset_item.id().clone(), AppCommand::Reset);
         machine_menu.append(&reset_item).expect("append reset");
@@ -375,8 +384,8 @@ impl AppMenu {
         }
 
         // Tape → Play / Stop / Fast-Forward While Playing, when the machine has a tape slot. The
-        // transport commands target that slot; the same AppCommands the F9/F10/F11
-        // shortcuts emit, so menu and keys share one path.
+        // transport commands target that slot; the same AppCommands the Cmd/Ctrl+T and
+        // Cmd/Ctrl+Shift+F shortcuts emit, so menu and keys share one path.
         let tape_slot = media_slots
             .iter()
             .find(|slot| slot.kind == MediaKind::Tape)
@@ -489,6 +498,7 @@ impl AppMenu {
             variant_items,
             port_drive_items,
             turbo_item,
+            pause_item,
         }
     }
 
@@ -562,6 +572,11 @@ impl AppMenu {
             item.set_checked(armed);
         }
     }
+
+    /// Tick Machine → Pause while the machine is paused.
+    pub fn set_paused(&self, paused: bool) {
+        self.pause_item.set_checked(paused);
+    }
 }
 
 /// Linux stub: a no-op menu. muda isn't a Linux dependency (see the module
@@ -597,6 +612,8 @@ impl AppMenu {
     pub fn set_current_port_drive(&self, _device: u8, _kind_id: &str) {}
 
     pub fn set_turbo_armed(&self, _armed: bool) {}
+
+    pub fn set_paused(&self, _paused: bool) {}
 }
 
 #[cfg(test)]
@@ -639,6 +656,7 @@ mod tests {
             AppCommand::ExportTape,
             AppCommand::SetHostKeyboard(true),
             AppCommand::SetHostKeyboard(false),
+            AppCommand::TogglePause,
         ]
     }
 

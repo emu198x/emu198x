@@ -157,8 +157,16 @@ pub(crate) fn build(
         machine_menu.append_submenu(Some("Drives"), &drives);
     }
     let reset = gio::Menu::new();
+    reset.append_item(&command_item("machine.pause", "app.pause"));
     reset.append_item(&command_item("machine.reset", "app.reset"));
     machine_menu.append_section(None, &reset);
+    // A check item whose mark the core moves once the pause takes effect.
+    let pause_action = gio::SimpleAction::new_stateful("pause", None, &false.to_variant());
+    let sender = commands.clone();
+    pause_action.connect_activate(move |_, _| {
+        sender.command(AppCommand::TogglePause);
+    });
+    app.add_action(&pause_action);
     add_action(app, "reset", commands, AppCommand::Reset);
     if let Some(host) = machine.host_keyboard {
         let keyboard = gio::Menu::new();
@@ -315,8 +323,8 @@ fn command_item(id: &str, action: &str) -> gio::MenuItem {
 
 /// Show command `id`'s shortcut beside its menu item. The `accel` attribute
 /// only labels the item: the key itself still goes to the core, which
-/// decides whether it is a shortcut or a key for the machine (F9 to F11
-/// stay the machine's on systems that map them).
+/// decides whether it is a shortcut or a key for the machine (Ctrl+T stays
+/// the machine's on a system with no tape slot).
 fn show_shortcut(item: &gio::MenuItem, id: &str) {
     if let Some(shortcut) = expect_command(id).shortcut {
         item.set_attribute_value("accel", Some(&accel_string(shortcut).to_variant()));
@@ -427,11 +435,11 @@ mod tests {
     fn shortcuts_render_in_gtk_accelerator_syntax() {
         // Every shortcut in the catalogue, as GTK's accelerator syntax.
         let expected = [
-            ("machine.reset", "F12"),
+            ("machine.pause", "<Control>p"),
+            ("machine.reset", "<Control><Shift>r"),
             ("machine.keyboard.host", "<Control><Shift>k"),
-            ("media.tape.play", "F9"),
-            ("media.tape.stop", "F10"),
-            ("media.tape.fast-forward", "F11"),
+            ("media.tape.play", "<Control>t"),
+            ("media.tape.fast-forward", "<Control><Shift>f"),
             ("media.tape.export", "<Control><Shift>e"),
             ("state.quick-save", "<Control>s"),
             ("state.quick-load", "<Control>l"),

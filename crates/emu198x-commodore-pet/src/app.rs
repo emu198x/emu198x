@@ -46,7 +46,8 @@ impl MachineApp for CommodorePet {
     --columns N     40 or 80 [default: 40]
     --prg PATH      load a .prg after boot and auto-RUN it";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the PET keyboard
     Enter           RETURN";
 

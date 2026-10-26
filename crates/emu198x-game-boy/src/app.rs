@@ -232,7 +232,8 @@ impl MachineApp for GameBoy {
     --battery-save PATH     load/write cartridge battery RAM sidecar
     --no-battery-save       disable automatic .sav load/write";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     1-4             toggle audio channels: pulse1, pulse2, wave, noise
     5-8             cycle channel gain: 100%, 50%, 25%, muted
     0               reset audio channel controls

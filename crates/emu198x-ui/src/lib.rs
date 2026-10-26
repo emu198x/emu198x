@@ -6,7 +6,8 @@
 //! runner supplies a small [`UiSystem`] descriptor (its runtime, framebuffer
 //! size, frame timing, button map, and key map) and calls [`run`] to get a
 //! native window with `raw`/`lcd`/`crt` video filters, framed audio, gamepad
-//! input, F12-reset, Cmd/Ctrl+S / +L quick save-states, and a native
+//! input, the command catalogue's shortcuts (Cmd/Ctrl+P pause,
+//! Cmd/Ctrl+Shift+R reset, Cmd/Ctrl+S / +L quick save-states and the rest), and a native
 //! menu bar (App / File / Machine / State / View; see [`menu`]).
 //!
 //! The File menu's media open is built from each machine's declared media
@@ -236,7 +237,7 @@ pub trait UiSystem {
         Ok(())
     }
 
-    /// Hook for per-system key shortcuts beyond the harness's Esc/F12 — e.g.
+    /// Hook for per-system key shortcuts beyond the catalogue's — e.g.
     /// audio-channel debug toggles. Called on key-down and key-up for any key
     /// the harness doesn't itself own, *before* it's treated as a controller
     /// button; return `true` to consume it (so it isn't also routed through the
@@ -524,6 +525,7 @@ impl Shell for WinitShell<'_> {
             }
             MenuSync::Turbo(armed) => self.menu.set_turbo_armed(armed),
             MenuSync::HostKeyboard(enabled) => self.menu.set_host_keyboard(enabled),
+            MenuSync::Paused(paused) => self.menu.set_paused(paused),
         }
     }
 
@@ -923,34 +925,9 @@ fn run_host<S: UiSystem + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host_core::{
-        StateAction, TapeShortcut, media_filter, slot_file_name, state_chord_action,
-        tape_export_chord, tape_transport_shortcut,
-    };
+    use crate::host_core::{catalogue_shortcut, media_filter, shortcut_key_code, slot_file_name};
     use emu198x_shell::MediaKind;
     use winit::keyboard::ModifiersState;
-
-    #[test]
-    fn tape_export_requires_an_explicit_host_chord() {
-        assert!(tape_export_chord(
-            ModifiersState::SUPER | ModifiersState::SHIFT,
-            KeyCode::KeyE
-        ));
-        assert!(tape_export_chord(
-            ModifiersState::CONTROL | ModifiersState::SHIFT,
-            KeyCode::KeyE
-        ));
-        assert!(!tape_export_chord(ModifiersState::empty(), KeyCode::KeyE));
-        assert!(!tape_export_chord(ModifiersState::CONTROL, KeyCode::KeyE));
-        assert!(!tape_export_chord(
-            ModifiersState::ALT | ModifiersState::SHIFT,
-            KeyCode::KeyE
-        ));
-        assert!(!tape_export_chord(
-            ModifiersState::CONTROL | ModifiersState::SHIFT,
-            KeyCode::KeyS
-        ));
-    }
 
     #[test]
     fn slot_file_name_keeps_safe_chars_and_adds_extension() {
@@ -991,93 +968,6 @@ mod tests {
     }
 
     #[test]
-    fn tape_transport_shortcuts_match_the_bespoke_runners() {
-        // F9 play / F10 stop / F11 turbo — the Spectrum/C64 layout.
-        assert_eq!(
-            tape_transport_shortcut(KeyCode::F9),
-            Some(TapeShortcut::Play)
-        );
-        assert_eq!(
-            tape_transport_shortcut(KeyCode::F10),
-            Some(TapeShortcut::Stop)
-        );
-        assert_eq!(
-            tape_transport_shortcut(KeyCode::F11),
-            Some(TapeShortcut::ToggleTurbo)
-        );
-        // Other keys are not transport — they reach the machine (or other paths).
-        assert_eq!(tape_transport_shortcut(KeyCode::F8), None);
-        assert_eq!(tape_transport_shortcut(KeyCode::KeyL), None);
-    }
-
-    /// The winit key for a catalogue shortcut key.
-    fn key_code(key: emu198x_shell::commands::ShortcutKey) -> KeyCode {
-        use emu198x_shell::commands::ShortcutKey;
-        match key {
-            ShortcutKey::Function(9) => KeyCode::F9,
-            ShortcutKey::Function(10) => KeyCode::F10,
-            ShortcutKey::Function(11) => KeyCode::F11,
-            ShortcutKey::Function(12) => KeyCode::F12,
-            ShortcutKey::Letter('E') => KeyCode::KeyE,
-            ShortcutKey::Letter('K') => KeyCode::KeyK,
-            ShortcutKey::Letter('L') => KeyCode::KeyL,
-            ShortcutKey::Letter('S') => KeyCode::KeyS,
-            other => panic!("no winit key for {other:?}; add it here"),
-        }
-    }
-
-    #[test]
-    fn the_shortcut_handlers_follow_the_catalogue() {
-        use emu198x_shell::commands::expect_command;
-        let shortcut = |id: &str| {
-            let spec = expect_command(id);
-            let shortcut = spec
-                .shortcut
-                .unwrap_or_else(|| panic!("`{id}` has no shortcut"));
-            let mut mods = ModifiersState::empty();
-            if shortcut.host {
-                mods |= ModifiersState::CONTROL;
-            }
-            if shortcut.shift {
-                mods |= ModifiersState::SHIFT;
-            }
-            (mods, key_code(shortcut.key))
-        };
-
-        for (id, expected) in [
-            ("media.tape.play", TapeShortcut::Play),
-            ("media.tape.stop", TapeShortcut::Stop),
-            ("media.tape.fast-forward", TapeShortcut::ToggleTurbo),
-        ] {
-            let (mods, code) = shortcut(id);
-            assert!(mods.is_empty(), "`{id}` is a bare function key");
-            assert_eq!(tape_transport_shortcut(code), Some(expected), "{id}");
-        }
-        for (id, expected) in [
-            ("state.quick-save", StateAction::Save),
-            ("state.quick-load", StateAction::Load),
-        ] {
-            let (mods, code) = shortcut(id);
-            assert_eq!(state_chord_action(mods, code, true), Some(expected), "{id}");
-        }
-        let (mods, code) = shortcut("media.tape.export");
-        assert!(tape_export_chord(mods, code));
-        // Reset and the keyboard-mode chord are matched inline in
-        // `handle_shortcut`; pin their catalogue entries to what it checks.
-        assert_eq!(
-            shortcut("machine.reset"),
-            (ModifiersState::empty(), KeyCode::F12)
-        );
-        assert_eq!(
-            shortcut("machine.keyboard.host"),
-            (
-                ModifiersState::CONTROL | ModifiersState::SHIFT,
-                KeyCode::KeyK
-            )
-        );
-    }
-
-    #[test]
     fn media_filter_maps_kinds_to_extensions() {
         assert_eq!(media_filter(MediaKind::Tape).0, "Tape images");
         assert!(media_filter(MediaKind::Disk).1.contains(&"dsk"));
@@ -1086,29 +976,60 @@ mod tests {
     }
 
     #[test]
-    fn save_state_chord_requires_a_modifier_and_fires_on_press_only() {
+    fn every_catalogue_shortcut_is_matched_with_command_or_control() {
+        use emu198x_shell::commands::CATALOGUE;
+        for spec in CATALOGUE {
+            let Some(shortcut) = spec.shortcut else {
+                continue;
+            };
+            let code = shortcut_key_code(shortcut.key)
+                .unwrap_or_else(|| panic!("`{}` has a key winit cannot name", spec.id));
+            for host in [ModifiersState::CONTROL, ModifiersState::SUPER] {
+                let mods = if shortcut.shift {
+                    host | ModifiersState::SHIFT
+                } else {
+                    host
+                };
+                assert_eq!(catalogue_shortcut(mods, code), Some(spec.id), "{mods:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_mac_keys_set_the_catalogue() {
         let ctrl = ModifiersState::CONTROL;
-        let cmd = ModifiersState::SUPER;
-        let none = ModifiersState::empty();
+        let shift = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        for (mods, code, id) in [
+            (ctrl, KeyCode::KeyP, "machine.pause"),
+            (shift, KeyCode::KeyR, "machine.reset"),
+            (shift, KeyCode::KeyK, "machine.keyboard.host"),
+            (ctrl, KeyCode::KeyT, "media.tape.play"),
+            (shift, KeyCode::KeyF, "media.tape.fast-forward"),
+            (shift, KeyCode::KeyE, "media.tape.export"),
+            (ctrl, KeyCode::KeyS, "state.quick-save"),
+            (ctrl, KeyCode::KeyL, "state.quick-load"),
+        ] {
+            assert_eq!(catalogue_shortcut(mods, code), Some(id), "{id}");
+        }
+    }
 
-        // Cmd/Ctrl + S/L on key-down → the matching action.
+    #[test]
+    fn other_chords_reach_the_machine() {
+        let ctrl = ModifiersState::CONTROL;
+        // Bare keys, function keys included, belong to the machine.
+        for code in [KeyCode::KeyS, KeyCode::KeyP, KeyCode::F9, KeyCode::F12] {
+            assert_eq!(catalogue_shortcut(ModifiersState::empty(), code), None);
+        }
+        // Shift must match, Alt must be up, and unlisted keys pass through.
         assert_eq!(
-            state_chord_action(ctrl, KeyCode::KeyS, true),
-            Some(StateAction::Save)
+            catalogue_shortcut(ctrl | ModifiersState::SHIFT, KeyCode::KeyS),
+            None
         );
+        assert_eq!(catalogue_shortcut(ctrl, KeyCode::KeyR), None);
         assert_eq!(
-            state_chord_action(cmd, KeyCode::KeyL, true),
-            Some(StateAction::Load)
+            catalogue_shortcut(ctrl | ModifiersState::ALT, KeyCode::KeyS),
+            None
         );
-
-        // Bare S / L (no modifier) stay with the machine keyboard.
-        assert_eq!(state_chord_action(none, KeyCode::KeyS, true), None);
-        assert_eq!(state_chord_action(none, KeyCode::KeyL, true), None);
-
-        // Release never fires (the press was already consumed).
-        assert_eq!(state_chord_action(ctrl, KeyCode::KeyS, false), None);
-
-        // Other modified keys are not chords — e.g. Ctrl+F5 stays free.
-        assert_eq!(state_chord_action(ctrl, KeyCode::F5, true), None);
+        assert_eq!(catalogue_shortcut(ctrl, KeyCode::F5), None);
     }
 }

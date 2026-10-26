@@ -51,7 +51,8 @@ impl MachineApp for JupiterAce {
                     ≥48 48 KiB expansion [default: stock]; last selector wins
     --ace PATH      restore an ACE32 .ace snapshot before running";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 Space   the Ace keyboard
     Shift           CAPS SHIFT (hold with another key)
     Ctrl            SYMBOL SHIFT (the red symbol layer)

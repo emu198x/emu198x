@@ -226,6 +226,7 @@ impl Window {
                 "keyboard",
                 if host { "host" } else { "original" }.to_variant(),
             ),
+            MarkChange::Paused(paused) => menu::set_state(&self.app, "pause", paused.to_variant()),
         }
     }
 

@@ -50,7 +50,8 @@ impl MachineApp for Mtx {
                     firmware ID: memotech-mtx-rom
     --model KIND    mtx500 | mtx512 [default: mtx500]";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
-    F12             hard reset
+    Cmd/Ctrl+Shift+R  hard reset
+    Cmd/Ctrl+P      pause / resume
     A-Z 0-9 etc.    the MTX keyboard (cursor keys are real MTX keys)
     Shift / Ctrl    the MTX shift / control keys
     Gamepad         joystick (player 1)";
