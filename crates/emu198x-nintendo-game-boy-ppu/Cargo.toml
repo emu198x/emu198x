@@ -1,0 +1,21 @@
+[package]
+name = "emu198x-nintendo-game-boy-ppu"
+description = "Game Boy DMG and CGB PPU — pixel FIFO, BG/window/sprite compositing, 160×144 output"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Started at
+# 0.1.0 when it took the emu198x- prefix to publish.
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["game-boy", "ppu", "video", "nintendo", "emulator"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[lints]
+workspace = true

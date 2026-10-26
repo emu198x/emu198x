@@ -217,7 +217,7 @@ members = [
     "crates/peripheral-kempston-mouse",
     "crates/emu198x-nintendo-game-boy-apu",
     "crates/emu198x-nintendo-game-boy-mbc",
-    "crates/nintendo-game-boy-ppu",
+    "crates/emu198x-nintendo-game-boy-ppu",
     "crates/emu198x-nintendo-game-boy-timer",
     "crates/pentagon-ula",
     "crates/peripheral-divmmc",

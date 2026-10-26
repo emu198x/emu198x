@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+### Added
+
+- `SCREEN_WIDTH` and `SCREEN_HEIGHT`, the LCD's size, which the PPU used to
+  import from the Game Boy family's glue crate. The glue now re-exports them
+  from here, so the PPU depends on nothing in its family.
+- First release under the `emu198x-nintendo-game-boy-ppu` name. Until now the crate was
+  `nintendo-game-boy-ppu`, versioned with the Emu198x suite and unpublished; the entries below are from that name.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/nintendo-game-boy-ppu-v0.2.0) - 2026-06-04
 
 ### Other

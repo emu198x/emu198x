@@ -9,9 +9,9 @@
 //! transition, limited to 10 objects per scanline.
 //!
 //! Framebuffer holds post-palette 2-bit shade values (0 = lightest,
-//! 3 = darkest); the runtime layer maps those to RGBA via the
-//! [`common-nintendo-game-boy::palette`] helpers (or a custom green-LCD
-//! palette).
+//! 3 = darkest); the runtime layer maps those to RGBA through a palette
+//! of its choosing (greyscale or a green LCD), a separate stage from the
+//! PPU.
 //!
 //! # Game Boy Color
 //!
@@ -46,11 +46,16 @@
 mod fifo;
 mod mode3;
 
-use common_nintendo_game_boy::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use crate::mode3::{Mode3, POSITION_START};
+
+/// Visible screen width in pixels: the LCD is 160 dots wide.
+pub const SCREEN_WIDTH: u32 = 160;
+
+/// Visible screen height in pixels: the LCD is 144 lines tall.
+pub const SCREEN_HEIGHT: u32 = 144;
 
 /// MMIO addresses for the PPU register block.
 pub const REG_LCDC: u16 = 0xFF40;
