@@ -178,7 +178,8 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            bash scripts/ci/apt-install.sh $(python3 scripts/ci/dist-apt-packages.py)
+            read -ra packages < <(python3 scripts/ci/dist-apt-packages.py)
+            bash scripts/ci/apt-install.sh "${packages[@]}"
           else
             ${{ matrix.packages_install }}
           fi
