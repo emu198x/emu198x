@@ -193,12 +193,15 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
   window drives through a small `Shell` trait. Steve chose this over a GTK
   host with its own loop, which would have copied pacing, commands and
   media handling (#2114).
-- The GTK host lives in `emu198x-ui` behind an optional `gtk` feature, on
-  Linux only (`emu198x-ui/src/gtk_host/`). It is not a crate of its own,
-  because all 30 machine binaries open their window through
-  `emu198x_ui::launch`. A separate crate would need wiring into each of
-  them, or a dependency cycle. Built with the feature, Linux opens GTK;
-  `EMU198X_UI=winit` picks the winit window.
+- The GTK window is a program of its own, `emu198x-gtk-window`
+  (`crates/emu198x-gtk-window`), so the machine binaries never link GTK and
+  their headless, script and MCP modes run where GTK is not installed
+  (`knowledge/decisions/gtk-window-process.md`). The machine binary keeps
+  `HostCore`, starts the window beside its executable, and talks to it over
+  its standard input and output (`emu198x-ui/src/window_protocol.rs`). With
+  no window to start, or one that fails, it opens the winit window;
+  `EMU198X_UI=winit` picks the winit window. (It began inside `emu198x-ui`
+  behind a `gtk` feature, #2117.)
 - `GtkApplication` with its menu bar built from the catalogue as a
   `gio::Menu`. Each item is a GTK action that sends the same `AppCommand`
   the shortcuts do. Radio and check items are stateful actions whose marks
@@ -213,7 +216,8 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
   and messages are `GtkMessageDialog`. Every picture reaches GTK already
   composed at device pixels, so GTK never scales it.
 - The `gtk4` dependency and the system `libgtk-4-dev` it needs are
-  confined to that feature. A `GTK host` CI job lints and tests it.
+  confined to the window crate's `gtk` feature. A `GTK host` CI job lints
+  and tests it.
   `muda` stays stubbed on Linux, so the gtk3-rs tree and its Dependabot
   alert never come back.
 - The picture comes from the same wgpu presenter as the winit window,
@@ -228,8 +232,9 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
 - Menu items show the catalogue's shortcuts through the menu model's
   `accel` attribute, which only labels them: the keys still go to the core,
   so a machine that maps F9 to F11 keeps them.
-- Still to come before the feature is on by default: the release builds'
-  GTK dependency.
+- Still to come before Linux opens GTK by default: shipping
+  `emu198x-gtk-window` in the Linux release archives (it is `dist = false`
+  until then), with the GTK dependency that brings to the Homebrew formulae.
 
 Verification:
 - The catalogue test from step 1 passes for the GTK host.
@@ -238,6 +243,9 @@ Verification:
 - Dizzy loads and plays at 50 Hz with no audio underruns over 10 minutes
   (needs a desktop with sound).
 - `cargo tree` shows no gtk3 crate anywhere in the workspace.
+- `ldd` on a machine binary lists no GTK library, and `--headless` runs
+  with no display. With the window missing, or unable to start GTK, the
+  machine opens the winit window.
 
 ## Not in this plan
 

@@ -65,7 +65,9 @@ pub const FILTER_OPTIONS: &[VideoFilter] = &[
 /// Commands the App processes at frame boundaries. Pushed by both menu clicks
 /// and keyboard shortcuts, so the two converge on one handler. Defined on every
 /// platform (the Linux stub menu emits none, but the shortcut path still does).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Serialisable because the GTK window process sends menu clicks back as
+/// these (see `crate::window_protocol`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AppCommand {
     /// Hard-reset the machine (menu Machine → Reset, or the F12 shortcut).
     Reset,
@@ -159,7 +161,7 @@ impl AppCommand {
 pub const MENU_PREDEFINED: &[&str] = &["app.about", "app.quit"];
 
 /// The filter's name, which fills the catalogue's `view.filter` label.
-pub(crate) fn filter_name(filter: VideoFilter) -> &'static str {
+pub fn filter_name(filter: VideoFilter) -> &'static str {
     // VideoFilter is #[non_exhaustive]; a future addition shows a generic name
     // until it's named here.
     match filter {

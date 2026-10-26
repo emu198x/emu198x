@@ -671,9 +671,10 @@ jobs:
               -derivedDataPath "$RUNNER_TEMP/tv" CODE_SIGNING_ALLOWED=NO build
           done
 
-  # The GTK4 Linux host is an optional emu198x-ui feature while it is
-  # brought up (knowledge/decisions/host-ui-model.md § 12), so no other job
-  # builds it. This one lints and tests it against the runner's GTK.
+  # The GTK4 Linux window is a program of its own, emu198x-gtk-window, whose
+  # GTK code sits behind its `gtk` feature
+  # (knowledge/decisions/gtk-window-process.md), so no other job builds it.
+  # This one lints and tests it against the runner's GTK.
   gtk:
     name: GTK host
     runs-on: ubuntu-latest
@@ -719,7 +720,7 @@ jobs:
           shared-key: gtk-host
 
       - name: Lint the GTK host
-        run: cargo clippy -p emu198x-ui --features gtk --all-targets -- -D warnings
+        run: cargo clippy -p emu198x-gtk-window --features gtk --all-targets -- -D warnings
 
       - name: Test the GTK host
-        run: cargo test -p emu198x-ui --features gtk
+        run: cargo test -p emu198x-gtk-window --features gtk

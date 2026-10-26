@@ -11,6 +11,7 @@ repository.workspace = true
 bytemuck.workspace = true
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 pollster.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 winit.workspace = true

@@ -219,6 +219,8 @@ moves to a GTK4 frontend through `gtk4-rs`, the post-launch path in
 [`native-ui-strategy.md`](native-ui-strategy.md), brought forward. It
 calls GTK's own widgets, so it is a native frontend under that record,
 not a cross-platform toolkit. Until it lands, Linux keeps the shortcuts.
+The window runs in a process of its own, so the machine binaries never
+link GTK ([`gtk-window-process.md`](gtk-window-process.md)).
 
 ## Drift triggers
 
@@ -250,6 +252,7 @@ Stop and re-read this record if you find yourself:
 
 - [`native-ui-strategy.md`](native-ui-strategy.md): what hosts are built with
 - [`native-menu-shell.md`](native-menu-shell.md): the single command path
+- [`gtk-window-process.md`](gtk-window-process.md): where the Linux window runs
 - [`no-unified-launcher.md`](no-unified-launcher.md): one app per family
 - [`machine-binaries-share-a-launcher.md`](machine-binaries-share-a-launcher.md)
 - [`debugger-architecture.md`](debugger-architecture.md)

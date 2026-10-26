@@ -15,8 +15,6 @@
 
 mod export;
 mod frame_stats;
-#[cfg(all(target_os = "linux", feature = "gtk"))]
-mod gtk_host;
 mod host_audio;
 mod host_core;
 mod icon;
@@ -27,6 +25,9 @@ mod menu;
 mod overlay;
 mod pointer;
 mod quick_load;
+#[cfg(target_os = "linux")]
+mod remote_window;
+pub mod window_protocol;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -906,10 +907,13 @@ fn run_host<S: UiSystem + 'static>(
     core: HostCore<S>,
     video: VideoFilter,
 ) -> Result<(HostCore<S>, Option<UiError>), UiError> {
-    #[cfg(all(target_os = "linux", feature = "gtk"))]
-    if gtk_host::chosen() {
-        return gtk_host::run(core, video);
-    }
+    // On Linux the window is the GTK window process when it is installed,
+    // so this binary never links GTK; winit is the fallback.
+    #[cfg(target_os = "linux")]
+    let core = match remote_window::run(core, video) {
+        remote_window::Outcome::Finished(core, error) => return Ok((core, error)),
+        remote_window::Outcome::Unavailable(core) => core,
+    };
     let mut app = App::new(core, video);
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;

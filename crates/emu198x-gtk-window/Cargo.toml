@@ -1,0 +1,36 @@
+[package]
+name = "emu198x-gtk-window"
+description = "The GTK4 window process the Linux machine binaries open their window in"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Not in the release archives yet: shipping it, and the GTK dependency that
+# comes with it, is the step that turns the GTK window on by default
+# (docs/plans/2026-10-25-host-ui-model.md, step 12).
+[package.metadata.dist]
+dist = false
+
+[[bin]]
+name = "emu198x-gtk-window"
+path = "src/main.rs"
+required-features = ["gtk"]
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.44.0" }
+emu198x-native-video = { path = "../emu198x-native-video", version = "0.44.0" }
+winit = { workspace = true }
+
+# GTK needs the system's libgtk-4-dev to build, so it sits behind a feature
+# that only the `GTK host` CI job and Linux builds of the window turn on.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk4 = { workspace = true, optional = true }
+
+[features]
+gtk = ["dep:gtk4"]
+
+[lints]
+workspace = true

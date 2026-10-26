@@ -36,7 +36,7 @@ pub enum ScalingMode {
 }
 
 /// GPU presentation filter applied after the machine framebuffer is uploaded.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum VideoFilter {
     /// Raw nearest-neighbour pixels for debugging and golden comparisons.
