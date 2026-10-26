@@ -1793,6 +1793,10 @@ name = "emu198x-peripheral-ultimate-uci-net"
 version = "0.1.0"
 
 [[package]]
+name = "emu198x-pointer"
+version = "0.44.2"
+
+[[package]]
 name = "emu198x-ricoh-apu-2a03"
 version = "0.6.0"
 dependencies = [
@@ -2139,6 +2143,7 @@ name = "emu198x-ui"
 version = "0.44.2"
 dependencies = [
  "emu198x-native-video",
+ "emu198x-pointer",
  "emu198x-shell",
  "emu198x-win-menu",
  "muda",

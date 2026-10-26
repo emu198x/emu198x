@@ -12,6 +12,10 @@
 //!   pointer is. Each frame it compares the guest pointer with the cursor and
 //!   sends the counts that close part of the gap, so the two meet whatever the
 //!   guest's units, acceleration or edge clamping.
+//!
+//! Both work in framebuffer pixels and mouse counts and know nothing of any
+//! window system, so the native harness (`emu198x-ui`) and the browser hosts
+//! share them.
 
 /// Fraction of the remaining gap each correction asks the guest to cover.
 ///
@@ -32,7 +36,7 @@ const MAX_WAIT_FRAMES: u32 = 4;
 
 /// Relative cursor motion with the part-count remainder carried forward.
 #[derive(Debug, Default)]
-pub(crate) struct RelativeMotion {
+pub struct RelativeMotion {
     last: Option<(f64, f64)>,
     remainder: (f64, f64),
 }
@@ -42,7 +46,7 @@ impl RelativeMotion {
     /// `to`, both in framebuffer pixels, or `None` for the first sample and
     /// for movement that rounds to nothing yet. `counts_per_pixel` converts
     /// pixels to the counts the guest moves its pointer by.
-    pub(crate) fn motion_to(
+    pub fn motion_to(
         &mut self,
         to: (f64, f64),
         counts_per_pixel: (f64, f64),
@@ -57,14 +61,14 @@ impl RelativeMotion {
     }
 
     /// Forget the baseline, as when the cursor leaves the window.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         *self = Self::default();
     }
 }
 
 /// Closed-loop control of a guest pointer the machine can locate.
 #[derive(Debug, Default)]
-pub(crate) struct PointerSync {
+pub struct PointerSync {
     target: Option<(f64, f64)>,
     awaiting: Option<Awaiting>,
 }
@@ -78,13 +82,13 @@ struct Awaiting {
 impl PointerSync {
     /// Where the host cursor is, in framebuffer pixels, or `None` once it has
     /// left the window and the guest pointer should stay where it is.
-    pub(crate) fn set_target(&mut self, target: Option<(f64, f64)>) {
+    pub fn set_target(&mut self, target: Option<(f64, f64)>) {
         self.target = target;
     }
 
     /// Whether the cursor is over the window, so the guest pointer stands in
     /// for it.
-    pub(crate) fn is_active(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         self.target.is_some()
     }
 
@@ -92,7 +96,7 @@ impl PointerSync {
     /// `guest`, or `None` when it is close enough or still acting on the last
     /// correction. `counts_per_pixel` converts framebuffer pixels to the mouse
     /// counts the guest moves its pointer by.
-    pub(crate) fn correction(
+    pub fn correction(
         &mut self,
         guest: (f64, f64),
         counts_per_pixel: (f64, f64),
@@ -137,8 +141,28 @@ impl PointerSync {
     }
 
     /// Stop driving the guest pointer.
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// The counts to send after a frame, given where the guest pointer is
+    /// now, or `None` when there is nothing to send. A guest pointer that has
+    /// gone, as when a game takes the screen, stops the loop until the next
+    /// [`set_target`](Self::set_target), so the cursor goes back to plain
+    /// movement.
+    pub fn after_frame(
+        &mut self,
+        guest: Option<(f64, f64)>,
+        counts_per_pixel: (f64, f64),
+    ) -> Option<(i32, i32)> {
+        if !self.is_active() {
+            return None;
+        }
+        let Some(guest) = guest else {
+            self.reset();
+            return None;
+        };
+        self.correction(guest, counts_per_pixel)
     }
 }
 
@@ -305,6 +329,16 @@ mod tests {
             sync.correction((0.0, 0.0), (1.0, 1.0)),
             Some((MAX_STEP, -MAX_STEP))
         );
+    }
+
+    #[test]
+    fn a_vanished_pointer_stops_the_loop() {
+        let mut sync = PointerSync::default();
+        assert_eq!(sync.after_frame(Some((0.0, 0.0)), ONE), None, "no target");
+        sync.set_target(Some((50.0, 0.0)));
+        assert_eq!(sync.after_frame(Some((0.0, 0.0)), ONE), Some((45, 0)));
+        assert_eq!(sync.after_frame(None, ONE), None);
+        assert!(!sync.is_active(), "the cursor goes back to plain movement");
     }
 
     #[test]

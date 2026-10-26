@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 emu198x-native-video = { path = "../emu198x-native-video", version = "0.44.0" }
+emu198x-pointer = { path = "../emu198x-pointer", version = "0.44.0" }
 # `serde` for the window protocol, which carries winit's key types to the
 # GTK window process (src/window_protocol.rs).
 winit = { workspace = true, features = ["serde"] }

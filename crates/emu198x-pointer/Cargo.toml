@@ -1,0 +1,16 @@
+[package]
+name = "emu198x-pointer"
+description = "Turning a host cursor into guest mouse counts: relative motion and the closed loop that keeps a guest's pointer under the cursor"
+version.workspace = true
+# Workspace-only, like emu198x-ui, its first consumer: it publishes when the
+# platform crates do (knowledge/decisions/workspace-shape.md, layer 5).
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Deliberately dependency-free: the native harness and the browser hosts both
+# use it, and neither should pay for the other's stack.
+
+[lints]
+workspace = true
