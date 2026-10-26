@@ -66,7 +66,9 @@ async function handle({id, command, args = []}) {
         const pixels = frames ? (kind === 'spectrum' ? machine.frameRgba() : machine.pixels()) : new Uint8Array();
         const samples = audio();
         const [width,height] = kind === 'spectrum' ? machine.frameSize() : [machine.width(),machine.height()];
-        self.postMessage({id,result:{frames,pixels,audio:samples,width,height}},[pixels.buffer,samples.buffer]); return;
+        // Where the guest's own mouse pointer is, when the machine can say.
+        const pointer = machine.guest_pointer ? (machine.guest_pointer() ?? null) : null;
+        self.postMessage({id,result:{frames,pixels,audio:samples,width,height,pointer}},[pixels.buffer,samples.buffer]); return;
       }
       if (command === 'input') for (const [type,...values] of args[0]) {
         if (type === 'code') (values[1] ? machine.keyDown(values[0]) : machine.keyUp(values[0]));
@@ -74,6 +76,9 @@ async function handle({id, command, args = []}) {
         else if (type === 'button') machine.button(...values);
         else if (type === 'move') machine.mouse_move(...values);
         else if (type === 'mouse') machine.mouse_button(...values);
+        // Steering a guest pointer the machine can find; others ignore it.
+        else if (type === 'target') machine.pointer_target?.(...values);
+        else if (type === 'leave') machine.pointer_leave?.();
         else throw new Error('Unknown input');
       }
       else if (command === 'load') load(...args);

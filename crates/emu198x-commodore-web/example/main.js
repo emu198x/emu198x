@@ -94,6 +94,7 @@ $('start').onclick = async () => {
   finally { $('start').disabled = false; }
 };
 function draw(result) {
+  mouse.setGuestPointer(result.pointer);
   if (result.pixels.length) {
     if (canvas.width !== result.width || canvas.height !== result.height) { canvas.width = result.width; canvas.height = result.height; }
     context.putImageData(new ImageData(new Uint8ClampedArray(result.pixels.buffer),result.width,result.height),0,0);
