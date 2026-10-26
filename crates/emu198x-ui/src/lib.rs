@@ -23,7 +23,6 @@ pub mod launch;
 mod media_open;
 mod menu;
 mod overlay;
-mod pointer;
 mod quick_load;
 #[cfg(target_os = "linux")]
 mod remote_window;

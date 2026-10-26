@@ -24,9 +24,9 @@ use winit::keyboard::{Key, KeyCode, ModifiersState};
 
 use crate::host_audio::HostAudio;
 use crate::menu::AppCommand;
-use crate::pointer;
 use crate::{HostControl, MouseButton, UiError, UiSystem, VideoFilter, export, keyboard};
 use crate::{media_open, quick_load};
+use emu198x_pointer as pointer;
 
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
@@ -624,14 +624,11 @@ impl<S: UiSystem> HostCore<S> {
         if !self.pointer_sync.is_active() {
             return;
         }
-        let Some(guest) = self.system.guest_pointer(&self.runner.runtime) else {
-            // The pointer has gone — a game took the screen — so hand the
-            // cursor back until it reappears.
-            self.pointer_sync.reset();
-            return;
-        };
+        // A pointer that has gone — a game took the screen — hands the cursor
+        // back until it reappears.
+        let guest = self.system.guest_pointer(&self.runner.runtime);
         let scale = self.system.pointer_counts_per_pixel(&self.runner.runtime);
-        if let Some((dx, dy)) = self.pointer_sync.correction(guest, scale) {
+        if let Some((dx, dy)) = self.pointer_sync.after_frame(guest, scale) {
             self.pending_inputs.push(InputEvent::PointerMotion {
                 device: device.into(),
                 dx,

@@ -41,6 +41,7 @@ members = [
     "crates/emu198x-shell",
     "crates/emu198x-ui",
     "crates/emu198x-gtk-window",
+    "crates/emu198x-pointer",
     "crates/emu198x-win-menu",
     "crates/emu198x-ferranti-ula-6c001e",
     "crates/emu198x-atari-sio",
