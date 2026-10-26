@@ -170,9 +170,18 @@ jobs:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
+      # Changed by hand (allow-dirty = ["ci"]). dist's own install command runs
+      # apt unbounded, and a slow mirror then hangs the release; on Linux the
+      # same packages go through the bounded, mirror-rotating install
+      # (scripts/check-workflow-apt.py).
       - name: Install dependencies
+        shell: bash
         run: |
-          ${{ matrix.packages_install }}
+          if [ "$RUNNER_OS" = Linux ]; then
+            bash scripts/ci/apt-install.sh $(python3 scripts/ci/dist-apt-packages.py)
+          else
+            ${{ matrix.packages_install }}
+          fi
       # Added by hand (allow-dirty = ["ci"]). Every archive includes
       # target/gtk-window/libexec; on Linux this builds the GTK window into it,
       # elsewhere it stays empty. See scripts/build-gtk-window.sh.

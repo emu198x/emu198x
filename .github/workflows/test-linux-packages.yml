@@ -82,19 +82,7 @@ jobs:
         # otherwise makes apt retry with its default timeouts and the job
         # hangs until it is cancelled.
         run: |
-          apt_opts=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
-          for attempt in 1 2 3; do
-            sudo timeout 120 apt-get "${apt_opts[@]}" update \
-              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get "${apt_opts[@]}" install -y --no-install-recommends \
-                 libasound2-dev libudev-dev pkg-config libgtk-4-dev; then
-              exit 0
-            fi
-            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
-            sleep 10
-          done
-          echo "::error::apt failed after three bounded attempts"
-          exit 1
+          bash scripts/ci/apt-install.sh libasound2-dev libudev-dev pkg-config libgtk-4-dev
       - name: Cache Rust artifacts
         if: inputs.plan == '' && inputs.release_run == ''
         uses: Swatinem/rust-cache@v2
@@ -371,8 +359,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo timeout 120 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 update
-          sudo timeout 180 apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 install -y --no-install-recommends libasound2 libudev1
+          bash scripts/ci/apt-install.sh libasound2 libudev1
           dpkg-query --show libasound2 libudev1 > "$RUNNER_TEMP/journey-prerequisites.txt"
       - name: Check Linux journey rejection controls
         run: python -m unittest discover -s scripts -p test_windows_developer_journey.py -v
