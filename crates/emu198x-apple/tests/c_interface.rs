@@ -409,15 +409,17 @@ fn the_commands_are_the_shell_catalogue() {
         .map(|spec| spec.id)
         .collect();
     assert_eq!(ids, expected);
-    // The fields the Swift decoder reads, in the shape it reads them.
+    // The fields the Swift decoder reads, in the shape it reads them: reset
+    // is Shift+Cmd+R.
     let reset = &commands[ids
         .iter()
         .position(|id| *id == "machine.reset")
         .expect("reset")];
     assert_eq!(reset["group"], "machine");
     assert_eq!(reset["needs"], "running");
-    assert_eq!(reset["shortcut"]["key"]["Function"], 12);
-    assert_eq!(reset["shortcut"]["host"], false);
+    assert_eq!(reset["shortcut"]["key"]["Letter"], "R");
+    assert_eq!(reset["shortcut"]["host"], true);
+    assert_eq!(reset["shortcut"]["shift"], true);
 
     // SAFETY: a null destination, which is the case under test.
     let code = unsafe { ffi::emu198x_commands(std::ptr::null_mut()) };
