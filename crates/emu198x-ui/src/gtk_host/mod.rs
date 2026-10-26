@@ -5,9 +5,10 @@
 //! [`Shell`] with GTK's own dialogs. See
 //! `knowledge/decisions/host-ui-model.md` § 12.
 //!
-//! The raw picture is drawn by GTK. Every other video filter is drawn by
-//! the same wgpu presenter the winit window uses, rendering offscreen at the
-//! picture's device-pixel size; the host shows the result one to one.
+//! The picture is drawn by the same wgpu presenter the winit window uses,
+//! rendering offscreen at the picture's device-pixel size; the host shows
+//! the result one to one. Without a GPU adapter it falls back to drawing
+//! the raw frame with GTK's nearest-neighbour scaling.
 
 mod keys;
 mod menu;
@@ -273,11 +274,10 @@ impl<S: UiSystem> GtkHost<S> {
         } else {
             return;
         };
-        // Raw is drawn by GTK itself, which is exact at whole scales and
-        // costs nothing. Every other filter needs the wgpu presenter.
-        if profile.filter != VideoFilter::Raw
-            && let Some(texture) = self.filters.compose(&self.screen, frame, &profile)
-        {
+        // The wgpu presenter draws every filter, raw included, so this window
+        // shows exactly what the winit window does. GTK's own nearest-
+        // neighbour drawing is the fallback when there is no GPU adapter.
+        if let Some(texture) = self.filters.compose(&self.screen, frame, &profile) {
             self.screen.show_composed(
                 texture,
                 (frame.width, frame.height),
@@ -308,8 +308,8 @@ impl<S: UiSystem> GtkHost<S> {
     }
 }
 
-/// The video filters: the wgpu presenter, rendering offscreen at the picture
-/// widget's size, made the first time a filter other than raw is chosen.
+/// The wgpu presenter, rendering offscreen at the picture widget's size,
+/// made the first time a frame is shown.
 #[derive(Default)]
 struct Filters {
     presenter: Option<WgpuVideoPresenter>,

@@ -212,14 +212,17 @@ Approved 2026-10-25 (decision § 12). It can start in parallel with steps
   confined to that feature. A `GTK host` CI job lints and tests it.
   `muda` stays stubbed on Linux, so the gtk3-rs tree and its Dependabot
   alert never come back.
-- The video filters use the same wgpu presenter as the winit window,
+- The picture comes from the same wgpu presenter as the winit window,
   rendering offscreen at the picture's device-pixel size (its
-  `new_offscreen` mode); the raw picture is drawn by GTK itself. The CRT
-  picture is pixel-identical to the winit window's under Xvfb.
-- Still to come before the feature is on by default: sharp bilinear at
-  fractional scales (missing from the wgpu presenter too, so fixed there
-  for both desktop hosts), shortcut text in the menus, and the release
-  builds' GTK dependency.
+  `new_offscreen` mode), for every filter including raw. Without a GPU
+  adapter the host draws the raw frame with GTK's nearest-neighbour
+  scaling. The CRT picture is pixel-identical to the winit window's under
+  Xvfb.
+- Raw uses sharp bilinear (decision § 4) in the presenter's shader, so both
+  desktop hosts get it: exact nearest-neighbour at whole-number scales, and
+  only the output pixels a block edge crosses blended at fractional ones.
+- Still to come before the feature is on by default: shortcut text in the
+  menus, and the release builds' GTK dependency.
 
 Verification:
 - The catalogue test from step 1 passes for the GTK host.
