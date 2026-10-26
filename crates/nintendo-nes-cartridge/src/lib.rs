@@ -55,7 +55,7 @@ pub mod mappers;
 pub mod snapshot;
 
 pub use format::{CartridgeHeader, ParsedCartridge, parse_ines};
-pub use mapper::{DiskDrive, Mapper, Mirroring};
+pub use mapper::{DiskDrive, Mapper, Mirroring, PpuCartridge};
 pub use mappers::action53::Action53;
 pub use mappers::axrom::AxRom;
 pub use mappers::bxrom::BxRom;

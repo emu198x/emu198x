@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.0
+
+### Added
+
+- `PpuCartridge`, the cartridge connector from the PPU's side: CHR reads
+  and writes, nametable mirroring, nametable overrides, and the A12 and
+  PPU-read notifications mappers count. The PPU's `tick`, `run`,
+  `cpu_read` and `cpu_write` take `&mut dyn PpuCartridge` where they took
+  the cartridge crate's `&mut dyn Mapper`.
+- `Mirroring` is defined here rather than re-exported from the cartridge
+  crate. The PPU now depends on no other Emu198x crate.
+- First release under the `emu198x-ricoh-ppu-2c02` name. Until now the crate was
+  `ricoh-ppu-2c02`, versioned with the Emu198x suite and unpublished; the entries below are from that name.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/ricoh-ppu-2c02-v0.2.0) - 2026-06-04
 
 ### Added

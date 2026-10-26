@@ -35,7 +35,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::vrc_irq::VrcIrq;
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// Linear 2A03 pulse gain for one step of output: `95.88 / (8128 / 15 +
@@ -243,6 +243,28 @@ impl Vrc6 {
     }
 }
 
+impl PpuCartridge for Vrc6 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        match self.banking & 0x2F {
+            0x23 | 0x24 => Mirroring::Horizontal,
+            0x28 | 0x2F => Mirroring::SingleScreenLower,
+            0x2B | 0x2C => Mirroring::SingleScreenUpper,
+            _ => Mirroring::Vertical,
+        }
+    }
+}
+
 impl Mapper for Vrc6 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -292,26 +314,6 @@ impl Mapper for Vrc6 {
             0xF001 => self.irq.set_control(value),
             0xF002 => self.irq.acknowledge(),
             _ => {}
-        }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[self.chr_index(addr)]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            let index = self.chr_index(addr);
-            self.chr[index] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        match self.banking & 0x2F {
-            0x23 | 0x24 => Mirroring::Horizontal,
-            0x28 | 0x2F => Mirroring::SingleScreenLower,
-            0x2B | 0x2C => Mirroring::SingleScreenUpper,
-            _ => Mirroring::Vertical,
         }
     }
 

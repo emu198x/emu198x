@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// UxROM (Mapper 2): one switchable 16 KiB PRG bank and one fixed
@@ -49,6 +49,22 @@ impl UxRom {
     }
 }
 
+impl PpuCartridge for UxRom {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            self.chr[usize::from(addr) & 0x1FFF] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for UxRom {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -74,20 +90,6 @@ impl Mapper for UxRom {
             let rom_byte = self.cpu_read(addr);
             self.prg_bank = value & rom_byte;
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[usize::from(addr) & 0x1FFF]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            self.chr[usize::from(addr) & 0x1FFF] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn snapshot(&self) -> MapperSnapshot {

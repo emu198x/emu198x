@@ -229,7 +229,7 @@ members = [
     "crates/emu198x-sharp-lr35902",
     "crates/timex-scld",
     "crates/emu198x-ricoh-apu-2a03",
-    "crates/ricoh-ppu-2c02",
+    "crates/emu198x-ricoh-ppu-2c02",
     "crates/runtime-commodore-c64",
     "crates/runtime-nintendo-game-boy",
     "crates/runtime-acorn-atom",

@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// NINA-001 / NINA-002 (Mapper 34): 32 KiB PRG banking plus two
@@ -50,6 +50,28 @@ impl Nina001 {
     }
 }
 
+impl PpuCartridge for Nina001 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let addr = usize::from(addr) & 0x1FFF;
+        let bank = if addr < 0x1000 {
+            self.chr_bank_0
+        } else {
+            self.chr_bank_1
+        };
+        let offset = addr & 0x0FFF;
+        let bank = usize::from(bank) % self.chr_4k_count();
+        self.chr_rom[bank * 4096 + offset]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {
+        // NINA-001 has CHR ROM, not CHR RAM.
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for Nina001 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -74,26 +96,6 @@ impl Mapper for Nina001 {
             0x7FFF => self.chr_bank_1 = value & 0x0F,
             _ => {}
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let addr = usize::from(addr) & 0x1FFF;
-        let bank = if addr < 0x1000 {
-            self.chr_bank_0
-        } else {
-            self.chr_bank_1
-        };
-        let offset = addr & 0x0FFF;
-        let bank = usize::from(bank) % self.chr_4k_count();
-        self.chr_rom[bank * 4096 + offset]
-    }
-
-    fn chr_write(&mut self, _addr: u16, _value: u8) {
-        // NINA-001 has CHR ROM, not CHR RAM.
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn save_ram(&self) -> &[u8] {

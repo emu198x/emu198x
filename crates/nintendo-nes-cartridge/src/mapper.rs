@@ -1,15 +1,18 @@
-//! [`Mapper`] trait and the [`Mirroring`] enum shared by every mapper
-//! implementation.
+//! [`Mapper`] trait shared by every mapper implementation.
 //!
-//! # Mirroring
+//! # The PPU side, and Mirroring
 //!
-//! [`Mirroring`] is defined here, and `ricoh-ppu-2c02` re-exports it,
-//! because the cartridge decides mirroring and the PPU obeys it. A
-//! mapper answers [`Mapper::mirroring`] — MMC1 and its kin change the
-//! answer at runtime — and the PPU takes the value as an argument to
-//! `mirror_nametable_addr` rather than holding one of its own. Keeping
-//! the enum beside the thing that decides it means there is one
-//! definition and no direction to get wrong.
+//! A mapper's PPU-facing half — CHR reads and writes, nametable
+//! [`Mirroring`], nametable overrides and the A12 and PPU-read
+//! notifications — is the [`PpuCartridge`] trait, which the PPU crate
+//! `emu198x-ricoh-ppu-2c02` owns. [`Mapper`] requires it, so every
+//! mapper implements both, and a `&mut dyn Mapper` coerces to the
+//! `&mut dyn PpuCartridge` the PPU takes. [`Mirroring`] comes from the
+//! same crate and is re-exported here. The cartridge still decides
+//! mirroring — MMC1 and its kin change the answer at run time — but
+//! the PPU owns the interface it is asked through, so the PPU stands
+//! on its own and the cartridge depends on it, never the other way
+//! round.
 //!
 //! # Scope of the `Mapper` trait
 //!
@@ -24,41 +27,16 @@
 //! yet. They will land back in the trait as default methods when the
 //! mappers that need them get ported.
 
-use serde::{Deserialize, Serialize};
+pub use emu198x_ricoh_ppu_2c02::{Mirroring, PpuCartridge};
 
 use crate::snapshot::MapperSnapshot;
-
-// ─── Mirroring ─────────────────────────────────────────────────────
-
-/// Nametable mirroring mode.
-///
-/// Determined by the cartridge, not the PPU. The PPU queries the
-/// mapper on every nametable access (`$2000-$2FFF`) to find which
-/// physical nametable a given logical address should route to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Mirroring {
-    /// A-A / B-B — both horizontal strips share a nametable. Games
-    /// with vertical scrolling (e.g. *Ice Climber*) use this.
-    Horizontal,
-    /// A-B / A-B — both vertical strips share a nametable. Games
-    /// with horizontal scrolling (e.g. *Super Mario Bros.*) use this.
-    Vertical,
-    /// Four unique nametables — requires cartridge VRAM on top of
-    /// the PPU's 2 KiB. Used by *Gauntlet* and a few others.
-    FourScreen,
-    /// All four logical nametables point at the lower physical
-    /// bank. Set by MMC1 on power-up and via control register.
-    SingleScreenLower,
-    /// All four logical nametables point at the upper physical
-    /// bank. MMC1 control register.
-    SingleScreenUpper,
-}
 
 // ─── Mapper trait ──────────────────────────────────────────────────
 
 /// Cartridge mapper: translates CPU addresses in `$4020-$FFFF` and
 /// PPU addresses in `$0000-$1FFF` to ROM, RAM, or bank-switched
-/// memory on the cartridge.
+/// memory on the cartridge. The PPU half is the [`PpuCartridge`]
+/// supertrait, which the PPU crate owns.
 ///
 /// Implementations are per-mapper-number. The parser in
 /// [`parse_ines`](crate::parse_ines) inspects the iNES header's mapper
@@ -76,22 +54,22 @@ pub enum Mirroring {
 ///
 /// ## Design notes
 ///
-/// - `chr_read` takes `&mut self` because some mappers (MMC2, MMC4)
-///   update internal latches when the PPU reads from pattern table
-///   addresses. NROM ignores the `&mut` but the trait keeps the
-///   method signature uniform across all mappers.
+/// - `chr_read` (on [`PpuCartridge`]) takes `&mut self` because some
+///   mappers (MMC2, MMC4) update internal latches when the PPU reads
+///   from pattern table addresses.
 ///
 /// - `irq_pending()` is the mapper's IRQ output pin, polled by the
 ///   machine layer once per CPU cycle and OR'd into the CPU's
 ///   `irq` input. Default returns `false` — most mappers don't do
 ///   IRQ.
 ///
-/// - `notify_a12_rendering` is the MMC3 IRQ counter hook. Called
-///   from inside the PPU tick when the PPU address bus transitions
-///   A12 during background or sprite fetches. See
+/// - `notify_a12_rendering` (on [`PpuCartridge`]) is the MMC3 IRQ
+///   counter hook. Called from inside the PPU tick when the PPU
+///   address bus transitions A12 during background or sprite
+///   fetches. See
 ///   [nes-clock-topology.md](../../../knowledge/decisions/nes-clock-topology.md#pin-contracts)
 ///   for the rationale.
-pub trait Mapper: Send {
+pub trait Mapper: Send + PpuCartridge {
     /// CPU-side bus read. Called by the machine layer's `cpu_read`
     /// for addresses in `$4020-$FFFF`. Returns the byte the
     /// cartridge would drive onto the CPU data bus.
@@ -125,21 +103,6 @@ pub trait Mapper: Send {
     /// to PRG RAM, or ignore.
     fn cpu_write(&mut self, addr: u16, value: u8);
 
-    /// PPU-side bus read for pattern table addresses
-    /// (`$0000-$1FFF`). `&mut self` is required for mappers with
-    /// read-side-effect latches (MMC2, MMC4).
-    fn chr_read(&mut self, addr: u16) -> u8;
-
-    /// PPU-side bus write for pattern table addresses
-    /// (`$0000-$1FFF`). Ignored for CHR ROM cartridges; writes CHR
-    /// RAM on cartridges without CHR ROM.
-    fn chr_write(&mut self, addr: u16, value: u8);
-
-    /// Current nametable mirroring mode. Queried by the PPU on
-    /// every nametable access — mappers may change this on the fly
-    /// (MMC1, MMC3) but NROM does not.
-    fn mirroring(&self) -> Mirroring;
-
     /// Level-triggered IRQ output. Default: never asserted.
     ///
     /// The machine layer ORs this with other IRQ sources (e.g. APU
@@ -147,21 +110,6 @@ pub trait Mapper: Send {
     fn irq_pending(&self) -> bool {
         false
     }
-
-    /// MMC3 IRQ counter hook. Called from inside the PPU tick on
-    /// every PPU address-bus A12 edge — whether the PPU is rendering
-    /// or the CPU is toggling A12 through `$2006` during forced
-    /// blank. `ppu_cycle` is the PPU master-clock counter at the
-    /// edge (4 units per dot); the mapper uses it to measure how long
-    /// A12 stayed low and reject rises that arrive too soon after a
-    /// fall — the hardware A12 filter (Mesen's `_a12LowClock`).
-    ///
-    /// Default: no-op. NROM has no IRQ counter.
-    fn notify_a12_rendering(&mut self, _a12_high: bool, _ppu_cycle: u64) {}
-
-    /// Notify the mapper of one PPU read. MMC5 uses the sequence of
-    /// nametable reads to detect scanlines; other mappers ignore it.
-    fn notify_ppu_read(&mut self, _addr: u16, _rendering: bool) {}
 
     /// Advance mapper-local CPU-cycle state such as expansion audio or
     /// no-PPU-read timers.
@@ -172,22 +120,7 @@ pub trait Mapper: Send {
         0.0
     }
 
-    /// Mapper-owned nametable read override for cartridges that map
-    /// ROM/RAM into `$2000-$2FFF` instead of ordinary CIRAM.
-    ///
-    /// Default returns `None`, meaning the PPU should use its internal
-    /// nametable RAM with the mapper's [`Mirroring`] mode.
-    fn nametable_read(&mut self, _addr: u16) -> Option<u8> {
-        None
-    }
-
-    /// Mapper-owned nametable write override. Returning `true` means
-    /// the mapper consumed the write and the PPU must not write CIRAM.
-    fn nametable_write(&mut self, _addr: u16, _value: u8) -> bool {
-        false
-    }
-
-    /// Side-effect-free view of [`Self::nametable_read`], for tooling.
+    /// Side-effect-free view of [`PpuCartridge::nametable_read`], for tooling.
     ///
     /// ⚠ Exists because `nametable_read` takes `&mut self` — MMC5 uses
     /// nametable fetches to drive its scanline detector, so a debugger

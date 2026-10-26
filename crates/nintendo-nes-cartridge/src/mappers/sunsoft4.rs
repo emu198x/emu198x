@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// Sunsoft-4 (Mapper 68): 16 KiB PRG banking, 2 KiB CHR banking,
@@ -78,6 +78,29 @@ impl Sunsoft4 {
     }
 }
 
+impl PpuCartridge for Sunsoft4 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let slot = usize::from((addr & 0x1FFF) / 0x0800);
+        let bank = usize::from(self.chr_banks[slot]) % self.chr_2k_bank_count();
+        let offset = usize::from(addr & 0x07FF);
+        self.chr_rom[bank * 2048 + offset]
+    }
+
+    fn chr_write(&mut self, _addr: u16, _value: u8) {}
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+
+    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
+        self.nametable_peek(addr)
+    }
+
+    fn nametable_write(&mut self, _addr: u16, _value: u8) -> bool {
+        self.nt_rom_mode
+    }
+}
+
 impl Mapper for Sunsoft4 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -117,23 +140,6 @@ impl Mapper for Sunsoft4 {
         }
     }
 
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let slot = usize::from((addr & 0x1FFF) / 0x0800);
-        let bank = usize::from(self.chr_banks[slot]) % self.chr_2k_bank_count();
-        let offset = usize::from(addr & 0x07FF);
-        self.chr_rom[bank * 2048 + offset]
-    }
-
-    fn chr_write(&mut self, _addr: u16, _value: u8) {}
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
-    }
-
-    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
-        self.nametable_peek(addr)
-    }
-
     fn nametable_peek(&self, addr: u16) -> Option<u8> {
         if !self.nt_rom_mode {
             return None;
@@ -142,10 +148,6 @@ impl Mapper for Sunsoft4 {
         let bank = usize::from(self.nt_banks[slot]) % self.chr_1k_bank_count();
         let offset = usize::from(addr & 0x03FF);
         Some(self.chr_rom[bank * 1024 + offset])
-    }
-
-    fn nametable_write(&mut self, _addr: u16, _value: u8) -> bool {
-        self.nt_rom_mode
     }
 
     fn save_ram(&self) -> &[u8] {

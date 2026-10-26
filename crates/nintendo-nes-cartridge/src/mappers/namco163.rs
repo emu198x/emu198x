@@ -36,7 +36,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// CPU cycles between channel updates.
@@ -197,6 +197,35 @@ enum Page {
     Chr(usize),
 }
 
+impl PpuCartridge for Namco163 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        let page = self.pattern_page(addr);
+        self.read_page(page)
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        let page = self.pattern_page(addr);
+        self.write_page(page, value);
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        // Every nametable access is answered by `nametable_read`; this is
+        // only what a debugger shows.
+        Mirroring::Vertical
+    }
+
+    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
+        let page = self.nametable_page(addr);
+        Some(self.read_page(page))
+    }
+
+    fn nametable_write(&mut self, addr: u16, value: u8) -> bool {
+        let page = self.nametable_page(addr);
+        self.write_page(page, value);
+        true
+    }
+}
+
 impl Mapper for Namco163 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -268,22 +297,6 @@ impl Mapper for Namco163 {
         }
     }
 
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        let page = self.pattern_page(addr);
-        self.read_page(page)
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        let page = self.pattern_page(addr);
-        self.write_page(page, value);
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        // Every nametable access is answered by `nametable_read`; this is
-        // only what a debugger shows.
-        Mirroring::Vertical
-    }
-
     fn irq_pending(&self) -> bool {
         self.irq_pending
     }
@@ -315,19 +328,8 @@ impl Mapper for Namco163 {
         f32::from(self.audio_level()) / CHANNEL_FULL_SCALE * FULL_SCALE
     }
 
-    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
-        let page = self.nametable_page(addr);
-        Some(self.read_page(page))
-    }
-
     fn nametable_peek(&self, addr: u16) -> Option<u8> {
         Some(self.read_page(self.nametable_page(addr)))
-    }
-
-    fn nametable_write(&mut self, addr: u16, value: u8) -> bool {
-        let page = self.nametable_page(addr);
-        self.write_page(page, value);
-        true
     }
 
     fn snapshot(&self) -> MapperSnapshot {

@@ -51,7 +51,7 @@ use format_nintendo_famicom_fds::{SIDE_LEN, Side, parse, write};
 use serde::{Deserialize, Serialize};
 
 use super::fds_audio::FdsAudio;
-use crate::mapper::{DiskDrive, Mapper, Mirroring};
+use crate::mapper::{DiskDrive, Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// The BIOS's size.
@@ -431,6 +431,24 @@ impl DiskDrive for Fds {
     }
 }
 
+impl PpuCartridge for Fds {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr & 0x1FFF)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr & 0x1FFF)] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        if self.horizontal {
+            Mirroring::Horizontal
+        } else {
+            Mirroring::Vertical
+        }
+    }
+}
+
 impl Mapper for Fds {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -501,22 +519,6 @@ impl Mapper for Fds {
             0x4040..=0x408A => self.audio.write(addr, value),
             0x6000..=0xDFFF => self.prg_ram[usize::from(addr - 0x6000)] = value,
             _ => {}
-        }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr_ram[usize::from(addr & 0x1FFF)]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        self.chr_ram[usize::from(addr & 0x1FFF)] = value;
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        if self.horizontal {
-            Mirroring::Horizontal
-        } else {
-            Mirroring::Vertical
         }
     }
 

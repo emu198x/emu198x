@@ -90,7 +90,7 @@ The machine layer is responsible for:
 **Input methods (not pins — peripheral register bus, same rationale as CIA/SID/VIC):**
 - `read(reg)` — `$2000-$2007` register bus, `&mut self` for `$2002` side effects (clears VBL flag + write latch).
 - `write(reg, value)` — `$2000-$2007` register writes.
-- `tick(mapper: &mut dyn Mapper)` — advances one dot. Takes the mapper because PPU memory reads (pattern table, nametable, attribute table) route through the mapper.
+- `tick(mapper: &mut dyn PpuCartridge)` — advances one dot. Takes the cartridge because PPU memory reads (pattern table, nametable, attribute table) route through it. Until 2026-10-26 this was `&mut dyn Mapper`; see the note under § Mapper.
 
 **No CPU-bus pins exposed** — the PPU doesn't observe the CPU's bus directly on real hardware; communication is via the register interface at `$2000-$2007` which the machine layer routes. The mapper is the one chip that observes both the CPU's bus (via `cpu_read`/`cpu_write`) and the PPU's bus (via `chr_read`/`chr_write`).
 
@@ -99,6 +99,8 @@ The machine layer is responsible for:
 Same pin contract as the stock [mos-6502](../chips/mos-6502.md): `addr` / `data` / `rw` / `sync` outputs, `data_in` / `irq` / `nmi` / `rdy` inputs. The only behavioural difference is that `ADC` and `SBC` ignore the D flag — the 2A03 has the BCD decoder disabled on-die. A `decimal_disabled` field on the `M6502` struct gates the BCD path.
 
 ### Mapper
+
+> **2026-10-26:** the PPU-side half of this trait — `chr_read`, `chr_write`, `mirroring`, the nametable overrides and the A12 and PPU-read notifications — moved into `PpuCartridge`, a trait the PPU crate (`emu198x-ricoh-ppu-2c02`) owns along with `Mirroring`. `Mapper` now requires it (`pub trait Mapper: Send + PpuCartridge`), so every mapper implements both and a `&mut dyn Mapper` still reaches the PPU unchanged. The PPU no longer depends on the cartridge crate, so it can be published on its own ([#1998](https://github.com/emu198x/emu198x/issues/1998)). The sketch below is the original shape.
 
 Per the archive's existing trait, with a few additions demanded by the pin-level world:
 

@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 const MMC5_LENGTH_TABLE: [u8; 32] = [
@@ -441,6 +441,77 @@ impl Mmc5 {
     }
 }
 
+impl PpuCartridge for Mmc5 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        Mirroring::Vertical
+    }
+
+    fn notify_ppu_read(&mut self, addr: u16, rendering: bool) {
+        self.no_ppu_read_cpu_cycles = 0;
+        if !rendering {
+            return;
+        }
+
+        if self.pending_scanline_detect {
+            self.pending_scanline_detect = false;
+            self.detect_scanline();
+        }
+
+        if (0x2000..=0x2FFF).contains(&addr) {
+            if addr == self.last_nt_read {
+                self.same_nt_read_count = self.same_nt_read_count.saturating_add(1);
+            } else {
+                self.last_nt_read = addr;
+                self.same_nt_read_count = 1;
+            }
+
+            if self.same_nt_read_count >= 3 {
+                self.pending_scanline_detect = true;
+                self.same_nt_read_count = 0;
+            }
+        } else {
+            self.same_nt_read_count = 0;
+            self.last_nt_read = 0xFFFF;
+        }
+    }
+
+    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
+        let offset = usize::from((addr - 0x2000) & 0x03FF);
+        let value = match self.nt_page_kind(addr) {
+            0 => self.nt_ram[offset],
+            1 => self.nt_ram[1024 + offset],
+            2 => self.exram[offset],
+            3 if offset < 0x03C0 => self.fill_tile,
+            3 => self.fill_attr * 0x55,
+            _ => unreachable!(),
+        };
+        Some(value)
+    }
+
+    fn nametable_write(&mut self, addr: u16, value: u8) -> bool {
+        let offset = usize::from((addr - 0x2000) & 0x03FF);
+        match self.nt_page_kind(addr) {
+            0 => self.nt_ram[offset] = value,
+            1 => self.nt_ram[1024 + offset] = value,
+            2 => self.exram[offset] = value,
+            3 => {}
+            _ => unreachable!(),
+        }
+        true
+    }
+}
+
 impl Mapper for Mmc5 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -546,52 +617,8 @@ impl Mapper for Mmc5 {
         }
     }
 
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[self.chr_index(addr)]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            let index = self.chr_index(addr);
-            self.chr[index] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        Mirroring::Vertical
-    }
-
     fn irq_pending(&self) -> bool {
         (self.irq_enabled && self.irq_pending) || (self.pcm_irq_enabled && self.pcm_irq_pending)
-    }
-
-    fn notify_ppu_read(&mut self, addr: u16, rendering: bool) {
-        self.no_ppu_read_cpu_cycles = 0;
-        if !rendering {
-            return;
-        }
-
-        if self.pending_scanline_detect {
-            self.pending_scanline_detect = false;
-            self.detect_scanline();
-        }
-
-        if (0x2000..=0x2FFF).contains(&addr) {
-            if addr == self.last_nt_read {
-                self.same_nt_read_count = self.same_nt_read_count.saturating_add(1);
-            } else {
-                self.last_nt_read = addr;
-                self.same_nt_read_count = 1;
-            }
-
-            if self.same_nt_read_count >= 3 {
-                self.pending_scanline_detect = true;
-                self.same_nt_read_count = 0;
-            }
-        } else {
-            self.same_nt_read_count = 0;
-            self.last_nt_read = 0xFFFF;
-        }
     }
 
     fn cpu_tick(&mut self) {
@@ -611,19 +638,6 @@ impl Mapper for Mmc5 {
         self.expansion_audio_level()
     }
 
-    fn nametable_read(&mut self, addr: u16) -> Option<u8> {
-        let offset = usize::from((addr - 0x2000) & 0x03FF);
-        let value = match self.nt_page_kind(addr) {
-            0 => self.nt_ram[offset],
-            1 => self.nt_ram[1024 + offset],
-            2 => self.exram[offset],
-            3 if offset < 0x03C0 => self.fill_tile,
-            3 => self.fill_attr * 0x55,
-            _ => unreachable!(),
-        };
-        Some(value)
-    }
-
     fn nametable_peek(&self, addr: u16) -> Option<u8> {
         let offset = usize::from((addr - 0x2000) & 0x03FF);
         Some(match self.nt_page_kind(addr) {
@@ -634,18 +648,6 @@ impl Mapper for Mmc5 {
             3 => self.fill_attr * 0x55,
             _ => unreachable!(),
         })
-    }
-
-    fn nametable_write(&mut self, addr: u16, value: u8) -> bool {
-        let offset = usize::from((addr - 0x2000) & 0x03FF);
-        match self.nt_page_kind(addr) {
-            0 => self.nt_ram[offset] = value,
-            1 => self.nt_ram[1024 + offset] = value,
-            2 => self.exram[offset] = value,
-            3 => {}
-            _ => unreachable!(),
-        }
-        true
     }
 
     fn save_ram(&self) -> &[u8] {

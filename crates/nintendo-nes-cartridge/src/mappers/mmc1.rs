@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// MMC1 (Mapper 1, SxROM): serial-register PRG/CHR banking.
@@ -107,6 +107,29 @@ impl Mmc1 {
     }
 }
 
+impl PpuCartridge for Mmc1 {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr[self.chr_index(addr)]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        if self.chr_is_ram {
+            let index = self.chr_index(addr);
+            self.chr[index] = value;
+        }
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        match self.control & 0x03 {
+            0 => Mirroring::SingleScreenLower,
+            1 => Mirroring::SingleScreenUpper,
+            2 => Mirroring::Vertical,
+            3 => Mirroring::Horizontal,
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Mapper for Mmc1 {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -140,27 +163,6 @@ impl Mapper for Mmc1 {
             }
             0x8000..=0xFFFF => self.write_register(addr, value),
             _ => {}
-        }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr[self.chr_index(addr)]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        if self.chr_is_ram {
-            let index = self.chr_index(addr);
-            self.chr[index] = value;
-        }
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        match self.control & 0x03 {
-            0 => Mirroring::SingleScreenLower,
-            1 => Mirroring::SingleScreenUpper,
-            2 => Mirroring::Vertical,
-            3 => Mirroring::Horizontal,
-            _ => unreachable!(),
         }
     }
 

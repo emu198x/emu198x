@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::mapper::{Mapper, Mirroring};
+use crate::mapper::{Mapper, Mirroring, PpuCartridge};
 use crate::snapshot::MapperSnapshot;
 
 /// BxROM / BNROM (Mapper 34): switchable 32 KiB PRG bank with CHR RAM.
@@ -37,6 +37,20 @@ impl BxRom {
     }
 }
 
+impl PpuCartridge for BxRom {
+    fn chr_read(&mut self, addr: u16) -> u8 {
+        self.chr_ram[usize::from(addr) & 0x1FFF]
+    }
+
+    fn chr_write(&mut self, addr: u16, value: u8) {
+        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
+    }
+
+    fn mirroring(&self) -> Mirroring {
+        self.mirroring
+    }
+}
+
 impl Mapper for BxRom {
     fn cpu_read(&self, addr: u16) -> u8 {
         match addr {
@@ -53,18 +67,6 @@ impl Mapper for BxRom {
         if addr >= 0x8000 {
             self.prg_bank = value & self.cpu_read(addr);
         }
-    }
-
-    fn chr_read(&mut self, addr: u16) -> u8 {
-        self.chr_ram[usize::from(addr) & 0x1FFF]
-    }
-
-    fn chr_write(&mut self, addr: u16, value: u8) {
-        self.chr_ram[usize::from(addr) & 0x1FFF] = value;
-    }
-
-    fn mirroring(&self) -> Mirroring {
-        self.mirroring
     }
 
     fn snapshot(&self) -> MapperSnapshot {

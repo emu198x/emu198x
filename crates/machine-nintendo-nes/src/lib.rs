@@ -1,7 +1,7 @@
 //! NES machine wiring.
 //!
 //! Ties the 2A03 CPU ([`emu198x_mos_6502`]), 2C02 PPU
-//! ([`ricoh_ppu_2c02`]), and cartridge mapper
+//! ([`emu198x_ricoh_ppu_2c02`]), and cartridge mapper
 //! ([`nintendo_nes_cartridge::Mapper`]) together with 2 KiB of
 //! internal RAM, OAMDMA, and controller I/O.
 //!
@@ -51,19 +51,19 @@ mod serde_skip_audit;
 
 use emu198x_mos_6502::M6502;
 use emu198x_ricoh_apu_2a03::Apu;
+use emu198x_ricoh_ppu_2c02::Ppu;
 use nintendo_nes_cartridge::{Mapper, MapperSnapshot, mapper_from_snapshot};
-use ricoh_ppu_2c02::Ppu;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 mod ports;
 
 pub use emu198x_ricoh_apu_2a03::{ApuChannel, AudioControls};
-use ports::Ports;
-pub use ports::{InputDevices, zapper_bits};
-pub use ricoh_ppu_2c02::{
+pub use emu198x_ricoh_ppu_2c02::{
     FB_HEIGHT, FB_WIDTH, TV_CROP_BOTTOM, TV_CROP_TOP, TV_VISIBLE_HEIGHT, TV_VISIBLE_WIDTH,
 };
+use ports::Ports;
+pub use ports::{InputDevices, zapper_bits};
 
 /// Console region. Selects the clock divider and frame geometry.
 ///

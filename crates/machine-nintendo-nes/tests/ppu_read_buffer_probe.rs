@@ -1103,7 +1103,7 @@ fn probe_oam_dma_cost() {
 /// suppression: a read landing on the dot the flag sets returns 0 and
 /// consumes it.
 ///
-/// `ricoh_ppu_2c02` suppresses on exactly `(241, 1)`. This reports every
+/// `emu198x_ricoh_ppu_2c02` suppresses on exactly `(241, 1)`. This reports every
 /// poll landing at scanline 241 dots 0-3 and what it read, so the miss
 /// can be attributed rather than assumed.
 #[test]
