@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.1
+
 ### Added
 
 - `DeniseChip`, the surface a board-level Denise wrapper drives, with the
@@ -17,13 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glue. `TimingStrobe` is new: the strobe as Denise receives it, where the
   glue passed Agnus's own strobe type.
 
-- Remember the last position and control word that armed each sprite, and how
-  many times one has, in the sprite snapshot, so a frontend can find the
-  mouse pointer after sprite DMA has loaded the 0/0 terminator
-
 ## 0.1.0
 
 ### Added
+
+- Remember the last position and control word that armed each sprite, and how
+  many times one has, in the sprite snapshot, so a frontend can find the
+  mouse pointer after sprite DMA has loaded the 0/0 terminator
 
 - First release under the `emu198x-commodore-denise-ocs` name. Until now the crate was
   `commodore-denise-ocs`, versioned with the Emu198x suite and unpublished; the entries below are from that name.
