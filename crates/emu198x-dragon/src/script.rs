@@ -5846,7 +5846,15 @@ fn load_rom_from_zip(path: &Path) -> Result<[u8; ROM_SIZE], String> {
             continue;
         }
 
-        let entry_name = entry.name().to_owned();
+        let entry_name = entry
+            .name()
+            .map_err(|err| {
+                format!(
+                    "failed to read zip entry {index} name in {}: {err}",
+                    path.display()
+                )
+            })?
+            .into_owned();
         let mut bytes = Vec::new();
         entry
             .read_to_end(&mut bytes)

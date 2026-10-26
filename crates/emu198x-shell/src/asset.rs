@@ -180,7 +180,13 @@ fn read_zip_asset(
         }
 
         file_count += 1;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|reason| AssetLoadError::InvalidZip {
+                path: path.to_path_buf(),
+                reason: reason.to_string(),
+            })?
+            .into_owned();
         if entry_name_matches(&name, extensions) {
             matches.push((index, name));
         }
@@ -380,6 +386,45 @@ mod tests {
         assert_eq!(loaded.archive_member.as_deref(), Some("Manic Miner.tzx"));
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_media_asset_preserves_utf8_member_names() {
+        let path = temp_path("utf8.zip");
+        let name = "Jeux/Évasion.tzx";
+        fs::write(&path, write_zip(&[(name, b"tape")])).expect("UTF-8 fixture should write");
+
+        let loaded = read_media_asset(&path, MediaKind::Tape)
+            .expect("UTF-8 member should load without changing its name");
+        assert_eq!(loaded.bytes, b"tape");
+        assert_eq!(loaded.archive_member.as_deref(), Some(name));
+
+        fs::remove_file(path).expect("UTF-8 fixture should be removed");
+    }
+
+    #[test]
+    fn read_media_asset_decodes_cp437_member_names() {
+        let path = temp_path("cp437.zip");
+        let mut bytes = write_zip(&[("xvasion.tzx", b"tape")]);
+        // Replace the name in both headers with CP437 é (0x82). Keeping the
+        // byte length and file data unchanged leaves the archive valid.
+        let offsets: Vec<_> = bytes
+            .windows(b"xvasion.tzx".len())
+            .enumerate()
+            .filter_map(|(offset, name)| (name == b"xvasion.tzx").then_some(offset))
+            .collect();
+        assert_eq!(offsets.len(), 2, "local and central names must both change");
+        for offset in offsets {
+            bytes[offset] = 0x82;
+        }
+        fs::write(&path, bytes).expect("CP437 fixture should write");
+
+        let loaded =
+            read_media_asset(&path, MediaKind::Tape).expect("legacy CP437 member should load");
+        assert_eq!(loaded.bytes, b"tape");
+        assert_eq!(loaded.archive_member.as_deref(), Some("évasion.tzx"));
+
+        fs::remove_file(path).expect("CP437 fixture should be removed");
     }
 
     #[test]
