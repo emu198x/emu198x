@@ -1336,6 +1336,46 @@ mod tests {
     }
 
     #[test]
+    fn offscreen_raw_frames_blend_only_at_fractional_edges() {
+        // Two pixels with a pixel aspect of 1.5 fill three output pixels:
+        // each source pixel is 1.5 wide, so the middle output pixel straddles
+        // the edge and is a blend, while the outer ones stay solid.
+        let a = [0xFF, 0x00, 0x00, 0xFF];
+        let b = [0x00, 0x00, 0xFF, 0xFF];
+        let frame = CapturedFrame {
+            signal: None,
+            timestamp: MachineTime::new(0),
+            format: PixelFormat::Rgba8888,
+            width: 2,
+            height: 1,
+            palette: None,
+            pixels: [a, b].concat(),
+        };
+        let mut presenter = match WgpuVideoPresenter::new_offscreen(3, 1, 2, 1) {
+            Ok(presenter) => presenter,
+            Err(VideoPresenterError::NoAdapter) => {
+                emu198x_test_skip::skip!("no GPU adapter for an offscreen presenter");
+            }
+            Err(err) => panic!("offscreen presenter: {err}"),
+        };
+        let mut profile = PresentationProfile::raw();
+        profile.pixel_aspect_ratio = 1.5;
+        assert!(
+            presenter
+                .present_with_status(&frame, &profile)
+                .expect("present")
+        );
+        let (pixels, _, _) = presenter.offscreen_pixels().expect("offscreen");
+        assert_eq!(&pixels[0..4], &a, "left edge pixel stays solid");
+        assert_eq!(&pixels[8..12], &b, "right edge pixel stays solid");
+        let middle = &pixels[4..8];
+        assert!(
+            middle[0] > 0x40 && middle[0] < 0xC0 && middle[2] > 0x40 && middle[2] < 0xC0,
+            "the pixel across the edge is a blend, got {middle:?}"
+        );
+    }
+
+    #[test]
     fn video_filters_parse_from_cli_values() {
         assert_eq!("raw".parse::<VideoFilter>(), Ok(VideoFilter::Raw));
         assert_eq!("lcd".parse::<VideoFilter>(), Ok(VideoFilter::Lcd));

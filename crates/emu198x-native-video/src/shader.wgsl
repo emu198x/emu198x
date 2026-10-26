@@ -56,8 +56,41 @@ var<uniform> presentation: PresentationUniforms;
 // The low digit is the field mode. The high digit marks linear phosphor input.
 fn field_mode() -> f32 { return presentation.field_mode % 10.0; }
 
+// Sharp bilinear: each source pixel is a solid block of output pixels, and
+// only the output pixels a block edge passes through are blended. At a
+// whole-number scale no output pixel straddles an edge, so the result is
+// exactly nearest-neighbour; at a fractional scale (non-square pixels, or a
+// window between sizes) every stroke keeps one width instead of alternating.
+// `texel_step` is how far one output pixel moves across the source, in
+// source pixels, per axis.
+fn sharp_bilinear(uv: vec2<f32>, texel_step: vec2<f32>) -> vec4<f32> {
+    let size = vec2<f32>(textureDimensions(source_texture));
+    let texel = uv * size - 0.5;
+    let base = floor(texel);
+    let frac = texel - base;
+    // Output pixels per source pixel; never below 1, which would blur.
+    let scale = max(vec2<f32>(1.0), 1.0 / max(texel_step, vec2<f32>(1e-6)));
+    let t = clamp((frac - 0.5) * scale + 0.5, vec2<f32>(0.0), vec2<f32>(1.0));
+    let last = vec2<i32>(size) - vec2<i32>(1);
+    let p0 = clamp(vec2<i32>(base), vec2<i32>(0), last);
+    let p1 = clamp(vec2<i32>(base) + vec2<i32>(1), vec2<i32>(0), last);
+    let top = mix(
+        textureLoad(source_texture, vec2<i32>(p0.x, p0.y), 0),
+        textureLoad(source_texture, vec2<i32>(p1.x, p0.y), 0),
+        t.x,
+    );
+    let bottom = mix(
+        textureLoad(source_texture, vec2<i32>(p0.x, p1.y), 0),
+        textureLoad(source_texture, vec2<i32>(p1.x, p1.y), 0),
+        t.x,
+    );
+    return mix(top, bottom, t.y);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Taken here, in uniform control flow, for the raw path below.
+    let texel_step = fwidth(in.uv * vec2<f32>(textureDimensions(source_texture)));
     var sample_uv = in.uv;
     // Bob uses only the completed field. Nearest row duplication deliberately
     // sacrifices vertical detail; the other field is never sampled.
@@ -70,7 +103,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(source_texture, source_sampler, sample_uv);
 
     if presentation.filter_mode < 0.5 {
-        return color;
+        // Bob duplicates whole rows on purpose, so it keeps nearest rows.
+        if field_mode() >= 3.0 {
+            return color;
+        }
+        return sharp_bilinear(in.uv, texel_step);
     }
 
     if presentation.filter_mode < 1.5 {
