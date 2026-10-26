@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail if a workflow installs packages without bounding apt.
+"""Fail if a workflow installs apt packages other than through the shared script.
 
 An unreachable Ubuntu mirror makes `apt-get` retry with its default
 timeouts. In practice that is twenty to thirty minutes per job, before any
@@ -12,6 +12,13 @@ explicit acquire timeouts and a retry cap. This check exists because the
 first fix covered `ci.yml` and missed `maintain-release.yml` and the four
 sites in `nightly-accuracy.yml` — the release workflow then hung on exactly
 the mirror the fix was written for.
+
+Bounding was still not enough: a mirror that answers slowly fails every
+attempt in turn, because apt only moves to the next mirror on an error.
+`scripts/ci/apt-install.sh` puts a different mirror first on each retry, so
+workflows install through it and nothing else. This check fails on any
+`apt-get install` in a workflow, and on the script if it loses its bounds or
+its mirror rotation.
 
 ## Self-test
 
@@ -53,6 +60,12 @@ GOOD = """
           exit 1
 """
 
+# What a workflow does instead.
+SCRIPT_CALL = """
+      - name: Install deps
+        run: bash scripts/ci/apt-install.sh pkg-config libasound2-dev
+"""
+
 # A one-line step: the install follows `run:` and `&&`, not the line start.
 INLINE = """
       - name: Install deps
@@ -65,32 +78,52 @@ MESSAGE = """
 """
 
 
-def unbounded(text: str) -> list[str]:
+SCRIPT = REPO / "scripts" / "ci" / "apt-install.sh"
+
+
+def installs(text: str, *, bounded_ok: bool) -> list[str]:
+    """`apt-get install` command lines; with `bounded_ok`, only unbounded ones."""
     found = []
     for line in text.splitlines():
         if line.lstrip().startswith("#"):
             continue
         for command in COMMAND.finditer(line):
-            if re.search(r"\binstall\b", command["args"]) and not command["timeout"]:
+            if re.search(r"\binstall\b", command["args"]) and not (
+                bounded_ok and command["timeout"]
+            ):
                 found.append(line.strip())
                 break
     return found
 
 
+def unbounded(text: str) -> list[str]:
+    return installs(text, bounded_ok=True)
+
+
+def raw(text: str) -> list[str]:
+    return installs(text, bounded_ok=False)
+
+
 def self_test() -> None:
-    for name, body, expected in (
-        ("bad", BAD, 1),
-        ("good", GOOD, 0),
-        ("inline", INLINE, 1),
-        ("message", MESSAGE, 0),
+    for name, check, body, expected in (
+        ("bad", unbounded, BAD, 1),
+        ("good", unbounded, GOOD, 0),
+        ("inline", unbounded, INLINE, 1),
+        ("message", unbounded, MESSAGE, 0),
+        ("bounded but hand-rolled", raw, GOOD, 1),
+        ("script call", raw, SCRIPT_CALL, 0),
+        ("message in a workflow", raw, MESSAGE, 0),
     ):
-        found = len(unbounded(body))
+        found = len(check(body))
         if found != expected:
             raise SystemExit(
                 f"self-test FAILED: {name} sample should yield {expected}, got {found}. "
                 "The detector has stopped detecting; fix it before trusting a pass."
             )
-    print("self-test passed: flags unbounded apt-get installs, inline or not; accepts bounded ones and messages")
+    print(
+        "self-test passed: flags unbounded apt-get installs, inline or not, and any "
+        "hand-rolled install in a workflow; accepts the script call and messages"
+    )
 
 
 def main() -> int:
@@ -103,19 +136,24 @@ def main() -> int:
 
     problems = []
     for path in sorted((REPO / ".github" / "workflows").glob("*.yml")):
-        for line in unbounded(path.read_text()):
+        for line in raw(path.read_text()):
             problems.append((path.relative_to(REPO), line))
+    script = SCRIPT.read_text()
+    for line in unbounded(script):
+        problems.append((SCRIPT.relative_to(REPO), line))
+    if "apt-mirrors.txt" not in script or "fallbacks=" not in script:
+        problems.append((SCRIPT.relative_to(REPO), "the mirror rotation is gone"))
 
     if not problems:
-        print("every apt-get install in a workflow is bounded and retried")
+        print("every apt install goes through scripts/ci/apt-install.sh, which is bounded and rotates mirrors")
         return 0
 
-    print(f"{len(problems)} unbounded apt-get install(s):\n")
+    print(f"{len(problems)} problem(s):\n")
     for path, line in problems:
         print(f"  {path}\n      {line}")
     print(
-        "\nAn unreachable mirror turns these into a 20-30 minute hang that reads as a "
-        "stuck job.\nWrap in `timeout` with a retry loop — see the pattern in ci.yml."
+        "\nA slow or unreachable mirror turns a raw install into a 20-30 minute hang, or "
+        "a failed job.\nInstall with `bash scripts/ci/apt-install.sh PACKAGE...` instead."
     )
     return 1
 
