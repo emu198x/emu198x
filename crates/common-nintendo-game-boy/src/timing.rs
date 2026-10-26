@@ -46,11 +46,9 @@ pub const DOTS_PER_FRAME: u32 = DOTS_PER_SCANLINE * SCANLINES_PER_FRAME;
 /// CPU m-cycles per frame.
 pub const MCYCLES_PER_FRAME: u32 = DOTS_PER_FRAME / 4;
 
-/// Visible screen width in pixels.
-pub const SCREEN_WIDTH: u32 = 160;
-
-/// Visible screen height in pixels.
-pub const SCREEN_HEIGHT: u32 = 144;
+/// Visible screen size in pixels. The PPU owns these, as the LCD's
+/// size is the chip's own fact; the family re-exports them here.
+pub use emu198x_nintendo_game_boy_ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 /// PPU mode 2 (OAM scan) length in dots — fixed across scanlines.
 pub const PPU_MODE2_DOTS: u32 = 80;

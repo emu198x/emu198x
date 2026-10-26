@@ -530,6 +530,7 @@ dependencies = [
 name = "common-nintendo-game-boy"
 version = "0.44.2"
 dependencies = [
+ "emu198x-nintendo-game-boy-ppu",
  "serde",
 ]
 
@@ -1649,6 +1650,14 @@ name = "emu198x-nintendo-game-boy-mbc"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-nintendo-game-boy-ppu"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -3653,11 +3662,11 @@ dependencies = [
  "common-nintendo-game-boy",
  "emu198x-nintendo-game-boy-apu",
  "emu198x-nintendo-game-boy-mbc",
+ "emu198x-nintendo-game-boy-ppu",
  "emu198x-nintendo-game-boy-timer",
  "emu198x-sharp-lr35902",
  "emu198x-test-skip",
  "format-nintendo-game-boy-cartridge",
- "nintendo-game-boy-ppu",
  "png",
  "postcard",
  "serde",
@@ -4184,15 +4193,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys 0.3.1",
-]
-
-[[package]]
-name = "nintendo-game-boy-ppu"
-version = "0.44.2"
-dependencies = [
- "common-nintendo-game-boy",
- "serde",
- "serde-big-array",
 ]
 
 [[package]]
