@@ -11,7 +11,7 @@
 | Runtime libraries | `runtime-{manufacturer}-{system}` | `runtime-sinclair-zx-spectrum` |
 | Runner packages | `emu-{manufacturer}-{system}` | `emu-sinclair-zx-spectrum` |
 | Formats | `format-{manufacturer}-{system}-{format}` | `format-sinclair-zx-spectrum-tap` |
-| Peripherals | `peripheral-{manufacturer}[-{system}]-{peripheral}` | `peripheral-commodore-amiga-floppy`, `peripheral-ultimate-uci-net` |
+| Peripherals | `peripheral-[{maker}-][{manufacturer}-{system}-]{peripheral}` | `peripheral-commodore-amiga-floppy`, `peripheral-kempston-sinclair-zx-spectrum-joystick`, `peripheral-ultimate-uci-net` |
 | Multi-vendor standards | No manufacturer prefix | MSX crates |
 | System-family common code | `{system}-common` | `common-sinclair-zx-spectrum` |
 | Cross-project shell | `emu198x-{role}` | `emu198x-shell` |
@@ -143,15 +143,30 @@ the system whose wiring it describes. It holds no implementation beyond
 trait defaults: shared implementation (the Spectrum's ULA timing engine,
 say) lives with a chip or in a chip-named crate of its own.
 
-**A peripheral names its system only if it has one.**
-`peripheral-{manufacturer}-{system}-{peripheral}` stays the rule for a
-device built for one system. When one implementation serves several systems
-without branching on which is asking — the test the 2026-08-14 amendment
-uses for shared format parsing — the system part is dropped:
-`peripheral-ultimate-uci-net` serves every machine the Ultimate cartridges
-plug into. The manufacturer is the device's maker, not the host's. A
-peripheral that does branch on its host is two crates, as TAP is two
-formats.
+**A peripheral names its maker, then its system in full.**
+The system is written exactly as every other category writes it, with its
+own manufacturer: `sinclair-zx-spectrum`, as in
+`machine-sinclair-zx-spectrum` and `format-sinclair-zx-spectrum-tap`. That
+is the string a stranger searches for. The device's maker goes in front
+when it is not the system's manufacturer, and is not repeated when it is:
+
+| Device | Crate |
+|---|---|
+| Commodore's floppy drive for the Amiga | `peripheral-commodore-amiga-floppy` |
+| Sinclair's Interface 1 | `peripheral-sinclair-zx-spectrum-interface1` |
+| Kempston's joystick interface | `peripheral-kempston-sinclair-zx-spectrum-joystick` |
+| Romantic Robot's Multiface | `peripheral-romantic-robot-sinclair-zx-spectrum-multiface` |
+| DivMMC, several makers | `peripheral-sinclair-zx-spectrum-divmmc` |
+
+A device several makers built to one design takes no maker word, as the
+multi-vendor row says for MSX.
+
+**A peripheral names its system only if it has one.** When one
+implementation serves several systems without branching on which is asking
+— the test the 2026-08-14 amendment uses for shared format parsing — the
+system part is dropped: `peripheral-ultimate-uci-net` serves every machine
+the Ultimate cartridges plug into. A peripheral that does branch on its
+host is two crates, as TAP is two formats.
 
 ### Drift triggers
 
@@ -162,6 +177,9 @@ formats.
 - **"Drop the system part, this peripheral might work elsewhere one day"** —
   no. The system part goes only when one implementation already serves
   several systems.
+- **"Shorten the system to `zx-spectrum`, the maker is already in the
+  name"** — no. The maker in a peripheral's name is the device's; the
+  system keeps its own manufacturer, as it does in every other category.
 - **"Name the bus crate after the connector (`edge-connector`, `expansion`)"**
   — no. Connectors differ between models of one system; the system name is
   what a stranger searches for.
