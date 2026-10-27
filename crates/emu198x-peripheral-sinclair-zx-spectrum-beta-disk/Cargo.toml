@@ -1,5 +1,5 @@
 [package]
-name = "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk"
+name = "emu198x-peripheral-sinclair-zx-spectrum-beta-disk"
 description = "Beta 128 disk interface — TR-DOS ROM paging and WD1793 stub used by Russian Spectrum clones"
 edition.workspace = true
 # Independently versioned, not the workspace lockstep version: this is a

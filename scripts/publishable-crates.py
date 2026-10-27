@@ -56,10 +56,20 @@ def publish_order(data: dict) -> list[dict[str, str]]:
     return ordered
 
 
+# crates.io rejects a crate name longer than this; see
+# knowledge/decisions/crate-naming.md.
+CRATES_IO_NAME_LIMIT = 64
+
+
 def main() -> int:
     crates = publish_order(metadata())
     if not crates:
         print("no publishable workspace crates", file=sys.stderr)
+        return 1
+    too_long = [crate["name"] for crate in crates if len(crate["name"]) > CRATES_IO_NAME_LIMIT]
+    if too_long:
+        for name in too_long:
+            print(f"{name} is {len(name)} characters; crates.io allows {CRATES_IO_NAME_LIMIT}", file=sys.stderr)
         return 1
     json.dump(crates, sys.stdout, separators=(",", ":"))
     print()

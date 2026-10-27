@@ -13,6 +13,7 @@ import unittest
 import unittest.mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+CRATES_IO_NAME_LIMIT = 64
 SPEC = importlib.util.spec_from_file_location("extract_repo", ROOT / "scripts" / "extract-repo.py")
 extract_repo = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(extract_repo)
@@ -132,6 +133,8 @@ class RepositoryList(unittest.TestCase):
                 with self.subTest(crate=crate):
                     manifest = (ROOT / "crates" / crate / "Cargo.toml").read_text()
                     self.assertTrue(crate.startswith("emu198x-"))
+                    # crates.io rejects longer names; see crate-naming.md.
+                    self.assertLessEqual(len(crate), CRATES_IO_NAME_LIMIT)
                     self.assertRegex(manifest, r'(?m)^version = "')
                     self.assertNotRegex(manifest, r"(?m)^publish\s*=\s*false")
 

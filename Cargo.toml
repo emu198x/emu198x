@@ -12,7 +12,7 @@ members = [
     "crates/common-nintendo-game-boy",
     "crates/emu198x-amstrad-gate-array",
     "crates/emu198x-amstrad-ula-40077",
-    "crates/emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
+    "crates/emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
     "crates/common-sinclair-zx-spectrum",
     "crates/emu198x-bus-sinclair-zx-spectrum",
     "crates/emu198x-sinclair-zx-spectrum-ula",

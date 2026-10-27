@@ -1769,6 +1769,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-peripheral-sinclair-zx-spectrum-beta-disk"
+version = "0.1.0"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
 name = "emu198x-peripheral-sinclair-zx-spectrum-divmmc"
 version = "0.1.0"
 dependencies = [
@@ -1778,14 +1786,6 @@ dependencies = [
 
 [[package]]
 name = "emu198x-peripheral-sinclair-zx-spectrum-interface1"
-version = "0.1.0"
-dependencies = [
- "emu198x-bus-sinclair-zx-spectrum",
- "serde",
-]
-
-[[package]]
-name = "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk"
 version = "0.1.0"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
@@ -3863,7 +3863,7 @@ dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-pentagon-ula",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
- "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
+ "emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-z80",
@@ -3878,7 +3878,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
- "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
+ "emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
  "emu198x-scorpion-ula",
  "emu198x-test-skip",
  "emu198x-zilog-z80",

@@ -31,7 +31,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_pentagon_ula::PentagonUla;
 use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonJoystick;
-use emu198x_peripheral_technology_research_sinclair_zx_spectrum_beta_disk::BetaDisk;
+use emu198x_peripheral_sinclair_zx_spectrum_beta_disk::BetaDisk;
 use emu198x_zilog_z80::{BusOp, Z80};
 
 use crate::memory::MemoryPentagon;

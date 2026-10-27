@@ -724,8 +724,8 @@ consumers = "Used by the 48K-, 128K- and +2A-class Spectrums."
 coverage_floor = 96
 
 [[repo]]
-name = "peripheral-technology-research-sinclair-zx-spectrum-beta-disk"
-crates = ["emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk"]
+name = "peripheral-sinclair-zx-spectrum-beta-disk"
+crates = ["emu198x-peripheral-sinclair-zx-spectrum-beta-disk"]
 summary = "Technology Research's Beta 128 disk interface and TR-DOS paging."
 consumers = "Used by the Pentagon 128 and Scorpion ZS-256."
 # 63.49% line coverage on 2026-10-26.
