@@ -1,0 +1,8 @@
+self-test: 12 cases pass
+1 problem(s):
+
+  crates/runtime-coleco-colecovision/tests/media_validation.rs::original_bios_executes_a_valid_test_cartridge
+    reason has no category prefix: 'requires original ColecoVision BIOS in EMU198X_COLECO_BIOS'
+    expected one of: FIXTURE, DIAGNOSTIC, SLOW, KNOWN DIVERGENCE, KNOWN LIMITATION
+
+backlog: 97/97 known bare attributes remain
