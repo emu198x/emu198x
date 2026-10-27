@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-mos-6502 = "0.6.1"
 emu198x-mos-pia-6520 = "0.1.0"
 emu198x-mos-via-6522 = "0.1.0"
-emu198x-motorola-6845 = { path = "../emu198x-motorola-6845", version = "0.1.0" }
+emu198x-motorola-6845 = "0.1.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

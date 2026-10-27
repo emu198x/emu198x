@@ -11,9 +11,9 @@ repository.workspace = true
 format198x-dragon-data-dragon-disk = "0.1.1"
 emu198x-mos-acia-6551 = "0.1.0"
 emu198x-motorola-6809 = "0.1.0"
-emu198x-motorola-pia-6821 = { path = "../emu198x-motorola-pia-6821", version = "0.1.0" }
-emu198x-motorola-sam-6883 = { path = "../emu198x-motorola-sam-6883", version = "0.1.0" }
-emu198x-motorola-vdg-6847 = { path = "../emu198x-motorola-vdg-6847", version = "0.1.0" }
+emu198x-motorola-pia-6821 = "0.1.0"
+emu198x-motorola-sam-6883 = "0.1.0"
+emu198x-motorola-vdg-6847 = "0.1.0"
 serde = { workspace = true }
 
 [dev-dependencies]

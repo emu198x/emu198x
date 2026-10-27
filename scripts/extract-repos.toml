@@ -93,22 +93,6 @@ consumers = "Used by the Acorn Atom, Amstrad CPC, MSX and Spectravideo."
 coverage_floor = 87
 
 [[repo]]
-name = "motorola-6845"
-crates = ["emu198x-motorola-6845"]
-summary = "The Motorola 6845 CRT controller."
-consumers = "Used by the BBC Micro, Amstrad CPC and Commodore PET."
-# 96.76% line coverage on 2026-10-24.
-coverage_floor = 96
-
-[[repo]]
-name = "motorola-vdg-6847"
-crates = ["emu198x-motorola-vdg-6847"]
-summary = "The Motorola MC6847 video display generator."
-consumers = "Used by the Acorn Atom and Dragon 32."
-# 84.80% line coverage on 2026-10-24.
-coverage_floor = 84
-
-[[repo]]
 name = "western-digital-wd1770"
 crates = ["emu198x-western-digital-wd1770"]
 summary = "The Western Digital WD1770 floppy disk controller and its WD177x/179x relatives."
@@ -179,38 +163,6 @@ summary = "The Zilog Z80 CTC (Z8430) counter/timer circuit."
 consumers = "Used by the Memotech MTX and Sord M5."
 # 97.51% line coverage on 2026-10-24.
 coverage_floor = 97
-
-[[repo]]
-name = "mos-vic-i"
-crates = ["emu198x-mos-vic-i"]
-summary = "The MOS 6560 and 6561 VIC video and sound chip."
-consumers = "Used by the Commodore VIC-20."
-# 94.80% line coverage on 2026-10-25.
-coverage_floor = 94
-
-[[repo]]
-name = "mos-vic-ii"
-crates = ["emu198x-mos-vic-ii"]
-summary = "The MOS VIC-II video chip family, including the C128's VIC-IIe."
-consumers = "Used by the Commodore 64 and 128."
-# 97.80% line coverage on 2026-10-25.
-coverage_floor = 97
-
-[[repo]]
-name = "motorola-pia-6821"
-crates = ["emu198x-motorola-pia-6821"]
-summary = "The Motorola MC6821 peripheral interface adapter."
-consumers = "Used by the Dragon 32 and 64."
-# 81.29% line coverage on 2026-10-25.
-coverage_floor = 81
-
-[[repo]]
-name = "motorola-sam-6883"
-crates = ["emu198x-motorola-sam-6883"]
-summary = "The Motorola MC6883 synchronous address multiplexer."
-consumers = "Used by the Dragon 32 and 64."
-# 96.36% line coverage on 2026-10-25.
-coverage_floor = 96
 
 [[repo]]
 name = "atari-tia"
@@ -396,22 +348,6 @@ summary = "The Atari ST GLUE and MMU: video timing, the video counter and fetch,
 consumers = "Used by the Atari ST."
 # 96.86% line coverage on 2026-10-25.
 coverage_floor = 96
-
-[[repo]]
-name = "motorola-mfp-68901"
-crates = ["emu198x-motorola-mfp-68901"]
-summary = "The Motorola MC68901 multi-function peripheral: GPIO, four timers, a vectored interrupt controller and a USART."
-consumers = "Used by the Atari ST."
-# 94.00% line coverage on 2026-10-25.
-coverage_floor = 94
-
-[[repo]]
-name = "motorola-acia-6850"
-crates = ["emu198x-motorola-acia-6850"]
-summary = "The Motorola MC6850 asynchronous communications interface adapter."
-consumers = "Used by the Atari ST, for its keyboard and MIDI links."
-# 97.83% line coverage on 2026-10-25.
-coverage_floor = 97
 
 [[repo]]
 name = "atari-sio"

@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-emu198x-mos-vic-i = { path = "../emu198x-mos-vic-i", version = "0.1.0" }
+emu198x-mos-vic-i = "0.1.0"
 emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.45.0" }
 machine-commodore-vic-20 = { path = "../machine-commodore-vic-20", version = "0.45.0" }
 postcard = { workspace = true }
