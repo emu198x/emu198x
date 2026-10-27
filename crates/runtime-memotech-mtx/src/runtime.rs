@@ -272,7 +272,10 @@ impl MachineCore for MtxRuntime {
         let _ = self.rebuild_machine();
         self.time = MachineTime::default();
     }
-    fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        if let Some(image) = media.images.first() {
+            return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+        }
         Ok(())
     }
     fn run_until(
