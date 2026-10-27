@@ -122,6 +122,66 @@ mod tests {
             .to_path_buf()
     }
 
+    /// The directory a `crates/<name>/src` entry names. While the crate lives
+    /// in this workspace that is the in-tree copy. Once it has its own
+    /// repository and comes from crates.io, it is Cargo's unpacked copy of the
+    /// version `Cargo.lock` pins, which is the source this build compiled.
+    fn source_root(root: &Path, relative: &str) -> PathBuf {
+        let in_tree = root.join(relative);
+        if in_tree.is_dir() {
+            return in_tree;
+        }
+        let mut parts = relative.splitn(3, '/');
+        let (Some("crates"), Some(name), Some(rest)) = (parts.next(), parts.next(), parts.next())
+        else {
+            panic!("audit path {relative} is not of the form crates/<name>/...");
+        };
+        let lock = std::fs::read_to_string(root.join("Cargo.lock"))
+            .unwrap_or_else(|err| panic!("audit cannot read Cargo.lock: {err}"));
+        let version = locked_version(&lock, name)
+            .unwrap_or_else(|| panic!("{name} is neither in crates/ nor in Cargo.lock"));
+        let cargo_home = std::env::var_os("CARGO_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(|home| PathBuf::from(home).join(".cargo"))
+            })
+            .expect("audit needs CARGO_HOME or a home directory");
+        let registry = cargo_home.join("registry").join("src");
+        let unpacked = format!("{name}-{version}");
+        std::fs::read_dir(&registry)
+            .unwrap_or_else(|err| panic!("audit cannot read {}: {err}", registry.display()))
+            .flatten()
+            .map(|index| index.path().join(&unpacked).join(rest))
+            .find(|dir| dir.is_dir())
+            .unwrap_or_else(|| panic!("audit cannot find {unpacked} below {}", registry.display()))
+    }
+
+    /// The version `Cargo.lock` pins for the package `name`.
+    fn locked_version<'a>(lock: &'a str, name: &str) -> Option<&'a str> {
+        let wanted = format!("name = \"{name}\"");
+        let mut lines = lock.lines();
+        while let Some(line) = lines.next() {
+            if line == wanted {
+                return lines
+                    .next()?
+                    .strip_prefix("version = \"")?
+                    .strip_suffix('"');
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn locked_version_reads_the_line_after_the_name() {
+        let lock = "[[package]]\nname = \"a-b\"\nversion = \"0.2.0\"\n\n\
+                    [[package]]\nname = \"a\"\nversion = \"1.0.0\"\n";
+        assert_eq!(locked_version(lock, "a"), Some("1.0.0"));
+        assert_eq!(locked_version(lock, "a-b"), Some("0.2.0"));
+        assert_eq!(locked_version(lock, "c"), None);
+    }
+
     /// Counts `#[serde(skip)]` and `#[serde(skip, …)]` annotations in
     /// `source` — matches the regex `^\s*#\[serde\(skip[\)\,\s]` with
     /// a simple state machine (no regex crate dep). The audit only
@@ -149,7 +209,11 @@ mod tests {
         let mut mismatches = Vec::new();
 
         for audit in EXPECTED_SERDE_SKIPS {
-            let path = root.join(audit.path);
+            let (dir, file) = audit
+                .path
+                .split_once("/src/")
+                .expect("audit paths name a file below a crate's src/");
+            let path = source_root(&root, &format!("{dir}/src")).join(file);
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|e| panic!("audit cannot read {}: {e}", path.display()));
             let actual = count_serde_skip_annotations(&source);

@@ -1479,10 +1479,10 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-6502"
 version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c611264b627b4afdd7b9a154b43fe9e6d100626973d09a3b35c91563d5490d8c"
 dependencies = [
- "emu198x-test-skip",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1554,6 +1554,8 @@ dependencies = [
 [[package]]
 name = "emu198x-motorola-6809"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc6025928d287daac9745f9d9575facb05d3c22e9c3bf81b8155ff4dfde2be03"
 dependencies = [
  "serde",
 ]
@@ -1904,10 +1906,10 @@ dependencies = [
 [[package]]
 name = "emu198x-sharp-lr35902"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6b097ad4279b0a62f6dc7ddca7617681474c06b23d3e21220429452b142d119"
 dependencies = [
- "isa198x-disasm",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2167,10 +2169,10 @@ dependencies = [
 [[package]]
 name = "emu198x-wdc-65c816"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b592bb0c4bd649a24c8fbecbe292e7582b98d14a962b1dfdce7cc3e28e2b341"
 dependencies = [
- "emu198x-test-skip",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2238,12 +2240,10 @@ version = "0.1.0"
 [[package]]
 name = "emu198x-zilog-z80"
 version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8d2e3e41d96d4e0b7ce4f508dc193d394d12cfed9388cd8c74b7f388ade04f5"
 dependencies = [
- "emu198x-test-skip",
- "isa198x-disasm",
- "postcard",
  "serde",
- "serde_json",
 ]
 
 [[package]]

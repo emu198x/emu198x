@@ -32,7 +32,13 @@ def rewrite(manifest: str, moving: set[str]) -> tuple[str, set[str], list[str]]:
 
 class UnreleasedSiblings(unittest.TestCase):
     def test_a_registry_dependency_still_in_this_workspace_is_a_candidate(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as workspace:
+            # A stand-in for this workspace, so the test does not depend on
+            # which crates have not left it yet.
+            for name in ("emu198x-atari-gtia", "emu198x-mos-6502"):
+                crate = pathlib.Path(workspace) / "crates" / name
+                crate.mkdir(parents=True)
+                (crate / "Cargo.toml").write_text("")
             manifest = pathlib.Path(tmp) / "crates" / "emu198x-atari-antic" / "Cargo.toml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text(textwrap.dedent(
@@ -44,10 +50,9 @@ class UnreleasedSiblings(unittest.TestCase):
                 not-a-crate-here = "1"
                 """
             ))
-            self.assertEqual(
-                extract_repo.unreleased_siblings(pathlib.Path(tmp)),
-                {"emu198x-atari-gtia", "emu198x-mos-6502"},
-            )
+            with unittest.mock.patch.object(extract_repo, "ROOT", pathlib.Path(workspace)):
+                siblings = extract_repo.unreleased_siblings(pathlib.Path(tmp))
+            self.assertEqual(siblings, {"emu198x-atari-gtia", "emu198x-mos-6502"})
 
 
 class RewriteManifest(unittest.TestCase):

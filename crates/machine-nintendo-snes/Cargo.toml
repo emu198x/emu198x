@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-wdc-65c816 = { path = "../emu198x-wdc-65c816", version = "0.1.0" }
+emu198x-wdc-65c816 = "0.1.0"
 emu198x-sony-spc700 = { path = "../emu198x-sony-spc700", version = "0.1.0" }
 emu198x-sony-s-dsp = { path = "../emu198x-sony-s-dsp", version = "0.1.0" }
 emu198x-nintendo-s-ppu = { path = "../emu198x-nintendo-s-ppu", version = "0.1.0" }

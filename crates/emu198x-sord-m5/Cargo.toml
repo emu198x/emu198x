@@ -29,7 +29,7 @@ machine-sord-m5 = { path = "../machine-sord-m5", version = "0.44.0" }
 png = { workspace = true }
 runtime-sord-m5 = { path = "../runtime-sord-m5", version = "0.44.0" }
 serde_json = { workspace = true }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 
 # Embeds the application icon in the Windows .exe (no-op elsewhere).
 [build-dependencies]

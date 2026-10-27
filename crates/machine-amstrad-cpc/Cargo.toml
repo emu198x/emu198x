@@ -16,7 +16,7 @@ emu198x-intel-8255 = { path = "../emu198x-intel-8255", version = "0.1.0" }
 emu198x-motorola-6845 = { path = "../emu198x-motorola-6845", version = "0.1.0" }
 emu198x-nec-upd765a = { path = "../emu198x-nec-upd765a", version = "0.1.0" }
 serde = { workspace = true }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 
 [dev-dependencies]
 format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.44.0" }

@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.44.0" }
-emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
+emu198x-mos-6502 = "0.6.1"
 emu198x-western-digital-wd1770 = { path = "../emu198x-western-digital-wd1770", version = "0.1.0" }
 format-acorn-adfs = { path = "../format-acorn-adfs", version = "0.44.0" }
 serde = { workspace = true }

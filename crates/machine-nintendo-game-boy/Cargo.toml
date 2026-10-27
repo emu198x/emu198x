@@ -16,7 +16,7 @@ emu198x-nintendo-game-boy-ppu = { path = "../emu198x-nintendo-game-boy-ppu", ver
 emu198x-nintendo-game-boy-timer = { path = "../emu198x-nintendo-game-boy-timer", version = "0.1.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
-emu198x-sharp-lr35902 = { path = "../emu198x-sharp-lr35902", version = "0.1.0" }
+emu198x-sharp-lr35902 = "0.1.0"
 
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }

@@ -13,10 +13,10 @@
 #
 # The "Spectrum-specific" scope is the set of crates that exist
 # primarily for the Spectrum family. Some chip crates are shared with
-# future systems (emu198x-zilog-z80 also covers MSX / CPC / Master System;
-# emu198x-gi-ay-3-8912 also covers MSX / CPC / Mockingboard), but they ship
-# today as Spectrum-driving infrastructure and are part of the
-# October-launch quality bar.
+# future systems (emu198x-gi-ay-3-8912 also covers MSX / CPC / Mockingboard),
+# but they ship today as Spectrum-driving infrastructure and are part of
+# the October-launch quality bar. The Z80 left with its own repository,
+# emu198x/zilog-z80, whose CI holds its coverage floor.
 #
 # The gate splits the scope in two:
 #   - GATED:    the 8 in-scope October-public variants and their
@@ -73,7 +73,6 @@ GATED_CRATES = [
     "emu198x-nec-upd765a",
     "emu198x-sinclair-ula-7k010e",
     "emu198x-sinclair-zx-spectrum-ula",
-    "emu198x-zilog-z80",
     # Format crates
     "format-amstrad-dsk",
     "format-sinclair-zx-spectrum-sna",

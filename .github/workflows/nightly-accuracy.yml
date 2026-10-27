@@ -1,17 +1,18 @@
 name: Nightly Accuracy
 
-# Runs external CPU comparison corpora that are too large or asset-dependent
-# to gate every push: SingleStepTests (6502, Z80, 68000), SM83 (Tennant),
-# Klaus Dormann, FUSE Z80, Wolfgang Lorenz, and ZEXDOC/ZEXALL. Their tests are
-# ignored by default because the external corpora are not checked into this
-# repository. A completed job records only the comparison it executed; the
+# Runs external comparison corpora that are too large or asset-dependent to
+# gate every push: SingleStepTests 68000, AROS, z80test and the machine-level
+# fixtures below. Their tests are ignored by default because the external
+# corpora are not checked into this repository. The 6502, Z80 and SM83 CPU
+# corpora (SingleStepTests, Klaus Dormann, FUSE, Wolfgang Lorenz, ZEXDOC/ZEXALL)
+# left with their crates and run nightly in emu198x/mos-6502, zilog-z80 and
+# sharp-lr35902. A completed job records only the comparison it executed; the
 # workflow's presence does not establish an accuracy result.
 #
 # A configured private release store delivers the corpora. It is a cache, not
 # their canonical provenance or a grant of redistribution rights. The workflow
 # verifies delivery checksums; the 68000 job also verifies a committed per-file
-# manifest. The Lorenz asset contains the project's synthetic free KERNAL, not
-# a commercial ROM. See test-data/accuracy-corpora.md.
+# manifest. See test-data/accuracy-corpora.md.
 
 # Read-only token for every job. The corpora come from a separate
 # release store through ACCURACY_CORPORA_TOKEN; GITHUB_TOKEN only
@@ -46,7 +47,7 @@ env:
   # is an error.
   #
   # The corpus tests already behave this way by using `.expect()` on their
-  # corpus roots. What this covers is the rest: the ZEX, z80test and
+  # corpus roots. What this covers is the rest: the z80test and
   # floating-bus jobs, whose Spectrum tests guarded with a bare `return`
   # and passed in silence when the 48K ROM, floatspy.tap or the Spectron
   # reference screens were absent.
@@ -97,36 +98,6 @@ jobs:
         # etc.) that require an env var and panic when it is unset — those are
         # for driving a single opcode by hand, not for CI.
         include:
-          - name: harte-6502
-            artifact: harte-6502
-            crate: emu198x-mos-6502
-            test: single_step_tests
-            env_var: EMU198X_6502_TOM_HARTE_DIR
-            filter: run_all
-          - name: harte-z80
-            artifact: harte-z80
-            crate: emu198x-zilog-z80
-            test: single_step_tests
-            env_var: EMU198X_Z80_TOM_HARTE_DIR
-            filter: run_all
-          - name: sm83-tennant
-            artifact: sm83
-            crate: emu198x-sharp-lr35902
-            test: single_step_tests
-            env_var: EMU198X_SM83_TENNANT_DIR
-            filter: run_all
-          - name: dormann-6502
-            artifact: dormann-6502
-            crate: emu198x-mos-6502
-            test: dormann_tests
-            env_var: EMU198X_6502_DORMANN_DIR
-            filter: ''
-          - name: fuse-z80
-            artifact: fuse-z80
-            crate: emu198x-zilog-z80
-            test: z80_fuse
-            env_var: EMU198X_FUSE_Z80_TESTS_DIR
-            filter: ''
           # AROS m68k, the Amiga's free firmware. Nightly rather than
           # per-PR: 1500 frames of a 68000 costs ~140s in a debug build,
           # against 8s here in release. The firmware-boot job on every PR
@@ -234,109 +205,6 @@ jobs:
 
       - name: Run SingleStepTests 68000 full sweep
         run: cargo test --release -p motorola-68000 --test tom_harte harte_full_sweep -- --ignored --exact --nocapture
-
-  # Wolfgang Lorenz — its own job because it loads a C64 KERNAL into $E000-$FFFF.
-  # That KERNAL is a *synthetic, fully-free* one we author (not the commercial
-  # Cloanto ROM): the harness traps CHROUT and installs its own reset/IRQ
-  # vectors, so the only KERNAL code the suite ever executes is the interrupt
-  # handlers at $EA31/$FE66/NMI — the synthetic supplies compatible minimal
-  # handlers there. Verified 2026-07-04 to reproduce the real-KERNAL result on
-  # all 265 cases (250 pass / 15 hardware-dependent skips). The store's
-  # lorenz-6502 tarball carries the cases plus this synthetic kernal.rom; no
-  # commercial ROM touches CI. See test-data/commodore/c64/synthetic-kernal/.
-  lorenz-6502:
-    name: lorenz-6502
-    runs-on: ubuntu-latest
-    needs: preflight
-    if: needs.preflight.outputs.configured == 'true'
-    timeout-minutes: 120
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Read pinned toolchain
-        id: toolchain
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: nightly-accuracy-lorenz
-
-      - name: Provision corpus + KERNAL from store
-        env:
-          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p corpora
-          cd corpora
-          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
-            -p 'lorenz-6502.tar.zst' -p 'SHA256SUMS'
-          grep ' lorenz-6502.tar.zst$' SHA256SUMS | sha256sum -c -
-          tar --zstd -xf 'lorenz-6502.tar.zst'
-          echo "EMU198X_6502_LORENZ_DIR=$(pwd)/lorenz-6502" >> "$GITHUB_ENV"
-          # The suite reads a KERNAL via the C64 ROM env var; the tarball ships
-          # the synthetic free KERNAL (kernal.rom) alongside the cases — not a
-          # commercial ROM. See test-data/commodore/c64/synthetic-kernal/.
-          echo "EMU198X_C64_KERNAL_ROM=$(pwd)/lorenz-6502/kernal.rom" >> "$GITHUB_ENV"
-
-      - name: Run Wolfgang Lorenz 6502 suite
-        run: cargo test --release -p emu198x-mos-6502 --test lorenz_tests run_lorenz_6502_cpu_suite -- --include-ignored --nocapture
-
-  # Frank Cringle's ZEXDOC + ZEXALL Z80 exerciser. Own job (tens of minutes).
-  # Previously ran hermetically from a checked-in corpus via zex.yml, on Z80
-  # changes; folded into this nightly for consistency with the other corpora
-  # (moved 2026-07-04). The .com corpus now lives in the store.
-  zex:
-    name: zex
-    runs-on: ubuntu-latest
-    needs: preflight
-    if: needs.preflight.outputs.configured == 'true'
-    timeout-minutes: 120
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Read pinned toolchain
-        id: toolchain
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: nightly-accuracy-zex
-
-      - name: Provision corpus from store
-        env:
-          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
-        run: |
-          set -euo pipefail
-          mkdir -p corpora
-          cd corpora
-          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
-            -p 'zex.tar.zst' -p 'SHA256SUMS'
-          grep ' zex.tar.zst$' SHA256SUMS | sha256sum -c -
-          tar --zstd -xf 'zex.tar.zst'
-          echo "EMU198X_ZEX_DIR=$(pwd)/zex" >> "$GITHUB_ENV"
-
-      - name: Run ZEXDOC + ZEXALL
-        # --skip checkpoint drops run_zexdoc_checkpoint / run_zexall_checkpoint,
-        # which need EMU198X_ZEX_CHECKPOINT set and panic without it.
-        run: cargo test --release -p emu198x-zilog-z80 --test zex_tests -- --include-ignored --skip checkpoint --nocapture
 
   # Patrik Rak's z80test exerciser (MIT). Runs on a full 48K Spectrum, so it
   # needs the free (Amstrad-permissioned) 48K ROM — the z80test tarball ships

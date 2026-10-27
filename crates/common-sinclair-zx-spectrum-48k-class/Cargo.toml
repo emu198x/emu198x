@@ -15,7 +15,7 @@ emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = { path = "../emu198x
 emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse", version = "0.1.0" }
 emu198x-peripheral-sinclair-zx-spectrum-interface1 = { path = "../emu198x-peripheral-sinclair-zx-spectrum-interface1", version = "0.1.0" }
 serde = { workspace = true }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface = { path = "../emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface", version = "0.1.0" }
 
 [lints]

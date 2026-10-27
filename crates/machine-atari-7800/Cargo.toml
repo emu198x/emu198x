@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-atari-maria = { path = "../emu198x-atari-maria", version = "0.1.0" }
 emu198x-atari-pokey = { path = "../emu198x-atari-pokey", version = "0.1.0" }
 emu198x-atari-tia = { path = "../emu198x-atari-tia", version = "0.1.0" }
-emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
+emu198x-mos-6502 = "0.6.1"
 emu198x-mos-riot-6532 = { path = "../emu198x-mos-riot-6532", version = "0.1.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

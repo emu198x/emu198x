@@ -113,9 +113,7 @@ members = [
     "crates/machine-sinclair-zx-spectrum-plus2a",
     "crates/machine-sinclair-zx-spectrum-plus2b",
     "crates/machine-sinclair-zx-spectrum-plus3",
-    "crates/emu198x-mos-6502",
     "crates/emu198x-mos-pia-6520",
-    "crates/emu198x-wdc-65c816",
     "crates/emu198x-sony-s-dsp",
     "crates/emu198x-sony-spc700",
     "crates/emu198x-mos-cia-6526",
@@ -199,7 +197,6 @@ members = [
     "crates/emu198x-mos-via-6522",
     "crates/emu198x-mos-vic-i",
     "crates/emu198x-mos-vic-ii",
-    "crates/emu198x-motorola-6809",
     "crates/motorola-68000",
     "crates/motorola-68010",
     "crates/motorola-68020",
@@ -230,7 +227,6 @@ members = [
     "crates/emu198x-scorpion-ula",
     "crates/emu198x-sega-315-5124",
     "crates/emu198x-sinclair-zx81-ula",
-    "crates/emu198x-sharp-lr35902",
     "crates/emu198x-timex-scld",
     "crates/emu198x-ricoh-apu-2a03",
     "crates/emu198x-ricoh-ppu-2c02",
@@ -277,7 +273,6 @@ members = [
     "crates/emu198x-snk-lspc2",
     "crates/emu198x-yamaha-ym2610",
     "crates/emu198x-yamaha-ym2612",
-    "crates/emu198x-zilog-z80",
     "crates/emu198x-zilog-z80-ctc",
 ]
 
