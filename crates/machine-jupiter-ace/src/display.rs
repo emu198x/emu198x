@@ -104,8 +104,11 @@ const LINES_PER_FRAME: u32 = 312;
 /// Total T-states per frame.
 pub const TSTATES_PER_FRAME: u32 = TSTATES_PER_LINE * LINES_PER_FRAME;
 
-/// Monochrome colours (ARGB32).
-const WHITE: u32 = 0xFF_CF_CF_CF; // slightly warm white, like the real CRT
+/// Monochrome presentation colours (ARGB32).
+///
+/// The gray level is an uncalibrated display default, not a measured phosphor
+/// colour. Border geometry follows the framebuffer policy documented above.
+const WHITE: u32 = 0xFF_CF_CF_CF;
 const BLACK: u32 = 0xFF_00_00_00;
 
 /// Jupiter Ace display state.
