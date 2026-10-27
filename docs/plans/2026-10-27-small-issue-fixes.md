@@ -34,3 +34,18 @@ Recheck issue/PR state before each step. Preserve other active worktrees.
 Push tested commits, require actual completed CI before merge, verify issue
 closure or explicitly retain residual scope. Save useful evidence before
 removing task worktrees, build caches and temporary processes.
+
+## Verified first fixes
+
+Einstein: valid standard/extended sector-ID ordering is preserved; malformed
+counts/shifts/extents and unsupported nonuniform geometry return errors before
+mounting. The regression failed before the fix; four validation tests and the
+owning machine/runtime suites pass afterward. Strict owning Clippy passes.
+#277 retains the separate neutral-container consolidation scope.
+
+C64: the actual MCP subprocess regression returned untouched RAM before the
+fix. The shared startup importer now waits for boot and imports the PRG for
+both UI and MCP; MCP diagnostics go to stderr. The real-ROM regression passes:
+all loaded bytes match and typed RUN executes the original POKE program.
+The app suite, real-ROM script-loader control and strict headless Clippy pass.
+No startup tape/disk handling is duplicated in the MCP constructor.

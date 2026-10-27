@@ -368,12 +368,7 @@ impl MachineApp for C64 {
                 .map_err(|err| format!("failed to start tape transport: {err}"))?;
         }
 
-        if let Some(path) = &self.load {
-            let _ = session
-                .wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)
-                .map_err(|err| format!("wait for boot failed: {err}"))?;
-            let loaded = load_program_bytes(path)?;
-            let message = import_program(session.machine_mut(), &loaded.name, &loaded.bytes)?;
+        if let Some(message) = self.import_startup_program(&mut session)? {
             println!("{message}");
         }
 
@@ -385,7 +380,20 @@ impl MachineApp for C64 {
     /// resolve their ROMs. A client (or Claude) then drives the session to
     /// debug it; media named on the command line is loaded by the launcher.
     fn build_mcp_runtime(&self) -> Result<C64RuntimeKind, LaunchError> {
-        self.boot_runtime()
+        let machine = self.boot_runtime()?;
+        if self.load.is_none() {
+            return Ok(machine);
+        }
+        let mut session = HeadlessSession::new_with_query_provider(
+            machine,
+            self.frame_ticks(),
+            C64SessionQueryProvider,
+        );
+        if let Some(message) = self.import_startup_program(&mut session)? {
+            // stdout belongs to MCP's JSON-RPC transport.
+            eprintln!("{message}");
+        }
+        Ok(session.into_machine())
     }
 
     /// The C64's report is built by `script::run`, which
@@ -427,6 +435,22 @@ impl C64 {
     /// named by `--load-snapshot`) and fit the hardware the flags ask for:
     /// on a C64, RAM expansions, the 1351 mouse, and the user-port network
     /// devices; on a C128, the 40/80 key.
+    fn import_startup_program(
+        &self,
+        session: &mut HeadlessSession<C64RuntimeKind, C64SessionQueryProvider>,
+    ) -> Result<Option<String>, LaunchError> {
+        let Some(path) = &self.load else {
+            return Ok(None);
+        };
+        let _ = session
+            .wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)
+            .map_err(|err| format!("wait for boot failed: {err}"))?;
+        let loaded = load_program_bytes(path)?;
+        import_program(session.machine_mut(), &loaded.name, &loaded.bytes)
+            .map(Some)
+            .map_err(Into::into)
+    }
+
     pub(crate) fn boot_runtime(&self) -> Result<C64RuntimeKind, LaunchError> {
         if self.eighty_column && !self.model.is_c128() {
             return Err(LaunchError::Run(
