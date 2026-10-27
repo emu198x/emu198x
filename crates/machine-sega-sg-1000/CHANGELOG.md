@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Package descriptions advertise SG-1000 hardware only. The SC-3000 keyboard
+  and PPI are not implemented; their machine support is tracked separately.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-sega-sg-1000-v0.2.0) - 2026-06-04
 
 ### Added
