@@ -225,7 +225,8 @@ impl MachineApp for Dragon {
     Without --video the window opens on the crt filter, not raw.
 
 Headless harness (each of these selects headless mode; --frames is not accepted):
-    --cycles N         maximum MC6809 bus cycles to run [default: 100000]
+    --cycles N         maximum MC6809 bus cycles [default: 100000]; direct harness is Dragon 32 only
+                       (use --type-command or --script for the CoCo/Dragon 64 runtime)
     --type-command S   boot through the runtime path, type a BASIC/DragonDOS command, then run --cycles
     --trace-limit N    number of recent instruction fetches to retain [default: 64]
     --watch-fetch A[-B]

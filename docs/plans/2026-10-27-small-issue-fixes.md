@@ -49,3 +49,11 @@ both UI and MCP; MCP diagnostics go to stderr. The real-ROM regression passes:
 all loaded bytes match and typed RUN executes the original POKE program.
 The app suite, real-ROM script-loader control and strict headless Clippy pass.
 No startup tape/disk handling is duplicated in the MCP constructor.
+
+CoCo firmware: the regression fails on catalogue-named 8 KiB chips before the
+fix and passes for both models afterward. The harness reuses coco_rom_image,
+retains Color BASIC-only and explicit combined-image inputs, and rejects bad
+sizes. The help now distinguishes the Dragon-32 direct harness from the shared
+runtime paths. The full headless app suite and strict Clippy pass. Original
+MAME Color BASIC 1.2/1.3 plus Extended BASIC 1.1 boot both models and accept
+PRINT 6 through --type-command; hashes/logs are retained separately.
