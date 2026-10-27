@@ -161,6 +161,18 @@ when it is not the system's manufacturer, and is not repeated when it is:
 A device several makers built to one design takes no maker word, as the
 multi-vendor row says for MSX.
 
+**When the name will not fit, the maker goes.** crates.io limits a crate
+name to 64 characters, `emu198x-` included. When maker, system and device
+together pass that, the maker word is dropped and the system and device
+stay, because they are what a stranger searches for. The maker is credited
+in the crate's README and description instead. Technology Research's Beta
+128 interface is the case that set this: in full it would be
+`emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk`,
+69 characters, so it is `peripheral-sinclair-zx-spectrum-beta-disk`.
+Romantic Robot's Multiface is exactly 64 and keeps its maker. The limit is
+the registry's, so it is checked in CI (`scripts/test_extract_repo.py`)
+rather than left to the first publish.
+
 **A peripheral names its system only if it has one.** When one
 implementation serves several systems without branching on which is asking
 — the test the 2026-08-14 amendment uses for shared format parsing — the
@@ -177,6 +189,10 @@ host is two crates, as TAP is two formats.
 - **"Drop the system part, this peripheral might work elsewhere one day"** —
   no. The system part goes only when one implementation already serves
   several systems.
+- **"The name is over 64, so abbreviate the maker (`tr-`) or shorten the
+  system"** — no. Drop the maker word whole; an abbreviation is a name only
+  insiders can read, and a shortened system breaks the family's one search
+  string.
 - **"Shorten the system to `zx-spectrum`, the maker is already in the
   name"** — no. The maker in a peripheral's name is the device's; the
   system keeps its own manufacturer, as it does in every other category.

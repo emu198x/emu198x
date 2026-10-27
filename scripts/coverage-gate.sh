@@ -100,7 +100,7 @@ GATED_CRATES = [
 # without an October deadline. Promoted into GATED_CRATES when their
 # engineering bar work lands.
 REPORTED_CRATES = [
-    "emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk",
+    "emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
     "machine-pentagon-128",
     "machine-scorpion-zs256",
     "machine-timex-tc2048",

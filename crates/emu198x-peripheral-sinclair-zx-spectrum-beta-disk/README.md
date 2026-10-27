@@ -1,4 +1,4 @@
-# emu198x-peripheral-technology-research-sinclair-zx-spectrum-beta-disk
+# emu198x-peripheral-sinclair-zx-spectrum-beta-disk
 
 Technology Research's Beta 128 disk interface, the standard floppy system of
 the Pentagon, Scorpion and other Eastern European Spectrum clones. It covers
