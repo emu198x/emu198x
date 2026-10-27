@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/media_validation.rs (/private/tmp/198x-next-target/debug/deps/media_validation-01b9ed658077c726)
+
+running 1 test
+test original_bios_executes_a_valid_test_cartridge ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+

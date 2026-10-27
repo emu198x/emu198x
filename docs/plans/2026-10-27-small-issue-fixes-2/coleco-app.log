@@ -1,0 +1,26 @@
+   Compiling emu198x-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-colecovision)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.11s
+     Running unittests src/main.rs (/private/tmp/198x-next-target/debug/deps/emu198x_colecovision-364980bea600d824)
+
+running 6 tests
+test app::tests::region_frame_ticks_match ... ok
+test app::tests::parse_cli_defaults ... ok
+test app::tests::parse_cli_accepts_positional_cart ... ok
+test app::tests::last_model_or_region_selector_wins ... ok
+test app::tests::parse_cli_accepts_full_flags ... ok
+test app::tests::parse_cli_accepts_bios_cart_region_scale_video ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-target/debug/deps/variants-ef4873b47ee63871)
+
+running 6 tests
+test mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed ... ok
+test launch_and_script_select_both_regions_without_losing_the_cartridge ... ok
+test mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches ... ok
+test mcp_rejects_invalid_bios_even_when_supplied_by_environment ... ok
+test explicit_missing_cartridges_and_unknown_models_fail_in_both_modes ... ok
+test firmware_options_and_errors_use_the_shared_resolver ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+

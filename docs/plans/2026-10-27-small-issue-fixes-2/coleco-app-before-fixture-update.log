@@ -1,0 +1,69 @@
+   Compiling serde_core v1.0.229
+   Compiling winnow v1.0.3
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling semver v1.0.28
+   Compiling runtime-coleco-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-coleco-colecovision)
+   Compiling cc v1.2.62
+   Compiling rustc_version v0.4.1
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v1.1.3+spec-1.1.0
+   Compiling embed-resource v3.0.12
+   Compiling emu198x-app-icon v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-app-icon)
+   Compiling emu198x-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-colecovision)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.34s
+     Running unittests src/main.rs (/private/tmp/198x-next-target/debug/deps/emu198x_colecovision-364980bea600d824)
+
+running 6 tests
+test app::tests::region_frame_ticks_match ... ok
+test app::tests::parse_cli_accepts_positional_cart ... ok
+test app::tests::parse_cli_accepts_full_flags ... ok
+test app::tests::parse_cli_accepts_bios_cart_region_scale_video ... ok
+test app::tests::last_model_or_region_selector_wins ... ok
+test app::tests::parse_cli_defaults ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-target/debug/deps/variants-ef4873b47ee63871)
+
+running 6 tests
+error: failed to load startup media: media for slot cartridge-1 is invalid: expected ColecoVision cartridge signature AA 55 or 55 AA
+test mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed ... FAILED
+test mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches ... FAILED
+test launch_and_script_select_both_regions_without_losing_the_cartridge ... FAILED
+test mcp_rejects_invalid_bios_even_when_supplied_by_environment ... ok
+test explicit_missing_cartridges_and_unknown_models_fail_in_both_modes ... ok
+test firmware_options_and_errors_use_the_shared_resolver ... ok
+
+failures:
+
+---- mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed stdout ----
+
+thread 'mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed' (199576610) panicked at crates/emu198x-colecovision/tests/variants.rs:181:48:
+response: Error("EOF while parsing a value", line: 1, column: 0)
+
+---- mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches stdout ----
+
+thread 'mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches' (199576608) panicked at crates/emu198x-colecovision/tests/variants.rs:76:5:
+error: failed to load startup media: media for slot cartridge-1 is invalid: expected ColecoVision cartridge signature AA 55 or 55 AA
+
+
+---- launch_and_script_select_both_regions_without_losing_the_cartridge stdout ----
+
+thread 'launch_and_script_select_both_regions_without_losing_the_cartridge' (199576607) panicked at crates/emu198x-colecovision/tests/variants.rs:52:5:
+error: machine preparation failed: media for slot cartridge-1 is invalid: expected ColecoVision cartridge signature AA 55 or 55 AA
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    launch_and_script_select_both_regions_without_losing_the_cartridge
+    mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches
+    mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed
+
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+error: test failed, to rerun pass `-p emu198x-colecovision --test variants`

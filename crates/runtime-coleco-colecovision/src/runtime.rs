@@ -91,7 +91,10 @@ impl CvRuntime {
         Ok(())
     }
 
-    /// Insert a cartridge ROM (replaces any existing).
+    /// Insert raw cartridge bytes without header validation (replaces any existing).
+    ///
+    /// This low-level helper supports synthetic diagnostic programs and snapshot
+    /// reconstruction. User-supplied images go through [`MachineCore::load_media`].
     pub fn insert_cartridge(&mut self, rom: Vec<u8>) {
         self.cart_bytes = Some(rom);
         self.rebuild_machine();
@@ -248,7 +251,22 @@ impl MachineCore for CvRuntime {
         for image in &media.images {
             match (image.slot.as_ref(), image.kind) {
                 ("cartridge-1", MediaKind::Cartridge) => {
-                    self.insert_cartridge(image.bytes.to_vec());
+                    // The BIOS dispatches RST/NMI through $800C..=$8023;
+                    // $800A holds its entry vector. See the shared ColecoVision
+                    // reference, section 9, and original BIOS vectors $0008..$0066.
+                    if image.bytes.len() < 0x24 {
+                        return Err(MachineError::InvalidMedia {
+                            slot: image.slot.to_string(),
+                            reason: "ColecoVision cartridge header is truncated; expected at least 36 bytes".to_owned(),
+                        });
+                    }
+                    if !matches!(&image.bytes[..2], [0xaa, 0x55] | [0x55, 0xaa]) {
+                        return Err(MachineError::InvalidMedia {
+                            slot: image.slot.to_string(),
+                            reason: "expected ColecoVision cartridge signature AA 55 or 55 AA"
+                                .to_owned(),
+                        });
+                    }
                 }
                 (slot, MediaKind::Cartridge) => {
                     return Err(MachineError::UnknownMediaSlot {
@@ -259,6 +277,10 @@ impl MachineCore for CvRuntime {
                     return Err(MachineError::UnsupportedMediaKind { kind });
                 }
             }
+        }
+        // A later invalid image must not reset a machine already running.
+        for image in &media.images {
+            self.insert_cartridge(image.bytes.to_vec());
         }
         Ok(())
     }
