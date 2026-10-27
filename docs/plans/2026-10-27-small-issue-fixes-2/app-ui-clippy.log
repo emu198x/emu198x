@@ -1,0 +1,88 @@
+    Checking foldhash v0.2.0
+    Checking raw-window-handle v0.6.2
+    Checking block2 v0.6.2
+   Compiling syn v2.0.117
+    Checking rustc-hash v1.1.0
+    Checking libm v0.2.16
+    Checking bit-vec v0.9.1
+    Checking unicode-width v0.1.14
+    Checking static_assertions v1.1.0
+    Checking once_cell v1.21.4
+    Checking smallvec v1.15.1
+    Checking scopeguard v1.2.0
+    Checking arrayvec v0.7.6
+    Checking unicode-ident v1.0.24
+    Checking hashbrown v0.17.1
+    Checking lock_api v0.4.14
+    Checking objc-sys v0.3.5
+    Checking bit-set v0.10.0
+    Checking parking_lot_core v0.9.12
+    Checking codespan-reporting v0.13.1
+    Checking dispatch2 v0.3.1
+    Checking profiling v1.0.18
+    Checking core-foundation-sys v0.8.7
+    Checking foreign-types-shared v0.3.1
+    Checking bitflags v1.3.2
+    Checking objc2 v0.5.2
+    Checking dispatch v0.2.0
+    Checking dpi v0.1.2
+    Checking parking_lot v0.12.5
+    Checking tracing-core v0.1.36
+    Checking core-foundation v0.9.4
+    Checking pin-project-lite v0.2.17
+    Checking crossbeam-utils v0.8.21
+    Checking smol_str v0.2.2
+    Checking cursor-icon v1.2.0
+    Checking objc2-core-foundation v0.3.2
+    Checking keyboard-types v0.8.3
+    Checking indexmap v2.14.0
+    Checking pollster v1.0.1
+    Checking emu198x-pointer v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-pointer)
+    Checking tracing v0.1.44
+    Checking core-graphics-types v0.1.3
+   Compiling emu198x-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-acorn-bbc-micro)
+   Compiling emu198x-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-colecovision)
+    Checking crossbeam-channel v0.5.15
+    Checking num-traits v0.2.19
+    Checking block2 v0.5.1
+    Checking naga-types v30.0.0
+    Checking zip v9.1.2
+    Checking objc2-foundation v0.2.2
+    Checking objc2-foundation v0.3.2
+    Checking objc2-core-graphics v0.3.2
+    Checking objc2-io-kit v0.3.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling bytemuck_derive v1.10.2
+   Compiling foreign-types-macros v0.2.3
+    Checking foreign-types v0.5.0
+    Checking gilrs-core v0.6.8
+    Checking gilrs v0.11.2
+    Checking bytemuck v1.25.2
+    Checking core-graphics v0.23.2
+    Checking zerocopy v0.8.48
+    Checking wgpu-types v30.0.0
+    Checking objc2-app-kit v0.2.2
+    Checking objc2-metal v0.3.2
+    Checking objc2-core-audio v0.3.2
+    Checking objc2-app-kit v0.3.2
+    Checking objc2-audio-toolbox v0.3.2
+    Checking coreaudio-rs v0.14.2
+    Checking cpal v0.18.2
+    Checking emu198x-shell v0.44.2 (/private/tmp/198x-next-fixes/crates/emu198x-shell)
+    Checking winit v0.30.13
+    Checking half v2.7.1
+    Checking rfd v0.17.2
+    Checking muda v0.21.2
+    Checking naga v30.0.0
+    Checking objc2-quartz-core v0.3.2
+    Checking raw-window-metal v1.1.0
+    Checking runtime-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-acorn-bbc-micro)
+    Checking runtime-coleco-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-coleco-colecovision)
+    Checking wgpu-naga-bridge v30.0.0
+    Checking wgpu-hal v30.0.0
+    Checking wgpu-core-deps-apple v30.0.0
+    Checking wgpu-core v30.0.0
+    Checking wgpu v30.0.1
+    Checking emu198x-native-video v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-native-video)
+    Checking emu198x-ui v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-ui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.79s

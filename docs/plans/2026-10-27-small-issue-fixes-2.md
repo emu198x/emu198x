@@ -54,3 +54,19 @@ suites. Strict owning Clippy and formatting pass.
 The batch is limited to these two bounded fixes. The remaining PSG stereo,
 SNES native-frame stepping, board splits and physical controller work need
 larger designs or source qualification; this batch adopts none of those.
+
+## Default-feature verification
+
+CI run 40589834152 found one remaining headerless fixture in the Coleco UI
+startup test. The earlier application invocation disabled UI. The fixed fixture
+now supplies an AA55 header and checks the same retained payload at $8002 after
+source removal and a region switch. The failing CI excerpt is retained.
+Both full applications now pass with default UI features: 14 BBC tests and
+16 Coleco tests. Strict default-feature application Clippy also passes. No
+production code changed in this fixture correction.
+
+The hygiene checker also caught the new original-BIOS test's unclassified
+ignore reason. Its FIXTURE prefix now passes the fixture/ignore/doc-reference
+checks; the original BIOS test was explicitly rerun successfully. Retained
+red/green outputs distinguish these verification corrections from the loader
+and missing-font defects.

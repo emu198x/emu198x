@@ -168,7 +168,9 @@ mod tests {
             std::env::temp_dir().join(format!("colecovision-ui-media-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("directory");
         let cart = dir.join("cart.rom");
-        std::fs::write(&cart, vec![0x5a; 8192]).expect("cartridge");
+        let mut bytes = vec![0x5a; 8192];
+        bytes[..2].copy_from_slice(&[0xaa, 0x55]);
+        std::fs::write(&cart, bytes).expect("cartridge");
         let app = ColecoVision {
             cart: Some(cart.clone()),
             firmware: {
@@ -190,7 +192,7 @@ mod tests {
         runtime = build_replacement(&runtime, Model::CvPal, &app.firmware)
             .expect("window replacement builder");
         assert!(runtime.cartridge_loaded());
-        assert_eq!(runtime.machine().expect("cartridge").peek(32768), 0x5a);
+        assert_eq!(runtime.machine().expect("cartridge").peek(32770), 0x5a);
         std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
