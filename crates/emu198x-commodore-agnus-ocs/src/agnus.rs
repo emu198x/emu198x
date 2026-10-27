@@ -82,7 +82,10 @@ pub enum AgnusRegion {
 /// Installed original-Agnus silicon revision.
 ///
 /// The VPOSR identity bits distinguish PAL from NTSC but do not distinguish
-/// the A1000's 8361/8367 Agnus from the later 8370/8371 original Agnus.
+/// the 8361/8367 Agnus used in the A1000 and early German A2000 from
+/// the later 8370/8371 original Agnus. Commodore's Release 2 Getting
+/// Started chip table identifies both boards; see the umbrella reference
+/// by-system/commodore-amiga/1991-amiga-release-2-getting-started.txt.
 /// Their hard vertical-blank close occurs on different physical lines, and
 /// only the A1000 revision delays externally visible blitter busy until its
 /// first accepted startup CCK. Machine construction and snapshots must
@@ -1565,7 +1568,7 @@ impl Agnus {
         agnus
     }
 
-    /// Create the 8361/8367 original Agnus installed in an A1000.
+    /// Create the 8361/8367 original Agnus used in the A1000 and German A2000.
     ///
     /// PAL/NTSC VPOSR identity and beam totals remain region-selected. The
     /// separate revision identity selects the A1000 line-zero hard
