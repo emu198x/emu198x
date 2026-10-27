@@ -1,0 +1,167 @@
+   Compiling unicode-ident v1.0.24
+   Compiling foldhash v0.2.0
+   Compiling autocfg v1.5.0
+   Compiling libm v0.2.16
+   Compiling zerocopy v0.8.48
+   Compiling raw-window-handle v0.6.2
+   Compiling block2 v0.6.2
+   Compiling rustc-hash v1.1.0
+   Compiling naga v30.0.0
+   Compiling bit-vec v0.9.1
+   Compiling objc-sys v0.3.5
+   Compiling unicode-width v0.1.14
+   Compiling proc-macro2 v1.0.106
+   Compiling hashbrown v0.17.1
+   Compiling parking_lot_core v0.9.12
+   Compiling codespan-reporting v0.13.1
+   Compiling dispatch2 v0.3.1
+   Compiling bit-set v0.10.0
+   Compiling static_assertions v1.1.0
+   Compiling smallvec v1.15.1
+   Compiling once_cell v1.21.4
+   Compiling num-traits v0.2.19
+   Compiling scopeguard v1.2.0
+   Compiling arrayvec v0.7.6
+   Compiling quote v1.0.45
+   Compiling objc2-core-foundation v0.3.2
+   Compiling lock_api v0.4.14
+   Compiling indexmap v2.14.0
+   Compiling wgpu-hal v30.0.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling syn v3.0.3
+   Compiling syn v2.0.117
+   Compiling profiling v1.0.18
+   Compiling core-foundation v0.9.4
+   Compiling zip v9.1.2
+   Compiling wgpu-core v30.0.0
+   Compiling dispatch v0.2.0
+   Compiling litrs v1.0.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling bitflags v1.3.2
+   Compiling crossbeam-utils v0.8.21
+   Compiling core-graphics-types v0.1.3
+   Compiling winit v0.30.13
+   Compiling objc2 v0.5.2
+   Compiling parking_lot v0.12.5
+   Compiling wgpu v30.0.1
+   Compiling tracing-core v0.1.36
+   Compiling document-features v0.2.12
+   Compiling pin-project-lite v0.2.17
+   Compiling muda v0.21.2
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling objc2-io-kit v0.3.2
+   Compiling block2 v0.5.1
+   Compiling tracing v0.1.44
+   Compiling rfd v0.17.2
+   Compiling crossbeam-channel v0.5.15
+   Compiling objc2-foundation v0.2.2
+   Compiling keyboard-types v0.8.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling gilrs-core v0.6.8
+   Compiling pollster v1.0.1
+   Compiling emu198x-pointer v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-pointer)
+   Compiling emu198x-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-acorn-bbc-micro)
+   Compiling emu198x-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-colecovision)
+   Compiling gilrs v0.11.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling bytemuck_derive v1.10.2
+   Compiling foreign-types-macros v0.2.3
+   Compiling thiserror v2.0.21
+   Compiling foreign-types v0.5.0
+   Compiling naga-types v30.0.0
+   Compiling cobs v0.3.0
+   Compiling bytemuck v1.25.2
+   Compiling core-graphics v0.23.2
+   Compiling serde v1.0.229
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-metal v0.3.2
+   Compiling objc2-app-kit v0.3.2
+   Compiling wgpu-types v30.0.0
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling objc2-app-kit v0.2.2
+   Compiling debug198x v0.1.0
+   Compiling serde-big-array v0.5.1
+   Compiling postcard v1.1.3
+   Compiling coreaudio-rs v0.14.2
+   Compiling dpi v0.1.2
+   Compiling emu198x-ti-sn76489 v0.1.0
+   Compiling smol_str v0.2.2
+   Compiling cursor-icon v1.2.0
+   Compiling common-acorn-cassette v0.45.1 (/private/tmp/198x-next-fixes/crates/common-acorn-cassette)
+   Compiling emu198x-ti-tms9918 v0.1.0 (/private/tmp/198x-next-fixes/crates/emu198x-ti-tms9918)
+   Compiling emu198x-motorola-6845 v0.1.0 (/private/tmp/198x-next-fixes/crates/emu198x-motorola-6845)
+   Compiling emu198x-mos-via-6522 v0.1.0
+   Compiling cpal v0.18.2
+   Compiling emu198x-western-digital-wd1770 v0.1.0 (/private/tmp/198x-next-fixes/crates/emu198x-western-digital-wd1770)
+   Compiling emu198x-mos-6502 v0.6.1
+   Compiling emu198x-zilog-z80 v0.8.0
+   Compiling format-acorn-uef v0.45.1 (/private/tmp/198x-next-fixes/crates/format-acorn-uef)
+   Compiling emu198x-shell v0.44.2 (/private/tmp/198x-next-fixes/crates/emu198x-shell)
+   Compiling machine-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/machine-acorn-bbc-micro)
+   Compiling machine-coleco-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/machine-coleco-colecovision)
+   Compiling objc2-quartz-core v0.3.2
+   Compiling raw-window-metal v1.1.0
+   Compiling half v2.7.1
+   Compiling runtime-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-acorn-bbc-micro)
+   Compiling runtime-coleco-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-coleco-colecovision)
+   Compiling wgpu-naga-bridge v30.0.0
+   Compiling wgpu-core-deps-apple v30.0.0
+   Compiling emu198x-native-video v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-native-video)
+   Compiling emu198x-ui v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-ui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.12s
+     Running unittests src/main.rs (/private/tmp/198x-next-target/debug/deps/emu198x_acorn_bbc_micro-19ad3e977befbfd2)
+
+running 9 tests
+test ui::tests::cursor_keys_type_and_function_keys_map_to_red_keys ... ok
+test app::tests::parse_cli_accepts_mos_scale_video ... ok
+test ui::tests::escape_reaches_the_machine_keyboard ... ok
+test app::tests::parse_cli_defaults ... ok
+test app::tests::sideways_is_repeatable_and_bank_checked ... ok
+test app::tests::an_unknown_model_is_named_and_a_model_b_disc_refused ... ok
+test app::tests::parse_cli_picks_the_b_plus_and_its_discs ... ok
+test ui::tests::window_defaults_to_basic_and_explicit_sideways_roms_win ... ok
+test app::tests::report_diagnoses_missing_font_only_when_teletext_is_selected ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/firmware.rs (/private/tmp/198x-next-target/debug/deps/firmware-fc1ea7ce82fd60d5)
+
+running 5 tests
+test conventional_basic_is_a_window_default_but_an_explicit_pin_selects_it_in_scripts ... ok
+test mos_pins_override_environment_and_directory_options_work ... ok
+test explicit_sideways_banks_override_basic_and_survive_reset_in_scripts_and_mcp ... ok
+test missing_explicit_images_invalid_mos_and_missing_sideways_roms_fail_in_both_modes ... ok
+test final_cli_report_warns_for_missing_teletext_font_but_not_bitmap_output ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.95s
+
+     Running unittests src/main.rs (/private/tmp/198x-next-target/debug/deps/emu198x_colecovision-dc2f38e84a732074)
+
+running 10 tests
+test app::tests::parse_cli_accepts_positional_cart ... ok
+test app::tests::parse_cli_defaults ... ok
+test app::tests::region_frame_ticks_match ... ok
+test ui::tests::joystick_on_map_key_and_keypad_on_map_keys ... ok
+test ui::tests::menu_uses_runtime_ids_and_a_failed_switch_preserves_selection ... ok
+test app::tests::parse_cli_accepts_full_flags ... ok
+test app::tests::parse_cli_accepts_bios_cart_region_scale_video ... ok
+test app::tests::last_model_or_region_selector_wins ... ok
+test ui::tests::pacing_and_dimensions_follow_the_runtime_region ... ok
+test ui::tests::window_startup_loads_parsed_cartridge_and_rejects_missing_media ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/variants.rs (/private/tmp/198x-next-target/debug/deps/variants-2be6fe2fc1c71378)
+
+running 6 tests
+test mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed ... ok
+test mcp_rejects_invalid_bios_even_when_supplied_by_environment ... ok
+test launch_and_script_select_both_regions_without_losing_the_cartridge ... ok
+test mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches ... ok
+test explicit_missing_cartridges_and_unknown_models_fail_in_both_modes ... ok
+test firmware_options_and_errors_use_the_shared_resolver ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+

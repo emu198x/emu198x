@@ -1,0 +1,29 @@
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6139245Z === emu198x-colecovision (emu198x-colecovision): 1 failed ===
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6141070Z running 10 tests
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6159511Z test app::tests::parse_cli_accepts_bios_cart_region_scale_video ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6159958Z test app::tests::parse_cli_accepts_positional_cart ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6160242Z test app::tests::parse_cli_defaults ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6160528Z test ui::tests::joystick_on_map_key_and_keypad_on_map_keys ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6160896Z test ui::tests::menu_uses_runtime_ids_and_a_failed_switch_preserves_selection ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6161254Z test app::tests::parse_cli_accepts_full_flags ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6161547Z test app::tests::last_model_or_region_selector_wins ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6162096Z test app::tests::region_frame_ticks_match ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6162451Z test ui::tests::window_startup_loads_parsed_cartridge_and_rejects_missing_media ... FAILED
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6162861Z test ui::tests::pacing_and_dimensions_follow_the_runtime_region ... ok
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6163066Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6163144Z failures:
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6163237Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6163433Z ---- ui::tests::window_startup_loads_parsed_cartridge_and_rejects_missing_media stdout ----
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6163702Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6164059Z thread 'ui::tests::window_startup_loads_parsed_cartridge_and_rejects_missing_media' (23789) panicked at crates/emu198x-colecovision/src/ui.rs:186:50:
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6165026Z window runtime: Run("failed to load startup media: media for slot cartridge-1 is invalid: expected ColecoVision cartridge signature AA 55 or 55 AA")
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6165601Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6165846Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6165857Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6165924Z failures:
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6166188Z     ui::tests::window_startup_loads_parsed_cartridge_and_rejects_missing_media
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6166412Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6166622Z test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6166889Z 
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:19.6166967Z FAILED: 1 tests across 1 binaries
+Test	Run the workspace test suite and collect evidence	2026-10-27T22:07:20.0961811Z ##[error]Process completed with exit code 1.
