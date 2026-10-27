@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-ti-sn76489 = "0.1.0"
 emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
 emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 emu198x-zilog-z80-ctc = { path = "../emu198x-zilog-z80-ctc", version = "0.1.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

@@ -20,4 +20,4 @@ serde_json = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-emu198x-mos-6502 = { path = "../emu198x-mos-6502" }
+emu198x-mos-6502 = "0.6.1"

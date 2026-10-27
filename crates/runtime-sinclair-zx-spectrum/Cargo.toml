@@ -39,7 +39,7 @@ postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 
 [dev-dependencies]
 common-sinclair-zx-spectrum-128k-class = { path = "../common-sinclair-zx-spectrum-128k-class", version = "0.44.0" }

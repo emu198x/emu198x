@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

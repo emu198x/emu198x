@@ -52,6 +52,66 @@ mod tests {
             .to_path_buf()
     }
 
+    /// The directory a `crates/<name>/src` entry names. While the crate lives
+    /// in this workspace that is the in-tree copy. Once it has its own
+    /// repository and comes from crates.io, it is Cargo's unpacked copy of the
+    /// version `Cargo.lock` pins, which is the source this build compiled.
+    fn source_root(root: &Path, relative: &str) -> PathBuf {
+        let in_tree = root.join(relative);
+        if in_tree.is_dir() {
+            return in_tree;
+        }
+        let mut parts = relative.splitn(3, '/');
+        let (Some("crates"), Some(name), Some(rest)) = (parts.next(), parts.next(), parts.next())
+        else {
+            panic!("audit path {relative} is not of the form crates/<name>/...");
+        };
+        let lock = std::fs::read_to_string(root.join("Cargo.lock"))
+            .unwrap_or_else(|err| panic!("audit cannot read Cargo.lock: {err}"));
+        let version = locked_version(&lock, name)
+            .unwrap_or_else(|| panic!("{name} is neither in crates/ nor in Cargo.lock"));
+        let cargo_home = std::env::var_os("CARGO_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(|home| PathBuf::from(home).join(".cargo"))
+            })
+            .expect("audit needs CARGO_HOME or a home directory");
+        let registry = cargo_home.join("registry").join("src");
+        let unpacked = format!("{name}-{version}");
+        std::fs::read_dir(&registry)
+            .unwrap_or_else(|err| panic!("audit cannot read {}: {err}", registry.display()))
+            .flatten()
+            .map(|index| index.path().join(&unpacked).join(rest))
+            .find(|dir| dir.is_dir())
+            .unwrap_or_else(|| panic!("audit cannot find {unpacked} below {}", registry.display()))
+    }
+
+    /// The version `Cargo.lock` pins for the package `name`.
+    fn locked_version<'a>(lock: &'a str, name: &str) -> Option<&'a str> {
+        let wanted = format!("name = \"{name}\"");
+        let mut lines = lock.lines();
+        while let Some(line) = lines.next() {
+            if line == wanted {
+                return lines
+                    .next()?
+                    .strip_prefix("version = \"")?
+                    .strip_suffix('"');
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn locked_version_reads_the_line_after_the_name() {
+        let lock = "[[package]]\nname = \"a-b\"\nversion = \"0.2.0\"\n\n\
+                    [[package]]\nname = \"a\"\nversion = \"1.0.0\"\n";
+        assert_eq!(locked_version(lock, "a"), Some("1.0.0"));
+        assert_eq!(locked_version(lock, "a-b"), Some("0.2.0"));
+        assert_eq!(locked_version(lock, "c"), None);
+    }
+
     fn collect_rust_sources(dir: &Path, sources: &mut Vec<PathBuf>) {
         let entries = std::fs::read_dir(dir)
             .unwrap_or_else(|err| panic!("audit cannot read {}: {err}", dir.display()));
@@ -97,20 +157,30 @@ mod tests {
     #[test]
     fn c64_runtime_stack_has_no_unreviewed_serde_skips() {
         let root = workspace_root();
+        // Each source is paired with its `crates/<name>/src/...` label, so the
+        // reviewed exceptions match wherever the crate is read from.
         let mut sources = Vec::new();
         for relative in C64_STACK_SOURCE_ROOTS {
-            collect_rust_sources(&root.join(relative), &mut sources);
+            let dir = source_root(&root, relative);
+            let mut files = Vec::new();
+            collect_rust_sources(&dir, &mut files);
+            for file in files {
+                let below = file
+                    .strip_prefix(&dir)
+                    .expect("collected sources sit below their root");
+                sources.push((Path::new(relative).join(below), file));
+            }
         }
         sources.sort();
 
         let mut skips = Vec::new();
         let mut reviewed_caches = 0;
         let mut reviewed_variants = 0;
-        for path in sources {
+        for (label, path) in sources {
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("audit cannot read {}: {err}", path.display()));
             for (line, annotation) in serde_skip_lines(&source) {
-                let relative = path.strip_prefix(&root).unwrap_or(&path);
+                let relative = label.as_path();
                 let next_line = source.lines().nth(line);
                 if is_reviewed_signal_cache(relative, annotation, next_line) {
                     reviewed_caches += 1;

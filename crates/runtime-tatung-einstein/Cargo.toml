@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
 emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
 machine-tatung-einstein = { path = "../machine-tatung-einstein", version = "0.44.0" }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
+emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
