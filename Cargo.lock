@@ -1551,6 +1551,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-vic-i"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "806fcc1516f47b4542de037da4d17d90180168b1e2203b62d4daee0483ae68e6"
 dependencies = [
  "serde",
 ]
@@ -1558,6 +1560,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-vic-ii"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8a10434c687368cc80b5f4ef555ae0dd171d48a662989b651a2f993db2445d5"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -1575,6 +1579,8 @@ dependencies = [
 [[package]]
 name = "emu198x-motorola-6845"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd1d31e9ac689ec633f42edd335caba0df29262cb0f9fa492f0e9342e5077a1d"
 dependencies = [
  "serde",
 ]
@@ -1582,22 +1588,26 @@ dependencies = [
 [[package]]
 name = "emu198x-motorola-acia-6850"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3b03c8ac5d8b1c1fdb575f6e3d6b411e24c7b5d4d857a8c1d33c4573a27cdcd"
 dependencies = [
  "serde",
- "serde_json",
 ]
 
 [[package]]
 name = "emu198x-motorola-mfp-68901"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c88e3642d55e106b222a6e9e66ce115122c305ef11703d3ef5061fa67cc06c86"
 dependencies = [
  "serde",
- "serde_json",
 ]
 
 [[package]]
 name = "emu198x-motorola-pia-6821"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a63236d85d9648088e620839e2ee277556f052e749322971debe5fab5f09905"
 dependencies = [
  "serde",
 ]
@@ -1605,6 +1615,8 @@ dependencies = [
 [[package]]
 name = "emu198x-motorola-sam-6883"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f506cedad74617bd9f9658059edd2d30b37909a3bac470717cc9acfa22cb1a2"
 dependencies = [
  "serde",
 ]
@@ -1612,6 +1624,8 @@ dependencies = [
 [[package]]
 name = "emu198x-motorola-vdg-6847"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac5490ca96ac83e79bb240a34b532880449d7aa210c9c8b16ced5a5a2d2ee963"
 dependencies = [
  "serde",
 ]

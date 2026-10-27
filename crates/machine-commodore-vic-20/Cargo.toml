@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-mos-6502 = "0.6.1"
 format198x-commodore-vic-20-crt = "0.1.0"
-emu198x-mos-vic-i = { path = "../emu198x-mos-vic-i", version = "0.1.0" }
+emu198x-mos-vic-i = "0.1.0"
 emu198x-mos-via-6522 = "0.1.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }

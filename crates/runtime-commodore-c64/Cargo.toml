@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-mos-vic-ii = { path = "../emu198x-mos-vic-ii", version = "0.1.0" }
+emu198x-mos-vic-ii = "0.1.0"
 emu198x-mos-cia-6526 = "0.1.0"
 emu198x-mos-6502 = "0.6.1"
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.45.0" }

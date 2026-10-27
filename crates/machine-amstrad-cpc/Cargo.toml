@@ -13,7 +13,7 @@ emu198x-amstrad-gate-array = { path = "../emu198x-amstrad-gate-array", version =
 emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
 emu198x-gi-ay-3-8912 = { path = "../emu198x-gi-ay-3-8912", version = "0.1.0" }
 emu198x-intel-8255 = { path = "../emu198x-intel-8255", version = "0.1.0" }
-emu198x-motorola-6845 = { path = "../emu198x-motorola-6845", version = "0.1.0" }
+emu198x-motorola-6845 = "0.1.0"
 emu198x-nec-upd765a = "0.1.0"
 serde = { workspace = true }
 emu198x-zilog-z80 = "0.8.0"
