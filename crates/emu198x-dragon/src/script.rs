@@ -5805,7 +5805,29 @@ pub(crate) fn load_dragon_firmware(cli: &Dragon) -> Result<LoadedDragonFirmware,
         .find(|(id, _)| *id == cli.model.firmware_id())
         .map(|(_, path)| path)
         .ok_or_else(|| "missing BASIC ROM".to_owned())?;
-    let rom = load_rom(rom_path)?;
+    let rom = if cli.model.is_coco()
+        && !rom_path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
+        let basic = fs::read(rom_path)
+            .map_err(|err| format!("failed to read {}: {err}", rom_path.display()))?;
+        if basic.len() == ROM_SIZE {
+            exact_rom_from_bytes(rom_path, basic)? // Existing combined --rom image.
+        } else {
+            let extended = paths
+                .iter()
+                .find(|(id, _)| *id == runtime_dragon::COCO_EXTENDED_BASIC_ROM_ID)
+                .map(|(_, path)| {
+                    fs::read(path)
+                        .map_err(|err| format!("failed to read {}: {err}", path.display()))
+                })
+                .transpose()?;
+            runtime_dragon::coco_rom_image(&basic, extended.as_deref())?
+        }
+    } else {
+        load_rom(rom_path)?
+    };
     let mode_rom = paths
         .iter()
         .find(|(id, _)| *id == "dragon64-basic-rom")
@@ -6868,6 +6890,50 @@ mod tests {
         assert_eq!(frames_for_cycles(1), 1);
         assert_eq!(frames_for_cycles(DRAGON_FRAME_CYCLES), 1);
         assert_eq!(frames_for_cycles(DRAGON_FRAME_CYCLES + 1), 2);
+    }
+
+    #[test]
+    fn coco_catalogue_chips_are_composed_for_the_typed_command_harness() {
+        for model in ["coco1", "coco2"] {
+            let dir = temp_test_dir("emu198x-coco-chips");
+            fs::create_dir_all(&dir).expect("firmware directory");
+            fs::write(dir.join("bas13.rom"), vec![0x13; 8192]).expect("Color BASIC");
+            fs::write(dir.join("extbas11.rom"), vec![0x11; 8192]).expect("Extended BASIC");
+            let cli = parse_cli(
+                ["--model", model, "--rom-dir", dir.to_str().expect("path")].map(str::to_owned),
+            )
+            .expect("CoCo flags");
+            let result = load_dragon_firmware(&cli);
+            fs::remove_dir_all(&dir).expect("remove fixture");
+            let firmware = result.expect("catalogue chip dumps must load");
+            assert_eq!(&firmware.rom[..8192], &[0x11; 8192]);
+            assert_eq!(&firmware.rom[8192..], &[0x13; 8192]);
+        }
+    }
+
+    #[test]
+    fn coco_keeps_color_basic_only_and_combined_image_inputs() {
+        let dir = temp_test_dir("emu198x-coco-rom-shapes");
+        fs::create_dir_all(&dir).expect("firmware directory");
+        let path = dir.join("basic.rom");
+        let mut cli = Dragon {
+            model: Model::CoCo2Ntsc,
+            rom: Some(path.clone()),
+            ..Dragon::default()
+        };
+        // Pin a directory so optional firmware cannot leak in from HOME.
+        cli.firmware.dir = Some(dir.clone());
+        fs::write(&path, vec![0x13; 8192]).expect("Color BASIC");
+        let only = load_dragon_firmware(&cli).expect("Color BASIC alone");
+        assert_eq!(&only.rom[..8192], &[0xff; 8192]);
+        assert_eq!(&only.rom[8192..], &[0x13; 8192]);
+        fs::write(&path, vec![0x42; 16384]).expect("combined image");
+        let combined = load_dragon_firmware(&cli).expect("combined image");
+        fs::write(&path, [0; 17]).expect("invalid image");
+        let invalid = load_dragon_firmware(&cli);
+        fs::remove_dir_all(dir).expect("remove fixture");
+        assert_eq!(combined.rom, [0x42; 16384]);
+        assert!(invalid.is_err());
     }
 
     #[test]
