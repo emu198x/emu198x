@@ -11,9 +11,9 @@ use emu198x_shell::{
     MediaTransportAction, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
     SessionQueryProvider, StopReason, TraceEvent,
 };
-use format_dragon_disk::{DragonDiskImage, parse_vdk};
 use format198x_dragon_data_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format198x_dragon_data_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, parse_cas_tolerant};
+use format198x_dragon_data_dragon_disk::{DragonDiskImage, parse_vdk};
 use format198x_dragon_data_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
     parse_dragon_pak, parse_pcdragon_snapshot,
@@ -204,6 +204,7 @@ struct DragonRuntimeSnapshotV1 {
     tape_bytes: Vec<u8>,
     #[serde(with = "crate::media_serde::cartridge")]
     cartridge: Option<DragonPakImage>,
+    #[serde(with = "machine_dragon_32::disk_serde::option")]
     disk: Option<DragonDiskImage>,
     #[serde(with = "crate::media_serde::program")]
     program: Option<DragonBinImage>,
