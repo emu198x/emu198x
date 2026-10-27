@@ -14,7 +14,7 @@ emu198x-mos-6502 = "0.6.1"
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.44.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.44.0" }
 emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.44.0", features = ["query"] }
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 format198x-commodore-c64-bas = "0.1.1"
 format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.44.0" }
 format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.44.0" }

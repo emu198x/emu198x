@@ -24,7 +24,7 @@ sinclair-zx-spectrum = ["emu198x-fleet-web/sinclair-zx-spectrum"]
 [dependencies]
 emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.44.0", default-features = false }
 # The command catalogue every host builds its menus from (emu198x_commands).
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 
 [dev-dependencies]
 # The tests drive the repository's synthetic Game Boy cartridge, so their

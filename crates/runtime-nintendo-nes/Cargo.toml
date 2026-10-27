@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 emu198x-ricoh-ppu-2c02 = { path = "../emu198x-ricoh-ppu-2c02", version = "0.1.0" }
 nintendo-nes-cartridge = { path = "../nintendo-nes-cartridge", version = "0.44.0" }
 machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.44.0" }

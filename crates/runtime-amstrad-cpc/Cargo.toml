@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-amstrad-gate-array = { path = "../emu198x-amstrad-gate-array", version = "0.1.0" }
 emu198x-tape-playback = { path = "../emu198x-tape-playback", version = "0.1.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.44.0" }
 format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.44.0" }
 machine-amstrad-cpc = { path = "../machine-amstrad-cpc", version = "0.44.0" }

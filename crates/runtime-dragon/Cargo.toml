@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 format-dragon-bin = { path = "../format-dragon-bin", version = "0.44.0" }
 format-dragon-cas = { path = "../format-dragon-cas", version = "0.44.0" }
 format-dragon-disk = { path = "../format-dragon-disk", version = "0.44.0" }
