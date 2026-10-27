@@ -1,0 +1,45 @@
+   Compiling emu198x-c64 v0.45.1 (/private/tmp/198x-small-fixes/crates/emu198x-c64)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.69s
+     Running unittests src/main.rs (/private/tmp/198x-small-fixes-target/debug/deps/emu198x_c64-797079aa1f9f40ba)
+
+running 23 tests
+test app::tests::build_runtime_loads_the_optional_1571_and_1581_dos_roms ... ignored, FIXTURE: requires local C64 + 1541/1571/1581 DOS ROMs at ~/.emu198x/roms/commodore-c64/
+test app::tests::model_timing_follows_the_region ... ok
+test app::tests::build_runtime_rejects_autoload_run_without_disk ... ok
+test app::tests::flags_cover_expansions_and_the_mouse ... ok
+test app::tests::flags_cover_the_window_media_workflow ... ok
+test app::tests::flags_cover_tape_autoload_and_the_tape_stop_wait ... ok
+test app::tests::headless_only_flags_route_to_script_mode ... ok
+test app::tests::flags_cover_the_drive_rom_trace_window ... ok
+test app::tests::c64_hardware_flags_are_refused_on_a_c128 ... ok
+test app::tests::model_flag_parses_all_variants ... ok
+test app::tests::a_bad_model_is_a_usage_error ... ok
+test app::tests::flags_cover_snapshot_boot_and_capture ... ok
+test mcp_tools::tests::disk_format_detection_and_extension_guard ... ok
+test app::tests::the_80_column_flag_needs_a_c128 ... ok
+test app::tests::the_rom_flags_pin_their_images_and_the_dir_flag_sets_the_directory ... ok
+test app::tests::snapshot_boot_reports_a_missing_explicit_rom ... ok
+test mcp_tools::tests::the_c64_only_tools_explain_themselves_on_a_c128 ... ok
+test mcp_tools::tests::set_port_drive_tool_rejects_bad_input_and_missing_roms ... ok
+test mcp_tools::tests::set_port_drive_tool_reports_the_default_layout ... ok
+test mcp_tools::tests::registers_the_basic_authoring_tools ... ok
+test app::tests::a_c128_imports_only_prg_files ... ok
+test mcp_tools::tests::tools_list_exposes_the_capture_surface ... ok
+test mcp_tools::tests::set_screen_switches_a_c128_and_refuses_a_c64 ... ok
+
+test result: ok. 22 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/mcp_program_import.rs (/private/tmp/198x-small-fixes-target/debug/deps/mcp_program_import-f5ae86f3c63a49cf)
+
+running 1 test
+test mcp_loads_a_prg_and_basic_run_executes_it ... ignored, FIXTURE: needs the C64 ROMs — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/script_load_basic_program.rs (/private/tmp/198x-small-fixes-target/debug/deps/script_load_basic_program-26dbc70369d25283)
+
+running 1 test
+test a_script_can_load_and_run_a_basic_program ... ignored, FIXTURE: needs the C64 ROMs — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

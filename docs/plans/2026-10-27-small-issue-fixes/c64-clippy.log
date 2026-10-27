@@ -1,0 +1,33 @@
+    Checking format198x-commodore-c64-d64 v0.1.0
+    Checking format198x-commodore-c64-g64 v0.1.0
+    Checking emu198x-mos-6502 v0.6.1
+    Checking common-commodore-iec v0.45.1 (/private/tmp/198x-small-fixes/crates/common-commodore-iec)
+    Checking emu198x-mos-cia-6526 v0.1.0
+    Checking emu198x-mos-via-6522 v0.1.0
+   Compiling memchr v2.8.0
+    Checking emu198x-mos-vic-ii v0.1.0 (/private/tmp/198x-small-fixes/crates/emu198x-mos-vic-ii)
+    Checking emu198x-mos-sid-6581 v0.9.0 (/private/tmp/198x-small-fixes/crates/emu198x-mos-sid-6581)
+    Checking emu198x-wdc-65c816 v0.1.0
+    Checking format198x-commodore-c64-tap v0.1.0
+    Checking format198x-commodore-c64-crt v0.1.0
+    Checking emu198x-peripheral-ultimate-uci-net v0.1.0 (/private/tmp/198x-small-fixes/crates/emu198x-peripheral-ultimate-uci-net)
+    Checking common-commodore-c64 v0.45.1 (/private/tmp/198x-small-fixes/crates/common-commodore-c64)
+    Checking format198x-commodore-c64-prg v0.1.0
+    Checking common-commodore-drive-gcr v0.45.1 (/private/tmp/198x-small-fixes/crates/common-commodore-drive-gcr)
+    Checking format198x-commodore-c64-d81 v0.1.0
+    Checking format198x-commodore-c128-d71 v0.1.0
+    Checking emu198x-esp-at-modem v0.45.1 (/private/tmp/198x-small-fixes/crates/emu198x-esp-at-modem)
+    Checking format198x-commodore-c64-t64 v0.1.0
+    Checking format198x-commodore-c64-bas v0.1.1
+    Checking format198x-commodore-c64-p00 v0.1.0
+    Checking machine-commodore-1581 v0.45.1 (/private/tmp/198x-small-fixes/crates/machine-commodore-1581)
+    Checking common-commodore-iec-drive v0.45.1 (/private/tmp/198x-small-fixes/crates/common-commodore-iec-drive)
+   Compiling embed-resource v3.0.12
+    Checking machine-commodore-1541 v0.45.1 (/private/tmp/198x-small-fixes/crates/machine-commodore-1541)
+    Checking machine-commodore-1571 v0.45.1 (/private/tmp/198x-small-fixes/crates/machine-commodore-1571)
+    Checking machine-commodore-c64 v0.45.1 (/private/tmp/198x-small-fixes/crates/machine-commodore-c64)
+   Compiling emu198x-app-icon v0.45.1 (/private/tmp/198x-small-fixes/crates/emu198x-app-icon)
+   Compiling emu198x-c64 v0.45.1 (/private/tmp/198x-small-fixes/crates/emu198x-c64)
+    Checking machine-commodore-c128 v0.45.1 (/private/tmp/198x-small-fixes/crates/machine-commodore-c128)
+    Checking runtime-commodore-c64 v0.45.1 (/private/tmp/198x-small-fixes/crates/runtime-commodore-c64)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.38s

@@ -1,0 +1,24 @@
+   Compiling emu198x-dragon v0.45.1 (/private/tmp/198x-small-fixes/crates/emu198x-dragon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.18s
+     Running unittests src/main.rs (/private/tmp/198x-small-fixes-target/debug/deps/emu198x_dragon-9b09f3c70c8bcf27)
+
+running 1 test
+test script::tests::typed_command_maps_basic_quotes_to_shifted_digit_two ... FAILED
+
+failures:
+
+---- script::tests::typed_command_maps_basic_quotes_to_shifted_digit_two stdout ----
+
+thread 'script::tests::typed_command_maps_basic_quotes_to_shifted_digit_two' (199288828) panicked at crates/emu198x-dragon/src/script.rs:6886:9:
+assertion `left == right` failed
+  left: None
+ right: Some(["shift", ":"])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    script::tests::typed_command_maps_basic_quotes_to_shifted_digit_two
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p emu198x-dragon --bin emu198x-dragon`

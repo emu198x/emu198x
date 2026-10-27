@@ -1,0 +1,181 @@
+   Compiling bitflags v2.11.1
+   Compiling objc2 v0.6.5
+   Compiling libc v0.2.186
+   Compiling objc2-encode v4.1.0
+   Compiling thiserror v2.0.21
+   Compiling simd-adler32 v0.3.9
+   Compiling cfg-if v1.0.4
+   Compiling crc32fast v1.5.0
+   Compiling adler2 v2.0.1
+   Compiling log v0.4.29
+   Compiling zmij v1.0.21
+   Compiling machine-tatung-einstein v0.45.1 (/private/tmp/198x-small-fixes/crates/machine-tatung-einstein)
+   Compiling cfg_aliases v0.2.2
+   Compiling nix v0.31.3
+   Compiling miniz_oxide v0.9.1
+   Compiling zlib-rs v0.6.3
+   Compiling serde_json v1.0.154
+   Compiling memchr v2.8.0
+   Compiling getrandom v0.4.3
+   Compiling vec_map v0.8.2
+   Compiling uuid v1.23.1
+   Compiling gilrs v0.11.2
+   Compiling itoa v1.0.18
+   Compiling cpal v0.18.2
+   Compiling bumpalo v3.20.2
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling cobs v0.3.0
+   Compiling fdeflate v0.3.7
+   Compiling miniz_oxide v0.8.9
+   Compiling fnv v1.0.7
+   Compiling postcard v1.1.3
+   Compiling zopfli v0.8.3
+   Compiling isa198x v0.1.0
+   Compiling mach2 v0.6.0
+   Compiling dasp_sample v0.11.0
+   Compiling typed-path v0.13.0
+   Compiling indexmap v2.14.0
+   Compiling dispatch2 v0.3.1
+   Compiling block2 v0.6.2
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling debug198x v0.1.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling isa198x-disasm v0.1.0
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-io-kit v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling flate2 v1.1.10
+   Compiling gilrs-core v0.6.8
+   Compiling zip v9.1.2
+   Compiling png v0.18.1
+   Compiling coreaudio-rs v0.14.2
+   Compiling emu198x-shell v0.44.2 (/private/tmp/198x-small-fixes/crates/emu198x-shell)
+   Compiling runtime-tatung-einstein v0.45.1 (/private/tmp/198x-small-fixes/crates/runtime-tatung-einstein)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.45s
+     Running unittests src/lib.rs (/private/tmp/198x-small-fixes-target/debug/deps/machine_tatung_einstein-752742fa81a1b380)
+
+running 17 tests
+test tests::ay_watch_captures_psg_data_writes ... ok
+test tests::analogue_joystick_reads_through_the_adc0844 ... ok
+test tests::cpc_dsk_rejects_non_dsk ... ok
+test tests::fdc_reads_a_sector_from_an_inserted_disk ... ok
+test tests::cpc_dsk_round_trips_through_the_fdc ... ok
+test tests::joystick_fire_buttons_read_on_port_20_active_low ... ok
+test tests::keyboard_contacts_remain_visible_with_ay_port_b_in_output_mode ... ok
+test tests::keyboard_row_selected_via_ay_port_a ... ok
+test tests::fdc_read_with_no_disk_reports_record_not_found ... ok
+test tests::key_press_and_release ... ok
+test tests::reading_port_24_also_toggles_the_rom ... ok
+test tests::rom_visible_at_reset_toggles_on_port_24 ... ok
+test tests::writes_always_land_in_ram_even_with_rom_paged_in ... ok
+test tests::pal_frame_runs_one_vdp_frame_of_4mhz_tstates ... ok
+test tests::vdp_dot_ratio_is_exact_5_369_to_4_mhz ... ok
+test tests::snapshot_round_trips_live_state ... ok
+test tests::many_frames_complete_without_panic ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running tests/bios_boot.rs (/private/tmp/198x-small-fixes-target/debug/deps/bios_boot-ab550555a2dc0b8b)
+
+running 1 test
+test bios_boots_to_mos_prompt ... ignored, FIXTURE: needs Tatung Einstein X-TAL MOS ROM (8 KB) — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cpu_rate.rs (/private/tmp/198x-small-fixes-target/debug/deps/cpu_rate-22d37bc5acbe7e24)
+
+running 1 test
+test a_nop_costs_four_tstates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/disk_boot.rs (/private/tmp/198x-small-fixes-target/debug/deps/disk_boot-f4cae17c03704b30)
+
+running 1 test
+test ctrl_break_loads_from_real_disk ... ignored, FIXTURE: needs the Einstein MOS and a bootable CPCEMU .dsk — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dsk_validation.rs (/private/tmp/198x-small-fixes-target/debug/deps/dsk_validation-4a43b0e376a9a608)
+
+running 4 tests
+test malformed_counts_sizes_and_missing_payload_are_rejected ... ok
+test standard_and_extended_disks_keep_sector_id_order ... ok
+test rejected_disk_does_not_replace_live_media ... ok
+test every_sector_size_code_is_bounded_by_the_supplied_payload ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/keyboard_type.rs (/private/tmp/198x-small-fixes-target/debug/deps/keyboard_type-c6d63aa4f64de945)
+
+running 1 test
+test types_hello_at_the_mos_prompt ... ignored, FIXTURE: needs Tatung Einstein X-TAL MOS ROM — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/synthetic_firmware_boot.rs (/private/tmp/198x-small-fixes-target/debug/deps/synthetic_firmware_boot-a2473be43a25c9ab)
+
+running 2 tests
+test firmware_that_programs_nothing_does_not_look_like_a_boot ... ok
+test the_einstein_runs_firmware_and_paints_its_backdrop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/lib.rs (/private/tmp/198x-small-fixes-target/debug/deps/runtime_tatung_einstein-8d228492abd1814b)
+
+running 8 tests
+test input::tests::digital_directions_snap_the_pots_to_extremes ... ok
+test input::tests::modifier_keys_drive_the_status_register ... ok
+test input::tests::axis_scales_and_routes_to_the_right_adc_channels ... ok
+test input::tests::modifiers_and_matrix_keys_route_to_disjoint_paths ... ok
+test profiles::tests::profile_declares_rom_firmware_and_floppy ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_4_before_payload_decode ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/disk_boot.rs (/private/tmp/198x-small-fixes-target/debug/deps/disk_boot-a86fa2c8c027f955)
+
+running 1 test
+test ctrl_break_runs_a_disk_program_through_runtime_input ... ignored, FIXTURE: needs Einstein MOS — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/firmware_catalogue.rs (/private/tmp/198x-small-fixes-target/debug/deps/firmware_catalogue-0e8a0781906ddd5b)
+
+running 1 test
+test single_model_catalogue_builds_the_existing_profile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/media.rs (/private/tmp/198x-small-fixes-target/debug/deps/media-9245a0d457c3df3a)
+
+running 3 tests
+test profile_exposes_standard_floppy_slot ... ok
+test runtime_rejects_bad_dsk_and_supports_eject ... ok
+test runtime_loads_dsk_and_preserves_sector_contents_across_reset ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-small-fixes-target/debug/deps/snapshot_roundtrip-aae390cd00a04023)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests machine_tatung_einstein
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_tatung_einstein
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
