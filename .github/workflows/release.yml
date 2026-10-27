@@ -464,8 +464,11 @@ jobs:
       GH_TOKEN: ${{ startsWith(github.ref, 'refs/tags/') && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 15
-    outputs:
-      val: ${{ steps.host.outputs.manifest }}
+    # No job outputs. dist's generated job passes the whole manifest on as one,
+    # and with every app's archives (548 assets in v0.45.0) it passed the 1 MB
+    # GitHub allows a job's outputs, failing the job after the release was
+    # made and skipping Homebrew and the announcement. Nothing reads it: later
+    # jobs read the plan's output or the uploaded manifest.
     steps:
       - uses: actions/checkout@v6
         with:
@@ -490,7 +493,6 @@ jobs:
           dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
-          echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
       - name: "Upload dist-manifest.json"
         uses: actions/upload-artifact@v7
         with:
@@ -511,13 +513,12 @@ jobs:
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
       - name: Create GitHub Release
-        env:
-          PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
-          ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
         run: |
-          # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
+          # The announcement comes from the manifest file, not a step output,
+          # which is bounded by the same output limits as the job's.
+          jq -r '.announcement_github_body // ""' dist-manifest.json > "$RUNNER_TEMP/notes.txt"
+          ANNOUNCEMENT_TITLE=$(jq -r '.announcement_title // ""' dist-manifest.json)
+          PRERELEASE_FLAG=$(jq -r 'if .announcement_is_prerelease then "--prerelease" else "" end' dist-manifest.json)
 
           # No --target. The tag is what fired this workflow, so it exists and
           # already pins the commit; GitHub documents target_commitish as
