@@ -24,3 +24,33 @@ fix/small-issue-sweep-2 worktree; preserve the primary checkout and other tasks.
 Each fix is independently verified and committed. Retain before/after evidence
 beside this plan, push the batch, require all CI checks to finish successfully
 before merging, verify issue closures, and clean task-owned files/processes.
+
+## Results
+
+ColecoVision: the malformed-media regression failed on the old loader while
+both signature controls and legacy raw-snapshot control passed. New loads now
+validate the 36-byte fixed header and either BIOS signature before replacing
+anything, including multi-image requests. The original BIOS confirms the entry
+vector at $800A and the RST/NMI jumps through $800C..$8023; its SHA-256 and
+original-guest handoff result are in the verification receipt. This does not
+claim mapper or full commercial-game qualification. All 13 runtime tests and
+six application integration tests pass, as does the explicitly enabled
+original-BIOS test and strict owning Clippy. Three initially failing app tests
+used raw headerless fixtures; their valid-header replacements retain all
+mapping/variant/reset/source-removal checks at a payload byte.
+
+BBC: the old report regression fails on the missing diagnosis. The new
+read-only signal uses the live ULA selection and complete-font extent; it adds
+no serialized state. Machine-specific warnings survive final CLI report
+assembly. All three current models cover absent/supplied font and bitmap output,
+plus restoration of a missing-font snapshot after a font was installed. Four
+CLI controls also pass. Original Model B MOS/BASIC runs for 100 frames produce
+a warning only without the font, even though the existing blank-frame heuristic
+reports nothing. Original fixture hashes and reports are retained beside this
+plan. All 95 executed machine/runtime tests and all 11 app tests pass; 12
+existing fixture/diagnostic tests remain explicitly ignored in the owning
+suites. Strict owning Clippy and formatting pass.
+
+The batch is limited to these two bounded fixes. The remaining PSG stereo,
+SNES native-frame stepping, board splits and physical controller work need
+larger designs or source qualification; this batch adopts none of those.

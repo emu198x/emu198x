@@ -1,0 +1,25 @@
+   Compiling emu198x-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-acorn-bbc-micro)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running unittests src/main.rs (/private/tmp/198x-next-target/debug/deps/emu198x_acorn_bbc_micro-cd377f9d7b3bde8a)
+
+running 6 tests
+test app::tests::parse_cli_defaults ... ok
+test app::tests::parse_cli_accepts_mos_scale_video ... ok
+test app::tests::sideways_is_repeatable_and_bank_checked ... ok
+test app::tests::an_unknown_model_is_named_and_a_model_b_disc_refused ... ok
+test app::tests::parse_cli_picks_the_b_plus_and_its_discs ... ok
+test app::tests::report_diagnoses_missing_font_only_when_teletext_is_selected ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/firmware.rs (/private/tmp/198x-next-target/debug/deps/firmware-1754d6f59c35f798)
+
+running 5 tests
+test conventional_basic_is_a_window_default_but_an_explicit_pin_selects_it_in_scripts ... ok
+test mos_pins_override_environment_and_directory_options_work ... ok
+test explicit_sideways_banks_override_basic_and_survive_reset_in_scripts_and_mcp ... ok
+test missing_explicit_images_invalid_mos_and_missing_sideways_roms_fail_in_both_modes ... ok
+test final_cli_report_warns_for_missing_teletext_font_but_not_bitmap_output ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.66s
+

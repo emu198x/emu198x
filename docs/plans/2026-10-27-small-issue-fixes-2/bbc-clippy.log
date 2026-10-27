@@ -1,0 +1,12 @@
+    Checking format198x-deflate v0.1.0
+    Checking common-acorn-cassette v0.45.1 (/private/tmp/198x-next-fixes/crates/common-acorn-cassette)
+    Checking emu198x-mos-via-6522 v0.1.0
+    Checking emu198x-western-digital-wd1770 v0.1.0 (/private/tmp/198x-next-fixes/crates/emu198x-western-digital-wd1770)
+    Checking emu198x-motorola-6845 v0.1.0 (/private/tmp/198x-next-fixes/crates/emu198x-motorola-6845)
+    Checking emu198x-mos-6502 v0.6.1
+   Compiling emu198x-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-acorn-bbc-micro)
+    Checking format198x-acorn-uef v0.1.0
+    Checking machine-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/machine-acorn-bbc-micro)
+    Checking format-acorn-uef v0.45.1 (/private/tmp/198x-next-fixes/crates/format-acorn-uef)
+    Checking runtime-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-acorn-bbc-micro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.07s

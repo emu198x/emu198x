@@ -1125,6 +1125,15 @@ impl BbcMicro {
         self.teletext_font = font;
     }
 
+    /// Whether the selected teletext output lacks a complete character ROM.
+    ///
+    /// Bitmap modes do not use this ROM. Derive this from live machine state
+    /// so a restored snapshot reports its own video mode and font.
+    #[must_use]
+    pub fn teletext_font_missing(&self) -> bool {
+        self.video_ula.teletext() && self.teletext_font.len() < 96 * 10
+    }
+
     /// Install a sideways ROM into the given bank slot (0-15).
     pub fn insert_rom(&mut self, bank: usize, rom: Vec<u8>) {
         while self.sideways_roms.len() <= bank {
