@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-machine-mattel-aquarius = { path = "../machine-mattel-aquarius", version = "0.44.0" }
+machine-mattel-aquarius = { path = "../machine-mattel-aquarius", version = "0.45.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

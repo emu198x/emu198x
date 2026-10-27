@@ -4,6 +4,144 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.45.0] - 2026-10-27
+
+
+### Added
+
+- Publish emu198x-test-skip as an independent crate
+- Publish the LR35902 and 6809 cores as emu198x-* crates
+- *(shell)* Symbolise 24- and 32-bit address operands
+- *(sega)* Add the Master System II, Mark III and SG-1000 II
+- *(ay-3-8910)* Add a YM2149 variant
+- *(atari-st)* Add the ST's MFP, ACIA, Shifter and GLUE/MMU chips
+- *(zx81)* Add the Memotech HRG, Quicksilva and G007 hi-res boards
+- Publish ten shared chips as emu198x-* crates
+- **Breaking** — Let the uPD765 run on any machine's clock and wiring. The controller's serialised layout loses `enabled` and gains its host tick rate, so Spectrum snapshots move from version 11 to 12. Version 11 is rejected before positional decode, as earlier versions are, and the version 6 read fixtures are reconstructed without the flag.
+- **Breaking** — Model the 8255's port directions instead of the MSX's wiring. The 8255's API and serialised fields change, so the MSX and SVI-328 snapshots move to version 7, the CPC's to 3 and the Atom's to 4.
+- Give the CPC664 and CPC6128 their disc controller
+- Offer the CPC664 and CPC6128, with AMSDOS and two disc drives
+- *(atari-800xl)* Add the 130XE with its banked extended RAM
+- *(atari-st)* Add .st and .msa floppy image crates
+- *(atari-st)* Add the Atari ST machine
+- *(wdc-65c816)* Add the 65C816 CPU with a pin-level bus
+- *(wd1770)* Pace the data phase and add the master reset
+- *(bbc)* Model the BBC B+, with its shadow screen and 1770 disc
+- *(bbc)* Offer the BBC B+, with the 1770 DFS and two disc drives
+- *(6502)* Add the 65C12, the CMOS 6502 of the BBC Master
+- *(bbc)* Model the BBC Master 128
+- *(bbc)* Offer the BBC Master 128
+- *(vic-ii)* Add the C128's VIC-IIe, the 8566 and 8564
+- *(c128)* Model the Commodore 128 in C128 mode, booting BASIC 7.0
+- *(c128)* Draw the VDC's 80-column display
+- *(msx)* Put the BIOS, RAM and cartridge ports where the layout says
+- *(msx)* Offer six real MSX1 machines with their own slot layouts
+- *(ym2612)* Add the YM2612 and YM3438 FM synthesis chip
+- *(vdp)* Add the Mega Drive VDP's bus side, stepped slot by slot
+- *(vdp)* Render planes A and B and the window
+- *(vdp)* Add sprites, scanned and drawn in their own slots
+- *(mega-drive)* Wire the Mega Drive machine
+- *(mega-drive)* Add the runtime and app
+- *(fleet-web)* Offer the Mega Drive in the web fleet
+- *(c128)* Add the NTSC C128 and a debugger's view of the machine
+- *(c128)* Run the C128 in the C64 family runtime
+- *(c128)* Offer the C128 in emu198x-c64
+- *(c128)* Register the C128 and offer it in the web fleet
+- *(sega-315-5313)* Add Mode 4, the Master System mode
+- *(mega-drive)* Run Master System cartridges through a Power Base Converter
+- *(v9938)* Add the Yamaha V9938, the MSX2's video chip
+- *(rp5c01)* Add the Ricoh RP5C01, the MSX2's real-time clock
+- *(msx)* Add the MSX2 — V9938, SUB-ROM, memory mapper and clock
+- *(ym2413)* Add the YM2413 (OPLL) and VRC7 FM synthesis chip
+- *(atari-st)* Add the runtime and app
+- *(fleet-web)* Offer the Atari ST in the web fleet
+- *(spectrum)* Add the Kempston mouse interface
+- *(web-player)* Add the Sega Mega Drive to the player menu
+- *(nes)* Add VRC6, Sunsoft 5B, Namco 163 and VRC7 expansion audio
+- *(wd1770)* Add the 1770's master reset without a Restore
+- *(electron)* Model the Plus 3, with its WD1770 and ADFS in ROM 4
+- *(electron)* Offer the Electron with the Plus 3, and two disc drives
+- *(spectrum)* Add a memory-intercept hook trait for peripherals
+- *(spectrum)* Add the Multiface 128 and Multiface 3
+- *(dragon)* Add the Tandy Color Computer 1 and 2
+- *(oric)* Add an optional 6551 ACIA serial card at $031C
+- *(nes)* Add VRC4 and VRC2b/c on mappers 21, 23 and 25
+- *(sharp-lr35902)* Let the machine decide what STOP does
+- *(nintendo-game-boy-ppu)* Draw the Game Boy Color's colour modes
+- *(format-nintendo-game-boy-cartridge)* Decode the CGB flag
+- *(machine-nintendo-game-boy)* Add the Game Boy Color
+- *(runtime-nintendo-game-boy)* Offer the CGB and AGB models
+- *(spectrum)* Add Interface 1 and the ZX Microdrives
+- *(c64)* Fit a CMD SuperCPU with a 20 MHz 65C816
+- *(ym2610)* Add the YM2610 (OPNB) sound chip
+- *(nes)* Add the Famicom Disk System RAM adapter, drive and audio
+- *(spectrum)* Add the DivMMC with an SD card
+- *(lspc2)* Add the Neo Geo's LSPC2 video chip and palette
+- *(nes)* Add the Zapper and Four Score
+- *(neo-geo)* Wire the Neo Geo AES machine
+- *(sms)* Fit the YM2413 FM sound hardware
+- *(scc)* Add the Konami SCC and SCC-I wavetable sound chips
+- *(msx)* Hear MSX-MUSIC, the FM-PAC and the SCC cartridges
+- *(neo-geo)* Run the Neo Geo AES from a ROM set and BIOS
+- *(web-player)* Add the SNK Neo Geo AES to the player menu
+- *(spc700)* Add the Sony SPC700 CPU with a pin-level bus
+- *(s-dsp)* Add the Sony S-DSP, stepped once per SPC700 cycle
+- *(snes-ppu)* Add the S-PPU1/S-PPU2 picture processor, stepped by the dot
+- *(snes)* Wire the Super NES machine
+- *(snes)* Add the Super NES runtime and emu198x-snes app
+- *(msx)* Give the MSX2 its own machine id, microsoft-msx2
+- Publish the MOS and Motorola support chips as emu198x-* crates
+- Publish the Atari chips as emu198x-* crates
+- Publish the Amiga custom chips as emu198x-* crates
+- Publish the Game Boy, Master System, ZX81, CPC and uPD765A chips
+- Publish the Z80 cadence and tape playback as emu198x-* crates
+- *(ui)* Add the shared command catalogue and build the native menu from it
+- Publish the SNES S-PPU as an emu198x- crate
+- Publish the Atari ST Shifter and GLUE/MMU as emu198x-* crates
+- Publish the Motorola MFP and ACIA as emu198x-* crates
+- Publish the Atari SIO bus as an emu198x- crate
+- Publish the Amiga autoconfig, floppy drive and keyboard as emu198x-* crates
+- Publish the Ultimate UCI network target as an emu198x- crate
+- *(ui)* Add a GTK4 Linux host behind the gtk feature
+- *(ui)* Keep the guest mouse pointer under the host cursor
+- *(denise)* Remember where each sprite was last shown
+- *(amiga)* Keep Intuition's pointer under the host cursor
+- Publish the Game Boy PPU as an emu198x- crate
+- *(ui)* Give the GTK host the video filters through an offscreen presenter
+- Publish the NES PPU as an emu198x- crate, with its own cartridge trait
+- *(ui)* Replay cursor motion in the guest's mouse counts
+- *(atari-st)* Keep GEM's pointer under the host cursor
+- *(video)* Draw raw frames with sharp bilinear in the wgpu presenter
+- Publish the AGA Denise as an emu198x- crate, with DeniseChip in the OCS Denise
+- *(ui)* Show the catalogue's shortcuts in the GTK menus
+- *(ui)* Build the GTK host against GTK 4.6
+- Publish the Spectrum ULAs and peripherals as emu198x-* crates, over a bus crate
+- *(ui)* Open the Linux GTK window in its own process
+- *(web)* Drive a known guest pointer to the page's cursor
+- *(web)* Let a known guest pointer follow the cursor over the screen
+- *(apple)* Export the command catalogue to the Apple hosts
+- *(ui)* Settle the shortcuts on the Mac app's keys
+
+
+### Fixed
+
+- *(amiga)* Defer framebuffer conversion during debugger spans
+- *(atari-st-shifter)* Finish the last group after display enable drops
+- *(atari-st)* Depend on the renamed emu198x-western-digital-wd1770
+- *(sms)* Drain the YM2413's own sample list
+- *(sms)* Leave the Mark III without built-in FM
+- Point the Amiga DDF probe runner at the renamed Agnus crate
+- *(ui)* Attach the native menu bar on Windows
+- *(video)* Keep the offscreen presenter's test and target off wasm
+- *(c64)* Count the 1351 in its own counts, Y upwards
+- *(video)* Keep the sharp-bilinear test off wasm
+- *(web)* Carry the fraction of each mouse movement
+- *(status)* Don't count crates outside the release as shipping machines
+- Preserve archive loading with zip 9
+- *(denise)* Release the OCS Denise as 0.1.1, with DeniseChip
+- Release the 6502, AY and NES APU as 0.6.1 and Paula as 0.7.0
+- Name the Beta Disk crate within crates.io's 64-character limit
+
 
 ## [0.44.2] - 2026-10-23
 

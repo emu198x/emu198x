@@ -9,11 +9,11 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-format-dragon-bin = { path = "../format-dragon-bin", version = "0.44.0" }
-format-dragon-cas = { path = "../format-dragon-cas", version = "0.44.0" }
-format-dragon-disk = { path = "../format-dragon-disk", version = "0.44.0" }
-format-dragon-pak = { path = "../format-dragon-pak", version = "0.44.0" }
-machine-dragon-32 = { path = "../machine-dragon-32", version = "0.44.0" }
+format-dragon-bin = { path = "../format-dragon-bin", version = "0.45.0" }
+format-dragon-cas = { path = "../format-dragon-cas", version = "0.45.0" }
+format-dragon-disk = { path = "../format-dragon-disk", version = "0.45.0" }
+format-dragon-pak = { path = "../format-dragon-pak", version = "0.45.0" }
+machine-dragon-32 = { path = "../machine-dragon-32", version = "0.45.0" }
 emu198x-motorola-vdg-6847 = { path = "../emu198x-motorola-vdg-6847", version = "0.1.0" }
 postcard = { workspace = true }
 serde = { workspace = true }

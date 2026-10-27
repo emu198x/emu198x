@@ -9,8 +9,8 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-machine-nintendo-snes = { path = "../machine-nintendo-snes", version = "0.44.0" }
-format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.44.0" }
+machine-nintendo-snes = { path = "../machine-nintendo-snes", version = "0.45.0" }
+format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.45.0" }
 isa198x-disasm = "0.1"
 postcard = { workspace = true }
 serde = { workspace = true }
