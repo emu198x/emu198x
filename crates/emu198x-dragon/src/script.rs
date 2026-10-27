@@ -28,10 +28,10 @@ use emu198x_shell::{
     MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
     read_media_asset,
 };
-use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
-use format_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
 use format_dragon_disk::{DragonDiskImage, parse_vdk};
-use format_dragon_pak::{
+use format198x_dragon_data_dragon_bin::{DragonBinImage, parse_dragon_bin};
+use format198x_dragon_data_dragon_cas::{CasFileType, CasHeader, CasImage, parse_cas_tolerant};
+use format198x_dragon_data_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonPeripherals,
     PcDragonSnapshot, parse_dragon_pak, parse_pcdragon_snapshot,
 };
@@ -7453,7 +7453,7 @@ mod tests {
         let snapshot = PcDragonSnapshot {
             ram: vec![0xaa, 0xbb].into_boxed_slice(),
             load_address: 0x2000,
-            registers: format_dragon_pak::PcDragonRegisters {
+            registers: format198x_dragon_data_dragon_pak::PcDragonRegisters {
                 pc: 0x1234,
                 x: 0x5678,
                 y: 0x9abc,
@@ -7619,7 +7619,7 @@ mod tests {
         let snapshot = PcDragonSnapshot {
             ram: Box::new([]),
             load_address: 0,
-            registers: format_dragon_pak::PcDragonRegisters {
+            registers: format198x_dragon_data_dragon_pak::PcDragonRegisters {
                 pc: 0,
                 x: 0,
                 y: 0,
@@ -7630,7 +7630,7 @@ mod tests {
                 a: 0,
                 cc: 0,
             },
-            peripherals: Some(format_dragon_pak::PcDragonPeripherals {
+            peripherals: Some(format198x_dragon_data_dragon_pak::PcDragonPeripherals {
                 ff02: 0,
                 ff03: 0,
                 ff22: 0xec,
@@ -7670,7 +7670,7 @@ mod tests {
         let snapshot = PcDragonSnapshot {
             ram: Box::new([]),
             load_address: 0,
-            registers: format_dragon_pak::PcDragonRegisters {
+            registers: format198x_dragon_data_dragon_pak::PcDragonRegisters {
                 pc: 0x1234,
                 x: 0,
                 y: 0,

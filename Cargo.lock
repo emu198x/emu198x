@@ -1295,10 +1295,10 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
- "format-dragon-bin",
- "format-dragon-cas",
  "format-dragon-disk",
- "format-dragon-pak",
+ "format198x-dragon-data-dragon-bin",
+ "format198x-dragon-data-dragon-cas",
+ "format198x-dragon-data-dragon-pak",
  "machine-dragon-32",
  "png",
  "runtime-dragon",
@@ -2397,47 +2397,12 @@ name = "format-atari-st-st"
 version = "0.45.0"
 
 [[package]]
-name = "format-commodore-c64-d71"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-dragon-bin"
-version = "0.45.0"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-dragon-cas"
-version = "0.45.0"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-dragon-disk"
 version = "0.45.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
 ]
-
-[[package]]
-name = "format-dragon-pak"
-version = "0.45.0"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-memotech-mtx"
-version = "0.45.0"
 
 [[package]]
 name = "format-nintendo-famicom-fds"
@@ -2556,6 +2521,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ed288a79912b3af0eafa304afb2ff2ac27668ba88efcce03ef2a1b3ae9c0bca"
 
 [[package]]
+name = "format198x-commodore-c128-d71"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "291648a49843c6aa69302bcd6d9a0553c2b9008c9bef04b9427274a2f58d114d"
+
+[[package]]
 name = "format198x-commodore-c64-bas"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2620,6 +2591,24 @@ name = "format198x-deflate"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "296666a556d220264342f3ffe23cc319132922e15d5853079c1c27ae76ca4ad6"
+
+[[package]]
+name = "format198x-dragon-data-dragon-bin"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01f482994dfcb5e0ff28dba288c5cbf6937b64ae9c31b69703f7769cf4003cab"
+
+[[package]]
+name = "format198x-dragon-data-dragon-cas"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f73f0bb82c1a5335755a374ebb53d7881a2daa3dd2bf8b7dc8b567bac4d762f8"
+
+[[package]]
+name = "format198x-dragon-data-dragon-pak"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e352408b5f6b10050f17b56a3c1e8bb0d2d28fa4cb2b814285c2d8c5155d9564"
 
 [[package]]
 name = "format198x-jupiter-ace-ace"
@@ -3603,7 +3592,7 @@ dependencies = [
  "emu198x-mos-cia-6526",
  "emu198x-mos-via-6522",
  "emu198x-western-digital-wd1770",
- "format-commodore-c64-d71",
+ "format198x-commodore-c128-d71",
  "format198x-commodore-c64-d64",
  "format198x-commodore-c64-g64",
  "serde",
@@ -5432,10 +5421,10 @@ dependencies = [
  "emu198x-motorola-vdg-6847",
  "emu198x-shell",
  "emu198x-test-skip",
- "format-dragon-bin",
- "format-dragon-cas",
  "format-dragon-disk",
- "format-dragon-pak",
+ "format198x-dragon-data-dragon-bin",
+ "format198x-dragon-data-dragon-cas",
+ "format198x-dragon-data-dragon-pak",
  "machine-dragon-32",
  "png",
  "postcard",
