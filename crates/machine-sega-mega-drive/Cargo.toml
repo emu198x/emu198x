@@ -12,7 +12,7 @@ motorola-68000 = { path = "../motorola-68000", version = "0.44.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 emu198x-sega-315-5313 = { path = "../emu198x-sega-315-5313", version = "0.1.0" }
 emu198x-yamaha-ym2612 = { path = "../emu198x-yamaha-ym2612", version = "0.1.0" }
-emu198x-ti-sn76489 = { path = "../emu198x-ti-sn76489", version = "0.1.0" }
+emu198x-ti-sn76489 = "0.1.0"
 serde = { workspace = true }
 
 [dev-dependencies]

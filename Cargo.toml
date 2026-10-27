@@ -267,7 +267,6 @@ members = [
     "crates/runtime-snk-neo-geo",
     "crates/runtime-sinclair-zx-spectrum",
     "crates/emu198x-sinclair-ula-7k010e",
-    "crates/emu198x-ti-sn76489",
     "crates/emu198x-nintendo-s-ppu",
     "crates/emu198x-ti-tms9918",
     "crates/emu198x-yamaha-v9938",

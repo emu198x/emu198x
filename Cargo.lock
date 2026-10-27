@@ -2121,6 +2121,8 @@ version = "0.1.0"
 [[package]]
 name = "emu198x-ti-sn76489"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf469c97415d5b3c13f48e3b76e2964b2aecce82f7d5b11f51a537226ab7430e"
 dependencies = [
  "serde",
 ]
