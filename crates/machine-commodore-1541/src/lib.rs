@@ -23,7 +23,7 @@ use emu198x_mos_via_6522::Via6522;
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
-use format_commodore_c64_g64::G64ParseError;
+use format198x_commodore_c64_g64::G64ParseError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -355,7 +355,7 @@ impl Drive1541 {
         bytes: &[u8],
         writable: bool,
     ) -> Result<(), Drive1541MediaError> {
-        let image = format_commodore_c64_g64::parse(bytes)?;
+        let image = format198x_commodore_c64_g64::parse(bytes)?;
         self.engine.set_surface(GcrSurface::from_g64(&image));
         self.disk = Some(Drive1541Disk {
             image_bytes: bytes.to_vec(),
@@ -417,7 +417,7 @@ impl Drive1541 {
             return None;
         }
         let surface = self.engine.surface();
-        let mut image = format_commodore_c64_g64::parse(&disk.image_bytes).ok()?;
+        let mut image = format198x_commodore_c64_g64::parse(&disk.image_bytes).ok()?;
         for (slot, half_track) in image.half_tracks.iter_mut().enumerate() {
             if let (Some(half_track), Some(live)) = (half_track, surface.side_slots(0).get(slot))
                 && !live.is_empty()
@@ -428,7 +428,7 @@ impl Drive1541 {
         // A track that can't be represented (over-long / too many half-tracks)
         // yields no write-back rather than a corrupt image — unreachable for a
         // valid C64 surface.
-        format_commodore_c64_g64::write(&image).ok()
+        format198x_commodore_c64_g64::write(&image).ok()
     }
 
     pub fn eject_disk(&mut self) {
@@ -991,7 +991,7 @@ fn rebuild_surface(
     disk.map(|disk| match disk.image_format {
         DriveImageFormat::D64 => Ok(GcrSurface::from_d64(disk.image_bytes())?),
         DriveImageFormat::G64 => {
-            let image = format_commodore_c64_g64::parse(disk.image_bytes())?;
+            let image = format198x_commodore_c64_g64::parse(disk.image_bytes())?;
             Ok(GcrSurface::from_g64(&image))
         }
         // The 1541 is single-sided and never mounts a D71.
@@ -1158,7 +1158,7 @@ mod tests {
 
     #[test]
     fn writable_g64_flushes_the_modified_surface_back_to_g64() {
-        use format_commodore_c64_g64::parse as parse_g64;
+        use format198x_commodore_c64_g64::parse as parse_g64;
 
         let original: Vec<u8> = vec![0x55u8; 200];
         let g64 = minimal_g64(&[(0, original.clone())]);

@@ -1,4 +1,4 @@
-use format_commodore_c64_tap::TapImage;
+use format198x_commodore_c64_tap::TapImage;
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MOTOR_DELAY_CYCLES: u32 = 32_000;
@@ -6,6 +6,7 @@ pub(crate) const MOTOR_DELAY_CYCLES: u32 = 32_000;
 /// Datasette state owned by the C64 board.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Datasette {
+    #[serde(with = "tape_serde")]
     tape: Option<TapImage>,
     play_pressed: bool,
     motor_requested: bool,
@@ -64,10 +65,10 @@ impl Datasette {
 
     /// Mounts a blank, writable tape for recording a SAVE. The recorded pulse
     /// stream is retrieved with [`Self::recorded_tap_image`].
-    pub fn insert_blank_writable_tape(&mut self, video: format_commodore_c64_tap::TapVideo) {
+    pub fn insert_blank_writable_tape(&mut self, video: format198x_commodore_c64_tap::TapVideo) {
         self.tape = Some(TapImage {
             version: 1,
-            system: format_commodore_c64_tap::TapSystem::C64,
+            system: format198x_commodore_c64_tap::TapSystem::C64,
             video,
             pulses: Vec::new(),
         });
@@ -257,10 +258,84 @@ impl Datasette {
     }
 }
 
+/// The save-state encoding of the mounted tape.
+///
+/// `format198x-commodore-c64-tap` has no dependencies, so it carries no serde
+/// derives; Format198x leaves save states to the emulator. These remote
+/// definitions mirror its types field for field and variant for variant, in
+/// order, so a snapshot keeps the layout it had when the TAP layout lived in
+/// this workspace. `tests::tape_save_state_layout_is_unchanged` pins it.
+mod tape_serde {
+    use format198x_commodore_c64_tap::{TapImage, TapSystem, TapVideo};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "TapSystem")]
+    enum TapSystemDef {
+        C64,
+        Vic20,
+        C16,
+        Pet,
+        Cbm500,
+        Cbm600,
+        Unknown(u8),
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "TapVideo")]
+    enum TapVideoDef {
+        Pal,
+        Ntsc,
+        NtscOld,
+        PalN,
+        Unknown(u8),
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "TapImage")]
+    struct TapImageDef {
+        version: u8,
+        #[serde(with = "TapSystemDef")]
+        system: TapSystem,
+        #[serde(with = "TapVideoDef")]
+        video: TapVideo,
+        pulses: Vec<u32>,
+    }
+
+    struct TapeRef<'a>(&'a TapImage);
+
+    impl Serialize for TapeRef<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            TapImageDef::serialize(self.0, serializer)
+        }
+    }
+
+    struct Tape(TapImage);
+
+    impl<'de> Deserialize<'de> for Tape {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            TapImageDef::deserialize(deserializer).map(Tape)
+        }
+    }
+
+    pub(super) fn serialize<S: Serializer>(
+        tape: &Option<TapImage>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        tape.as_ref().map(TapeRef).serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<TapImage>, D::Error> {
+        Ok(Option::<Tape>::deserialize(deserializer)?.map(|Tape(tape)| tape))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_commodore_c64_tap::{TapSystem, TapVideo};
+    use format198x_commodore_c64_tap::{TapSystem, TapVideo};
 
     fn stub_tape(pulses: &[u32]) -> TapImage {
         TapImage {
@@ -269,6 +344,66 @@ mod tests {
             video: TapVideo::Pal,
             pulses: pulses.to_vec(),
         }
+    }
+
+    /// The mounted tape's postcard and JSON encodings, captured from the
+    /// in-workspace TAP crate's serde derives before the layout moved to
+    /// Format198x. A snapshot holding a tape must decode the same after the
+    /// switch, including both `Unknown` variants.
+    #[test]
+    fn tape_save_state_layout_is_unchanged() {
+        let cases: [(TapSystem, TapVideo, &[u8]); 3] = [
+            (
+                TapSystem::C64,
+                TapVideo::Pal,
+                &[
+                    0x01, 0x01, 0x00, 0x00, 0x03, 0x30, 0x80, 0x80, 0x04, 0x07, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                ],
+            ),
+            (
+                TapSystem::Unknown(9),
+                TapVideo::Unknown(7),
+                &[
+                    0x01, 0x01, 0x06, 0x09, 0x04, 0x07, 0x03, 0x30, 0x80, 0x80, 0x04, 0x07, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                ],
+            ),
+            (
+                TapSystem::Cbm600,
+                TapVideo::PalN,
+                &[
+                    0x01, 0x01, 0x05, 0x03, 0x03, 0x30, 0x80, 0x80, 0x04, 0x07, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                ],
+            ),
+        ];
+        for (system, video, expected) in cases {
+            let mut datasette = Datasette::new();
+            datasette.load_tap(TapImage {
+                version: 1,
+                system,
+                video,
+                pulses: vec![0x30, 0x1_0000, 7],
+            });
+            let bytes = postcard::to_allocvec(&datasette).expect("datasette serialises");
+            assert_eq!(bytes, expected, "{system:?} {video:?}");
+            let decoded: Datasette = postcard::from_bytes(expected).expect("old bytes decode");
+            assert_eq!(decoded.tape, datasette.tape);
+        }
+
+        let mut datasette = Datasette::new();
+        datasette.load_tap(stub_tape(&[48, 65_536, 7]));
+        assert_eq!(
+            serde_json::to_string(&datasette).expect("datasette serialises"),
+            r#"{"tape":{"version":1,"system":"C64","video":"Pal","pulses":[48,65536,7]},"play_pressed":false,"motor_requested":false,"motor_running":false,"pending_motor_state":null,"motor_delay_remaining":0,"next_pulse_index":0,"cycles_until_flux":null,"writable":false,"write_line":true,"record_cycles":0,"recording_started":false,"play_phase_cycles":0}"#
+        );
+        assert_eq!(
+            postcard::to_allocvec(&Datasette::new()).expect("datasette serialises"),
+            [
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00
+            ]
+        );
     }
 
     #[test]

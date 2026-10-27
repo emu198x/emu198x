@@ -11,7 +11,7 @@
 //! CPU-bus trait (see `RULES.md`).
 
 use common_commodore_iec::IecBus;
-use format_commodore_c64_g64::{G64_SIGNATURE, G71_SIGNATURE};
+use format198x_commodore_c64_g64::{G64_SIGNATURE, G71_SIGNATURE};
 use machine_commodore_1541::{Drive1541, Drive1541Config, Drive1541Snapshot};
 use machine_commodore_1571::{Drive1571, Drive1571Config, Drive1571Snapshot};
 use machine_commodore_1581::{Drive1581, Drive1581Config, Drive1581Snapshot};
