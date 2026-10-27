@@ -176,7 +176,8 @@ impl JupiterAceRuntime {
     /// Returns an error when no machine is loaded, or the image is not a
     /// well-formed `.ace`.
     pub fn load_ace_snapshot(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let snapshot = format_jupiter_ace_ace::Snapshot::parse(bytes)?;
+        let snapshot = format198x_jupiter_ace_ace::Snapshot::parse(bytes)
+            .map_err(|error| error.to_string())?;
         // A snapshot taken on a larger machine would have its tail silently
         // dropped by the memory map, leaving a half-loaded program that looks
         // like a bad dump. Refuse it and say which machine it wants.
@@ -197,7 +198,7 @@ impl JupiterAceRuntime {
         for (offset, &byte) in snapshot.memory.iter().enumerate() {
             let addr = u16::try_from(offset)
                 .ok()
-                .and_then(|o| format_jupiter_ace_ace::LOAD_ADDRESS.checked_add(o))
+                .and_then(|o| format198x_jupiter_ace_ace::LOAD_ADDRESS.checked_add(o))
                 .ok_or("snapshot runs past the top of memory")?;
             machine.poke(addr, byte);
         }

@@ -479,7 +479,7 @@ version = "0.45.0"
 name = "common-commodore-drive-gcr"
 version = "0.45.0"
 dependencies = [
- "format-commodore-c64-d64",
+ "format198x-commodore-c64-d64",
  "format198x-commodore-c64-g64",
  "serde",
 ]
@@ -2363,14 +2363,6 @@ name = "format-acorn-adfs"
 version = "0.45.0"
 
 [[package]]
-name = "format-acorn-atom-atm"
-version = "0.45.0"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-acorn-uef"
 version = "0.45.0"
 dependencies = [
@@ -2397,15 +2389,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "format-atari-8bit-atr"
-version = "0.45.0"
-dependencies = [
- "emu198x-test-skip",
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-atari-st-msa"
 version = "0.45.0"
 
@@ -2414,46 +2397,7 @@ name = "format-atari-st-st"
 version = "0.45.0"
 
 [[package]]
-name = "format-commodore-c64-crt"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-commodore-c64-d64"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-commodore-c64-d71"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-commodore-c64-p00"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-commodore-c64-prg"
-version = "0.45.0"
-
-[[package]]
-name = "format-commodore-c64-t64"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-commodore-vic-20-crt"
 version = "0.45.0"
 dependencies = [
  "thiserror 2.0.21",
@@ -2490,10 +2434,6 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
 ]
-
-[[package]]
-name = "format-jupiter-ace-ace"
-version = "0.45.0"
 
 [[package]]
 name = "format-memotech-mtx"
@@ -2566,21 +2506,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "format-sinclair-zx80-o"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-sinclair-zx81-p"
-version = "0.45.0"
-dependencies = [
- "emu198x-test-skip",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-snk-neo-geo-romset"
 version = "0.45.0"
 dependencies = [
@@ -2597,10 +2522,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "format198x-acorn-atom-atm"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02276d5338ce39a5f0fbdb05ec7d4aae5d4eefdd035701f52a3d0ecd027d2c78"
+
+[[package]]
 name = "format198x-amstrad-cpc-dsk"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2010c7ec3087163d2a94f82b0be46c79512117c72655695a0e2783d38ef0f479"
+
+[[package]]
+name = "format198x-atari-8bit-atr"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f180ab4cdcca7a724a8fbbd4dad9f8363bf16fb3dcbc67577aee7ed73cc0aa59"
 
 [[package]]
 name = "format198x-atari-8bit-xex"
@@ -2621,6 +2558,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e24dd5eca584e085c2122a1f1b637e51711cf50f8a04343cb7627b4b1929e2ea"
 
 [[package]]
+name = "format198x-commodore-c64-crt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7be475d0fdb790ba880ed2a91862f4585850046554cfa1ac3da5e20b60e6f2b"
+
+[[package]]
+name = "format198x-commodore-c64-d64"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ffc82be25ac8e783aa98ab0341075ee4f6476405cf3c34cfeb843d72b30f095"
+
+[[package]]
 name = "format198x-commodore-c64-d81"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2633,10 +2582,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e307a853cfae7e59a26812acf697af635d8554df5043f0afce5bb039f685a5b"
 
 [[package]]
+name = "format198x-commodore-c64-p00"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b23568154a9ee2da1e933ab40b4a9738951f31c1701a318055d273469d352ef2"
+
+[[package]]
+name = "format198x-commodore-c64-prg"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f305b0281270a2bdae54c557550a3dfb0b655dcbcd6cc34a3d2775e8cb61951"
+
+[[package]]
+name = "format198x-commodore-c64-t64"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c13f72dc658ab32f12940484d6eb3f9846779fcf5a0f0f115014ed44f27b6035"
+
+[[package]]
 name = "format198x-commodore-c64-tap"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "816a6c0ade6388873face27cf65da5e7e436d300b44b5000cdc097e96cbe1877"
+
+[[package]]
+name = "format198x-commodore-vic-20-crt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f3132d7ad85b7814df33c018e0131ed115b8486e206155fe5720e7ae83e7bad"
+
+[[package]]
+name = "format198x-jupiter-ace-ace"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b50109e958fce3d6cd0bb65dacbfe03117f1cf98443bfa0017f77e3af3d7e38f"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-bas"
@@ -2649,6 +2628,18 @@ name = "format198x-sinclair-zx-spectrum-tap"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
+
+[[package]]
+name = "format198x-sinclair-zx80-o"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47a4099b9db3aa4334fcd0b81c6481c812fc2099e310431c1475bdc994d8e8e0"
+
+[[package]]
+name = "format198x-sinclair-zx81-p"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa9d25982642de077b6236a75fbe9e34d045386f3986f94918cd7a126e54b163"
 
 [[package]]
 name = "format198x-spectravideo-svi-cas"
@@ -3516,7 +3507,7 @@ dependencies = [
  "emu198x-mos-6502",
  "emu198x-mos-pia-6520",
  "emu198x-test-skip",
- "format-atari-8bit-atr",
+ "format198x-atari-8bit-atr",
  "format198x-atari-8bit-xex",
  "postcard",
  "serde",
@@ -3564,7 +3555,7 @@ dependencies = [
  "common-commodore-iec-drive",
  "emu198x-mos-6502",
  "emu198x-mos-via-6522",
- "format-commodore-c64-d64",
+ "format198x-commodore-c64-d64",
  "format198x-commodore-c64-g64",
  "serde",
  "thiserror 2.0.21",
@@ -3581,8 +3572,8 @@ dependencies = [
  "emu198x-mos-cia-6526",
  "emu198x-mos-via-6522",
  "emu198x-western-digital-wd1770",
- "format-commodore-c64-d64",
  "format-commodore-c64-d71",
+ "format198x-commodore-c64-d64",
  "format198x-commodore-c64-g64",
  "serde",
  "thiserror 2.0.21",
@@ -3705,8 +3696,8 @@ dependencies = [
  "emu198x-mos-vic-ii",
  "emu198x-peripheral-ultimate-uci-net",
  "emu198x-wdc-65c816",
- "format-commodore-c64-crt",
- "format-commodore-c64-prg",
+ "format198x-commodore-c64-crt",
+ "format198x-commodore-c64-prg",
  "format198x-commodore-c64-tap",
  "machine-commodore-1541",
  "postcard",
@@ -3736,7 +3727,7 @@ dependencies = [
  "emu198x-mos-via-6522",
  "emu198x-mos-vic-i",
  "emu198x-test-skip",
- "format-commodore-vic-20-crt",
+ "format198x-commodore-vic-20-crt",
  "png",
  "postcard",
  "serde",
@@ -4032,7 +4023,7 @@ dependencies = [
  "emu198x-test-skip",
  "emu198x-z80-cadence",
  "emu198x-zilog-z80",
- "format-sinclair-zx80-o",
+ "format198x-sinclair-zx80-o",
  "png",
  "postcard",
  "serde",
@@ -4046,7 +4037,7 @@ dependencies = [
  "emu198x-test-skip",
  "emu198x-z80-cadence",
  "emu198x-zilog-z80",
- "format-sinclair-zx81-p",
+ "format198x-sinclair-zx81-p",
  "png",
  "postcard",
  "serde",
@@ -5193,8 +5184,8 @@ dependencies = [
  "common-acorn-cassette",
  "emu198x-motorola-vdg-6847",
  "emu198x-shell",
- "format-acorn-atom-atm",
  "format-acorn-uef",
+ "format198x-acorn-atom-atm",
  "machine-acorn-atom",
  "postcard",
  "serde",
@@ -5288,7 +5279,7 @@ version = "0.45.0"
 dependencies = [
  "emu198x-atari-gtia",
  "emu198x-shell",
- "format-atari-8bit-atr",
+ "format198x-atari-8bit-atr",
  "format198x-atari-8bit-xex",
  "machine-atari-800xl",
  "postcard",
@@ -5361,11 +5352,11 @@ dependencies = [
  "emu198x-mos-vic-ii",
  "emu198x-shell",
  "emu198x-test-skip",
- "format-commodore-c64-d64",
- "format-commodore-c64-p00",
- "format-commodore-c64-t64",
  "format198x-commodore-c64-bas",
+ "format198x-commodore-c64-d64",
  "format198x-commodore-c64-g64",
+ "format198x-commodore-c64-p00",
+ "format198x-commodore-c64-t64",
  "machine-commodore-1541",
  "machine-commodore-1571",
  "machine-commodore-1581",
@@ -5427,7 +5418,7 @@ version = "0.45.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-zilog-z80",
- "format-jupiter-ace-ace",
+ "format198x-jupiter-ace-ace",
  "machine-jupiter-ace",
  "postcard",
  "serde",
@@ -5639,7 +5630,7 @@ version = "0.45.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-zilog-z80",
- "format-sinclair-zx80-o",
+ "format198x-sinclair-zx80-o",
  "machine-sinclair-zx80",
  "postcard",
  "serde",
@@ -5653,7 +5644,7 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
- "format-sinclair-zx81-p",
+ "format198x-sinclair-zx81-p",
  "machine-sinclair-zx81",
  "postcard",
  "serde",

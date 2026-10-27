@@ -1,12 +1,15 @@
-//! PRG file parser and loader.
+//! Loading a PRG straight into RAM, as a completed KERNAL `LOAD` leaves it.
 //!
-//! A PRG file is the simplest C64 binary format: a 2-byte little-endian load
-//! address followed by data bytes loaded directly into RAM.
+//! `format198x-commodore-c64-prg` reads the file; what the KERNAL does after
+//! the bytes land (the `$AE/$AF` end pointer, relinking BASIC text at `$0801`)
+//! is machine behaviour, so it lives here.
 
 #![allow(clippy::cast_possible_truncation)]
 
-/// Trait for accessing raw RAM, bypassing ROM overlays and I/O.
-pub trait RamAccess {
+use format198x_commodore_c64_prg::PrgFile;
+
+/// Raw RAM, bypassing ROM overlays and I/O.
+pub(crate) trait RamAccess {
     /// Reads one byte of raw RAM.
     fn ram_read(&self, addr: u16) -> u8;
 
@@ -14,68 +17,37 @@ pub trait RamAccess {
     fn ram_write(&mut self, addr: u16, val: u8);
 }
 
-/// A parsed PRG file.
-pub struct PrgFile {
-    /// Load address from the PRG header.
-    pub load_address: u16,
-    /// Payload bytes after the 2-byte header.
-    pub data: Vec<u8>,
-}
-
 const BASIC_VARTAB_LO: u16 = 0x2D;
 const BASIC_VARTAB_HI: u16 = 0x2E;
 const BASIC_START: u16 = 0x0801;
 
-impl PrgFile {
-    /// Parses one PRG file from raw bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file is too short to contain a valid header.
-    pub fn parse(data: &[u8]) -> Result<Self, String> {
-        if data.len() < 3 {
-            return Err("PRG file too short (need at least 3 bytes)".to_owned());
-        }
-
-        Ok(Self {
-            load_address: u16::from(data[0]) | (u16::from(data[1]) << 8),
-            data: data[2..].to_vec(),
-        })
-    }
-
-    /// Loads this PRG into RAM and returns the load address.
-    ///
-    /// When the load address is `$0801`, the BASIC text is relinked and BASIC's
-    /// start-of-variables pointer is updated so `RUN` works immediately.
-    pub fn load_into(self, ram: &mut impl RamAccess) -> u16 {
-        for (index, byte) in self.data.iter().copied().enumerate() {
-            ram.ram_write(self.load_address.wrapping_add(index as u16), byte);
-        }
-
-        // Preserve the KERNAL LOAD end pointer used by PRG unpackers.
-        // VICE 3.10: src/c64/c64memsc.c::mem_set_basic_text and
-        // src/autostart-prg.c::autostart_prg_perform_injection.
-        // This is the complete payload end, not the BASIC stub's end.
-        let end = self.load_address.wrapping_add(self.data.len() as u16);
-        let [lo, hi] = end.to_le_bytes();
-        ram.ram_write(0xAE, lo);
-        ram.ram_write(0xAF, hi);
-
-        if self.load_address == BASIC_START {
-            relink_basic(ram);
-        }
-
-        self.load_address
-    }
-}
-
-/// Convenience wrapper combining PRG parse and load.
+/// Parses a PRG and loads it into RAM, returning its load address.
+///
+/// When the load address is `$0801`, the BASIC text is relinked and BASIC's
+/// start-of-variables pointer is updated so `RUN` works immediately.
 ///
 /// # Errors
 ///
-/// Returns an error if the file header is malformed.
-pub fn load_prg(ram: &mut impl RamAccess, data: &[u8]) -> Result<u16, String> {
-    Ok(PrgFile::parse(data)?.load_into(ram))
+/// Returns an error if the file is too short to hold its load address.
+pub(crate) fn load_prg(ram: &mut impl RamAccess, data: &[u8]) -> Result<u16, String> {
+    let prg = PrgFile::parse(data).map_err(|error| error.to_string())?;
+    for (index, byte) in prg.data.iter().copied().enumerate() {
+        ram.ram_write(prg.load_address.wrapping_add(index as u16), byte);
+    }
+
+    // Preserve the KERNAL LOAD end pointer used by PRG unpackers.
+    // VICE 3.10: src/c64/c64memsc.c::mem_set_basic_text and
+    // src/autostart-prg.c::autostart_prg_perform_injection.
+    // This is the complete payload end, not the BASIC stub's end.
+    let [lo, hi] = prg.end_address().to_le_bytes();
+    ram.ram_write(0xAE, lo);
+    ram.ram_write(0xAF, hi);
+
+    if prg.load_address == BASIC_START {
+        relink_basic(ram);
+    }
+
+    Ok(prg.load_address)
 }
 
 fn relink_basic(ram: &mut impl RamAccess) {
@@ -129,13 +101,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_prg() {
-        let prg = PrgFile::parse(&[0x00, 0xC0, 0x0A, 0x0B]).expect("parse should succeed");
-        assert_eq!(prg.load_address, 0xC000);
-        assert_eq!(prg.data, &[0x0A, 0x0B]);
-    }
-
-    #[test]
     fn load_prg_non_basic_address() {
         let mut ram = TestRam::new();
         let addr = load_prg(&mut ram, &[0x00, 0xC0, 0x0A, 0x0B]).expect("load should succeed");
@@ -147,7 +112,18 @@ mod tests {
     #[test]
     fn load_prg_too_short() {
         let mut ram = TestRam::new();
-        assert!(load_prg(&mut ram, &[0x01, 0x08]).is_err());
+        assert!(load_prg(&mut ram, &[0x01]).is_err());
+    }
+
+    /// A file holding only its load address is a valid, empty PRG: nothing
+    /// loads and the end pointer is the load address.
+    #[test]
+    fn load_prg_accepts_an_empty_payload() {
+        let mut ram = TestRam::new();
+        let addr = load_prg(&mut ram, &[0x00, 0xC0]).expect("an empty PRG loads");
+        assert_eq!(addr, 0xC000);
+        let end = u16::from_le_bytes([ram.ram_read(0xAE), ram.ram_read(0xAF)]);
+        assert_eq!(end, 0xC000);
     }
 
     #[test]

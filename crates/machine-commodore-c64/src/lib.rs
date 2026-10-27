@@ -18,6 +18,7 @@ mod freeze_cart;
 pub mod keyboard;
 pub mod machine;
 pub mod memory;
+mod prg_loader;
 mod serde_skip_audit;
 
 pub use config::{C64Config, C64Model};

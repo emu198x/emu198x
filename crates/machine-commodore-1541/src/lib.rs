@@ -20,7 +20,7 @@ use common_commodore_iec::IecBus;
 use common_commodore_iec_drive::{BoardState, IecDriveBoard};
 use emu198x_mos_6502::{M6502, registers::FLAG_V};
 use emu198x_mos_via_6522::Via6522;
-use format_commodore_c64_d64::{
+use format198x_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
 use format198x_commodore_c64_g64::G64ParseError;
@@ -1070,7 +1070,7 @@ mod tests {
     };
     use common_commodore_iec::IecBus;
     use common_commodore_iec_drive::DEFAULT_DEVICE_NUMBER;
-    use format_commodore_c64_d64::{D64FileType, read_sector};
+    use format198x_commodore_c64_d64::{D64FileType, read_sector};
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;

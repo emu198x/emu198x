@@ -2,8 +2,8 @@
 
 use crate::easyflash::EasyFlash;
 use crate::freeze_cart::FreezeCart;
+use crate::prg_loader::RamAccess;
 use emu198x_mos_vic_ii::VicMemory;
-use format_commodore_c64_prg::RamAccess;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

@@ -37,6 +37,7 @@
 pub mod hires;
 pub mod input;
 mod keyboard;
+pub mod tape;
 pub mod video;
 
 pub use hires::{BOARD_ROM_SIZE, HiResBoard};
@@ -305,7 +306,7 @@ impl Zx81 {
     /// while the ROM is still settling and it reads nothing at all -- it stays
     /// in its `LOAD` loop for the whole tape and accepts zero bytes, which
     /// looks like a corrupt image rather than a mistimed one.
-    /// `Zx81Image::to_pulses` starts its first pulse 1,500,000 master clocks
+    /// [`tape::pulses`] starts its first pulse 1,500,000 master clocks
     /// in, a little under half a second, and replaying a recorded `SAVE`
     /// wants the same. Rebasing a recording so that it starts at zero is the
     /// obvious thing to do and the thing that breaks it; `tape_save.rs` has

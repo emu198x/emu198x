@@ -29,6 +29,7 @@
 
 pub mod input;
 mod keyboard;
+pub mod tape;
 
 pub use input::Zx80Key;
 pub use keyboard::KeyboardState;
@@ -301,7 +302,7 @@ impl Zx80 {
     }
 
     /// Loads a tape. `edges` are transition times relative to now, as
-    /// produced by `format_sinclair_zx80_o`.
+    /// produced by `format198x_sinclair_zx80_o`.
     ///
     /// The encoder's lead-in matters: the ROM will not start decoding until
     /// the line has been quiet for a `$5712` countdown at `$0207`, roughly

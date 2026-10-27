@@ -10,8 +10,8 @@ repository.workspace = true
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.45.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
-format-commodore-c64-crt = { path = "../format-commodore-c64-crt", version = "0.45.0" }
-format-commodore-c64-prg = { path = "../format-commodore-c64-prg", version = "0.45.0" }
+format198x-commodore-c64-crt = "0.1.0"
+format198x-commodore-c64-prg = "0.1.0"
 format198x-commodore-c64-tap = "0.1.0"
 emu198x-mos-6502 = "0.6.1"
 emu198x-wdc-65c816 = "0.1.0"

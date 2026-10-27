@@ -24,12 +24,12 @@ use emu198x_mos_6502::{M6502, registers::FLAG_V};
 use emu198x_mos_cia_6526::Cia6526;
 use emu198x_mos_via_6522::Via6522;
 use emu198x_western_digital_wd1770::Wd1770;
-use format_commodore_c64_d64::{
-    D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
-};
 use format_commodore_c64_d71::{
     D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
     sectors_in_track as sectors_in_track_d71, write_sector as write_sector_d71,
+};
+use format198x_commodore_c64_d64::{
+    D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
 use format198x_commodore_c64_g64::G64ParseError;
 use serde::{Deserialize, Serialize};
@@ -1282,7 +1282,7 @@ mod tests {
     use common_commodore_drive_gcr::{GcrSurface, MAX_HEAD_POSITION, track_slot_index};
     use common_commodore_iec::IecBus;
     use common_commodore_iec_drive::DEFAULT_DEVICE_NUMBER;
-    use format_commodore_c64_d64::{D64FileType, read_sector};
+    use format198x_commodore_c64_d64::{D64FileType, read_sector};
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;

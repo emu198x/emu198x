@@ -10,7 +10,7 @@ mod common;
 
 use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
 use emu198x_shell::{HeadlessSession, MediaImage, MediaKind, MediaSet};
-use format_commodore_c64_d64::{extract_first_prg, parse_directory};
+use format198x_commodore_c64_d64::{extract_first_prg, parse_directory};
 use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model, type_string};
 
 use common::{local_rom_firmware_with_drive, screen_text_lines, wait_for_screen_line_contains};

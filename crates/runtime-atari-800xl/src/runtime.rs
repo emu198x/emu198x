@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use format_atari_8bit_atr::AtrImage;
+use format198x_atari_8bit_atr::AtrImage;
 use machine_atari_800xl::Disk;
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge, CartridgeKind};
 
