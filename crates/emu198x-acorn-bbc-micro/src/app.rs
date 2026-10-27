@@ -265,8 +265,8 @@ mod tests {
 
             runtime.machine_mut().expect("machine").poke(0xfe20, 0x9c);
             assert_eq!(warning_report(&runtime)["warnings"], serde_json::json!([]));
-            runtime.machine_mut().expect("machine").poke(0xfe20, 0x4b);
             runtime.set_teletext_font(vec![0x3c; 960]);
+            runtime.machine_mut().expect("machine").poke(0xfe20, 0x4b);
             assert_eq!(warning_report(&runtime)["warnings"], serde_json::json!([]));
 
             runtime
