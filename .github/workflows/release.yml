@@ -181,6 +181,10 @@ jobs:
             read -ra packages < <(python3 scripts/ci/dist-apt-packages.py)
             bash scripts/ci/apt-install.sh "${packages[@]}"
           else
+            # `:` keeps the branch valid bash when the expression below is
+            # empty, as it is on macOS and Windows: an empty `else` is a
+            # syntax error, and failed every release build from 6aab23043.
+            :
             ${{ matrix.packages_install }}
           fi
       # Added by hand (allow-dirty = ["ci"]). Every archive includes
