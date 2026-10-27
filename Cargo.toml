@@ -49,7 +49,6 @@ members = [
     "crates/format-atari-st-msa",
     "crates/format-atari-st-st",
     "crates/format-acorn-uef",
-    "crates/format-dragon-disk",
     "crates/format-amstrad-cpc-cdt",
     "crates/format-amstrad-dsk",
     "crates/format-nintendo-game-boy-cartridge",

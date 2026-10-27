@@ -7,6 +7,8 @@
 //! deliberately stops short of a full native runtime; later runtime crates
 //! should build on this API rather than duplicating the harness wiring.
 
+pub mod disk_serde;
+
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt;
@@ -19,7 +21,7 @@ use emu198x_motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TextPalette, TextScreen,
     VdgControl, VdgPalette,
 };
-use format_dragon_disk::DragonDiskImage;
+use format198x_dragon_data_dragon_disk::DragonDiskImage;
 use serde::{Deserialize, Serialize};
 
 /// Dragon 32 RAM size.
@@ -364,6 +366,7 @@ struct DragonDosController {
     pending_intrq_cycles: u32,
     pending_drq_cycles: u32,
     index_cycle: u32,
+    #[serde(with = "crate::disk_serde::drives")]
     disks: [Option<DragonDiskImage>; DRAGON_DISK_DRIVES],
     write_protected: [bool; DRAGON_DISK_DRIVES],
 }
@@ -5088,7 +5091,7 @@ mod tests {
         bytes[8] = 40;
         bytes[9] = 1;
         fill(&mut bytes[12..]);
-        format_dragon_disk::parse_vdk(&bytes).expect("test VDK should parse")
+        format198x_dragon_data_dragon_disk::parse_vdk(&bytes).expect("test VDK should parse")
     }
 
     #[test]

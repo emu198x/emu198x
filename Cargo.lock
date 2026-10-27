@@ -1295,9 +1295,9 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
- "format-dragon-disk",
  "format198x-dragon-data-dragon-bin",
  "format198x-dragon-data-dragon-cas",
+ "format198x-dragon-data-dragon-disk",
  "format198x-dragon-data-dragon-pak",
  "machine-dragon-32",
  "png",
@@ -2397,14 +2397,6 @@ name = "format-atari-st-st"
 version = "0.45.0"
 
 [[package]]
-name = "format-dragon-disk"
-version = "0.45.0"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-nintendo-famicom-fds"
 version = "0.45.0"
 
@@ -2603,6 +2595,12 @@ name = "format198x-dragon-data-dragon-cas"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f73f0bb82c1a5335755a374ebb53d7881a2daa3dd2bf8b7dc8b567bac4d762f8"
+
+[[package]]
+name = "format198x-dragon-data-dragon-disk"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae96f9868cddb9288c4b84563f564e4f1b2797102d343f305ceee5b3cc726165"
 
 [[package]]
 name = "format198x-dragon-data-dragon-pak"
@@ -3765,8 +3763,10 @@ dependencies = [
  "emu198x-motorola-pia-6821",
  "emu198x-motorola-sam-6883",
  "emu198x-motorola-vdg-6847",
- "format-dragon-disk",
+ "format198x-dragon-data-dragon-disk",
+ "postcard",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5421,9 +5421,9 @@ dependencies = [
  "emu198x-motorola-vdg-6847",
  "emu198x-shell",
  "emu198x-test-skip",
- "format-dragon-disk",
  "format198x-dragon-data-dragon-bin",
  "format198x-dragon-data-dragon-cas",
+ "format198x-dragon-data-dragon-disk",
  "format198x-dragon-data-dragon-pak",
  "machine-dragon-32",
  "png",
