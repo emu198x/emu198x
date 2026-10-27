@@ -20,7 +20,7 @@ serde_json = { workspace = true }
 emu198x-zilog-z80 = "0.8.0"
 
 [dev-dependencies]
-emu198x-nec-upd765a = { path = "../emu198x-nec-upd765a", version = "0.1.0" }
+emu198x-nec-upd765a = "0.1.0"
 
 [lints]
 workspace = true

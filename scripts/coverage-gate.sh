@@ -15,8 +15,9 @@
 # primarily for the Spectrum family. Some chip crates are shared with
 # future systems (emu198x-gi-ay-3-8912 also covers MSX / CPC / Mockingboard),
 # but they ship today as Spectrum-driving infrastructure and are part of
-# the October-launch quality bar. The Z80 left with its own repository,
-# emu198x/zilog-z80, whose CI holds its coverage floor.
+# the October-launch quality bar. The Z80 and the uPD765 left with their
+# own repositories, emu198x/zilog-z80 and emu198x/nec-upd765a, whose CI
+# holds their coverage floors.
 #
 # The gate splits the scope in two:
 #   - GATED:    the 8 in-scope October-public variants and their
@@ -70,7 +71,6 @@ GATED_CRATES = [
     "emu198x-amstrad-ula-40077",
     "emu198x-ferranti-ula-6c001e",
     "emu198x-gi-ay-3-8912",
-    "emu198x-nec-upd765a",
     "emu198x-sinclair-ula-7k010e",
     "emu198x-sinclair-zx-spectrum-ula",
     # Format crates

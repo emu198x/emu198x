@@ -14,7 +14,7 @@ common-commodore-iec-drive = { path = "../common-commodore-iec-drive", version =
 format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.45.0" }
 format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.45.0" }
 emu198x-mos-6502 = "0.6.1"
-emu198x-mos-via-6522 = { path = "../emu198x-mos-via-6522", version = "0.1.0" }
+emu198x-mos-via-6522 = "0.1.0"
 serde = { workspace = true }
 thiserror = { workspace = true }
 

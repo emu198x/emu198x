@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-mos-6502 = "0.6.1"
 format-commodore-vic-20-crt = { path = "../format-commodore-vic-20-crt", version = "0.45.0" }
 emu198x-mos-vic-i = { path = "../emu198x-mos-vic-i", version = "0.1.0" }
-emu198x-mos-via-6522 = { path = "../emu198x-mos-via-6522", version = "0.1.0" }
+emu198x-mos-via-6522 = "0.1.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
