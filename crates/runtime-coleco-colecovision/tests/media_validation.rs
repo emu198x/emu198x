@@ -87,7 +87,7 @@ fn raw_insertion_and_saved_diagnostic_cartridges_remain_supported() {
 }
 
 #[test]
-#[ignore = "requires original ColecoVision BIOS in EMU198X_COLECO_BIOS"]
+#[ignore = "FIXTURE: requires original ColecoVision BIOS in EMU198X_COLECO_BIOS"]
 fn original_bios_executes_a_valid_test_cartridge() {
     let bios = std::fs::read(std::env::var_os("EMU198X_COLECO_BIOS").expect("BIOS path"))
         .expect("BIOS bytes");

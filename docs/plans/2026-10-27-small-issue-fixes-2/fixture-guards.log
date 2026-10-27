@@ -1,0 +1,2 @@
+self-test passed: detects bare, helper, Result-returning, rustfmt-wrapped and trailing-expression guards; ignores an ordinary eprintln!, a recorded skip, and a write-and-return whose comment mentions a missing file
+no fixture guard reports a missing fixture and returns
