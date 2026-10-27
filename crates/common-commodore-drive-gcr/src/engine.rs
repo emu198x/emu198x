@@ -14,7 +14,7 @@
 //! surface accessors take `side` (always `0` on the single-sided 1541, `0`/`1`
 //! on the 1571), threaded through [`RotationContext::side`].
 
-use format_commodore_c64_d64::D64ParseError;
+use format198x_commodore_c64_d64::D64ParseError;
 use format198x_commodore_c64_g64::G64Image;
 
 use crate::{

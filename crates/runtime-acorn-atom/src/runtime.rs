@@ -293,7 +293,7 @@ impl MachineCore for AtomRuntime {
                     self.tape_pulses = Some(tape.pulses);
                 }
                 MediaKind::Program if slot == "program-1" => {
-                    let atm = format_acorn_atom_atm::parse(image.bytes).map_err(|reason| {
+                    let atm = format198x_acorn_atom_atm::parse(image.bytes).map_err(|reason| {
                         MachineError::InvalidMedia {
                             slot: slot.to_owned(),
                             reason: reason.to_string(),

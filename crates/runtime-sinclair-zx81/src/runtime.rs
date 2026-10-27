@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
     PixelFormat, ResetKind, RunResult, StopReason,
 };
-use format_sinclair_zx81_p::Zx81Image;
+use format198x_sinclair_zx81_p::Zx81Image;
 use machine_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard, Zx81};
 
 use crate::input::apply_input_event;
@@ -399,7 +399,7 @@ impl MachineCore for Zx81Runtime {
                 })?;
             // A one-character name. `LOAD ""` takes whatever it finds, but the
             // stream still needs a name for the ROM to read past.
-            self.tape = Some(parsed.to_pulses(&[TAPE_NAME]));
+            self.tape = Some(machine_sinclair_zx81::tape::pulses(&parsed, &[TAPE_NAME]));
         }
         Ok(())
     }

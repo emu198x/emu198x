@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use format_atari_8bit_atr::AtrImage;
+use format198x_atari_8bit_atr::AtrImage;
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge, CartridgeKind};
 
 const OFFICIAL_XL_OS_CRC32: u32 = 0x1F9C_D270;

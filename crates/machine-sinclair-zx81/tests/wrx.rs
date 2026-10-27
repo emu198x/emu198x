@@ -33,7 +33,7 @@
 //! Developed against *Starfight* (2001, Martin Korth) — the author of the
 //! specification above, which makes it a fair exercise of it.
 
-use format_sinclair_zx81_p::Zx81Image;
+use format198x_sinclair_zx81_p::Zx81Image;
 use machine_sinclair_zx81::{Zx81, Zx81Key};
 use std::{collections::BTreeSet, env, fs};
 
@@ -78,9 +78,8 @@ fn a_wrx_program_drives_the_bitmap_path() {
         emu198x_test_skip::skip!("no WRX image — set EMU198X_ZX81_WRX_P to one");
     };
     let raw = fs::read(&image_path).expect("read the WRX .p");
-    let pulses = Zx81Image::parse(&raw)
-        .expect("a valid .p")
-        .to_pulses(&[0x26]);
+    let image = Zx81Image::parse(&raw).expect("a valid .p");
+    let pulses = machine_sinclair_zx81::tape::pulses(&image, &[0x26]);
 
     let mut machine = Zx81::new(rom, 16384).expect("machine");
     for _ in 0..400 {

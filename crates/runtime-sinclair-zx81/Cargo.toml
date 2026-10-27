@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-format-sinclair-zx81-p = { path = "../format-sinclair-zx81-p", version = "0.45.0" }
+format198x-sinclair-zx81-p = "0.1.0"
 machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.45.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }

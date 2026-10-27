@@ -653,7 +653,7 @@ impl Vic20 {
     /// Returns a readable parse/mapping error for malformed or unsupported
     /// cartridge images.
     pub fn insert_cartridge_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let cartridge = format_commodore_vic_20_crt::parse(bytes).map_err(|e| e.to_string())?;
+        let cartridge = format198x_commodore_vic_20_crt::parse(bytes).map_err(|e| e.to_string())?;
         self.cartridge_rom = cartridge
             .blocks
             .into_iter()

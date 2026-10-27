@@ -11,7 +11,7 @@ use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
-use format_sinclair_zx80_o::Zx80Image;
+use format198x_sinclair_zx80_o::Zx80Image;
 
 /// Framebuffer pixels per second: two per 3.25 MHz T-state.
 const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
@@ -324,7 +324,7 @@ impl MachineCore for Zx80Runtime {
                     slot: image.slot.as_ref().to_owned(),
                     reason: error.to_string(),
                 })?;
-            self.tape = Some(parsed.to_pulses());
+            self.tape = Some(machine_sinclair_zx80::tape::pulses(&parsed));
         }
         Ok(())
     }

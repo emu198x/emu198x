@@ -1,4 +1,4 @@
-use format_sinclair_zx81_p::Zx81Image;
+use format198x_sinclair_zx81_p::Zx81Image;
 use machine_sinclair_zx81::{Zx81, Zx81Key};
 use std::{env, fs};
 
@@ -107,7 +107,7 @@ fn a_real_image_loads_from_the_cassette_line() {
     let raw = fs::read(&image_path).expect("read .p");
 
     let image = Zx81Image::parse(&raw).expect("a valid .p");
-    let pulses = image.to_pulses(&[0x26]);
+    let pulses = machine_sinclair_zx81::tape::pulses(&image, &[0x26]);
 
     let mut machine = Zx81::new(rom, 16384).expect("machine");
     for _ in 0..400 {

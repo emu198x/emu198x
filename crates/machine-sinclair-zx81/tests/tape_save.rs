@@ -13,7 +13,7 @@
 //! in its `LOAD` loop for the whole tape and accepts **zero** bytes.
 //!
 //! Measured, and the check that it is the lead-in rather than anything about
-//! the data: doing the same rebase to a `to_pulses` train that loads perfectly
+//! the data: doing the same rebase to a `tape::pulses` train that loads perfectly
 //! well stops it loading too. That encoder starts its first pulse
 //! [`LEAD_IN_T`] master clocks in — a little under half a second — and that
 //! quiet is what the loader needs to settle on. Imported rather than restated:
@@ -23,7 +23,7 @@
 //! edges — four and nine pulses, the ZX81's 0 and 1 — matching burst for burst
 //! through the system-variable header.
 
-use format_sinclair_zx81_p::LEAD_IN_T;
+use machine_sinclair_zx81::tape::LEAD_IN_T;
 use machine_sinclair_zx81::{Zx81, Zx81Key};
 use std::{env, fs};
 
