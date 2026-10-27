@@ -31,7 +31,7 @@ use format_commodore_c64_d71::{
     D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
     sectors_in_track as sectors_in_track_d71, write_sector as write_sector_d71,
 };
-use format_commodore_c64_g64::G64ParseError;
+use format198x_commodore_c64_g64::G64ParseError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -433,7 +433,7 @@ impl Drive1571 {
         bytes: &[u8],
         writable: bool,
     ) -> Result<(), Drive1571MediaError> {
-        let image = format_commodore_c64_g64::parse(bytes)?;
+        let image = format198x_commodore_c64_g64::parse(bytes)?;
         self.engine.set_surface(GcrSurface::from_g64(&image));
         self.disk = Some(Drive1571Disk {
             image_bytes: bytes.to_vec(),
@@ -526,7 +526,7 @@ impl Drive1571 {
             return None;
         }
         let surface = self.engine.surface();
-        let mut image = format_commodore_c64_g64::parse(&disk.image_bytes).ok()?;
+        let mut image = format198x_commodore_c64_g64::parse(&disk.image_bytes).ok()?;
         for (slot, half_track) in image.half_tracks.iter_mut().enumerate() {
             if let (Some(half_track), Some(live)) = (half_track, surface.side_slots(0).get(slot))
                 && !live.is_empty()
@@ -536,7 +536,7 @@ impl Drive1571 {
         }
         // A track that can't be represented yields no write-back rather than a
         // corrupt image — unreachable for a valid C64 surface.
-        format_commodore_c64_g64::write(&image).ok()
+        format198x_commodore_c64_g64::write(&image).ok()
     }
 
     pub fn eject_disk(&mut self) {
@@ -1134,7 +1134,7 @@ fn rebuild_surface(
     disk.map(|disk| match disk.image_format {
         DriveImageFormat::D64 => GcrSurface::from_d64(disk.image_bytes()).map_err(Into::into),
         DriveImageFormat::D71 => build_track_data_d71(disk.image_bytes()).map_err(Into::into),
-        DriveImageFormat::G64 => format_commodore_c64_g64::parse(disk.image_bytes())
+        DriveImageFormat::G64 => format198x_commodore_c64_g64::parse(disk.image_bytes())
             .map(|image| GcrSurface::from_g64(&image))
             .map_err(Into::into),
     })
@@ -1359,7 +1359,7 @@ mod tests {
 
     #[test]
     fn writable_g64_flushes_the_modified_surface_back_to_g64() {
-        use format_commodore_c64_g64::parse as parse_g64;
+        use format198x_commodore_c64_g64::parse as parse_g64;
 
         let g64 = minimal_g64(&[(0, vec![0x55u8; 200])]);
         let rom = make_rom(&[], 0xEB22);

@@ -15,7 +15,7 @@
 //! on the 1571), threaded through [`RotationContext::side`].
 
 use format_commodore_c64_d64::D64ParseError;
-use format_commodore_c64_g64::G64Image;
+use format198x_commodore_c64_g64::G64Image;
 
 use crate::{
     GAP_SIZE_BY_ZONE, MAX_HEAD_POSITION, RAW_TRACK_SIZE_BY_ZONE, build_gcr_tracks_from_d64,

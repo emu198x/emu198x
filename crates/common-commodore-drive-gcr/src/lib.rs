@@ -15,7 +15,7 @@
 //! 8050, 1551) can reuse this codec with a different track layout.
 
 use format_commodore_c64_d64::{D64ParseError, read_sector, sectors_in_track};
-use format_commodore_c64_g64::G64Image;
+use format198x_commodore_c64_g64::G64Image;
 use serde::{Deserialize, Serialize};
 
 mod engine;

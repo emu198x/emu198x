@@ -480,7 +480,7 @@ name = "common-commodore-drive-gcr"
 version = "0.45.0"
 dependencies = [
  "format-commodore-c64-d64",
- "format-commodore-c64-g64",
+ "format198x-commodore-c64-g64",
  "serde",
 ]
 
@@ -2435,20 +2435,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "format-commodore-c64-d81"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-commodore-c64-g64"
-version = "0.45.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-commodore-c64-p00"
 version = "0.45.0"
 dependencies = [
@@ -2463,14 +2449,6 @@ version = "0.45.0"
 name = "format-commodore-c64-t64"
 version = "0.45.0"
 dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "format-commodore-c64-tap"
-version = "0.45.0"
-dependencies = [
- "serde",
  "thiserror 2.0.21",
 ]
 
@@ -2641,6 +2619,24 @@ name = "format198x-commodore-c64-bas"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e24dd5eca584e085c2122a1f1b637e51711cf50f8a04343cb7627b4b1929e2ea"
+
+[[package]]
+name = "format198x-commodore-c64-d81"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32ee952029635be476e5d0a3e933d94b9fc4ad215ca327ae34722a816047552e"
+
+[[package]]
+name = "format198x-commodore-c64-g64"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e307a853cfae7e59a26812acf697af635d8554df5043f0afce5bb039f685a5b"
+
+[[package]]
+name = "format198x-commodore-c64-tap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "816a6c0ade6388873face27cf65da5e7e436d300b44b5000cdc097e96cbe1877"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-bas"
@@ -3569,7 +3565,7 @@ dependencies = [
  "emu198x-mos-6502",
  "emu198x-mos-via-6522",
  "format-commodore-c64-d64",
- "format-commodore-c64-g64",
+ "format198x-commodore-c64-g64",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -3587,7 +3583,7 @@ dependencies = [
  "emu198x-western-digital-wd1770",
  "format-commodore-c64-d64",
  "format-commodore-c64-d71",
- "format-commodore-c64-g64",
+ "format198x-commodore-c64-g64",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -3600,7 +3596,7 @@ dependencies = [
  "emu198x-mos-6502",
  "emu198x-mos-cia-6526",
  "emu198x-western-digital-wd1770",
- "format-commodore-c64-d81",
+ "format198x-commodore-c64-d81",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -3711,9 +3707,11 @@ dependencies = [
  "emu198x-wdc-65c816",
  "format-commodore-c64-crt",
  "format-commodore-c64-prg",
- "format-commodore-c64-tap",
+ "format198x-commodore-c64-tap",
  "machine-commodore-1541",
+ "postcard",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -5364,10 +5362,10 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "format-commodore-c64-d64",
- "format-commodore-c64-g64",
  "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "format198x-commodore-c64-bas",
+ "format198x-commodore-c64-g64",
  "machine-commodore-1541",
  "machine-commodore-1571",
  "machine-commodore-1581",

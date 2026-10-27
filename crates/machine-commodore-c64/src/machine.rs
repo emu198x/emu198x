@@ -7,7 +7,7 @@ use emu198x_mos_cia_6526::Cia6526;
 use emu198x_mos_sid_6581::{AudioControls, Sid6581, SidChannel};
 use emu198x_mos_vic_ii::{Vic, VicModel, VicPhi2Bus};
 use format_commodore_c64_crt::{CrtCartridge, parse as parse_crt};
-use format_commodore_c64_tap::{TapParseError, TapSystem, TapVideo, encode_tap, parse_tap};
+use format198x_commodore_c64_tap::{TapParseError, TapSystem, TapVideo, encode_tap, parse_tap};
 
 use crate::action_replay::ActionReplay;
 use crate::config::{C64Config, C64Model};
