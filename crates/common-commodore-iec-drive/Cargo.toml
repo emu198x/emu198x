@@ -10,7 +10,7 @@ repository.workspace = true
 common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.45.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
 emu198x-mos-6502 = "0.6.1"
-emu198x-mos-via-6522 = { path = "../emu198x-mos-via-6522", version = "0.1.0" }
+emu198x-mos-via-6522 = "0.1.0"
 
 [lints]
 workspace = true

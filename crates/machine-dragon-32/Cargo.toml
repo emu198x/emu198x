@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 format-dragon-disk = { path = "../format-dragon-disk", version = "0.45.0" }
-emu198x-mos-acia-6551 = { path = "../emu198x-mos-acia-6551", version = "0.1.0" }
+emu198x-mos-acia-6551 = "0.1.0"
 emu198x-motorola-6809 = "0.1.0"
 emu198x-motorola-pia-6821 = { path = "../emu198x-motorola-pia-6821", version = "0.1.0" }
 emu198x-motorola-sam-6883 = { path = "../emu198x-motorola-sam-6883", version = "0.1.0" }

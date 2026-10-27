@@ -1488,6 +1488,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-acia-6551"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7e0c57f993a99e7bdf3d25ac37b252fa6ca6e68db84fc528df791dc8bf5072e"
 dependencies = [
  "serde",
 ]
@@ -1495,6 +1497,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-cia-6526"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6752ff5bdd1b15d0223b35444a5d2b9605ddfac883e6d26c4feb4cddf76093e1"
 dependencies = [
  "serde",
 ]
@@ -1502,6 +1506,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-cia-8520"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4181afad5c0bd5bc0bf701bdbe69066ea1b592a4be99bed749ab7652d38350b0"
 dependencies = [
  "serde",
 ]
@@ -1509,6 +1515,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-pia-6520"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4297ed02de37244af5ae6f78f5cd3a26e17b716282a17a3e8c9b7b438dac6f0d"
 dependencies = [
  "serde",
 ]
@@ -1516,6 +1524,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-riot-6532"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64919716d6ccae3ecd44e3f5bf224d61f73f3cd381b4b07b346bc148f2138219"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -1532,6 +1542,8 @@ dependencies = [
 [[package]]
 name = "emu198x-mos-via-6522"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37466e3dea4f77f9357bf975c15fa494eba3db8a4af8278c7f23fe4c9df9a341"
 dependencies = [
  "serde",
 ]
@@ -1643,6 +1655,8 @@ dependencies = [
 [[package]]
 name = "emu198x-nec-upd765a"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b35a1ba48675010591767bf4be07d2717724d83b843230ccca1e9b2735189c5"
 dependencies = [
  "serde",
 ]
