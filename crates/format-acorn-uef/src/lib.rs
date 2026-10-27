@@ -2,8 +2,8 @@
 //! BBC Micro, Acorn Electron, and Acorn Atom.
 //!
 //! UEF is a chunk-based, optionally gzip-compressed container for Kansas-City /
-//! CUTS-format tape audio. This crate parses the container and synthesises the
-//! cassette waveform as a compact, clock-neutral [`TapePulse`] stream that each
+//! CUTS-format tape audio. `format198x-acorn-uef` reads and writes the
+//! container; this crate synthesises the cassette waveform as a compact, clock-neutral [`TapePulse`] stream that each
 //! machine's cassette hardware samples at its own clock — the timing
 //! reconstruction itself stays in the format crate, while feeding the level into
 //! a 6850 ACIA / 8255 PPI / ULA shift register stays in the machine.
@@ -22,13 +22,12 @@
 
 mod decode;
 mod encode;
-mod error;
 mod pulse;
 
 pub use common_acorn_cassette::TapePulse;
 pub use decode::parse;
 pub use encode::encode_blocks;
-pub use error::UefError;
+pub use format198x_acorn_uef::UefError;
 pub use pulse::UefTape;
 
 #[cfg(test)]

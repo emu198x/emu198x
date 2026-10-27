@@ -1,4 +1,4 @@
-//! `.szx` (ZX-State) snapshot parser.
+//! `.szx` (ZX-State) snapshots as Emu198x machine state.
 //!
 //! SZX is Spectaculator's chunked snapshot format, and the one several
 //! accuracy test programs ship in *exclusively* — including
@@ -15,6 +15,13 @@
 //! header   "ZXST", u8 major, u8 minor, u8 machineId, u8 flags
 //! chunk    char[4] id, u32 size (LE), u8 data[size]
 //! ```
+//!
+//! The chunk layer, the typed chunks and zlib inflation live in
+//! `format198x-sinclair-zx-spectrum-szx`, which keeps every chunk so a file
+//! writes back unchanged. This adapter turns one into the shared [`Snapshot`],
+//! as Format198x's graduation record (rule 5) leaves to the emulator: which
+//! machine ids this workspace models, how SZX bank numbers map onto
+//! `Snapshot`'s pages, and which chunks a restore needs.
 //!
 //! Chunks may appear in any order and unknown ones are skipped by design —
 //! the format is extensible, and a reader that rejected what it did not
@@ -35,102 +42,78 @@
 //! firmware under a test), `TAPE`, `KEYB`, `CRTR`, and the peripheral
 //! chunks. `DSK`/`+3` disk state has no home in `Snapshot` either.
 
-use flate2::read::ZlibDecoder;
 use format_sinclair_zx_spectrum_snapshot::{Snapshot, SnapshotModel};
-use std::io::Read;
+use format198x_sinclair_zx_spectrum_szx::Szx;
 
-/// Bytes in one RAM page.
-const PAGE_LEN: usize = 16_384;
-
-/// `ZXSTRF_COMPRESSED` — the page body is a zlib stream, not raw bytes.
-const RAMP_FLAG_COMPRESSED: u16 = 1;
-
-/// Parse a `.szx` snapshot.
+/// Parse a `.szx` file into machine state.
 ///
 /// # Errors
 ///
-/// Returns a description if the magic is wrong, the file is truncated
-/// mid-chunk, the machine is one `Snapshot` cannot represent, or a RAM
-/// page fails to decompress to exactly 16 KiB.
+/// Returns an error for a damaged file, a machine id this workspace does
+/// not model, or a file with no `Z80R` or no `RAMP` chunk.
 pub fn parse_szx(data: &[u8]) -> Result<Snapshot, String> {
-    if data.len() < 8 {
-        return Err(format!(
-            "SZX too short: {} bytes, need at least 8",
-            data.len()
-        ));
-    }
-    if &data[0..4] != b"ZXST" {
-        return Err(format!(
-            "not an SZX snapshot: magic is {:02X?}, expected \"ZXST\"",
-            &data[0..4]
-        ));
-    }
-    let major = data[4];
-    let minor = data[5];
-    let machine_id = data[6];
-    let model = model_from_machine_id(machine_id)?;
-
+    let szx = Szx::parse(data).map_err(|error| error.to_string())?;
+    let model = model_from_machine_id(szx.machine_id)?;
     let mut snap = empty_snapshot(model);
-    let mut seen_z80r = false;
-    let mut offset = 8usize;
 
-    while offset < data.len() {
-        if offset + 8 > data.len() {
-            return Err(format!(
-                "SZX truncated: {} trailing bytes at offset {offset} are too few for a chunk header",
-                data.len() - offset
-            ));
-        }
-        let id = &data[offset..offset + 4];
-        let size = u32::from_le_bytes([
-            data[offset + 4],
-            data[offset + 5],
-            data[offset + 6],
-            data[offset + 7],
-        ]) as usize;
-        let body_start = offset + 8;
-        let body_end = body_start
-            .checked_add(size)
-            .ok_or_else(|| format!("SZX chunk at {offset} declares an absurd size {size}"))?;
-        if body_end > data.len() {
-            return Err(format!(
-                "SZX chunk {} at offset {offset} declares {size} bytes but only {} remain",
-                String::from_utf8_lossy(id).trim_end_matches('\0'),
-                data.len() - body_start
-            ));
-        }
-        let body = &data[body_start..body_end];
-
-        match id {
-            b"Z80R" => {
-                read_z80_regs(body, &mut snap)?;
-                seen_z80r = true;
-            }
-            b"SPCR" => read_spectrum_regs(body, &mut snap, model)?,
-            b"RAMP" => {
-                let (bank, bytes) = read_ram_page(body)?;
-                if let Some(page) = snapshot_page_for_bank(bank, model) {
-                    snap.pages.push((page, bytes));
-                }
-            }
-            b"AY\0\0" => read_ay(body, &mut snap)?,
-            // Every other chunk is someone else's business. See the module
-            // docs: skipping the unknown is what the format is for.
-            _ => {}
-        }
-
-        offset = body_end;
-    }
-
-    if !seen_z80r {
+    // The trailing `dwCyclesStart`, `chHoldIntReqCycles`, `chFlags` and
+    // `wMemPtr` are not used: `Snapshot` has nowhere to put a T-state
+    // position, and a machine that resumed at one would need the whole
+    // frame's raster state to go with it.
+    let Some(regs) = szx.z80_registers().map_err(|error| error.to_string())? else {
         return Err(format!(
-            "SZX v{major}.{minor} has no Z80R chunk, so it carries no CPU state"
+            "SZX v{}.{} has no Z80R chunk, so it carries no CPU state",
+            szx.major, szx.minor
         ));
+    };
+    snap.af = regs.af;
+    snap.bc = regs.bc;
+    snap.de = regs.de;
+    snap.hl = regs.hl;
+    snap.af_alt = regs.af_alt;
+    snap.bc_alt = regs.bc_alt;
+    snap.de_alt = regs.de_alt;
+    snap.hl_alt = regs.hl_alt;
+    snap.ix = regs.ix;
+    snap.iy = regs.iy;
+    snap.sp = regs.sp;
+    snap.pc = regs.pc;
+    snap.i = regs.i;
+    snap.r = regs.r;
+    snap.iff1 = regs.iff1;
+    snap.iff2 = regs.iff2;
+    snap.im = regs.im;
+
+    if let Some(spcr) = szx
+        .spectrum_registers()
+        .map_err(|error| error.to_string())?
+    {
+        snap.border = spcr.border & 0x07;
+        snap.port_7ffd = spcr.port_7ffd;
+        // Byte 2 is a union: `ch1ffd` on the Amstrad machines, `chEff7`
+        // elsewhere. Reading it as `$1FFD` on a Pentagon would page banks
+        // that machine does not have.
+        snap.port_1ffd = match model {
+            SnapshotModel::SpectrumPlus2A | SnapshotModel::SpectrumPlus3 => spcr.port_1ffd_or_eff7,
+            _ => 0,
+        };
     }
+
+    for ramp in szx.ram_pages().map_err(|error| error.to_string())? {
+        let bytes = ramp.page().map_err(|error| error.to_string())?;
+        if let Some(page) = snapshot_page_for_bank(ramp.bank, model) {
+            snap.pages.push((page, bytes.into_owned()));
+        }
+    }
+
+    if let Some(ay) = szx.ay().map_err(|error| error.to_string())? {
+        snap.ay_register = ay.current_register;
+        snap.ay_regs = ay.registers;
+    }
+
     if snap.pages.is_empty() {
         return Err("SZX has no RAMP chunks, so it carries no memory".to_string());
     }
-
     Ok(snap)
 }
 
@@ -223,118 +206,12 @@ fn empty_snapshot(model: SnapshotModel) -> Snapshot {
     }
 }
 
-fn word(body: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes([body[at], body[at + 1]])
-}
-
-/// `ZXSTZ80REGS` — 37 bytes.
-fn read_z80_regs(body: &[u8], snap: &mut Snapshot) -> Result<(), String> {
-    // The trailing `dwCyclesStart`, `chHoldIntReqCycles`, `chFlags` and
-    // `wMemPtr` are not read: `Snapshot` has nowhere to put a T-state
-    // position, and a machine that resumed at one would need the whole
-    // frame's raster state to go with it. 29 bytes is what this parser
-    // needs, so a v1.0 file that stops short of 37 still loads.
-    const NEEDED: usize = 29;
-    if body.len() < NEEDED {
-        return Err(format!(
-            "SZX Z80R chunk is {} bytes, need at least {NEEDED}",
-            body.len()
-        ));
-    }
-    snap.af = word(body, 0);
-    snap.bc = word(body, 2);
-    snap.de = word(body, 4);
-    snap.hl = word(body, 6);
-    snap.af_alt = word(body, 8);
-    snap.bc_alt = word(body, 10);
-    snap.de_alt = word(body, 12);
-    snap.hl_alt = word(body, 14);
-    snap.ix = word(body, 16);
-    snap.iy = word(body, 18);
-    snap.sp = word(body, 20);
-    snap.pc = word(body, 22);
-    snap.i = body[24];
-    snap.r = body[25];
-    snap.iff1 = body[26] != 0;
-    snap.iff2 = body[27] != 0;
-    snap.im = body[28];
-    Ok(())
-}
-
-/// `ZXSTSPECREGS` — 8 bytes.
-fn read_spectrum_regs(
-    body: &[u8],
-    snap: &mut Snapshot,
-    model: SnapshotModel,
-) -> Result<(), String> {
-    if body.len() < 4 {
-        return Err(format!(
-            "SZX SPCR chunk is {} bytes, need at least 4",
-            body.len()
-        ));
-    }
-    snap.border = body[0] & 0x07;
-    snap.port_7ffd = body[1];
-    // Byte 2 is a union: `ch1ffd` on the Amstrad machines, `chEff7`
-    // elsewhere. Reading it as `$1FFD` on a Pentagon would page banks that
-    // machine does not have.
-    snap.port_1ffd = match model {
-        SnapshotModel::SpectrumPlus2A | SnapshotModel::SpectrumPlus3 => body[2],
-        _ => 0,
-    };
-    Ok(())
-}
-
-/// `ZXSTRAMPAGE` — `u16` flags, `u8` **bank** number, then the page.
-fn read_ram_page(body: &[u8]) -> Result<(u8, Vec<u8>), String> {
-    if body.len() < 3 {
-        return Err(format!(
-            "SZX RAMP chunk is {} bytes, need at least 3",
-            body.len()
-        ));
-    }
-    let flags = word(body, 0);
-    let page_no = body[2];
-    let payload = &body[3..];
-
-    let bytes = if flags & RAMP_FLAG_COMPRESSED != 0 {
-        let mut out = Vec::with_capacity(PAGE_LEN);
-        ZlibDecoder::new(payload)
-            .read_to_end(&mut out)
-            .map_err(|e| format!("SZX RAMP page {page_no} failed to decompress: {e}"))?;
-        out
-    } else {
-        payload.to_vec()
-    };
-
-    if bytes.len() != PAGE_LEN {
-        return Err(format!(
-            "SZX RAMP page {page_no} is {} bytes, expected {PAGE_LEN}",
-            bytes.len()
-        ));
-    }
-    Ok((page_no, bytes))
-}
-
-/// `ZXSTAYBLOCK` — flags, selected register, then sixteen registers.
-fn read_ay(body: &[u8], snap: &mut Snapshot) -> Result<(), String> {
-    const NEEDED: usize = 18;
-    if body.len() < NEEDED {
-        return Err(format!(
-            "SZX AY chunk is {} bytes, need {NEEDED}",
-            body.len()
-        ));
-    }
-    snap.ay_register = body[1];
-    snap.ay_regs.copy_from_slice(&body[2..18]);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use flate2::Compression;
     use flate2::write::ZlibEncoder;
+    use format198x_sinclair_zx_spectrum_szx::PAGE_LEN;
     use std::io::Write;
 
     fn chunk(id: &[u8; 4], body: &[u8]) -> Vec<u8> {
@@ -561,6 +438,6 @@ mod tests {
         f.extend_from_slice(&chunk(b"Z80R", &z80r_body()));
         f.extend_from_slice(&chunk(b"RAMP", &body));
         let err = parse_szx(&f).expect_err("short page must fail");
-        assert!(err.contains("16384"), "unhelpful error: {err}");
+        assert!(err.contains("16K"), "unhelpful error: {err}");
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "format-sinclair-zx-spectrum-z80"
-description = ".z80 snapshot format parser for the ZX Spectrum"
+description = "Adapter from format198x-sinclair-zx-spectrum-z80 to the Spectrum machine-state snapshot"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+format198x-sinclair-zx-spectrum-z80 = "0.1.0"
 format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.45.0" }
 
 [lints]

@@ -1,6 +1,6 @@
 [package]
 name = "format-acorn-uef"
-description = "UEF cassette tape parser for Acorn BBC Micro, Electron and Atom media"
+description = "Acorn cassette waveforms from UEF images, over format198x-acorn-uef"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -8,9 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+format198x-acorn-uef = "0.1.0"
 common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.45.0" }
 serde = { workspace = true }
-thiserror = { workspace = true }
+
+[dev-dependencies]
 flate2 = { workspace = true }
 
 [lints]

@@ -4,9 +4,9 @@
 //! `SAVE` can be persisted and loaded back. Each block is a carrier-tone leader
 //! (chunk `&0110`) followed by an implicit-data block (chunk `&0100`), the two
 //! chunk types [`crate::parse`] reconstructs into the Kansas-City waveform.
+//! `format198x-acorn-uef` lays the chunks out; this decides which to write.
 
-/// UEF container magic (10 bytes, NUL-terminated).
-const MAGIC: &[u8] = b"UEF File!\0";
+use format198x_acorn_uef::{Chunk, Uef};
 
 /// Inter-block silence written after each block, as the integer-gap chunk
 /// (`&0112`) the parser reads. Its unit is the 1200 Hz base half-period, so
@@ -23,31 +23,41 @@ const INTER_BLOCK_GAP_UNITS: u16 = 720;
 /// The Atom records at **300 baud** (a `1` is 8 cycles of 2400 Hz, a `0` is 4 of
 /// 1200 Hz), so the baud chunk is essential: [`crate::parse`] defaults to 1200
 /// baud and would otherwise frame each byte four times too fast for the Atom COS.
+///
+/// # Panics
+///
+/// Panics if a block is over 4 GiB, which no cassette `SAVE` produces.
 #[must_use]
 pub fn encode_blocks(blocks: &[Vec<u8>], leader_cycles: u16) -> Vec<u8> {
     const ATOM_BAUD: u16 = 300;
-    let mut image = MAGIC.to_vec();
-    image.extend_from_slice(&[0x0a, 0x00]); // version 0.10
-    push_chunk(&mut image, 0x0117, &ATOM_BAUD.to_le_bytes());
+    let mut uef = Uef::new(0x0a, 0x00); // version 0.10
+    uef.chunks.push(Chunk::baud_rate(ATOM_BAUD));
     for block in blocks {
-        push_chunk(&mut image, 0x0110, &leader_cycles.to_le_bytes());
-        push_chunk(&mut image, 0x0100, block);
-        push_chunk(&mut image, 0x0112, &INTER_BLOCK_GAP_UNITS.to_le_bytes());
+        uef.chunks.push(Chunk::carrier(leader_cycles));
+        uef.chunks.push(Chunk::implicit_data(block));
+        uef.chunks.push(Chunk::integer_gap(INTER_BLOCK_GAP_UNITS));
     }
-    image
-}
-
-/// Append one UEF chunk: id (`u16` LE), length (`u32` LE), then the payload.
-fn push_chunk(image: &mut Vec<u8>, id: u16, payload: &[u8]) {
-    image.extend_from_slice(&id.to_le_bytes());
-    let len = u32::try_from(payload.len()).unwrap_or(u32::MAX);
-    image.extend_from_slice(&len.to_le_bytes());
-    image.extend_from_slice(payload);
+    uef.encode()
+        .expect("a cassette SAVE block fits a UEF chunk's 32-bit length")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The exact image a one-block `SAVE` writes: magic, version 0.10, the
+    /// 300-baud chunk, then leader, data and gap.
+    #[test]
+    fn encode_blocks_writes_the_expected_bytes() {
+        let image = encode_blocks(&[vec![0x2A, 0x0D]], 0x0960);
+        let mut expected = b"UEF File!\0".to_vec();
+        expected.extend_from_slice(&[0x0A, 0x00]);
+        expected.extend_from_slice(&[0x17, 0x01, 2, 0, 0, 0, 0x2C, 0x01]);
+        expected.extend_from_slice(&[0x10, 0x01, 2, 0, 0, 0, 0x60, 0x09]);
+        expected.extend_from_slice(&[0x00, 0x01, 2, 0, 0, 0, 0x2A, 0x0D]);
+        expected.extend_from_slice(&[0x12, 0x01, 2, 0, 0, 0, 0xD0, 0x02]);
+        assert_eq!(image, expected);
+    }
     use common_acorn_cassette::{TapePulse, demodulate_blocks};
 
     /// Frame bytes into a 300-baud Kansas-City waveform the way the COS bit-bangs
