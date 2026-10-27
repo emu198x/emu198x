@@ -24,8 +24,8 @@ use emu198x_motorola_vdg_6847::{
 use emu198x_shell::StopReason as RuntimeStopReason;
 use emu198x_shell::launch::{CommonCli, LaunchError};
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError,
-    MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
+    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore,
+    MachineError, MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
     read_media_asset,
 };
 use format198x_dragon_data_dragon_bin::{DragonBinImage, parse_dragon_bin};
@@ -5379,14 +5379,24 @@ fn type_basic_command_with_trace(
     tap_key_with_trace(session, "enter", trace_sink)
 }
 
+fn basic_key_chord(
+    session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
+    ch: char,
+) -> Result<Vec<String>, String> {
+    session
+        .machine()
+        .keyboard_target()
+        .and_then(|keyboard| keyboard.keys_for_char(ch))
+        .ok_or_else(|| format!("the selected machine cannot type {ch:?}"))
+}
+
 fn tap_basic_char(
     session: &mut HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
     ch: char,
 ) -> Result<(), String> {
-    if let Some(combo) = dragon_basic_key_combo(ch) {
-        return tap_key_combo(session, combo);
-    }
-    tap_key(session, &dragon_basic_key_name(ch))
+    let chord = basic_key_chord(session, ch)?;
+    let names: Vec<&str> = chord.iter().map(String::as_str).collect();
+    tap_key_combo(session, &names)
 }
 
 fn tap_basic_char_with_trace(
@@ -5394,24 +5404,9 @@ fn tap_basic_char_with_trace(
     ch: char,
     trace_sink: &mut impl TraceSink,
 ) -> Result<(), String> {
-    if let Some(combo) = dragon_basic_key_combo(ch) {
-        return tap_key_combo_with_trace(session, combo, trace_sink);
-    }
-    tap_key_with_trace(session, &dragon_basic_key_name(ch), trace_sink)
-}
-
-fn dragon_basic_key_combo(ch: char) -> Option<&'static [&'static str]> {
-    match ch {
-        '"' => Some(&["shift", "2"]),
-        _ => None,
-    }
-}
-
-fn dragon_basic_key_name(ch: char) -> String {
-    match ch {
-        ' ' => "space".to_owned(),
-        _ => ch.to_ascii_lowercase().to_string(),
-    }
+    let chord = basic_key_chord(session, ch)?;
+    let names: Vec<&str> = chord.iter().map(String::as_str).collect();
+    tap_key_combo_with_trace(session, &names, trace_sink)
 }
 
 fn tap_key(
@@ -6879,10 +6874,32 @@ mod tests {
     }
 
     #[test]
-    fn typed_command_maps_basic_quotes_to_shifted_digit_two() {
-        assert_eq!(dragon_basic_key_name('S'), "s");
-        assert_eq!(dragon_basic_key_name(' '), "space");
-        assert_eq!(dragon_basic_key_combo('"'), Some(&["shift", "2"][..]));
+    fn typed_command_uses_the_runtime_keyboard_legends() {
+        for model in [Model::Dragon32Pal, Model::CoCo1Ntsc, Model::CoCo2Ntsc] {
+            let session = HeadlessSession::new_with_query_provider(
+                DragonRuntime::blank(model),
+                DRAGON_FRAME_CYCLES,
+                DragonSessionQueryProvider,
+            );
+            for ch in "PRINT 6*7+2=44\" <>?!".chars() {
+                let expected = session
+                    .machine()
+                    .keyboard_target()
+                    .expect("keyboard")
+                    .keys_for_char(ch)
+                    .expect("representable");
+                assert_eq!(
+                    basic_key_chord(&session, ch).expect("harness chord"),
+                    expected
+                );
+            }
+            assert_eq!(
+                basic_key_chord(&session, '*').expect("multiply"),
+                ["shift", ":"]
+            );
+            assert_eq!(basic_key_chord(&session, '+').expect("add"), ["shift", ";"]);
+            assert!(basic_key_chord(&session, 'é').is_err());
+        }
     }
 
     #[test]

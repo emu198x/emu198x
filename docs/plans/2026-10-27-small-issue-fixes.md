@@ -57,3 +57,11 @@ sizes. The help now distinguishes the Dragon-32 direct harness from the shared
 runtime paths. The full headless app suite and strict Clippy pass. Original
 MAME Color BASIC 1.2/1.3 plus Extended BASIC 1.1 boot both models and accept
 PRINT 6 through --type-command; hashes/logs are retained separately.
+
+Dragon/CoCo symbols: the old harness mapped quotes specially and sent `*`/`+`
+as nonexistent named keys. The unit regression failed, and original-ROM runs
+on Dragon 32, CoCo 1 and CoCo 2 echoed PRINT 67 and returned 67 for PRINT 6*7.
+Both traced and untraced paths now use the runtime keyboard's existing chords,
+with unchanged hold/release timing and explicit errors for unknown characters.
+Fresh ROM runs on all three machines echo the requested commands exactly:
+PRINT 6*7 returns 42; PRINT 6+7 returns 13. Owning tests/Clippy pass.
