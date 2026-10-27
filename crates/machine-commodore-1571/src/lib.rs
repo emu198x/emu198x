@@ -24,14 +24,14 @@ use emu198x_mos_6502::{M6502, registers::FLAG_V};
 use emu198x_mos_cia_6526::Cia6526;
 use emu198x_mos_via_6522::Via6522;
 use emu198x_western_digital_wd1770::Wd1770;
-use format_commodore_c64_d71::{
-    D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
-    sectors_in_track as sectors_in_track_d71, write_sector as write_sector_d71,
-};
 use format198x_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
 use format198x_commodore_c64_g64::G64ParseError;
+use format198x_commodore_c128_d71::{
+    D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
+    sectors_in_track as sectors_in_track_d71, write_sector as write_sector_d71,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -1260,8 +1260,8 @@ const fn d64_file_type_name(kind: D64FileType) -> &'static str {
     }
 }
 
-const fn d71_file_type_name(kind: format_commodore_c64_d71::D71FileType) -> &'static str {
-    use format_commodore_c64_d71::D71FileType;
+const fn d71_file_type_name(kind: format198x_commodore_c128_d71::D71FileType) -> &'static str {
+    use format198x_commodore_c128_d71::D71FileType;
     match kind {
         D71FileType::Del => "DEL",
         D71FileType::Seq => "SEQ",
@@ -2203,7 +2203,7 @@ mod tests {
         sector[0] = 0xC7;
         sector[1] = 0x5A;
         sector[255] = 0x3E;
-        format_commodore_c64_d71::write_sector(&mut d71, 40, 0, &sector)
+        format198x_commodore_c128_d71::write_sector(&mut d71, 40, 0, &sector)
             .expect("write side-1 sector");
 
         let td = build_track_data_d71(&d71).expect("D71 builds double-sided GCR");
@@ -2233,7 +2233,7 @@ mod tests {
         let mut pattern_a = [0u8; 256];
         pattern_a[0] = 0xAA;
         pattern_a[255] = 0x11;
-        format_commodore_c64_d71::write_sector(&mut base, 40, 0, &pattern_a)
+        format198x_commodore_c128_d71::write_sector(&mut base, 40, 0, &pattern_a)
             .expect("seed side-1 sector");
 
         let rom = make_rom(&[(0x8000, &[0xEA])], 0x8000);
@@ -2251,7 +2251,7 @@ mod tests {
         pattern_b[0] = 0xBB;
         pattern_b[1] = 0xCC;
         pattern_b[255] = 0x22;
-        format_commodore_c64_d71::write_sector(&mut modified, 40, 0, &pattern_b)
+        format198x_commodore_c128_d71::write_sector(&mut modified, 40, 0, &pattern_b)
             .expect("re-encode side-1 sector");
         let new_gcr = build_track_data_d71(&modified)
             .expect("build modified surface")
@@ -2267,7 +2267,7 @@ mod tests {
 
         // The flush decodes both sides; the side-1 write now persists (#781.3).
         let flushed = machine.flush_image().expect("writable D71 flushes");
-        let sector = format_commodore_c64_d71::read_sector(&flushed, 40, 0)
+        let sector = format198x_commodore_c128_d71::read_sector(&flushed, 40, 0)
             .expect("read flushed side-1 sector");
         assert_eq!(sector[0], 0xBB);
         assert_eq!(sector[1], 0xCC);
@@ -2275,7 +2275,7 @@ mod tests {
 
         // Side 0 (logical track 18) is untouched and round-trips to its blank
         // original — the side-1 pass did not disturb side 0.
-        let side0 = format_commodore_c64_d71::read_sector(&flushed, 18, 0)
+        let side0 = format198x_commodore_c128_d71::read_sector(&flushed, 18, 0)
             .expect("read flushed side-0 sector");
         assert_eq!(side0[0], 0x00);
     }
@@ -2288,7 +2288,7 @@ mod tests {
         let mut sector = [0u8; 256];
         sector[0] = 0x7E;
         sector[128] = 0x42;
-        format_commodore_c64_d71::write_sector(&mut d71, 40, 0, &sector)
+        format198x_commodore_c128_d71::write_sector(&mut d71, 40, 0, &sector)
             .expect("seed side-1 sector");
 
         let rom = make_rom(&[(0x8000, &[0xEA])], 0x8000);

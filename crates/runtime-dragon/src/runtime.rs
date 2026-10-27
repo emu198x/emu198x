@@ -11,10 +11,10 @@ use emu198x_shell::{
     MediaTransportAction, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
     SessionQueryProvider, StopReason, TraceEvent,
 };
-use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
-use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, parse_cas_tolerant};
 use format_dragon_disk::{DragonDiskImage, parse_vdk};
-use format_dragon_pak::{
+use format198x_dragon_data_dragon_bin::{DragonBinImage, parse_dragon_bin};
+use format198x_dragon_data_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, parse_cas_tolerant};
+use format198x_dragon_data_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
     parse_dragon_pak, parse_pcdragon_snapshot,
 };
@@ -199,11 +199,15 @@ struct DragonRuntimeSnapshotV1 {
     machine: Dragon32,
     joystick: DragonJoystickInputState,
     time: MachineTime,
+    #[serde(with = "crate::media_serde::tape")]
     tape: Option<CasImage>,
     tape_bytes: Vec<u8>,
+    #[serde(with = "crate::media_serde::cartridge")]
     cartridge: Option<DragonPakImage>,
     disk: Option<DragonDiskImage>,
+    #[serde(with = "crate::media_serde::program")]
     program: Option<DragonBinImage>,
+    #[serde(with = "crate::media_serde::snapshot")]
     snapshot: Option<PcDragonSnapshot>,
 }
 
@@ -1563,7 +1567,7 @@ mod tests {
         AudioCapture, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, MachineCore,
         MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink, NullTraceSink, PixelFormat,
     };
-    use format_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
+    use format198x_dragon_data_dragon_cas::{LEADER_BYTE, SYNC_BYTE, checksum_for};
 
     use super::*;
 
