@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 format-snk-neo-geo-romset = { path = "../format-snk-neo-geo-romset", version = "0.44.0" }
 machine-snk-neo-geo = { path = "../machine-snk-neo-geo", version = "0.44.0" }
 motorola-68000 = { path = "../motorola-68000", version = "0.44.0" }

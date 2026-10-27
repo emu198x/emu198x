@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.44.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.44.0" }
 machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k", version = "0.44.0" }
 machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-plus2", version = "0.44.0" }

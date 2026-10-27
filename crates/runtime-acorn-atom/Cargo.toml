@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.44.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 emu198x-motorola-vdg-6847 = { path = "../emu198x-motorola-vdg-6847", version = "0.1.0" }
 format-acorn-atom-atm = { path = "../format-acorn-atom-atm", version = "0.44.0" }
 format-acorn-uef = { path = "../format-acorn-uef", version = "0.44.0" }

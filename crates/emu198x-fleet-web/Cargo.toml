@@ -52,7 +52,7 @@ tatung-einstein = ["dep:runtime-tatung-einstein"]
 [dependencies]
 emu198x-spectrum-web = { path = "../emu198x-spectrum-web", version = "0.44.0", optional = true }
 emu198x-web = { path = "../emu198x-web", version = "0.44.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 emu198x-pointer = { path = "../emu198x-pointer", version = "0.44.0" }
 serde_json.workspace = true
 runtime-acorn-atom = { path = "../runtime-acorn-atom", version = "0.44.0", optional = true }

@@ -64,6 +64,13 @@ What does not change:
   interface, then one pilot family, then the rest. A family repository holds
   its machines, runtimes, binaries and family glue (`common-<family>`), but
   no longer its chips.
+
+  *Measured since 2026-10-27.* The shell carries its own version rather than
+  the workspace's, and CI's `Shell semver` job runs `cargo semver-checks`
+  against each pull request's base. A breaking change fails it unless the
+  same PR raises the shell's minor version. The four weeks therefore run
+  from the last commit that raised that minor version, and start no earlier
+  than 2026-10-27, since nothing recorded breaks before then.
 - **The 68k family still moves last**, in one repository.
 - **A crate moves as a chip only when its public interface stands on its
   own.** A chip crate that depends on a family's glue (a `common-<family>`

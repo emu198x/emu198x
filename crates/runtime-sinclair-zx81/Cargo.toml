@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 format-sinclair-zx81-p = { path = "../format-sinclair-zx81-p", version = "0.44.0" }
 machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.44.0" }
 emu198x-zilog-z80 = "0.8.0"

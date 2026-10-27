@@ -292,6 +292,9 @@ repository = "https://github.com/emu198x/emu198x"
 [workspace.dependencies]
 bytemuck = { version = "1.23", features = ["derive"] }
 cpal = "0.18"
+# One requirement for the 81 crates that build on the shell, so a breaking
+# bump of its version is a one-line change here.
+emu198x-shell = { path = "crates/emu198x-shell", version = "0.44.2" }
 flate2 = "1"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 gilrs = "0.11"

@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.44.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.44.0" }
+emu198x-shell = { workspace = true }
 format-acorn-uef = { path = "../format-acorn-uef", version = "0.44.0" }
 machine-acorn-electron = { path = "../machine-acorn-electron", version = "0.44.0" }
 postcard = { workspace = true }

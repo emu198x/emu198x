@@ -131,6 +131,76 @@ jobs:
       - name: Check the status pages are current
         run: python3 scripts/status/render_status.py --check
 
+  # emu198x-shell is the interface every machine family builds on, and a
+  # family moves to its own repository only after four weeks with no
+  # breaking change to it (knowledge/decisions/workspace-shape.md). This
+  # compares a pull request's shell with its base branch. A breaking change
+  # fails unless the same PR raises the shell's minor version, so the
+  # version history records every break and the gate can be read from it.
+  shell-semver:
+    name: Shell semver
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # The base commit has to be present to build the baseline from.
+          fetch-depth: 0
+
+      - name: Install Linux build dependencies
+        # The shell's native audio (cpal) and gamepad (gilrs) backends build
+        # as part of its documentation.
+        run: |
+          bash scripts/ci/apt-install.sh pkg-config libasound2-dev libudev-dev
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: shell-semver
+
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+
+      - name: Compare the shell with the base branch
+        # Left to itself, cargo-semver-checks reads an unchanged version as a
+        # minor release, which below 1.0 may break anything, so this job could
+        # never fail. An unchanged version is checked as a patch release
+        # instead: a breaking change then fails until the PR raises the minor
+        # version, and a PR that does raise it is checked as what it declares.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          manifest=crates/emu198x-shell/Cargo.toml
+          head=$(awk -F'"' '!v && /^version = /{v=$2} END{print v}' "$manifest")
+          base=$(git show "${BASE_SHA}:${manifest}" | awk -F'"' '!v && /^version = /{v=$2} END{print v}')
+          if [ -z "$base" ]; then
+            # Before the shell had its own version it took the workspace's.
+            base=$(git show "${BASE_SHA}:Cargo.toml" |
+              awk -F'"' '/^\[workspace\.package\]/{p=1} p && !v && /^version = /{v=$2} END{print v}')
+          fi
+          release_type=()
+          if [ "$head" = "$base" ]; then
+            release_type=(--release-type patch)
+          fi
+          echo "emu198x-shell ${base} -> ${head}"
+          cargo semver-checks check-release -p emu198x-shell --baseline-rev "$BASE_SHA" "${release_type[@]}"
+
   cartridges:
     name: Synthetic cartridges
     runs-on: ubuntu-latest
