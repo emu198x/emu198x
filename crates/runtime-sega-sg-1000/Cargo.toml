@@ -1,6 +1,6 @@
 [package]
 name = "runtime-sega-sg-1000"
-description = "Sega SG-1000 / SC-3000 family metadata and headless runtime wrapper"
+description = "Sega SG-1000 family metadata and headless runtime wrapper"
 edition.workspace = true
 version.workspace = true
 publish = false
