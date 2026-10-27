@@ -815,93 +815,112 @@ fn parse_cpc_dsk(dsk: &[u8]) -> Result<Disk, String> {
     }
 
     let tracks = dsk[0x30] as usize;
-    let sides = (dsk[0x31] as usize).max(1);
-    if tracks == 0 {
-        return Err("DSK declares zero tracks".into());
+    let sides = dsk[0x31] as usize;
+    if tracks == 0 || !(1..=2).contains(&sides) {
+        return Err("DSK requires nonzero tracks and one or two sides".into());
+    }
+    let entries = tracks * sides;
+    if extended && entries > 0x100 - 0x34 {
+        return Err("DSK track-size table exceeds the disk-info block".into());
     }
 
-    // Per-track byte size: a table of (size / 256) in the extended format, or a
-    // single uniform word in the standard format.
-    let track_size = |i: usize| -> usize {
-        if extended {
-            dsk.get(0x34 + i).map_or(0, |&b| b as usize * 256)
-        } else {
-            u16::from_le_bytes([dsk[0x32], dsk[0x33]]) as usize
-        }
-    };
-
-    // Read the uniform geometry (sector count, size, lowest ID) from the first
-    // present track, so we can size the flat buffer before placing sectors.
-    let mut geometry: Option<(usize, usize, u8)> = None;
-    let scan = 0x100;
-    for ti in 0..tracks * sides {
-        let tsize = track_size(ti);
-        if tsize == 0 {
-            continue;
-        }
-        let tib = dsk
-            .get(scan..scan + 256)
-            .ok_or("DSK truncated in the first track-info block")?;
-        let nsec = tib[0x15] as usize;
-        let mut min_id = u8::MAX;
-        for s in 0..nsec {
-            min_id = min_id.min(tib[0x18 + s * 8 + 2]);
-        }
-        geometry = Some((nsec, 128usize << tib[0x14], min_id));
-        break;
-    }
-    let (sectors_per_track, sector_size, first_id) = geometry.ok_or("DSK has no present tracks")?;
-    if sectors_per_track == 0 || sector_size == 0 {
-        return Err("DSK track has no sectors".into());
-    }
-
-    // Single pass: copy each sector into the flat buffer at its ID slot.
-    let mut flat = vec![0u8; tracks * sides * sectors_per_track * sector_size];
+    // Validate every extent before allocating or replacing a mounted disk.
+    // Container structure follows reference/by-system/amstrad-cpc/
+    // cpcemu-dsk-container.md. This adapter can represent uniform sector-ID
+    // geometry, not variable-length/duplicate-ID preservation tracks.
+    let mut blocks = Vec::with_capacity(entries);
+    let mut geometry = None;
+    let mut occupied = vec![false; entries];
     let mut off = 0x100;
-    for ti in 0..tracks * sides {
-        let tsize = track_size(ti);
-        if tsize == 0 {
+    for ti in 0..entries {
+        let tsize = if extended {
+            usize::from(dsk[0x34 + ti]) * 256
+        } else {
+            usize::from(u16::from_le_bytes([dsk[0x32], dsk[0x33]]))
+        };
+        if extended && tsize == 0 {
             continue;
         }
-        let tib = dsk
-            .get(off..off + 256)
-            .ok_or("DSK truncated in a track-info block")?;
-        if !tib.starts_with(b"Track-Info") {
-            // Some images carry a zeroed/blank track block (an unformatted or
-            // deliberately-skipped track). Skip its sectors but keep the
-            // file offset aligned by the declared track size.
-            off += tsize;
-            continue;
+        if tsize < 256 {
+            return Err("DSK track is smaller than its information block".into());
         }
-        let track = tib[0x10] as usize;
-        let side = tib[0x11] as usize;
-        let nsec = tib[0x15] as usize;
-
-        let mut data_off = off + 256;
-        for s in 0..nsec {
-            let entry = &tib[0x18 + s * 8..0x18 + s * 8 + 8];
-            let id = entry[2];
-            // Extended images record the real stored length per sector; the
-            // standard format uses the track's N code.
-            let stored = if extended {
-                u16::from_le_bytes([entry[6], entry[7]]) as usize
-            } else {
-                sector_size
-            };
-            if let Some(index) = id.checked_sub(first_id).map(usize::from)
-                && track < tracks
-                && side < sides
-                && index < sectors_per_track
-            {
-                let dst = ((track * sides + side) * sectors_per_track + index) * sector_size;
-                let len = sector_size.min(dsk.len().saturating_sub(data_off));
-                if dst + len <= flat.len() {
-                    flat[dst..dst + len].copy_from_slice(&dsk[data_off..data_off + len]);
-                }
-            }
-            data_off += stored;
-        }
+        let block = dsk
+            .get(off..off + tsize)
+            .ok_or("DSK truncated in a track block")?;
         off += tsize;
+        let tib = &block[..256];
+        if tib.iter().all(|&b| b == 0) {
+            continue; // Retain the existing zeroed/unformatted-track convention.
+        }
+        if !tib.starts_with(b"Track-Info") {
+            return Err("DSK track has no Track-Info signature".into());
+        }
+        let track = usize::from(tib[0x10]);
+        let side = usize::from(tib[0x11]);
+        if track >= tracks || side >= sides || occupied[track * sides + side] {
+            return Err("DSK has an out-of-range or duplicate track".into());
+        }
+        occupied[track * sides + side] = true;
+        let nsec = usize::from(tib[0x15]);
+        let descriptors = tib
+            .get(0x18..0x18 + nsec * 8)
+            .filter(|_| nsec != 0)
+            .ok_or("DSK sector descriptors do not fit the track header")?;
+        let sector_size = 128usize
+            .checked_shl(u32::from(tib[0x14]))
+            .filter(|&size| size != 0)
+            .ok_or("DSK sector-size code is too large")?;
+        let data_len = nsec
+            .checked_mul(sector_size)
+            .filter(|&len| len <= block.len() - 256)
+            .ok_or("DSK sector payload does not fit the track block")?;
+        let mut ids = [false; 256];
+        let mut first_id = u8::MAX;
+        for entry in descriptors.as_chunks::<8>().0 {
+            let id = entry[2];
+            if ids[usize::from(id)] || entry[3] != tib[0x14] {
+                return Err("DSK duplicate IDs or mixed sector sizes are unsupported".into());
+            }
+            ids[usize::from(id)] = true;
+            first_id = first_id.min(id);
+            if extended && usize::from(u16::from_le_bytes([entry[6], entry[7]])) != sector_size {
+                return Err("DSK variable stored sector lengths are unsupported".into());
+            }
+        }
+        if usize::from(first_id) + nsec > ids.len()
+            || !ids[usize::from(first_id)..usize::from(first_id) + nsec]
+                .iter()
+                .all(|&present| present)
+        {
+            return Err("DSK nonconsecutive sector IDs are unsupported".into());
+        }
+        let current = (nsec, sector_size, first_id);
+        if geometry.is_some_and(|expected| expected != current) {
+            return Err("DSK nonuniform track geometry is unsupported".into());
+        }
+        geometry = Some(current);
+        blocks.push((track, side, descriptors, &block[256..256 + data_len]));
+    }
+    let (sectors_per_track, sector_size, first_id) =
+        geometry.ok_or("DSK has no formatted tracks")?;
+    // A present track's payload has already bounded this product by its u16
+    // track length; EDSK also bounds the number of slots by its header table.
+    let capacity = entries
+        .checked_mul(sectors_per_track)
+        .and_then(|n| n.checked_mul(sector_size))
+        .ok_or("DSK geometry is too large")?;
+    let mut flat = vec![0; capacity];
+    for (track, side, descriptors, data) in blocks {
+        for (entry, sector) in descriptors
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .zip(data.chunks_exact(sector_size))
+        {
+            let index = usize::from(entry[2] - first_id);
+            let dst = ((track * sides + side) * sectors_per_track + index) * sector_size;
+            flat[dst..dst + sector_size].copy_from_slice(sector);
+        }
     }
 
     Ok(
