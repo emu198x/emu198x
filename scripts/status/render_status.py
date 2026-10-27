@@ -156,11 +156,11 @@ def _usability(rows) -> str:
         "|---|---|---|---|---|---|",
     ]
     for system, own, shared, cohabiting in rows:
-        machine = system["machine_id"]
+        machine = f"`{system['machine_id']}`"
         if cohabiting:
             machine += " ⚠️"
         out.append(
-            f"| `{machine}` | `{system['crate']}` | {len(own)} | {len(shared)} "
+            f"| {machine} | `{system['crate']}` | {len(own)} | {len(shared)} "
             f"| [{system['label']}]({label_url(system['label'])}) "
             f"| [{system['milestone']}]({milestone_url(system['milestone'])}) |"
         )
