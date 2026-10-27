@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.44.0" }
-format-commodore-c64-d81 = { path = "../format-commodore-c64-d81", version = "0.44.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
+format-commodore-c64-d81 = { path = "../format-commodore-c64-d81", version = "0.45.0" }
 emu198x-mos-6502 = "0.6.1"
 emu198x-mos-cia-6526 = { path = "../emu198x-mos-cia-6526", version = "0.1.0" }
 emu198x-western-digital-wd1770 = { path = "../emu198x-western-digital-wd1770", version = "0.1.0" }

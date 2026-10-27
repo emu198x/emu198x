@@ -9,8 +9,8 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-emu198x-native-video = { path = "../emu198x-native-video", version = "0.44.0" }
-emu198x-pointer = { path = "../emu198x-pointer", version = "0.44.0" }
+emu198x-native-video = { path = "../emu198x-native-video", version = "0.45.0" }
+emu198x-pointer = { path = "../emu198x-pointer", version = "0.45.0" }
 # `serde` for the window protocol, which carries winit's key types to the
 # GTK window process (src/window_protocol.rs).
 winit = { workspace = true, features = ["serde"] }
@@ -35,7 +35,7 @@ muda = { workspace = true }
 # in its own crate so this one keeps the workspace's `forbid`
 # (knowledge/decisions/windows-menu-unsafe-exception.md).
 [target.'cfg(target_os = "windows")'.dependencies]
-emu198x-win-menu = { path = "../emu198x-win-menu", version = "0.44.0" }
+emu198x-win-menu = { path = "../emu198x-win-menu", version = "0.45.0" }
 
 # The Dock icon (src/icon.rs): winit ignores window icons on macOS.
 [target.'cfg(target_os = "macos")'.dependencies]

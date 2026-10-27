@@ -11,20 +11,20 @@ repository.workspace = true
 emu198x-mos-vic-ii = { path = "../emu198x-mos-vic-ii", version = "0.1.0" }
 emu198x-mos-cia-6526 = { path = "../emu198x-mos-cia-6526", version = "0.1.0" }
 emu198x-mos-6502 = "0.6.1"
-common-commodore-c64 = { path = "../common-commodore-c64", version = "0.44.0" }
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.44.0" }
-emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.44.0", features = ["query"] }
+common-commodore-c64 = { path = "../common-commodore-c64", version = "0.45.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
+emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.45.0", features = ["query"] }
 emu198x-shell = { workspace = true }
 format198x-commodore-c64-bas = "0.1.1"
-format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.44.0" }
-format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.44.0" }
-format-commodore-c64-p00 = { path = "../format-commodore-c64-p00", version = "0.44.0" }
-format-commodore-c64-t64 = { path = "../format-commodore-c64-t64", version = "0.44.0" }
-machine-commodore-c64 = { path = "../machine-commodore-c64", version = "0.44.0" }
-machine-commodore-c128 = { path = "../machine-commodore-c128", version = "0.44.0" }
-machine-commodore-1541 = { path = "../machine-commodore-1541", version = "0.44.0" }
-machine-commodore-1571 = { path = "../machine-commodore-1571", version = "0.44.0" }
-machine-commodore-1581 = { path = "../machine-commodore-1581", version = "0.44.0" }
+format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.45.0" }
+format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.45.0" }
+format-commodore-c64-p00 = { path = "../format-commodore-c64-p00", version = "0.45.0" }
+format-commodore-c64-t64 = { path = "../format-commodore-c64-t64", version = "0.45.0" }
+machine-commodore-c64 = { path = "../machine-commodore-c64", version = "0.45.0" }
+machine-commodore-c128 = { path = "../machine-commodore-c128", version = "0.45.0" }
+machine-commodore-1541 = { path = "../machine-commodore-1541", version = "0.45.0" }
+machine-commodore-1571 = { path = "../machine-commodore-1571", version = "0.45.0" }
+machine-commodore-1581 = { path = "../machine-commodore-1581", version = "0.45.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -9,8 +9,8 @@ repository.workspace = true
 
 [dependencies]
 emu198x-peripheral-sinclair-zx-spectrum-beta-disk = { path = "../emu198x-peripheral-sinclair-zx-spectrum-beta-disk", version = "0.1.0" }
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.44.0" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.44.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.45.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.45.0" }
 emu198x-gi-ay-3-8912 = { path = "../emu198x-gi-ay-3-8912", version = "0.1.0" }
 emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick", version = "0.1.0" }
 emu198x-scorpion-ula = { path = "../emu198x-scorpion-ula", version = "0.1.0" }

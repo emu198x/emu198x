@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-commodore-amiga-autoconfig = { path = "../emu198x-commodore-amiga-autoconfig", version = "0.1.0" }
-motorola-68k-common = { path = "../motorola-68k-common", version = "0.44.0" }
+motorola-68k-common = { path = "../motorola-68k-common", version = "0.45.0" }
 serde = { workspace = true }
 
 [dev-dependencies]

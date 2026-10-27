@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.44.0" }
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.45.0" }
 emu198x-shell = { workspace = true }
-machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy", version = "0.44.0" }
+machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy", version = "0.45.0" }
 emu198x-sharp-lr35902 = "0.1.0"
 postcard = { workspace = true }
 serde = { workspace = true }

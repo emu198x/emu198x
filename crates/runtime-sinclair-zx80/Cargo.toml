@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-sinclair-zx80-o = { path = "../format-sinclair-zx80-o", version = "0.44.0" }
+format-sinclair-zx80-o = { path = "../format-sinclair-zx80-o", version = "0.45.0" }
 emu198x-shell = { workspace = true }
-machine-sinclair-zx80 = { path = "../machine-sinclair-zx80", version = "0.44.0" }
+machine-sinclair-zx80 = { path = "../machine-sinclair-zx80", version = "0.45.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }
