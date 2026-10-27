@@ -243,3 +243,44 @@ fn missing_explicit_images_invalid_mos_and_missing_sideways_roms_fail_in_both_mo
             .success()
     );
 }
+
+#[test]
+fn final_cli_report_warns_for_missing_teletext_font_but_not_bitmap_output() {
+    let fixture = Fixture::new();
+    for font_present in [false, true] {
+        if font_present {
+            std::fs::write(fixture.0.join("saa5050.rom"), vec![0x3c; 960]).expect("font");
+        } else {
+            std::fs::remove_file(fixture.0.join("saa5050.rom")).expect("remove font");
+        }
+        for (control, teletext) in [(0x4b, true), (0x9c, false)] {
+            let mut mos = vec![0xea; 16384];
+            // Original guest selects the video ULA mode, then loops.
+            mos[..8].copy_from_slice(&[0xa9, control, 0x8d, 0x20, 0xfe, 0x4c, 0x05, 0xc0]);
+            mos[0x3ffc..0x3ffe].copy_from_slice(&0xc000_u16.to_le_bytes());
+            std::fs::write(fixture.0.join("monitor.rom"), mos).expect("MOS");
+            let report = output(
+                fixture
+                    .command()
+                    .args(["--headless", "--frames", "1", "--rom-dir"])
+                    .arg(&fixture.0),
+            );
+            let warnings = report["warnings"]
+                .as_array()
+                .expect("launcher retains machine warning");
+            assert_eq!(
+                warnings.len(),
+                usize::from(teletext && !font_present),
+                "{report}"
+            );
+            if let Some(warning) = warnings.first() {
+                assert!(
+                    warning
+                        .as_str()
+                        .expect("warning text")
+                        .contains("acorn-bbc-saa5050")
+                );
+            }
+        }
+    }
+}

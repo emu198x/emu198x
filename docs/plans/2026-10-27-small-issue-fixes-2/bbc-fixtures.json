@@ -1,0 +1,15 @@
+{
+  "os.rom": {
+    "bytes": 16384,
+    "sha256": "2d9fea69017864f6962704481829f95fee08446c8c3a13826d5d4e44000ac9de"
+  },
+  "basic.rom": {
+    "bytes": 16384,
+    "sha256": "45bd55dc0f6f0f8f1fe9e2481de7def206565eec8f600ba3068b849ca4132079"
+  },
+  "saa5050.rom": {
+    "bytes": 960,
+    "sha256": "9706945b02dd0e30823186ff0d73a49c0d98ed573499a057bab471add7ee28fb"
+  },
+  "note": "Original Model B MOS/BASIC and SAA5050 controls, 100 frames each; no ROM bytes retained in Git."
+}

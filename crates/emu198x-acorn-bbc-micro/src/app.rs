@@ -84,7 +84,10 @@ impl MachineApp for Bbc {
                     headless runs boot the bare MOS unless one is given, the
                     window also installs a staged BASIC into bank 15
     --rom ID=PATH   pin MOS or optional firmware:
-                    acorn-bbc-mos, acorn-bbc-saa5050, acorn-bbc-basic; on a B+
+                    acorn-bbc-mos, acorn-bbc-saa5050, acorn-bbc-basic.
+                    MODE 7 text needs saa5050.rom (960 bytes); bitmap modes do not.
+                    Without it, the headless report warns while MODE 7 is selected.
+                    On a B+
                     acorn-bbc-bplus-mos and acorn-bbc-1770-dfs (default
                     dfs-2.26.rom, or set EMU198X_BBC_DFS), fitted in bank 14
                     an explicit BASIC pin also selects bank 15 in headless modes
@@ -216,6 +219,17 @@ impl MachineApp for Bbc {
                 .into(),
         );
         report.insert("frames_run".to_owned(), frames_run.into());
+        let warnings: Vec<&str> = if runtime
+            .machine()
+            .is_some_and(|machine| machine.teletext_font_missing())
+        {
+            vec![
+                "MODE 7 text cannot render without the 960-byte SAA5050 font; supply saa5050.rom in --rom-dir or --rom acorn-bbc-saa5050=PATH",
+            ]
+        } else {
+            Vec::new()
+        };
+        report.insert("warnings".to_owned(), warnings.into());
     }
 }
 
@@ -226,6 +240,50 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    fn warning_report(runtime: &BbcMicroRuntime) -> Value {
+        let mut report = Map::new();
+        Bbc::default().report(runtime, &mut report);
+        Value::Object(report)
+    }
+
+    #[test]
+    fn report_diagnoses_missing_font_only_when_teletext_is_selected() {
+        use emu198x_shell::MachineCore;
+        for model in Model::ALL {
+            let mut runtime = BbcMicroRuntime::new(model, vec![0xea; 16384]).expect("MOS");
+            runtime.machine_mut().expect("machine").poke(0xfe20, 0x4b);
+            let report = warning_report(&runtime);
+            assert_eq!(report["warnings"].as_array().expect("warnings").len(), 1);
+            let warning = report["warnings"][0].as_str().expect("diagnosis");
+            assert!(
+                warning.contains("MODE 7") && warning.contains("saa5050.rom"),
+                "{warning}"
+            );
+            let missing_state = runtime.snapshot().expect("missing-font state");
+
+            runtime.machine_mut().expect("machine").poke(0xfe20, 0x9c);
+            assert_eq!(warning_report(&runtime)["warnings"], serde_json::json!([]));
+            runtime.machine_mut().expect("machine").poke(0xfe20, 0x4b);
+            runtime.set_teletext_font(vec![0x3c; 960]);
+            assert_eq!(warning_report(&runtime)["warnings"], serde_json::json!([]));
+
+            runtime
+                .restore(&missing_state)
+                .expect("restore live missing-font state");
+            assert_eq!(
+                warning_report(&runtime)["warnings"]
+                    .as_array()
+                    .expect("warnings")
+                    .len(),
+                1
+            );
+        }
+        assert_eq!(
+            warning_report(&BbcMicroRuntime::blank(Model::BbcModelB))["warnings"],
+            serde_json::json!([])
+        );
     }
 
     #[test]

@@ -1,0 +1,188 @@
+   Compiling machine-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/machine-acorn-bbc-micro)
+   Compiling runtime-acorn-bbc-micro v0.45.1 (/private/tmp/198x-next-fixes/crates/runtime-acorn-bbc-micro)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.58s
+     Running unittests src/lib.rs (/private/tmp/198x-next-target/debug/deps/machine_acorn_bbc_micro-dae2e2be5ba99509)
+
+running 70 tests
+test rtc::tests::the_clock_counts_emulated_seconds_and_carries ... ok
+test rtc::tests::the_bus_protocol_reads_and_writes_the_ram ... ok
+test saa5050::tests::separated_mosaics_blank_the_left_column_and_last_row_of_each_block ... ok
+test saa5050::tests::rounding_lights_half_a_dot_on_a_diagonal ... ok
+test rtc::tests::a_deselected_chip_ignores_the_strobe ... ok
+test saa5050::tests::rounding_leaves_straight_strokes_alone ... ok
+test saa5050::tests::flashing_text_is_hidden_for_16_fields_in_64 ... ok
+test tests::a_short_dfs_image_is_padded_to_its_tracks ... ok
+test tests::a_model_b_ignores_romsel_bit_7_and_acccon ... ok
+test tests::adc_converts_a_channel_and_reports_completion ... ok
+test tests::acia_idle_does_not_signal_an_interrupt ... ok
+test tests::a_sector_read_raises_nmi_for_each_byte ... ok
+test tests::dfs_sides_finds_the_second_catalogue_of_a_dsd ... ok
+test tests::b_plus_romsel_bit_7_pages_ram_in_over_the_sideways_rom ... ok
+test tests::a_scrolled_screen_wraps_past_the_top_of_ram ... ok
+test tests::double_height_draws_top_and_bottom_halves_on_two_rows ... ok
+test tests::conceal_hides_text_until_a_colour_code ... ok
+test tests::ic32_falling_edge_on_bit_0_writes_psg ... ok
+test tests::joystick_fire_buttons_pull_system_via_pb4_pb5_low ... ok
+test tests::control_bit_0_selects_which_flashing_colour_shows ... ok
+test tests::memory_map_routes_pages ... ok
+test tests::hold_graphics_repeats_the_mosaic_in_its_own_colour ... ok
+test tests::mode7_coverage_levels_are_linear_light_in_srgb ... ok
+test tests::every_one_mhz_cycle_ends_on_the_one_mhz_clock ... ok
+test tests::mode7_resampling_keeps_each_half_dot_where_it_falls ... ok
+test tests::mode7_follows_the_start_address ... ok
+test tests::mode7_rounds_diagonals_across_the_two_fields ... ok
+test tests::mode7_weaves_its_two_fields ... ok
+test tests::mode7_wraps_within_its_kilobyte ... ok
+test tests::one_mhz_bus_accesses_cost_two_or_three_ticks_rest_one ... ok
+test tests::mode7_cells_are_a_microsecond_wide_and_fill_the_window ... ok
+test tests::one_mhz_access_waits_for_the_next_whole_one_mhz_cycle ... ok
+test tests::releasing_the_drive_latch_reset_restores_the_head ... ok
+test tests::rom_bank_register_at_fe30 ... ok
+test tests::rows_past_r6_are_not_displayed ... ok
+test tests::sheila_devices_answer_across_their_whole_blocks ... ok
+test tests::r8_skews_the_cursor_or_turns_it_off ... ok
+test tests::slow_clock_modes_still_sync_at_fifty_hertz ... ok
+test tests::adc_completion_raises_the_system_via_cb1_interrupt ... ok
+test tests::system_via_writes_round_trip ... ok
+test tests::teletext_control_codes_ignore_bit_7 ... ok
+test tests::the_b_plus_1770_decodes_at_fe84_and_repeats_to_fe9f ... ok
+test tests::the_cursor_inverts_a_mixed_mode7_pixel_to_the_inverted_mix ... ok
+test tests::the_cursor_is_as_wide_as_control_bits_5_to_7_make_it ... ok
+test tests::the_display_shows_the_shadow_screen_when_selected ... ok
+test tests::the_latch_selects_each_modes_screen_size ... ok
+test tests::the_master_moves_the_adc_and_puts_the_1770_at_fe28 ... ok
+test tests::the_master_pages_andy_hazel_and_sideways_ram ... ok
+test tests::the_master_reads_its_cmos_clock_over_the_system_via ... ok
+test tests::the_master_runs_a_65c12_and_says_so_after_a_restore ... ok
+test tests::the_master_shadow_follows_x_for_all_code_and_e_for_the_vdu ... ok
+test tests::the_mode7_cursor_underlines_the_matched_cell ... ok
+test tests::frame_is_a_fixed_master_tick_budget ... ok
+test tests::frame_runs_expected_cycles ... ok
+test tests::vdu_driver_code_writes_the_shadow_screen_and_other_code_main_ram ... ok
+test tests::via_timers_count_at_one_megahertz ... ok
+test tests::video_ula_matches_the_guides_mode_8_example ... ok
+test tests::video_ula_palette_write_decodes_logical_and_physical ... ok
+test tests::video_ula_pixels_per_byte_matches_the_documented_modes ... ok
+test tests::the_row_under_double_height_shows_only_double_height_characters ... ok
+test tests::flashing_teletext_hides_for_16_fields_in_64 ... ok
+test tests::the_mos_cursor_blinks_every_sixteen_fields ... ok
+test tests::cassette_carrier_raises_dcd_and_clears_on_data_read ... ok
+test tests::stepping_a_frames_worth_of_instructions_is_a_frame ... ok
+test tests::snapshot_round_trips_live_state ... ok
+test tests::cassette_byte_fills_the_acia_and_clears_on_read ... ok
+test tests::many_frames_complete_without_panic ... ok
+test tests::cassette_does_not_play_while_the_motor_is_off ... ok
+test tests::a_stopped_deck_does_not_advance_even_with_the_motor_on ... ok
+test tests::psg_runs_off_a_four_megahertz_clock ... ok
+
+test result: ok. 70 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.04s
+
+     Running tests/bios_boot.rs (/private/tmp/198x-next-target/debug/deps/bios_boot-a00f79a1487d2649)
+
+running 8 tests
+test a_flashing_colour_flashes_at_the_mos_rate ... ignored, FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored
+test boots_to_basic_prompt ... ignored, FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored
+test keyboard_types_a_basic_expression_and_prints_the_result ... ignored, FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored
+test mode7_draws_double_height_and_flashing_text_from_basic ... ignored, FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored
+test mode7_renders_the_banner ... ignored, FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored
+test mos_clock_counts_centiseconds ... ignored, FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored
+test os_boots_to_basic_banner ... ignored, FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored
+test the_prompt_cursor_blinks_in_mode_7_and_in_a_bitmap_mode ... ignored, FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bplus_disc.rs (/private/tmp/198x-next-target/debug/deps/bplus_disc-4a20919c7e851617)
+
+running 1 test
+test the_b_plus_dfs_catalogues_and_types_a_file_from_disc ... ignored, FIXTURE: needs the B+ OS 2.00, BASIC and Acorn DFS 2.26 ROMs — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/master_disc.rs (/private/tmp/198x-next-target/debug/deps/master_disc-15613cc9a8612bac)
+
+running 2 tests
+test the_master_boots_to_basic ... ignored, FIXTURE: needs the Master 128 MOS 3.20 ROM set — run with --ignored
+test the_master_dfs_catalogues_and_types_a_file_from_disc ... ignored, FIXTURE: needs the Master 128 MOS 3.20 ROM set — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/synthetic_firmware_boot.rs (/private/tmp/198x-next-target/debug/deps/synthetic_firmware_boot-1d699eab873858a3)
+
+running 2 tests
+test synthetic_firmware_builds_a_raster_and_floods_it ... ok
+test the_control_image_renders_no_raster ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.75s
+
+     Running tests/tape_load.rs (/private/tmp/198x-next-target/debug/deps/tape_load-7dab2f91ceaca344)
+
+running 1 test
+test os_loads_a_real_tape ... ignored, FIXTURE: needs the BBC MOS+BASIC ROMs — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-target/debug/deps/runtime_acorn_bbc_micro-2bf37ea34d42a361)
+
+running 10 tests
+test input::tests::axis_scales_to_the_12bit_pot_range ... ok
+test profiles::tests::profile_declares_mos_firmware ... ok
+test profiles::tests::the_master_names_its_mos_and_rom_set_and_two_drives ... ok
+test snapshot::tests::decode_rejects_unsupported_version ... ok
+test snapshot::tests::decode_rejects_old_schema_before_reading_payload ... ok
+test profiles::tests::the_b_plus_adds_its_mos_the_dfs_and_two_drives ... ok
+test input::tests::keyboard_matrix_is_the_authoritative_bbc_layout ... ok
+test input::tests::unknown_axis_name_is_ignored ... ok
+test input::tests::axes_route_to_the_right_adc_channels ... ok
+test runtime::catalogue_tests::firmware_constructor_installs_font_and_language_policy_survives_reset ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/bplus_disc_media.rs (/private/tmp/198x-next-target/debug/deps/bplus_disc_media-bead388efa4e01c6)
+
+running 5 tests
+test the_catalogue_names_the_b_plus_and_its_mos ... ok
+test a_model_b_has_no_disc_slots ... ok
+test the_b_plus_fits_its_dfs_in_bank_14 ... ok
+test a_disc_loads_survives_a_reset_exports_and_ejects ... ok
+test a_disc_snapshot_restores ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.88s
+
+     Running tests/cassette.rs (/private/tmp/198x-next-target/debug/deps/cassette-0ded10e88f8b16c4)
+
+running 4 tests
+test load_media_parses_a_uef_and_mounts_the_tape ... ok
+test an_unknown_slot_is_rejected ... ok
+test a_corrupt_uef_reports_invalid_media ... ok
+test the_tape_survives_a_reset ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/master_runtime.rs (/private/tmp/198x-next-target/debug/deps/master_runtime-d2f7f71493e67d3e)
+
+running 3 tests
+test the_catalogue_offers_the_master ... ok
+test the_rom_set_fills_banks_9_to_15_and_4_to_7_are_ram ... ok
+test a_disc_loads_and_a_snapshot_keeps_the_65c12 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.88s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-target/debug/deps/snapshot_roundtrip-1d28c536434cf25b)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests machine_acorn_bbc_micro
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_acorn_bbc_micro
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
