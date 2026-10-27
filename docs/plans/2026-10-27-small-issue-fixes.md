@@ -65,3 +65,9 @@ Both traced and untraced paths now use the runtime keyboard's existing chords,
 with unchanged hold/release timing and explicit errors for unknown characters.
 Fresh ROM runs on all three machines echo the requested commands exactly:
 PRINT 6*7 returns 42; PRINT 6+7 returns 13. Owning tests/Clippy pass.
+
+A2000 prose: Commodore's Release 2 Getting Started chip table explicitly lists
+8361/8367 for the A1000 and German A2000; PN 314135-01 identifies U101 as
+8370 NTSC/8371 PAL, while rev6 PN 314135-02 lists 8372. Profile/chip comments
+now distinguish these boards; this does not select a new emulated board or
+change chip behaviour. Formatting/diff checks pass.
