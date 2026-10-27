@@ -1,0 +1,5 @@
+   Compiling memchr v2.8.0
+   Compiling embed-resource v3.0.12
+   Compiling emu198x-app-icon v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-app-icon)
+   Compiling emu198x-colecovision v0.45.1 (/private/tmp/198x-next-fixes/crates/emu198x-colecovision)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.31s

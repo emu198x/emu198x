@@ -20,7 +20,9 @@ impl Fixture {
         ));
         std::fs::create_dir_all(&dir).expect("fixture directory");
         std::fs::write(dir.join("monitor.rom"), vec![0; 8192]).expect("synthetic ROM");
-        std::fs::write(dir.join("game.rom"), vec![0x5a; 8192]).expect("cartridge");
+        let mut cart = vec![0x5a; 8192];
+        cart[..2].copy_from_slice(&[0xaa, 0x55]);
+        std::fs::write(dir.join("game.rom"), cart).expect("cartridge");
         Self(dir)
     }
 
@@ -103,9 +105,9 @@ fn launch_and_script_select_both_regions_without_losing_the_cartridge() {
             fixture
                 .script(json!([
                     {"action":"set_machine", "machine":model.variant_id()},
-                    {"action":"memory_read", "addr":32768, "len":1},
+                    {"action":"memory_read", "addr":32770, "len":1},
                     {"action":"reset"},
-                    {"action":"memory_read", "addr":32768, "len":1}
+                    {"action":"memory_read", "addr":32770, "len":1}
                 ]))
                 .args(["--model", model.variant_id()])
                 .arg(fixture.0.join("game.rom")),
@@ -135,10 +137,10 @@ fn mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches() {
             &args,
             &[
                 json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}),
-                json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_read","arguments":{"addr":32768,"len":1}}}),
+                json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"memory_read","arguments":{"addr":32770,"len":1}}}),
                 json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"set_machine","arguments":{"machine":"coleco-colecovision-pal"}}}),
                 json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"set_machine","arguments":{"machine":"unknown"}}}),
-                json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"memory_read","arguments":{"addr":32768,"len":1}}}),
+                json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"memory_read","arguments":{"addr":32770,"len":1}}}),
             ],
         );
         assert!(
@@ -173,7 +175,7 @@ fn mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed() {
         .expect("MCP");
     let mut stdin = child.stdin.take().expect("stdin");
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
-    let read = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_read","arguments":{"addr":32768,"len":1}}});
+    let read = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_read","arguments":{"addr":32770,"len":1}}});
     writeln!(stdin, "{read}").expect("read request");
     let mut line = String::new();
     stdout.read_line(&mut line).expect("startup complete");

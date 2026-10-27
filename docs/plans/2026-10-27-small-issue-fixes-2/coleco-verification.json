@@ -1,0 +1,33 @@
+{
+  "base": "d196c6431ecfbfde73f1a96319658c6e1dc53cde",
+  "bios": {
+    "bytes": 8192,
+    "sha256": "990bf1956f10207d8781b619eb74f89b00d921c8d45c95c334c16c8cceca09ad",
+    "rst_jumps_at": [
+      "0008",
+      "0010",
+      "0018",
+      "0020",
+      "0028",
+      "0030",
+      "0038"
+    ],
+    "rst_destinations": [
+      "800C",
+      "800F",
+      "8012",
+      "8015",
+      "8018",
+      "801B",
+      "801E"
+    ],
+    "nmi_jump_at": "0066",
+    "nmi_destination": "8021",
+    "entry_vector": "800A",
+    "skip_title_signature_check_at": "006E",
+    "title_signature_check_at": "13AB"
+  },
+  "result": "Original BIOS handed off through the normal MediaSet loader; original guest wrote 0x42 to 0x6000 in two frames. This is header/entry validation, not mapper or commercial-game qualification.",
+  "fixture_correction": "The old application fixtures used raw 0x5A images. They now have AA55 headers and read payload byte 0x8002, preserving the mapping, reset, variant switch and source-removal invariants.",
+  "raw_insertion": "Public signature unchanged; raw diagnostic insertion and existing raw snapshots remain supported."
+}
