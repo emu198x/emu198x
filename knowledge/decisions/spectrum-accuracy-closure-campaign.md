@@ -82,7 +82,7 @@ will be seen.
 Ranks are from [`spectrum-test-oracle-priority.md`](spectrum-test-oracle-priority.md).
 Rank 1 — real-hardware RZX replay — **has no harness and has never run**. The
 decision has carried it as "harness pending" since 2026-05-18;
-`format-sinclair-zx-spectrum-rzx` parses and writes RZX but has no replay
+`format198x-sinclair-zx-spectrum-rzx` parses and writes RZX but has no replay
 consumer and no tests directory.
 
 The Tom Harte figure required fixing the gate first. It resolved no corpus and
@@ -257,7 +257,7 @@ version bump at all; this campaign does not repeat that.
 5. **Reconcile the `Float48K` probe offset** against the published real-hardware
    value, and record whether the two-T-state difference is a frame-origin
    convention or a behaviour question.
-6. **Build the RZX replay harness** on `format-sinclair-zx-spectrum-rzx`,
+6. **Build the RZX replay harness** on `format198x-sinclair-zx-spectrum-rzx`,
    filling the empty rank-1 slot in the adjudication order and converting RZX
    Archive recordings into deterministic, T-state-bounded per-title tests. Start
    with recordings of catalogue titles so harness and catalogue cross-check each

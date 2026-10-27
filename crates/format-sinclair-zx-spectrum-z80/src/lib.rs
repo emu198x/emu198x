@@ -1,250 +1,70 @@
-//! .z80 snapshot format parser.
+//! `.z80` snapshots as Emu198x machine state.
 //!
-//! Supports v1, v2, and v3 formats. Decompresses ED ED-compressed data
-//! and maps hardware types to Spectrum models. The `.sna` format lives
-//! in the sibling `format-sinclair-zx-spectrum-sna` crate; both produce
-//! the same `Snapshot` value defined in `format-sinclair-zx-spectrum-snapshot`.
+//! The file layout, including version 1 to 3 headers and `ED ED` page
+//! compression, lives in `format198x-sinclair-zx-spectrum-z80`. This adapter
+//! turns one into the shared [`Snapshot`] the Spectrum machines restore from,
+//! as Format198x's graduation record (rule 5) leaves to the emulator. The
+//! `.sna` adapter lives in the sibling `format-sinclair-zx-spectrum-sna`.
+//!
+//! Hardware modes follow the published table for each version. Machines this
+//! emulator has no model for (Interface 1, MGT, SamRam, Didaktik, Timex)
+//! restore as the 48K or 128K they extend, and an unknown mode as a 48K.
 //!
 //! Format reference: <https://worldofspectrum.org/faq/reference/z80format.htm>
 
 use format_sinclair_zx_spectrum_snapshot::{Snapshot, SnapshotModel};
+use format198x_sinclair_zx_spectrum_z80::{Machine, Z80Snapshot};
 
-/// Parse a .z80 file.
+/// Parse a .z80 file into machine state.
+///
+/// # Errors
+///
+/// Returns an error when the header or extension is truncated, or an
+/// uncompressed version 1 image is shorter than 48K.
 pub fn parse_z80(data: &[u8]) -> Result<Snapshot, String> {
-    if data.len() < 30 {
-        return Err("File too short for .z80 header".into());
-    }
-
-    let af = u16::from_be_bytes([data[0], data[1]]); // A then F (big-endian!)
-    let bc = read_u16(data, 2);
-    let hl = read_u16(data, 4);
-    let pc_v1 = read_u16(data, 6);
-    let sp = read_u16(data, 8);
-    let i = data[10];
-    let mut r = data[11] & 0x7F;
-    let byte12 = if data[12] == 0xFF { 1 } else { data[12] };
-    r |= (byte12 & 0x01) << 7; // Bit 7 of R from byte 12
-    let border = (byte12 >> 1) & 0x07;
-    let compressed_v1 = byte12 & 0x20 != 0;
-    let de = read_u16(data, 13);
-    let bc_alt = read_u16(data, 15);
-    let de_alt = read_u16(data, 17);
-    let hl_alt = read_u16(data, 19);
-    let af_alt = u16::from_be_bytes([data[21], data[22]]); // A' then F'
-    let iy = read_u16(data, 23);
-    let ix = read_u16(data, 25);
-    let iff1 = data[27] != 0;
-    let iff2 = data[28] != 0;
-    let im = data[29] & 0x03;
-
-    if pc_v1 != 0 {
-        // Version 1: 48K only, data follows the 30-byte header
-        let raw = &data[30..];
-        let mem = if compressed_v1 {
-            decompress_v1(raw)?
-        } else {
-            if raw.len() < 49152 {
-                return Err(format!("v1 uncompressed data too short: {}", raw.len()));
-            }
-            raw[..49152].to_vec()
-        };
-
-        // Split into v2/v3-compatible page numbers:
-        // page 8 = $4000-$7FFF, page 4 = $8000-$BFFF, page 5 = $C000-$FFFF
-        let pages = vec![
-            (8, mem[..16384].to_vec()),
-            (4, mem[16384..32768].to_vec()),
-            (5, mem[32768..49152].to_vec()),
-        ];
-
-        return Ok(Snapshot {
-            af,
-            bc,
-            de,
-            hl,
-            af_alt,
-            bc_alt,
-            de_alt,
-            hl_alt,
-            ix,
-            iy,
-            sp,
-            pc: pc_v1,
-            i,
-            r,
-            im,
-            iff1,
-            iff2,
-            border,
-            model: SnapshotModel::Spectrum48K,
-            port_7ffd: 0,
-            port_1ffd: 0,
-            ay_register: 0,
-            ay_regs: [0; 16],
-            pages,
-        });
-    }
-
-    // Version 2 or 3: extended header. The two read_u16 calls below
-    // touch bytes at offsets 30, 31, 32, and 33 — so we need at least
-    // 34 bytes, not 32. Without this larger guard a 32- or 33-byte
-    // file panics in `read_u16(data, 32)`.
-    if data.len() < 34 {
-        return Err("File too short for v2/v3 header".into());
-    }
-    let ext_len = read_u16(data, 30) as usize;
-    let pc = read_u16(data, 32);
-
-    if data.len() < 32 + ext_len {
-        return Err("File too short for extended header".into());
-    }
-
-    let hw_mode = data[34];
-    let port_7ffd = data[35];
-    let ay_register = if ext_len >= 25 { data[38] } else { 0 };
-    let mut ay_regs = [0u8; 16];
-    if ext_len >= 41 {
-        ay_regs.copy_from_slice(&data[39..55]);
-    }
-
-    // Byte 86 of the file = byte 54 of the extension (0-indexed). It
-    // is only present when the extension is at least 55 bytes long
-    // (the +3 disk-system port_1ffd byte). The original `>= 54` guard
-    // accessed data[86] for a 54-byte extension, which only stretches
-    // through data[85] — a one-byte over-read.
-    let port_1ffd = if ext_len >= 55 { data[86] } else { 0 };
-
-    // Map hardware mode to model
-    let model = match (ext_len, hw_mode) {
-        (23, 0) | (54.., 0) => SnapshotModel::Spectrum48K,
-        (23, 1) | (54.., 1) => SnapshotModel::Spectrum48K, // 48K + IF1
-        (23, 2) => SnapshotModel::Spectrum48K,             // SamRam (treat as 48K)
-        (23, 3) | (54.., 3) => SnapshotModel::Spectrum128K,
-        (23, 4) | (54.., 4) => SnapshotModel::Spectrum128K, // 128K + IF1
-        (54.., 5) => SnapshotModel::Spectrum128K,           // +2
-        (54.., 6) => SnapshotModel::SpectrumPlus2A,
-        (54.., 7) => SnapshotModel::SpectrumPlus2A, // +2A
-        (54.., 9) => SnapshotModel::Pentagon128,
-        (54.., 10) => SnapshotModel::Scorpion256,
-        (54.., 12) => SnapshotModel::SpectrumPlus2,  // +2
-        (54.., 13) => SnapshotModel::SpectrumPlus2A, // +2A
-        _ => SnapshotModel::Spectrum48K,             // Default fallback
-    };
-
-    // Parse memory pages
-    let mut offset = 32 + ext_len;
-    let mut pages = Vec::new();
-
-    while offset + 3 <= data.len() {
-        let block_len = read_u16(data, offset) as usize;
-        let page_num = data[offset + 2];
-        offset += 3;
-
-        if block_len == 0xFFFF {
-            // Uncompressed: 16384 bytes follow
-            if offset + 16384 > data.len() {
-                break;
-            }
-            pages.push((page_num, data[offset..offset + 16384].to_vec()));
-            offset += 16384;
-        } else {
-            if offset + block_len > data.len() {
-                break;
-            }
-            let decompressed = decompress_page(&data[offset..offset + block_len])?;
-            pages.push((page_num, decompressed));
-            offset += block_len;
-        }
-    }
-
+    let z80 = Z80Snapshot::parse(data).map_err(|error| error.to_string())?;
+    let regs = z80.registers;
     Ok(Snapshot {
-        af,
-        bc,
-        de,
-        hl,
-        af_alt,
-        bc_alt,
-        de_alt,
-        hl_alt,
-        ix,
-        iy,
-        sp,
-        pc,
-        i,
-        r,
-        im,
-        iff1,
-        iff2,
-        border,
-        model,
-        port_7ffd,
-        port_1ffd,
-        ay_register,
-        ay_regs,
-        pages,
+        af: regs.af,
+        bc: regs.bc,
+        de: regs.de,
+        hl: regs.hl,
+        af_alt: regs.af_alt,
+        bc_alt: regs.bc_alt,
+        de_alt: regs.de_alt,
+        hl_alt: regs.hl_alt,
+        ix: regs.ix,
+        iy: regs.iy,
+        sp: regs.sp,
+        pc: regs.pc,
+        i: regs.i,
+        r: regs.r,
+        im: regs.im,
+        iff1: regs.iff1,
+        iff2: regs.iff2,
+        border: z80.border,
+        model: model(z80.machine()),
+        port_7ffd: z80.port_7ffd().unwrap_or(0),
+        port_1ffd: z80.port_1ffd().unwrap_or(0),
+        ay_register: z80.ay_register().unwrap_or(0),
+        ay_regs: z80.ay_registers().unwrap_or([0; 16]),
+        pages: z80.pages,
     })
 }
 
-/// Decompress v1 format (whole 48K block, terminated by 00 ED ED 00).
-fn decompress_v1(data: &[u8]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(49152);
-    let mut i = 0;
-
-    while i < data.len() && out.len() < 49152 {
-        if i + 3 < data.len()
-            && data[i] == 0x00
-            && data[i + 1] == 0xED
-            && data[i + 2] == 0xED
-            && data[i + 3] == 0x00
-        {
-            break; // End marker
+/// The model a snapshot's machine restores as.
+fn model(machine: Machine) -> SnapshotModel {
+    match machine {
+        Machine::Spectrum128K | Machine::Spectrum128KInterface1 | Machine::Spectrum128KMgt => {
+            SnapshotModel::Spectrum128K
         }
-
-        if i + 3 < data.len() && data[i] == 0xED && data[i + 1] == 0xED {
-            let count = data[i + 2] as usize;
-            let val = data[i + 3];
-            for _ in 0..count {
-                out.push(val);
-            }
-            i += 4;
-        } else {
-            out.push(data[i]);
-            i += 1;
-        }
+        Machine::SpectrumPlus2 => SnapshotModel::SpectrumPlus2,
+        Machine::SpectrumPlus2A => SnapshotModel::SpectrumPlus2A,
+        Machine::SpectrumPlus3 => SnapshotModel::SpectrumPlus3,
+        Machine::Pentagon128 => SnapshotModel::Pentagon128,
+        Machine::Scorpion256 => SnapshotModel::Scorpion256,
+        _ => SnapshotModel::Spectrum48K,
     }
-
-    // Pad to 49152 if needed
-    out.resize(49152, 0);
-    Ok(out)
-}
-
-/// Decompress a v2/v3 page block (ED ED compressed, fixed output size 16384).
-fn decompress_page(data: &[u8]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(16384);
-    let mut i = 0;
-
-    while i < data.len() && out.len() < 16384 {
-        if i + 3 < data.len() && data[i] == 0xED && data[i + 1] == 0xED {
-            let count = data[i + 2] as usize;
-            let val = data[i + 3];
-            for _ in 0..count {
-                if out.len() < 16384 {
-                    out.push(val);
-                }
-            }
-            i += 4;
-        } else {
-            out.push(data[i]);
-            i += 1;
-        }
-    }
-
-    out.resize(16384, 0);
-    Ok(out)
-}
-
-fn read_u16(data: &[u8], pos: usize) -> u16 {
-    u16::from_le_bytes([data[pos], data[pos + 1]])
 }
 
 #[cfg(test)]
@@ -275,17 +95,6 @@ mod tests {
         // Hardware mode at offset 34
         h[34] = hw_mode;
         h
-    }
-
-    #[test]
-    fn decompress_simple() {
-        // ED ED 03 42 = repeat 0x42 three times
-        let data = vec![0xED, 0xED, 0x03, 0x42];
-        let out = decompress_page(&data).expect("the page decompresses");
-        assert_eq!(out[0], 0x42);
-        assert_eq!(out[1], 0x42);
-        assert_eq!(out[2], 0x42);
-        assert_eq!(out[3], 0x00); // Padding
     }
 
     #[test]
@@ -446,7 +255,7 @@ mod tests {
         data[6] = 0;
         data[7] = 0;
         let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
-        assert!(err.contains("v2/v3 header"));
+        assert!(err.contains("extended header"), "got {err:?}");
     }
 
     #[test]
@@ -463,15 +272,14 @@ mod tests {
     /// this test: a 32-byte buffer marked as v2/v3 (PC=0) used to
     /// panic in `read_u16(data, 32)` because the early-exit guard
     /// permitted any buffer ≥ 32 bytes through, while the read needs
-    /// 34 bytes. After the fix, the function returns a clean
-    /// "v2/v3 header" error.
+    /// 34 bytes. It now returns a clean "extended header" error.
     #[test]
     fn v2_header_32_byte_buffer_returns_error_not_panic() {
         let mut data = vec![0u8; 32];
         data[6] = 0;
         data[7] = 0;
         let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
-        assert!(err.contains("v2/v3 header"), "got {err:?}");
+        assert!(err.contains("extended header"), "got {err:?}");
     }
 
     /// Regression for the `data[86]` over-read fixed alongside this
@@ -495,7 +303,7 @@ mod tests {
         let data = v2_header(23, 0);
         let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum48K);
-        // ay_register stays 0 (ext_len < 25), ay_regs all zeros.
+        // The fixture's AY bytes are zero.
         assert_eq!(snap.ay_register, 0);
         assert_eq!(snap.ay_regs, [0; 16]);
         assert_eq!(snap.port_1ffd, 0);
@@ -544,18 +352,30 @@ mod tests {
         assert_eq!(snap.model, SnapshotModel::Spectrum128K);
     }
 
+    /// Version 3 mode 6 is a 128K with an MGT interface, which restores as
+    /// the 128K. This reader used to take it for a +2A.
     #[test]
-    fn v3_hw_mode_6_is_plus2a() {
+    fn v3_hw_mode_6_is_128k_with_mgt() {
         let data = v2_header(55, 6);
         let snap = parse_z80(&data).expect("the z80 fixture parses");
-        assert_eq!(snap.model, SnapshotModel::SpectrumPlus2A);
+        assert_eq!(snap.model, SnapshotModel::Spectrum128K);
     }
 
+    /// Version 3 mode 7 is a +3. This reader used to take it for a +2A.
     #[test]
-    fn v3_hw_mode_7_is_plus2a() {
+    fn v3_hw_mode_7_is_plus3() {
         let data = v2_header(55, 7);
         let snap = parse_z80(&data).expect("the z80 fixture parses");
-        assert_eq!(snap.model, SnapshotModel::SpectrumPlus2A);
+        assert_eq!(snap.model, SnapshotModel::SpectrumPlus3);
+    }
+
+    /// Version 3 mode 3 is a 48K with an MGT interface, where version 2's
+    /// mode 3 is a 128K. This reader used to read both as a 128K.
+    #[test]
+    fn v3_hw_mode_3_is_48k_with_mgt() {
+        let data = v2_header(55, 3);
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
+        assert_eq!(snap.model, SnapshotModel::Spectrum48K);
     }
 
     #[test]
@@ -588,12 +408,29 @@ mod tests {
 
     #[test]
     fn v2_extension_25_bytes_reads_ay_register() {
-        // ext_len=25 → ay_register at offset 38 is decoded; ay_regs not.
+        // ext_len=25 → ay_register at offset 38 is decoded.
         let mut data = v2_header(25, 0);
         data[38] = 0x07;
         let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.ay_register, 0x07);
         assert_eq!(snap.ay_regs, [0; 16]);
+    }
+
+    /// A version 2 header (23 bytes) already holds the AY state at offsets
+    /// 38 to 54, so a 128K saved as version 2 restores its sound chip. This
+    /// reader used to ignore it below a 41-byte extension.
+    #[test]
+    fn v2_23_byte_extension_restores_ay_state() {
+        let mut data = v2_header(23, 3);
+        data[38] = 0x0E;
+        for (index, byte) in data[39..55].iter_mut().enumerate() {
+            *byte = 0x10 + u8::try_from(index).expect("sixteen registers");
+        }
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
+        assert_eq!(snap.model, SnapshotModel::Spectrum128K);
+        assert_eq!(snap.ay_register, 0x0E);
+        assert_eq!(snap.ay_regs[0], 0x10);
+        assert_eq!(snap.ay_regs[15], 0x1F);
     }
 
     #[test]
@@ -714,68 +551,5 @@ mod tests {
         assert_eq!(snap.pages[1].1[0], 0x99);
         assert_eq!(snap.pages[1].1[1], 0x88);
         assert_eq!(snap.pages[1].1[2], 0x88);
-    }
-
-    // ---------------- decompression edges ----------------
-
-    #[test]
-    fn decompress_page_literal_only_pads_to_16k() {
-        let data = vec![0x12, 0x34, 0x56];
-        let out = decompress_page(&data).expect("the page decompresses");
-        assert_eq!(out.len(), 16384);
-        assert_eq!(out[0], 0x12);
-        assert_eq!(out[1], 0x34);
-        assert_eq!(out[2], 0x56);
-        assert_eq!(out[3], 0x00);
-    }
-
-    #[test]
-    fn decompress_page_caps_output_at_16k() {
-        // Repeated maximal RLE blocks would produce more than 16384 bytes
-        // if not capped. The function must clamp the inner push loop and
-        // the output length both at 16384.
-        let mut data = Vec::new();
-        // 100 RLE blocks × 255 bytes = 25500 bytes' worth of writes.
-        for _ in 0..100 {
-            data.extend_from_slice(&[0xED, 0xED, 0xFF, 0x42]);
-        }
-        let out = decompress_page(&data).expect("the page decompresses");
-        assert_eq!(out.len(), 16384);
-        assert_eq!(out[0], 0x42);
-        assert_eq!(out[16383], 0x42);
-    }
-
-    #[test]
-    fn decompress_page_marker_at_eof_passes_through_as_literal() {
-        // ED ED at the very end without count/value bytes — the i+3<len
-        // guard fails, so each byte is taken literally.
-        let data = vec![0xED, 0xED];
-        let out = decompress_page(&data).expect("the page decompresses");
-        assert_eq!(out[0], 0xED);
-        assert_eq!(out[1], 0xED);
-    }
-
-    #[test]
-    fn decompress_v1_recognises_end_marker_and_pads() {
-        // 00 ED ED 00 = end marker; rest of buffer fills with zeros.
-        let data = vec![0x12, 0x34, 0x00, 0xED, 0xED, 0x00, 0x99, 0x99];
-        let out = decompress_v1(&data).expect("the v1 body decompresses");
-        assert_eq!(out.len(), 49152);
-        assert_eq!(out[0], 0x12);
-        assert_eq!(out[1], 0x34);
-        // After end marker the rest is zero-padded.
-        assert_eq!(out[2], 0x00);
-        assert_eq!(out[3], 0x00);
-    }
-
-    #[test]
-    fn decompress_v1_rle_block_then_literal() {
-        let data = vec![
-            0xED, 0xED, 0x05, 0x77, // RLE x5
-            0x88, // literal
-            0x00, 0xED, 0xED, 0x00, // end marker
-        ];
-        let out = decompress_v1(&data).expect("the v1 body decompresses");
-        assert_eq!(&out[..6], &[0x77, 0x77, 0x77, 0x77, 0x77, 0x88]);
     }
 }

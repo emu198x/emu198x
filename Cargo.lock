@@ -2368,8 +2368,8 @@ version = "0.45.0"
 dependencies = [
  "common-acorn-cassette",
  "flate2",
+ "format198x-acorn-uef",
  "serde",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2464,18 +2464,11 @@ name = "format-sinclair-zx-spectrum-mdr"
 version = "0.45.0"
 
 [[package]]
-name = "format-sinclair-zx-spectrum-rzx"
-version = "0.45.0"
-dependencies = [
- "flate2",
- "serde",
-]
-
-[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.45.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
+ "format198x-sinclair-zx-spectrum-sna",
 ]
 
 [[package]]
@@ -2488,6 +2481,7 @@ version = "0.45.0"
 dependencies = [
  "flate2",
  "format-sinclair-zx-spectrum-snapshot",
+ "format198x-sinclair-zx-spectrum-szx",
 ]
 
 [[package]]
@@ -2503,6 +2497,7 @@ name = "format-sinclair-zx-spectrum-z80"
 version = "0.45.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
+ "format198x-sinclair-zx-spectrum-z80",
 ]
 
 [[package]]
@@ -2526,6 +2521,15 @@ name = "format198x-acorn-atom-atm"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02276d5338ce39a5f0fbdb05ec7d4aae5d4eefdd035701f52a3d0ecd027d2c78"
+
+[[package]]
+name = "format198x-acorn-uef"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f11af37df0f6dd9636f4f3241e68d0050b19518bc6d0fa09a372e1cb0bf16ddc"
+dependencies = [
+ "format198x-deflate",
+]
 
 [[package]]
 name = "format198x-amstrad-cpc-dsk"
@@ -2612,6 +2616,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f3132d7ad85b7814df33c018e0131ed115b8486e206155fe5720e7ae83e7bad"
 
 [[package]]
+name = "format198x-deflate"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "296666a556d220264342f3ffe23cc319132922e15d5853079c1c27ae76ca4ad6"
+
+[[package]]
 name = "format198x-jupiter-ace-ace"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2624,10 +2634,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b454ee397e33f200d79a874639aeff1fe4d990e68438076f3dc05054c94126f"
 
 [[package]]
+name = "format198x-sinclair-zx-spectrum-sna"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26802f2cc96b8e2e4e8fb125646f142e6165d2a55390c457af8d2ea08cf31b9f"
+
+[[package]]
+name = "format198x-sinclair-zx-spectrum-szx"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f69a54aa6d9afb23fd6d94f1afb67afb12372f9d08873200eb05408c43fdb64"
+dependencies = [
+ "format198x-deflate",
+]
+
+[[package]]
 name = "format198x-sinclair-zx-spectrum-tap"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
+
+[[package]]
+name = "format198x-sinclair-zx-spectrum-z80"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1d7705b8c6461d1a8887ee028f102be2c25cca580429c347bd8cd972093ebcd"
 
 [[package]]
 name = "format198x-sinclair-zx80-o"

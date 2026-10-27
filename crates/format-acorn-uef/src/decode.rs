@@ -1,26 +1,15 @@
-//! UEF container decoding: gzip layer, chunk walking, and waveform synthesis.
+//! Cassette waveform synthesis from a UEF image's tape chunks.
 //!
-//! Ported from MAME's `src/lib/formats/uef_cas.cpp` (Wilbert Pol, BSD-3-Clause),
-//! re-expressed as a clock-neutral [`TapePulse`] stream rather than fixed-rate
-//! PCM, and using `flate2` for the optional gzip layer.
-
-use std::io::Read;
-
-use flate2::read::GzDecoder;
+//! The container (gzip layer, magic, chunk walking) is
+//! `format198x-acorn-uef`'s. What a tape chunk sounds like is this crate's:
+//! ported from MAME's `src/lib/formats/uef_cas.cpp` (Wilbert Pol,
+//! BSD-3-Clause) and re-expressed as a clock-neutral [`TapePulse`] stream
+//! rather than fixed-rate PCM.
 
 use common_acorn_cassette::TapePulse;
+use format198x_acorn_uef::{TapeChunk, Uef, UefError};
 
-use crate::error::UefError;
 use crate::pulse::UefTape;
-
-/// 10-byte signature every (decompressed) UEF image begins with: `UEF File!\0`.
-const MAGIC: [u8; 10] = [0x55, 0x45, 0x46, 0x20, 0x46, 0x69, 0x6c, 0x65, 0x21, 0x00];
-
-/// Two-byte gzip signature.
-const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-
-/// Offset of the first chunk: the magic plus the two version bytes.
-const FIRST_CHUNK: usize = MAGIC.len() + 2;
 
 /// Default Kansas-City base frequency in hertz. A `0` bit is one cycle here; a
 /// `1` bit is two cycles at twice this frequency.
@@ -29,53 +18,19 @@ const DEFAULT_BASE_HZ: f64 = 1200.0;
 /// Parse a UEF image into its cassette waveform.
 ///
 /// Accepts both raw and gzip-compressed images. Returns [`UefError`] when the
-/// gzip layer is corrupt, the magic is absent, or a chunk runs past the end of
-/// the image.
+/// gzip layer is corrupt, the magic is absent, a chunk runs past the end of
+/// the image, or a tape chunk is shorter than its fields.
 pub fn parse(data: &[u8]) -> Result<UefTape, UefError> {
-    let inflated = inflate_if_gzip(data)?;
-    let bytes: &[u8] = &inflated;
-
-    if bytes.len() < FIRST_CHUNK {
-        return Err(UefError::TooSmall(bytes.len()));
-    }
-    if bytes[..MAGIC.len()] != MAGIC {
-        return Err(UefError::BadMagic);
-    }
-
+    let uef = Uef::parse(data)?;
     let mut decoder = Decoder::new();
-    let mut pos = FIRST_CHUNK;
-    while pos + 6 <= bytes.len() {
-        let id = u16le(&bytes[pos..]).ok_or(UefError::BadMagic)?;
-        let length = u32le(&bytes[pos + 2..]).ok_or(UefError::BadMagic)? as usize;
-        let payload_start = pos + 6;
-        let available = bytes.len() - payload_start;
-        if length > available {
-            return Err(UefError::TruncatedChunk {
-                id,
-                offset: pos,
-                length,
-                available,
-            });
+    for chunk in &uef.chunks {
+        match chunk.tape()? {
+            Some(tape) => decoder.chunk(chunk.id, tape),
+            // Recognised but not synthesised (metadata, or not yet modelled).
+            None => decoder.skipped.push(chunk.id),
         }
-        let payload = &bytes[payload_start..payload_start + length];
-        decoder.chunk(id, payload, pos)?;
-        pos = payload_start + length;
     }
-
     Ok(decoder.finish())
-}
-
-/// Inflate `data` when it carries the gzip signature, otherwise borrow it.
-fn inflate_if_gzip(data: &[u8]) -> Result<std::borrow::Cow<'_, [u8]>, UefError> {
-    if data.len() >= 2 && data[..2] == GZIP_MAGIC {
-        let mut out = Vec::new();
-        GzDecoder::new(data)
-            .read_to_end(&mut out)
-            .map_err(|e| UefError::Gzip(e.to_string()))?;
-        Ok(std::borrow::Cow::Owned(out))
-    } else {
-        Ok(std::borrow::Cow::Borrowed(data))
-    }
 }
 
 /// Byte framing parity for `&0104` defined-format data blocks.
@@ -193,138 +148,61 @@ impl Decoder {
         }
     }
 
-    /// Decode one chunk into the waveform.
-    fn chunk(&mut self, id: u16, payload: &[u8], offset: usize) -> Result<(), UefError> {
-        match id {
+    /// Decode one tape chunk into the waveform.
+    fn chunk(&mut self, id: u16, tape: TapeChunk<'_>) {
+        match tape {
             // Implicit-framing (8N1) data block.
-            0x0100 => {
-                for &byte in payload {
+            TapeChunk::ImplicitData(data) => {
+                for &byte in data {
                     self.framed_byte(byte, 8, Parity::None, 1);
                 }
             }
-            // Defined-format data block: a 3-byte framing header then data.
-            0x0104 => {
-                if payload.len() < 3 {
-                    return Err(UefError::MalformedChunk {
-                        id,
-                        offset,
-                        field: 3,
-                    });
-                }
-                let data_bits = payload[0];
-                let parity = match payload[1] {
+            // Defined-format data block: its own framing, then data.
+            TapeChunk::DefinedFormat {
+                data_bits,
+                parity,
+                stop_bits,
+                data,
+            } => {
+                let parity = match parity {
                     b'E' | b'e' => Parity::Even,
                     b'O' | b'o' => Parity::Odd,
                     _ => Parity::None,
                 };
                 // Stop-bit count is signed; a negative value adds an extra short
                 // high-tone cycle, which we approximate by its magnitude here.
-                let stop_bits = (payload[2] as i8).unsigned_abs();
-                for &byte in &payload[3..] {
+                let stop_bits = stop_bits.unsigned_abs();
+                for &byte in data {
                     self.framed_byte(byte, data_bits, parity, stop_bits);
                 }
             }
             // Carrier tone: a run of high-frequency cycles.
-            0x0110 => {
-                let cycles = u16le(payload).ok_or(UefError::MalformedChunk {
-                    id,
-                    offset,
-                    field: 2,
-                })?;
-                self.cycles(self.one_half_ns, u32::from(cycles));
-            }
+            TapeChunk::Carrier { cycles } => self.cycles(self.one_half_ns, u32::from(cycles)),
             // Carrier tone with a dummy `&AA` byte between two runs.
-            0x0111 => {
-                if payload.len() < 4 {
-                    return Err(UefError::MalformedChunk {
-                        id,
-                        offset,
-                        field: 4,
-                    });
-                }
-                let before = u16le(&payload[0..]).unwrap_or(0);
-                let after = u16le(&payload[2..]).unwrap_or(0);
+            TapeChunk::CarrierWithDummy { before, after } => {
                 self.cycles(self.one_half_ns, u32::from(before));
                 self.framed_byte(0xAA, 8, Parity::None, 1);
                 self.cycles(self.one_half_ns, u32::from(after));
             }
             // Integer gap: silence measured in half-base-period units.
-            0x0112 => {
-                let units = u16le(payload).ok_or(UefError::MalformedChunk {
-                    id,
-                    offset,
-                    field: 2,
-                })?;
+            TapeChunk::IntegerGap { units } => {
                 let ns = (f64::from(units) * self.gap_unit_ns).round() as u64;
                 self.gap(ns);
             }
             // Base-frequency change.
-            0x0113 => {
-                let hz = uef_float(payload).ok_or(UefError::MalformedChunk {
-                    id,
-                    offset,
-                    field: 4,
-                })?;
-                self.set_base(hz);
-            }
+            TapeChunk::BaseFrequency(hz) => self.set_base(f64::from(hz)),
             // Floating-point gap in seconds.
-            0x0116 => {
-                let seconds = uef_float(payload).ok_or(UefError::MalformedChunk {
-                    id,
-                    offset,
-                    field: 4,
-                })?;
+            TapeChunk::FloatGap(seconds) => {
                 if seconds > 0.0 {
-                    self.gap((seconds * 1.0e9).round() as u64);
+                    self.gap((f64::from(seconds) * 1.0e9).round() as u64);
                 }
             }
             // Baud-rate change: only the standard 1200 and 300 are modelled.
-            0x0117 => {
-                let baud = u16le(payload).ok_or(UefError::MalformedChunk {
-                    id,
-                    offset,
-                    field: 2,
-                })?;
-                match baud {
-                    1200 => self.loops = 1,
-                    300 => self.loops = 4,
-                    _ => self.skipped.push(id),
-                }
-            }
-            // Recognised but not synthesised (metadata, or not yet modelled).
-            _ => self.skipped.push(id),
+            TapeChunk::BaudRate(baud) => match baud {
+                1200 => self.loops = 1,
+                300 => self.loops = 4,
+                _ => self.skipped.push(id),
+            },
         }
-        Ok(())
     }
-}
-
-/// Read a little-endian `u16` from the front of `bytes`.
-fn u16le(bytes: &[u8]) -> Option<u16> {
-    match bytes {
-        [a, b, ..] => Some(u16::from_le_bytes([*a, *b])),
-        _ => None,
-    }
-}
-
-/// Read a little-endian `u32` from the front of `bytes`.
-fn u32le(bytes: &[u8]) -> Option<u32> {
-    match bytes {
-        [a, b, c, d, ..] => Some(u32::from_le_bytes([*a, *b, *c, *d])),
-        _ => None,
-    }
-}
-
-/// Decode a UEF 4-byte float (IEEE-754 single, little-endian) into seconds/hertz.
-fn uef_float(bytes: &[u8]) -> Option<f64> {
-    let [b0, b1, b2, b3, ..] = bytes else {
-        return None;
-    };
-    let mantissa = (u32::from(*b0) | (u32::from(*b1) << 8) | (u32::from(*b2) << 16)) | 0x0080_0000;
-    let mut result = f64::from(mantissa) * 2f64.powi(-23);
-    let exponent = i32::from((u16::from_le_bytes([*b2, *b3]) & 0x7f80) >> 7) - 127;
-    result *= 2f64.powi(exponent);
-    if b3 & 0x80 != 0 {
-        result = -result;
-    }
-    Some(result)
 }
