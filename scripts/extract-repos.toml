@@ -179,14 +179,6 @@ consumers = "Used by the ColecoVision, Memotech MTX, MSX, Sega SG-1000, Sord M5,
 coverage_floor = 95
 
 [[repo]]
-name = "ti-sn76489"
-crates = ["emu198x-ti-sn76489"]
-summary = "The Texas Instruments SN76489 programmable sound generator."
-consumers = "Used by the BBC Micro, ColecoVision, Memotech MTX, Sega Master System, SG-1000 and Mega Drive, and Sord M5."
-# 92.47% line coverage on 2026-10-24.
-coverage_floor = 92
-
-[[repo]]
 name = "intel-8255"
 crates = ["emu198x-intel-8255"]
 summary = "The Intel 8255 programmable peripheral interface."

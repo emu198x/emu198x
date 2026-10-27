@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-ti-sn76489 = { path = "../emu198x-ti-sn76489", version = "0.1.0" }
+emu198x-ti-sn76489 = "0.1.0"
 emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
 emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
