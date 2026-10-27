@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/script_load_basic_program.rs (/private/tmp/198x-small-fixes-target/debug/deps/script_load_basic_program-26dbc70369d25283)
+
+running 1 test
+test a_script_can_load_and_run_a_basic_program ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.02s
+

@@ -71,3 +71,29 @@ A2000 prose: Commodore's Release 2 Getting Started chip table explicitly lists
 8370 NTSC/8371 PAL, while rev6 PN 314135-02 lists 8372. Profile/chip comments
 now distinguish these boards; this does not select a new emulated board or
 change chip behaviour. Formatting/diff checks pass.
+
+## Smaller scope corrections and remaining frame issue
+
+#2137 now names the UI audit's finite 30-adapter scope and the four later
+native adapters; all 30 rows and local links were checked. #2143 removes
+SC-3000 from three active Cargo descriptions. Cargo metadata confirms the
+shipped descriptions; historical release text remains with an Unreleased
+clarification. SC-3000 implementation stays in #224/#225.
+
+#2136 is reproduced using an original 32 KiB LoROM and no firmware. Requests
+1/2/5 emit 2/4/10 NTSC frames and 2/3/6 PAL frames. The first machine frame
+ends at the PPU's V=240 output boundary, before the nominal full-frame target;
+NTSC's alternating short field also falls below that fixed budget. The runtime
+keeps calling run_frame until its time target is reached, while the shared
+session assumes a fixed budget per requested frame. Source inspected:
+HeadlessSession::run_frames, SnesRuntime::run_until, Snes::run_frame and the
+PPU counter/line_start. Ares's SFC counter and the existing machine tests retain
+variable field timing. Do not change silicon timing, halve N or change only the
+reported count. A correct shared native-frame stepping contract needs separate
+design; this issue remains open. The bounded diagnostic is retained beside
+this plan, outside the ordinary passing test suite.
+
+[Verification receipts and fixture identities](2026-10-27-small-issue-fixes/verification.json)
+and adjacent logs retain the before/after results. No copyrighted ROM bytes
+are committed. The SNES reproducer accepts explicit binary/output paths and
+exits nonzero for extra frames; its output directory must be new.

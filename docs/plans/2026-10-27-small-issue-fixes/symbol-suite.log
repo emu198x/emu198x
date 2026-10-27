@@ -1,0 +1,84 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src/main.rs (/private/tmp/198x-small-fixes-target/debug/deps/emu198x_dragon-9b09f3c70c8bcf27)
+
+running 68 tests
+test app::tests::defaults_match_the_harness ... ok
+test app::tests::frames_is_rejected_as_the_harness_always_did ... ok
+test script::tests::classifies_started_graphics_that_draws_after_settle ... ok
+test script::tests::classifies_machine_code_autorun_after_load ... ok
+test app::tests::dragon64_takes_its_mode_rom ... ok
+test app::tests::media_flags_parse_in_every_mode ... ok
+test app::tests::the_shared_script_flag_parses ... ok
+test app::tests::a_positional_rom_opens_the_window ... ok
+test app::tests::a_bad_model_is_a_usage_error ... ok
+test app::tests::mcp_takes_precedence_over_harness_flags ... ok
+test app::tests::harness_flags_route_to_script_mode_without_headless ... ok
+test script::tests::cli_allows_conventional_firmware ... ok
+test app::tests::a_bare_rom_and_the_shared_media_flags_open_the_window ... ok
+test app::tests::a_bad_harness_value_is_a_usage_error ... ok
+test script::tests::cli_parses_bin_smoke_root ... ok
+test script::tests::cli_parses_binary_program_path ... ok
+test script::tests::cli_parses_cartridge_path ... ok
+test script::tests::cli_parses_direct_screenshot_options ... ok
+test script::tests::cli_accumulates_repeated_watch_ranges ... ok
+test script::tests::cli_parses_disk_output_path ... ok
+test script::tests::cli_parses_disk_path ... ok
+test script::tests::cli_parses_disk_smoke_root ... ok
+test script::tests::cli_parses_dragon64_firmware_paths ... ok
+test script::tests::cli_parses_hex_cycles_and_trace_limit ... ok
+test script::tests::cli_parses_snapshot_path ... ok
+test script::tests::cli_parses_snapshot_smoke_root ... ok
+test script::tests::cli_parses_typed_command ... ok
+test script::tests::cli_parses_raw_matrix_key_presses ... ok
+test script::tests::cli_parses_write_watch_range ... ok
+test script::tests::cli_parses_xroar_reference_options ... ok
+test script::tests::cli_parses_named_dragon_key_presses_semantically ... ok
+test script::tests::cli_rejects_mixed_smoke_roots ... ok
+test script::tests::cli_parses_smoke_matrix_options ... ok
+test script::tests::cli_rejects_invalid_smoke_joystick_options ... ok
+test script::tests::dragon32_rejects_mode_rom_argument ... ok
+test script::tests::dragon_dos_dir_command_lists_vdk_directory ... ok
+test script::tests::dragon_dos_save_command_exports_persisted_vdk_entry ... ok
+test script::tests::dragon_key_labels_map_to_confirmed_matrix_positions ... ok
+test script::tests::disk_launch_prefers_title_matched_binary_over_utility_basic ... ok
+test script::tests::dragon_key_parser_accepts_control_key_aliases ... ok
+test script::tests::pcdragon_snapshot_can_be_converted_to_xroar_v1_snapshot ... ok
+test script::tests::image_comparison_reports_dimension_and_pixel_differences ... ok
+test script::tests::harness_exports_mounted_disk_as_vdk ... ok
+test script::tests::coco_catalogue_chips_are_composed_for_the_typed_command_harness ... ok
+test script::tests::disk_directory_counter_detects_known_entry_layouts ... ok
+test script::tests::coco_keeps_color_basic_only_and_combined_image_inputs ... ok
+test script::tests::load_dragon_firmware_accepts_dragon64_pair ... ok
+test script::tests::smoke_axis_values_match_shared_normalized_range ... ok
+test script::tests::smoke_axis_sweep_values_include_endpoints ... ok
+test script::tests::snapshot_smoke_classification_uses_stop_and_visible_pixels ... ok
+test script::tests::typed_command_cycle_budget_rounds_up_to_frames ... ok
+test script::tests::harness_can_dump_sam_selected_text_screen ... ok
+test script::tests::xroar_reference_config_requires_bin_and_output_dir ... ok
+test script::tests::xroar_sam_video_mode_uses_sam_counter_modes_not_vdg_gm_bits ... ok
+test script::tests::xroar_snapshot_reference_traps_at_snapshot_pc ... ok
+test script::tests::xroar_type_text_matches_dragon_load_command ... ok
+test script::tests::xroar_v2_component_range_stops_at_structural_close_tag ... ok
+test script::tests::xroar_v2_pia_side_a_is_patched_to_inactive_input_state ... ok
+test script::tests::xroar_v2_vuint_fields_can_be_patched_and_upserted ... ok
+test script::tests::xroar_v2_vuint_round_trips_boundary_values ... ok
+test script::tests::xroar_v2_vdg_patch_starts_references_at_clean_scanline_phase ... ok
+test script::tests::load_rom_accepts_zip_archives ... ok
+test script::tests::typed_command_uses_the_runtime_keyboard_legends ... ok
+test script::tests::completed_frame_screenshot_phase_advances_to_video_frame_boundary ... ok
+test script::tests::completed_frame_screenshot_phase_uses_actual_video_phase_for_fast_sam_cycles ... ok
+test script::tests::xroar_zoomed_screenshot_scales_active_area_without_downscaling ... ok
+test script::tests::xroar_zoomed_screenshot_accepts_pal_overscan_frames ... ok
+test script::tests::bin_smoke_matrix_runs_synthetic_program_when_dragon_rom_available ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+
+     Running tests/catalogue.rs (/private/tmp/198x-small-fixes-target/debug/deps/catalogue-cb9b4649df1850e5)
+
+running 3 tests
+test scripts_resolve_models_and_clear_media_on_switch ... ok
+test mcp_honours_model_and_catalogue_pin_without_home ... ok
+test missing_mode_rom_and_bad_pins_are_errors_in_every_launch_mode ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+

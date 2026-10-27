@@ -1,0 +1,184 @@
+{
+  "source_base": "aa2d177f7e52959ee9830dc439a23311e7fdc33e",
+  "current_task_head": "494b7aa317b4615354689368b0451d9143740284",
+  "checks": [
+    {
+      "log": "einstein-red.log",
+      "results": [
+        "test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "sha256": "6d18f30a0e550ebaa9b79314153f30f945db3f101434fbe545aa117f9388988a"
+    },
+    {
+      "log": "einstein-green.log",
+      "results": [
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "sha256": "cf5cd660edfb3262a58849e62c09f3960a578e3f937b1b9f9c9e7d1ebd7669cb"
+    },
+    {
+      "log": "einstein-final.log",
+      "results": [
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "sha256": "2933d01c2e691fc687eb30aa042ac748676ac879139b10e4d7ea294f0573a47e"
+    },
+    {
+      "log": "einstein-clippy.log",
+      "results": [],
+      "sha256": "3c6dc71f3c1e1c317a33c5a66f72dedbcb737f87def61bcc4765880a456e8f31"
+    },
+    {
+      "log": "c64-red.log",
+      "results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.61s"
+      ],
+      "sha256": "3ae1f4fa61222a980a21678f3e5c0557be4734a27000d3283efcc3232e0c8e35"
+    },
+    {
+      "log": "c64-green.log",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.13s"
+      ],
+      "sha256": "5040efa8de25f302dc5bef79e9bc8e62eeb1437152e9013e19e008a62634e8bd"
+    },
+    {
+      "log": "c64-suite.log",
+      "results": [
+        "test result: ok. 22 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "sha256": "024da602c9699bc16d58c940ff52b613049e60d8261c3d70b14ede69ecc7868d"
+    },
+    {
+      "log": "c64-script.log",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.02s"
+      ],
+      "sha256": "9187e88fb6a426aec4f6f5abff8f4827316da9ec9eeae836cb059de9cb0d2a87"
+    },
+    {
+      "log": "c64-clippy.log",
+      "results": [],
+      "sha256": "a40c67226d308cf4ed1ec980b17b7cf8562c0fafa4a3e1ac165b6c5118547289"
+    },
+    {
+      "log": "coco-red.log",
+      "results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 66 filtered out; finished in 0.00s"
+      ],
+      "sha256": "b2cd61989cb238efdbbbafbf9af174794abbed070eb8fa4c9cff04131329748e"
+    },
+    {
+      "log": "coco-green.log",
+      "results": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 66 filtered out; finished in 0.01s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s"
+      ],
+      "sha256": "9ef5ce0788574f43f848ef72b8921b7e5726021e30d951429132bf43987e557d"
+    },
+    {
+      "log": "coco-suite.log",
+      "results": [
+        "test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s"
+      ],
+      "sha256": "83c63fe432ad954ab0ae69ccb74da648ce7dd688d4590bad71d722b4f330eeb5"
+    },
+    {
+      "log": "coco-clippy.log",
+      "results": [],
+      "sha256": "fdfd6bcdac5e81322c58f7408f1700c78929939d9fc459bbf97980a185aa7f71"
+    },
+    {
+      "log": "symbol-red.log",
+      "results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.00s"
+      ],
+      "sha256": "a877e46c0a584623d89a5a5776bf1a3b9370033c48766cdd475b84b3098480e7"
+    },
+    {
+      "log": "symbol-green.log",
+      "results": [
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 65 filtered out; finished in 0.01s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s"
+      ],
+      "sha256": "763708e3a0a3ef03b1b9ccd7f1828ede0afb50366dd06c3687ba83c88f9f868f"
+    },
+    {
+      "log": "symbol-suite.log",
+      "results": [
+        "test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s"
+      ],
+      "sha256": "d73f20795c7c14c24984db3e2e5d02758a0be54885a600f3b8fa7a0d385aeb59"
+    },
+    {
+      "log": "symbol-clippy.log",
+      "results": [],
+      "sha256": "1b2edcf61b76c1a382980b82647566d6ceebcde6a768af7de16ab7d09d094cb0"
+    }
+  ],
+  "fixture_identities": [
+    {
+      "file": "kernal.rom",
+      "size": 8192,
+      "sha256": "83c60d47047d7beab8e5b7bf6f67f80daa088b7a6a27de0d7e016f6484042721"
+    },
+    {
+      "file": "basic.rom",
+      "size": 8192,
+      "sha256": "89878cea0a268734696de11c4bae593eaaa506465d2029d619c0e0cbccdfa62d"
+    },
+    {
+      "file": "chargen.rom",
+      "size": 4096,
+      "sha256": "fd0d53b8480e86163ac98998976c72cc58d5dd8eb824ed7b829774e74213b420"
+    },
+    {
+      "file": "dragon32.rom",
+      "size": 16384,
+      "sha256": "fc0e900bfec6b52f0f80ba1e65a4712808d2a411b5b00496639ef1a2152351f1"
+    },
+    {
+      "model": "coco1",
+      "archive": "coco.zip",
+      "member": "bas12.rom",
+      "sha256": "40413d0f8bc1bb345ffe49404b3bf645a5417b02f32266536f6566dbf9ca70fb"
+    },
+    {
+      "model": "coco1",
+      "archive": "coco.zip",
+      "member": "extbas11.rom",
+      "sha256": "a18f270d3495d82b9f515de049f46253a623a2d9b1bb226c9ad338508344c5ee"
+    },
+    {
+      "model": "coco2",
+      "archive": "coco2b.zip",
+      "member": "bas13.rom",
+      "sha256": "5375b1caef9df815b781d9cd6df81ecdaddd2642b06a01adac521e40f1329751"
+    },
+    {
+      "model": "coco2",
+      "archive": "coco.zip",
+      "member": "extbas11.rom",
+      "sha256": "a18f270d3495d82b9f515de049f46253a623a2d9b1bb226c9ad338508344c5ee"
+    }
+  ],
+  "original_programs": "Synthetic EDSK/DSK sector patterns; BASIC 10 POKE 49152,42; PRINT 6*7 and PRINT 6+7. Copyrighted ROM bytes are not committed.",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+}
