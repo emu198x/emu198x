@@ -1,15 +1,25 @@
 # Native UI catalogue audit
 
-Source audit dated 2026-09-08, covering the runtime catalogue migrations
-described here. This is a source-level coverage audit, not a claim that every
-preset has booted or passed hardware validation.
+This source audit covers the 30 binary adapters listed below. Its catalogue
+migration review dates from 2026-09-08; the table is a limited inventory, not a
+complete census of the current registry. Profile and menu counts describe the
+reviewed scope, not a fresh launch or hardware-validation result.
+
+The later Atari ST, SNES, Mega Drive and Neo Geo binaries are outside this
+inventory. For current launch coverage, start with
+[current system usability](current-system-usability.md) and the
+[system registry](systems.toml). Their native adapters are in
+[`atari-st`](../../crates/emu198x-atari-st/src/ui.rs),
+[`snes`](../../crates/emu198x-snes/src/ui.rs),
+[`sega-mega-drive`](../../crates/emu198x-sega-mega-drive/src/ui.rs) and
+[`snk-neo-geo`](../../crates/emu198x-snk-neo-geo/src/ui.rs).
 
 ## Coverage
 
-All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Twenty-three expose a Machine-menu selector, covering
-every binary with multiple runtime profiles. The remaining seven have a single
-runtime profile.
+The 30 listed binaries have native `UiApp` adapters and enable the UI feature
+by default. At the inventory review, twenty-three exposed a Machine-menu
+selector and the other seven had a single runtime profile. These counts apply
+to this table only; they do not describe every binary or profile now registered.
 
 The shared native menu is attached on **macOS and Windows**. On Windows the
 one unsafe call it needs lives in `emu198x-win-menu`
