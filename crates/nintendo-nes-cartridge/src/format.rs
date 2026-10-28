@@ -13,8 +13,8 @@ use format_nintendo_nes_ines::HeaderMirroring;
 use crate::mapper::{Mapper, Mirroring};
 use crate::mappers::{
     action53::Action53, axrom::AxRom, bxrom::BxRom, camerica::Camerica, cnrom::CnRom,
-    colordreams::ColorDreams, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001, nrom::Nrom,
-    sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a, vrc4::Vrc4,
+    colordreams::ColorDreams, gxrom::GxRom, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001,
+    nrom::Nrom, sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a, vrc4::Vrc4,
 };
 use crate::mappers::{fme7::Fme7, namco163::Namco163, vrc6::Vrc6, vrc7::Vrc7};
 
@@ -124,6 +124,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         28 => Box::new(Action53::new(prg_rom, chr_data)),
         34 if chr_data.is_empty() => Box::new(BxRom::new(prg_rom, mirroring)),
         34 => Box::new(Nina001::new(prg_rom, chr_data, mirroring)),
+        66 => Box::new(GxRom::new(prg_rom, chr_data, mirroring)?),
         68 => Box::new(Sunsoft4::new(prg_rom, chr_data, mirroring)),
         71 => Box::new(Camerica::new(prg_rom, mirroring)),
         19 => Box::new(Namco163::new(prg_rom, chr_data)),
@@ -139,7 +140,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
                  (AxROM), Mapper 11 (Color Dreams), Mapper 22 (VRC2a), \
                  Mappers 21, 23 and 25 (VRC2b/c and VRC4), \
                  Mapper 19 (Namco 163), Mapper 24 and 26 (VRC6), \
-                 Mapper 28 (Action 53), Mapper 34 (BxROM/BNROM and NINA-001), Mapper 68 \
+                 Mapper 28 (Action 53), Mapper 34 (BxROM/BNROM and NINA-001), Mapper 66 (GxROM), Mapper 68 \
                  (Sunsoft-4), Mapper 69 (FME-7 / 5B), Mapper 71 (Camerica) and \
                  Mapper 85 (VRC7). Additional mappers \
                  will land as compatibility expands."

@@ -1,0 +1,46 @@
+{
+  "rom_sha256": "873cfac986b87e8958862a046cee171d7c8fc6c04df10447a18aeb4c40792456",
+  "body_crc32": "11FD22D2",
+  "receipts": [
+    {
+      "mode": "default",
+      "differing_ram_offsets": [
+        32,
+        33,
+        96,
+        97
+      ],
+      "conflict_observations": [
+        131,
+        131,
+        163,
+        163
+      ]
+    },
+    {
+      "mode": "and",
+      "differing_ram_offsets": [],
+      "conflict_observations": [
+        129,
+        130,
+        161,
+        162
+      ]
+    },
+    {
+      "mode": "unmasked",
+      "differing_ram_offsets": [
+        32,
+        33,
+        96,
+        97
+      ],
+      "conflict_observations": [
+        131,
+        131,
+        163,
+        163
+      ]
+    }
+  ]
+}
