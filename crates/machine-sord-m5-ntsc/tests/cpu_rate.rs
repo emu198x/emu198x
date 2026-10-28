@@ -20,7 +20,7 @@
 //! else can be.
 
 use emu198x_zilog_z80::Z80Stepper;
-use machine_sord_m5::{M5Region, SordM5};
+use machine_sord_m5_ntsc::SordM5;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -28,7 +28,7 @@ const NOP_TSTATES: u64 = 4;
 #[test]
 fn a_nop_costs_four_tstates() {
     // 8 KB of `NOP` in place of the monitor ROM, no cartridge.
-    let mut m5 = SordM5::new(vec![0x00u8; 8 * 1024], Vec::new(), M5Region::Pal);
+    let mut m5 = SordM5::new(vec![0x00u8; 8 * 1024], Vec::new());
 
     // Clear the reset sequence so the measurement covers steady-state `NOP`s
     // rather than whatever the first instruction happens to be.

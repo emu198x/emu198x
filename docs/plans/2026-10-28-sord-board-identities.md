@@ -60,3 +60,29 @@ chip emulation, infer new board identities from ROM names, or change snapshots.
 User approved this Sord split on 2026-10-28, including its internal API and
 workspace dependencies, starting before release #2170. Registry publishing
 remains outside this PR. Baseline fixtures are captured from ee937d475.
+
+## Verification of the split
+
+- The original serialized state declaration is identical, including skipped
+  diagnostics. All 42 original non-constructor method bodies agree after
+  removing field qualification and formatting; clock/event order is unchanged.
+- Frozen old v5 files restore, re-encode and continue with identical complete
+  state, framebuffer, sample bytes and native frame times. A flipped expected
+  audio byte makes the comparison fail. Opposite-board and falsely labelled
+  states are rejected, with failed runtime restore leaving the session intact.
+- Port alias coverage remains 128 combinations across the two concrete boards:
+  each now asserts its own 16×4 CTC and 8×8 VDP matrix. Shared-core tests cover
+  wiring internals; board integration tests are separate evidence owners.
+- The identified European BIOS (SHA-1 ac042c4ae8272ad6abe09ae83492ef9a0026d0b2)
+  boots BASIC-I to its prompt and Dig Dug through 1,000 gameplay frames, with
+  exactly 1,000 CTC channel-3 interrupts and 310 distinct sprite tables.
+  The local TOSEC firmware archive contains that same European image. No
+  Japanese BIOS was found, so NTSC qualification here uses synthetic guests
+  and frozen continuation, not a claimed matched Japanese firmware boot.
+- Existing profile IDs and browser family route stay unchanged; only the
+  machine IDs become distinct. Native state paths use profile IDs. The status
+  registry explicitly names each board owner while retaining the shared family
+  label/milestone; shared runtime evidence does not qualify either board alone.
+- TI output wording is corrected from the original manual in umbrella PR #287.
+  PAL legacy PSG state (#252) and staged pre-BIOS snapshots (#2186) remain
+  separate work; no save version or existing state bytes were changed.

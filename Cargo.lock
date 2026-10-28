@@ -573,6 +573,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sord-m5"
+version = "0.45.1"
+dependencies = [
+ "emu198x-ti-sn76489",
+ "emu198x-ti-tms9918",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "emu198x-zilog-z80-ctc",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2095,7 +2109,6 @@ dependencies = [
  "emu198x-ti-tms9918",
  "emu198x-ui",
  "emu198x-zilog-z80",
- "machine-sord-m5",
  "png",
  "runtime-sord-m5",
  "serde_json",
@@ -4131,17 +4144,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-sord-m5"
+name = "machine-sord-m5-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-ti-sn76489",
- "emu198x-ti-tms9918",
+ "common-sord-m5",
  "emu198x-z80-cadence",
  "emu198x-zilog-z80",
- "emu198x-zilog-z80-ctc",
  "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-sord-m5-pal"
+version = "0.45.1"
+dependencies = [
+ "common-sord-m5",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
 ]
 
 [[package]]
@@ -5746,10 +5765,12 @@ dependencies = [
 name = "runtime-sord-m5"
 version = "0.45.1"
 dependencies = [
+ "common-sord-m5",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-zilog-z80",
- "machine-sord-m5",
+ "machine-sord-m5-ntsc",
+ "machine-sord-m5-pal",
  "postcard",
  "serde",
  "serde_json",

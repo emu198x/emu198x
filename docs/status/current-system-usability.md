@@ -3,11 +3,11 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. Thirty machines across thirty shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 38 machines across 34 shipping crates.
 
 ## How to read this
 
-**Own crates** are reachable from this machine's shipping crate and no other, so their tests are evidence about this machine. **Shared crates** are common to several machines — `emu198x-zilog-z80` passing says nothing about whether the Einstein boots. A machine with few own crates has little that can be said about it specifically, however green the suite looks.
+**Own crates** are exclusive to one shipping crate, or to an explicit concrete board when siblings share a binary. Their tests provide evidence about that owner. Family runtime and common wiring remain shared when board owners are explicit. **Shared crates** are common to several machines — `emu198x-zilog-z80` passing says nothing about whether the Einstein boots. A machine with few own crates has little that can be said about it specifically, however green the suite looks.
 
 **There are no test counts on this page.** They would be stale within a day, and a page that is usually wrong trains people to stop reading it. Counts are published as the `status-evidence` artifact on every CI run, where being a snapshot is the point. See [the evidence decision](../../knowledge/decisions/evidence-is-what-ran-not-what-was-claimed.md).
 
@@ -48,10 +48,11 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `sinclair-zx80` | `emu198x-sinclair-zx80` | 3 | 6 | [system:zx80](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Azx80) | [ZX80 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ZX80+100%25%22) |
 | `sinclair-zx81` | `emu198x-sinclair-zx81` | 3 | 6 | [system:zx81](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Azx81) | [ZX81 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ZX81+100%25%22) |
 | `snk-neo-geo` | `emu198x-snk-neo-geo` | 6 | 8 | [system:neo-geo](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aneo-geo) | [Neo Geo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Neo+Geo+100%25%22) |
-| `sord-m5` | `emu198x-sord-m5` | 3 | 5 | [system:sord-m5](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asord-m5) | [Sord M5 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Sord+M5+100%25%22) |
+| `sord-m5-ntsc` | `emu198x-sord-m5` | 1 | 8 | [system:sord-m5](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asord-m5) | [Sord M5 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Sord+M5+100%25%22) |
+| `sord-m5-pal` | `emu198x-sord-m5` | 1 | 8 | [system:sord-m5](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asord-m5) | [Sord M5 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Sord+M5+100%25%22) |
 | `spectravideo-svi-328` | `emu198x-spectravideo-svi-328` | 3 | 5 | [system:svi-328](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asvi-328) | [SVI-328 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SVI-328+100%25%22) |
 | `tandy-coco` ⚠️ | `emu198x-dragon` | 3 | 5 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
 | `tatung-einstein` | `emu198x-tatung-einstein` | 3 | 5 | [system:einstein](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aeinstein) | [Tatung Einstein 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Tatung+Einstein+100%25%22) |
 
-⚠️ Shares a shipping crate with another machine, so neither one's evidence can be told from the other's.
+⚠️ Shares a shipping crate without an explicit concrete board owner, so neither one's evidence can be told from the other's.
 

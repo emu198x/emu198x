@@ -29,6 +29,10 @@ that machine's own evidence. A crate in several closures is **shared**
 (`cpu-z80`, `emu198x-shell`), and its tests are evidence for all of them
 but distinguish none of them.
 
+When a family binary contains multiple concrete boards, an explicit
+`machine_crate` registry field narrows ownership to that board closure.
+The sibling board is excluded; runtime and common wiring remain shared.
+
 The distinction is the point. A machine whose only passing tests live in
 `cpu-z80` has no machine-specific evidence at all, however green CI looks.
 
@@ -85,6 +89,7 @@ import time
 from pathlib import Path
 
 import tomllib
+from evidence_ownership import partitions
 
 REPO = Path(__file__).resolve().parents[2]
 REGISTRY = REPO / "docs" / "status" / "systems.toml"
@@ -551,22 +556,16 @@ def main() -> int:
         tally["targets"].append(result)
 
     systems = []
+    ownership = partitions(registry, closures)
     for system in sorted(registry, key=lambda s: s["machine_id"]):
         crate = system["crate"]
-        own = sorted(c for c in closures[crate] if reach[c] == {crate})
-        shared = sorted(c for c in closures[crate] if len(reach[c]) > 1)
-        # Two machines shipping from one crate cannot have separate own
-        # evidence — #998 is the request to split exactly that case.
-        cohabiting = sorted(
-            s["machine_id"]
-            for s in registry
-            if s["crate"] == crate and s["machine_id"] != system["machine_id"]
-        )
+        own, shared, cohabiting = ownership[system["machine_id"]]
         systems.append(
             {
                 "machine_id": system["machine_id"],
                 "crate": crate,
                 "shares_crate_with": cohabiting,
+                "machine_crate": system.get("machine_crate"),
                 "own_crates": own,
                 "shared_crates": shared,
                 "own": roll_up(own, by_package),

@@ -81,17 +81,20 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("sord-m5"),
+        machine_id: match model {
+            Model::M5Ntsc => MachineId::from("sord-m5-ntsc"),
+            Model::M5Pal => MachineId::from("sord-m5-pal"),
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
         release_year: 1982,
-        summary: "Sord M5 — Z80A + TMS9918A + SN76489, 4 KB RAM, monitor + BASIC-I ROM in 8 KB, cartridge slot.".into(),
+        summary: "Sord M5 — Z80A, TMS9918-family video, SN76489, 4 KB RAM and an 8 KB monitor ROM; BASIC-I is a separate cartridge.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
         firmware: vec![FirmwareRequirement::new(
             ROM_FIRMWARE_ID,
-            "Sord M5 monitor + BASIC-I ROM (8 KB)",
+            "Sord M5 monitor ROM (8 KB)",
             false,
         )],
         media_slots: vec![MediaSlot::new(

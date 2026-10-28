@@ -10,7 +10,9 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-ti-tms9918 = "0.1.0"
-machine-sord-m5 = { path = "../machine-sord-m5", version = "0.45.0" }
+common-sord-m5 = { path = "../common-sord-m5", version = "0.45.0" }
+machine-sord-m5-ntsc = { path = "../machine-sord-m5-ntsc", version = "0.45.0" }
+machine-sord-m5-pal = { path = "../machine-sord-m5-pal", version = "0.45.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

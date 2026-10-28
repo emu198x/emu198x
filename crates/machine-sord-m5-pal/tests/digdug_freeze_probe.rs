@@ -11,7 +11,7 @@
 //! masked the gap). MAME inverts the line into TRG3
 //! (`vdp.int_callback().set(m_ctc, trg3).invert()`); inverting it moves the
 //! falling edge to VBlank, so ch3 fires once per frame, the vblank-synced round
-//! logic advances, and the game plays. See `machine-sord-m5/src/lib.rs`.
+//! logic advances, and the game plays. See `common-sord-m5/src/lib.rs`.
 //!
 //! `cart_round_spawns_and_runs` asserts the game leaves its pre-play state;
 //! `vdp_int_drives_ctc_channel3` asserts the frame interrupt reaches the CPU
@@ -20,7 +20,7 @@
 //! Gated `#[ignore]`. Run with:
 //! ```text
 //! EMU198X_SORD_M5_BIOS=/path/sord-m5.rom EMU198X_SORD_M5_CART=/path/digdug.bin \
-//!   cargo test --release -p machine-sord-m5 \
+//!   cargo test --release -p machine-sord-m5-pal \
 //!     --test digdug_freeze_probe -- --ignored --nocapture
 //! ```
 
@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 
-use machine_sord_m5::{M5Region, SordM5};
+use machine_sord_m5_pal::SordM5;
 
 /// Sum of M5 work RAM ($7000-$7FFF) — a cheap fingerprint of game state.
 fn ram_fingerprint(sys: &SordM5) -> u32 {
@@ -62,7 +62,7 @@ fn cart_round_spawns_and_runs() {
         .and_then(|p| fs::read(p).ok())
         .expect("set EMU198X_SORD_M5_CART to the Dig Dug cart");
 
-    let mut sys = SordM5::new(bios, cart, M5Region::Ntsc);
+    let mut sys = SordM5::new(bios, cart);
 
     // Boot to the title screen, then start a 1-player game with the "1" key.
     for _ in 0..400 {
@@ -164,7 +164,7 @@ fn vdp_int_drives_ctc_channel3() {
         .ok()
         .and_then(|p| fs::read(p).ok())
         .expect("set EMU198X_SORD_M5_CART to the Dig Dug cart");
-    let mut sys = SordM5::new(bios, cart, M5Region::Ntsc);
+    let mut sys = SordM5::new(bios, cart);
 
     for _ in 0..400 {
         sys.run_frame();

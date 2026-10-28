@@ -1,6 +1,6 @@
 [package]
-name = "machine-sord-m5"
-description = "Sord M5 machine wiring — Z80 + TMS9918A + SN76489A"
+name = "common-sord-m5"
+description = "Shared Sord M5 wiring with compile-time board selection"
 version.workspace = true
 publish = false
 edition.workspace = true

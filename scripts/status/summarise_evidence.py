@@ -31,7 +31,9 @@ def main() -> int:
     if not path.exists():
         # The collector died before writing. Say so rather than print an
         # empty summary that reads like a clean run.
-        print("## Test evidence\n\nNo ledger was written — the collector did not finish.")
+        print(
+            "## Test evidence\n\nNo ledger was written — the collector did not finish."
+        )
         return 0
 
     data = json.loads(path.read_text())
@@ -59,7 +61,12 @@ def main() -> int:
 
     reasons = data.get("ignored_reasons", [])
     if reasons:
-        out += ["### Why tests did not run", "", "| Tests | Stated reason |", "|---|---|"]
+        out += [
+            "### Why tests did not run",
+            "",
+            "| Tests | Stated reason |",
+            "|---|---|",
+        ]
         for entry in reasons[:TOP_REASONS]:
             reason = entry["reason"].replace("|", "\\|")
             out.append(f"| {entry['tests']} | {reason} |")
@@ -82,9 +89,11 @@ def main() -> int:
         out += [
             "### Evidence by machine",
             "",
-            "`own` counts tests in crates reachable from this machine alone. "
-            "`shared` counts crates it has in common with other machines, which "
-            "cannot tell them apart.",
+            (
+                "`own` counts tests in crates reachable from this machine alone. "
+                "`shared` counts crates it has in common with other machines, which "
+                "cannot tell them apart."
+            ),
             "",
             "| Machine | Own passed | Own not run | Shared passed |",
             "|---|---|---|---|",
@@ -93,16 +102,16 @@ def main() -> int:
             own, shared = system["own"], system["shared"]
             not_run = own["ignored"] + own["skipped"]
             name = system["machine_id"]
-            if system["shares_crate_with"]:
+            if system["shares_crate_with"] and not system.get("machine_crate"):
                 name += " ⚠️"
-            out.append(
-                f"| {name} | {own['passed']} | {not_run} | {shared['passed']} |"
-            )
-        if any(s["shares_crate_with"] for s in systems):
+            out.append(f"| {name} | {own['passed']} | {not_run} | {shared['passed']} |")
+        if any(s["shares_crate_with"] and not s.get("machine_crate") for s in systems):
             out += [
                 "",
-                "⚠️ shares a shipping crate with another machine, so neither "
-                "machine's own evidence can be told from the other's.",
+                (
+                    "⚠️ shares a shipping crate with another machine, so neither "
+                    "machine's own evidence can be told from the other's."
+                ),
             ]
         out.append("")
 

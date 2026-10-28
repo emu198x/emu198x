@@ -6,8 +6,8 @@
 //! Game Boy shape: a borrowing envelope for encode (no clone), an owning
 //! envelope for decode.
 
+use crate::machine::M5Machine as SordM5;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_sord_m5::SordM5;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::M5Runtime;
@@ -76,6 +76,17 @@ pub(crate) fn decode(runtime: &mut M5Runtime, bytes: &[u8]) -> Result<(), Machin
                 snapshot.model_id,
                 runtime.model().model_id()
             ),
+        });
+    }
+    if snapshot.machine.as_ref().is_some_and(|machine| {
+        let expected = match runtime.model() {
+            crate::profiles::Model::M5Ntsc => common_sord_m5::M5Region::Ntsc,
+            crate::profiles::Model::M5Pal => common_sord_m5::M5Region::Pal,
+        };
+        machine.region() != expected
+    }) {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot board does not match its runtime profile".to_owned(),
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));
