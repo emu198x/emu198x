@@ -142,6 +142,12 @@ impl CvRuntime {
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         }
+        // Reset/replacement must use the restored images, not stale host caches.
+        self.bios_bytes = machine.as_ref().map(|m| m.firmware_rom().to_vec());
+        self.cart_bytes = machine.as_ref().and_then(|m| {
+            let bytes = m.cartridge_rom();
+            (!bytes.is_empty()).then(|| bytes.to_vec())
+        });
         self.machine = machine;
         self.update_rgba_framebuffer();
     }

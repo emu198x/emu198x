@@ -98,6 +98,8 @@ impl Sg1000Runtime {
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         }
+        // Reset/replacement must use the restored images, not stale host caches.
+        self.cart_bytes = machine.as_ref().map(|m| m.cartridge_rom().to_vec());
         self.machine = machine;
         self.update_rgba_framebuffer();
     }

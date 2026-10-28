@@ -173,6 +173,12 @@ pub struct Sg1000 {
 }
 
 impl Sg1000 {
+    /// Original cartridge image retained by the live machine.
+    #[must_use]
+    pub fn cartridge_rom(&self) -> &[u8] {
+        &self.cart_rom
+    }
+
     /// Create a new SG-1000 with the given cartridge ROM.
     #[must_use]
     pub fn new(cart_rom: Vec<u8>, region: Sg1000Region) -> Self {
