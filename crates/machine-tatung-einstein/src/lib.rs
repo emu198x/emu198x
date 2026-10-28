@@ -304,6 +304,13 @@ impl Einstein {
     }
 
     /// Run one frame and return T-states consumed.
+    /// Retain the VDP completion outcome rather than counting a timeout.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let before = self.frame_count;
+        let ticks = self.run_frame();
+        (ticks, self.frame_count != before)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         // The keyboard is serviced from a ~50 Hz interrupt: once per frame,
         // if the interrupt is enabled and any matrix key is down, raise it.

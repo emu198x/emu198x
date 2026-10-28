@@ -585,6 +585,10 @@ impl MachineCore for SpectrumRuntimeKind {
         match_kind!(self, |rt| rt.export_media(slot, format))
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        match_kind!(self, |rt| rt.run_frame(host))
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

@@ -280,6 +280,7 @@ fn stop_reason_name(stop_reason: StopReason) -> &'static str {
         crate::StopReason::WaitingForInput => "waiting_for_input",
         crate::StopReason::Breakpoint => "breakpoint",
         crate::StopReason::Halted => "halted",
+        crate::StopReason::NoFrame => "no_frame",
     }
 }
 

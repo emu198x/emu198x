@@ -243,6 +243,75 @@ impl emu198x_shell::FamilyRuntime for M5Runtime {
     }
 }
 
+impl M5Runtime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        if self.machine.is_none() {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+        for event in host.input_events {
+            if let Some(machine) = self.machine.as_mut() {
+                apply_input_event(machine, &mut self.controller_cache, event);
+            }
+        }
+        while self.time < target {
+            let (ticks, completed) = if one_frame {
+                self.machine
+                    .as_mut()
+                    .expect("machine checked above")
+                    .run_native_frame()
+            } else {
+                (
+                    self.machine
+                        .as_mut()
+                        .expect("machine checked above")
+                        .run_frame(),
+                    true,
+                )
+            };
+            self.time = self.time.saturating_add(ticks);
+            self.update_rgba_framebuffer();
+            if !one_frame || completed {
+                host.frame_sink.push_frame(FramePacket {
+                    signal: None,
+                    timestamp: self.time,
+                    format: PixelFormat::Rgba8888,
+                    width: self.rgba_width,
+                    height: self.rgba_height,
+                    palette: None,
+                    pixels: &self.rgba_framebuffer,
+                })?;
+            }
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: AUDIO_SAMPLE_RATE,
+                channels: 1,
+                samples: &audio,
+            })?;
+            if one_frame {
+                return Ok(RunResult::new(
+                    self.time,
+                    if completed {
+                        StopReason::ReachedTarget
+                    } else {
+                        StopReason::NoFrame
+                    },
+                ));
+            }
+        }
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl MachineCore for M5Runtime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -279,50 +348,18 @@ impl MachineCore for M5Runtime {
         }
         Ok(())
     }
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        if self.machine.is_none() {
-            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
-        }
-        for event in host.input_events {
-            if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, &mut self.controller_cache, event);
-            }
-        }
-        while self.time < target {
-            let ticks = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .run_frame();
-            self.time = self.time.saturating_add(ticks);
-            self.update_rgba_framebuffer();
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Rgba8888,
-                width: self.rgba_width,
-                height: self.rgba_height,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-            let audio = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .take_audio_buffer();
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
-                channels: 1,
-                samples: &audio,
-            })?;
-        }
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
+
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
         snapshot::encode(self)
     }

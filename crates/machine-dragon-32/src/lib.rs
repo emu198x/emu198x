@@ -4047,8 +4047,30 @@ impl Dragon32 {
     /// traces.
     #[must_use]
     pub fn run_cycles_with_options(&mut self, cycle_limit: u64, options: RunOptions) -> RunReport {
+        self.run_window(cycle_limit, options, false).0
+    }
+
+    /// Run to the next physical video wrap, preserving the normal cycle trace.
+    /// The bound allows at least one full field even at the fastest SAM rate;
+    /// CPU halt can end the attempt early. The bool reports an actual wrap.
+    #[must_use]
+    pub fn run_frame(&mut self, trace_limit: usize) -> (RunReport, bool) {
+        self.run_window(
+            self.video.standard.frame_master_ticks(),
+            RunOptions::new(trace_limit),
+            true,
+        )
+    }
+
+    fn run_window(
+        &mut self,
+        cycle_limit: u64,
+        options: RunOptions,
+        one_frame: bool,
+    ) -> (RunReport, bool) {
         let trace_limit = options.trace_limit;
         let start_master_ticks = self.master_ticks;
+        let mut frame_completed = false;
         let mut trace = Vec::new();
         let mut dropped_trace = 0usize;
         let mut device_accesses = Vec::new();
@@ -4159,6 +4181,7 @@ impl Dragon32 {
                     )
                 });
 
+            let frame_phase_before = self.video.cycle_in_frame;
             let event = self.step_cycle_with_diagnostic_trace(
                 run_cycle,
                 &mut pia_signals,
@@ -4168,6 +4191,7 @@ impl Dragon32 {
                 trace_limit,
             );
             run_cycles = run_cycle.saturating_add(1);
+            frame_completed |= self.video.cycle_in_frame < frame_phase_before;
 
             if self.cpu.nmi != last_nmi {
                 last_nmi = self.cpu.nmi;
@@ -4300,39 +4324,45 @@ impl Dragon32 {
                 stop_reason = StopReason::CpuHalted;
                 break;
             }
+            if one_frame && frame_completed {
+                break;
+            }
         }
 
-        RunReport {
-            stop_reason,
-            cycles: run_cycles,
-            master_ticks: self.master_ticks.saturating_sub(start_master_ticks),
-            instructions: run_instructions,
-            pc: self.cpu.regs.pc,
-            addr: self.cpu.addr,
-            rw: self.cpu.rw,
-            last_fetch,
-            trace,
-            dropped_trace,
-            device_accesses,
-            dropped_device_accesses,
-            readonly_writes,
-            dropped_readonly_writes,
-            watched_fetches,
-            dropped_watched_fetches,
-            watched_writes,
-            dropped_watched_writes,
-            pia_signals,
-            dropped_pia_signals,
-            interrupt_lines,
-            dropped_interrupt_lines,
-            interrupt_accepts,
-            dropped_interrupt_accepts,
-            vdg_samples,
-            dropped_vdg_samples,
-            vdg_mode_writes,
-            dropped_vdg_mode_writes,
-            text_screen_base: self.text_screen_base(),
-        }
+        (
+            RunReport {
+                stop_reason,
+                cycles: run_cycles,
+                master_ticks: self.master_ticks.saturating_sub(start_master_ticks),
+                instructions: run_instructions,
+                pc: self.cpu.regs.pc,
+                addr: self.cpu.addr,
+                rw: self.cpu.rw,
+                last_fetch,
+                trace,
+                dropped_trace,
+                device_accesses,
+                dropped_device_accesses,
+                readonly_writes,
+                dropped_readonly_writes,
+                watched_fetches,
+                dropped_watched_fetches,
+                watched_writes,
+                dropped_watched_writes,
+                pia_signals,
+                dropped_pia_signals,
+                interrupt_lines,
+                dropped_interrupt_lines,
+                interrupt_accepts,
+                dropped_interrupt_accepts,
+                vdg_samples,
+                dropped_vdg_samples,
+                vdg_mode_writes,
+                dropped_vdg_mode_writes,
+                text_screen_base: self.text_screen_base(),
+            },
+            frame_completed,
+        )
     }
 
     fn step_cycle_with_diagnostic_trace(
@@ -4611,6 +4641,28 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn native_frame_stops_at_video_wrap_after_a_partial_bus_run() {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0] = 0x20;
+        rom[1] = 0xFE; // BRA $8000
+        for standard in [VideoStandard::Pal, VideoStandard::Ntsc] {
+            let mut machine = Dragon32::new(&rom).with_video_standard(standard);
+            let partial = machine.run_cycles(37, 0);
+            assert_eq!(partial.stop_reason, StopReason::CycleLimit);
+            let start = machine.cycles();
+            let (report, completed) = machine.run_frame(8);
+            assert!(completed);
+            assert_eq!(report.stop_reason, StopReason::CycleLimit);
+            assert_eq!(machine.cycles() - start, report.cycles);
+            assert!(machine.video_phase().frame_master_tick < SLOW_CPU_MASTER_TICKS);
+            assert!(report.master_ticks < standard.frame_master_ticks());
+            let bytes = postcard::to_allocvec(&machine).expect("encode");
+            let mut restored: Dragon32 = postcard::from_bytes(&bytes).expect("restore");
+            assert_eq!(machine.run_frame(8), restored.run_frame(8));
+        }
+    }
 
     fn rom_with_reset_vector(pc: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0; ROM_SIZE];

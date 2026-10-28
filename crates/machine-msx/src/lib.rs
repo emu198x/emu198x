@@ -447,14 +447,10 @@ enum Video {
 }
 
 impl Video {
-    fn tick(&mut self) {
+    fn tick(&mut self) -> bool {
         match self {
-            Self::Tms9918(vdp) => {
-                vdp.tick();
-            }
-            Self::V9938(vdp) => {
-                vdp.tick();
-            }
+            Self::Tms9918(vdp) => vdp.tick(),
+            Self::V9938(vdp) => vdp.tick(),
         }
     }
 
@@ -575,6 +571,9 @@ pub struct Msx {
     /// Toggles every T-state so the PSG ticks at CPU ÷ 2 (1.789 MHz).
     psg_phase: u8,
     frame_count: u64,
+    /// Transient observation for a bounded native-frame request.
+    #[serde(skip)]
+    native_frame_ready: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -641,6 +640,7 @@ impl Msx {
             vdp_phase: 0,
             psg_phase: 0,
             frame_count: 0,
+            native_frame_ready: false,
             io_trace: None,
             ay_watch: None,
             joystick: [0xFF; 2],
@@ -832,6 +832,25 @@ impl Msx {
     }
 
     /// Run one frame and return T-states consumed.
+    /// Stop on the video chip's next raster wrap, not a rounded CPU budget.
+    /// The two-field safety budget reports false rather than inventing a frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.cpu_tstates;
+        self.native_frame_ready = false;
+        while !self.native_frame_ready && self.cpu_tstates - start < 2 * self.tstates_per_frame {
+            self.tick_tstate();
+        }
+        self.cart1.sound.end_frame();
+        self.cart2.sound.end_frame();
+        if let Some(music) = &mut self.msx_music {
+            drop(music.ym.take_samples());
+        }
+        if self.native_frame_ready {
+            self.frame_count += 1;
+        }
+        (self.cpu_tstates - start, self.native_frame_ready)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let target = self.cpu_tstates + self.tstates_per_frame;
         while self.cpu_tstates < target {
@@ -1347,7 +1366,7 @@ impl Z80Machine for Msx {
         // scanline relative to CPU execution.
         self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
         while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.video.tick();
+            self.native_frame_ready |= self.video.tick();
             self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
     }
@@ -1395,6 +1414,50 @@ mod note_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
+        for region in [MsxRegion::Ntsc, MsxRegion::Pal] {
+            let mut machine = booted(region);
+            let line = |m: &Msx| match &m.video {
+                Video::Tms9918(vdp) => vdp.scanline(),
+                _ => panic!("MSX1 fixture"),
+            };
+            for _ in 0..37 {
+                machine.tick_tstate();
+            }
+            for _ in 0..4 {
+                let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
+                let mut direct: Msx = postcard::from_bytes(&bytes).expect("restore control");
+                let start = direct.cpu_tstates;
+                loop {
+                    let before = line(&direct);
+                    direct.tick_tstate();
+                    assert!(direct.cpu_tstates - start < 200_000, "control must wrap");
+                    if line(&direct) < before {
+                        break;
+                    }
+                }
+                let (ticks, completed) = machine.run_native_frame();
+                assert!(completed);
+                assert_eq!(
+                    ticks,
+                    direct.cpu_tstates - start,
+                    "elapsed time must match the chip event"
+                );
+                assert_eq!(
+                    line(&machine),
+                    0,
+                    "raster must wrap, not merely consume a nominal budget"
+                );
+                assert_eq!(machine.cpu_tstates, direct.cpu_tstates);
+                // A debugger can leave us partway through the next field.
+                for _ in 0..53 {
+                    machine.tick_tstate();
+                }
+            }
+        }
+    }
 
     /// An MSX whose 8255 has the mode the BIOS sets at reset: port A
     /// (slot select) out, port B (keyboard) in, port C out. The trap BIOS

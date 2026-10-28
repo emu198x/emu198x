@@ -282,8 +282,8 @@ pub trait MachineApp: Default {
     /// Returns a usage error for a malformed or missing value.
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError>;
 
-    /// Native frame length in machine ticks — the budget one `run_frames(1)`
-    /// spends.
+    /// Nominal native frame length for pacing and profile metadata.
+    /// Execution of `--frames` uses the runtime's exact frame operation.
     fn frame_ticks(&self) -> u64;
 
     /// The query provider for this configuration.
@@ -574,6 +574,11 @@ pub fn script_report<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value
     observations.extend(session.blank_frame_observation());
     let mut report = Map::new();
     app.report(session.machine(), &mut report);
+    append_execution_report(
+        &mut report,
+        session.native_frames_completed(),
+        session.last_run_result(),
+    )?;
     report.insert("time".to_owned(), Value::from(session.time().get()));
     report.insert(
         "observations".to_owned(),
@@ -581,6 +586,25 @@ pub fn script_report<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value
             .map_err(|err| LaunchError::Run(format!("failed to encode report: {err}")))?,
     );
     Ok(Value::Object(report))
+}
+
+/// Native request counts belong to the session, not a machine's potentially
+/// restored lifetime counter. Preserve that diagnostic separately.
+fn append_execution_report(
+    report: &mut Map<String, Value>,
+    completed: u64,
+    result: Option<crate::RunResult>,
+) -> Result<(), LaunchError> {
+    if let Some(counter) = report.remove("frames_run") {
+        report.insert("machine_frame_counter".to_owned(), counter);
+    }
+    report.insert("frames_run".to_owned(), completed.into());
+    report.insert(
+        "run_result".to_owned(),
+        serde_json::to_value(result)
+            .map_err(|err| LaunchError::Run(format!("failed to encode run result: {err}")))?,
+    );
+    Ok(())
 }
 
 /// The shared MCP server: build the runtime, load any media named on the
@@ -687,6 +711,25 @@ pub fn main_headless<A: MachineApp>() -> ! {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn frame_report_keeps_native_counts_separate_from_lifetime_counters() {
+        let mut report = serde_json::Map::new();
+        report.insert("frames_run".to_owned(), 900.into());
+        super::append_execution_report(
+            &mut report,
+            2,
+            Some(crate::RunResult::new(
+                crate::MachineTime::new(37),
+                crate::StopReason::NoFrame,
+            )),
+        )
+        .expect("report");
+        assert_eq!(report["frames_run"], 2);
+        assert_eq!(report["machine_frame_counter"], 900);
+        assert_eq!(report["run_result"]["stop_reason"], "NoFrame");
+        assert_eq!(report["run_result"]["reached"], 37);
+    }
+
     use super::*;
 
     fn args(list: &[&str]) -> Vec<String> {

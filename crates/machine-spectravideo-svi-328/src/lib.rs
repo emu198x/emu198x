@@ -143,6 +143,9 @@ pub struct Svi328 {
     vdp_phase: u32,
     psg_phase: u8,
     frame_count: u64,
+    /// Transient observation for a bounded native-frame request.
+    #[serde(skip)]
+    native_frame_ready: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -187,6 +190,7 @@ impl Svi328 {
             vdp_phase: 0,
             psg_phase: 0,
             frame_count: 0,
+            native_frame_ready: false,
             io_trace: None,
             ay_watch: None,
         }
@@ -204,6 +208,20 @@ impl Svi328 {
     }
 
     /// Run one frame and return T-states consumed.
+    /// Stop on the video chip's next raster wrap, not a rounded CPU budget.
+    /// The two-field safety budget reports false rather than inventing a frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.cpu_tstates;
+        self.native_frame_ready = false;
+        while !self.native_frame_ready && self.cpu_tstates - start < 2 * self.tstates_per_frame {
+            self.tick_tstate();
+        }
+        if self.native_frame_ready {
+            self.frame_count += 1;
+        }
+        (self.cpu_tstates - start, self.native_frame_ready)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let target = self.cpu_tstates + self.tstates_per_frame;
         while self.cpu_tstates < target {
@@ -531,7 +549,7 @@ impl Z80Machine for Svi328 {
     fn tick_chips_halfcycle(&mut self) {
         self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
         while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
+            self.native_frame_ready |= self.vdp.tick();
             self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
     }
@@ -561,6 +579,47 @@ impl emu198x_zilog_z80::Z80Stepper for Svi328 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
+        for region in [SviRegion::Ntsc, SviRegion::Pal] {
+            let mut machine = booted(trap_rom(), region);
+            let line = |m: &Svi328| m.vdp.scanline();
+            for _ in 0..37 {
+                machine.tick_tstate();
+            }
+            for _ in 0..4 {
+                let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
+                let mut direct: Svi328 = postcard::from_bytes(&bytes).expect("restore control");
+                let start = direct.cpu_tstates;
+                loop {
+                    let before = line(&direct);
+                    direct.tick_tstate();
+                    assert!(direct.cpu_tstates - start < 200_000, "control must wrap");
+                    if line(&direct) < before {
+                        break;
+                    }
+                }
+                let (ticks, completed) = machine.run_native_frame();
+                assert!(completed);
+                assert_eq!(
+                    ticks,
+                    direct.cpu_tstates - start,
+                    "elapsed time must match the chip event"
+                );
+                assert_eq!(
+                    line(&machine),
+                    0,
+                    "raster must wrap, not merely consume a nominal budget"
+                );
+                assert_eq!(machine.cpu_tstates, direct.cpu_tstates);
+                // A debugger can leave us partway through the next field.
+                for _ in 0..53 {
+                    machine.tick_tstate();
+                }
+            }
+        }
+    }
 
     /// An SVI whose 8255 has the BIOS's "initial set" mode, `$92`: port A
     /// and port B in, port C out (service manual, § 8255 Control Word).

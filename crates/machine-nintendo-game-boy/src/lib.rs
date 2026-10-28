@@ -773,8 +773,22 @@ impl GameBoy {
         self.run_frame_timed().1
     }
 
-    /// Runs one frame, returning its CPU m-cycles and its dots.
+    /// Attempt one frame, returning elapsed dots and whether the PPU completed it.
+    /// LCD-off or stopped video can reach the existing bounded safety limit.
+    /// A false outcome must not be counted as a completed video frame.
+    pub fn run_frame_dots_bounded(&mut self) -> (u32, bool) {
+        self.ppu.consume_frame_ready();
+        let (_, dots, completed) = self.run_frame_outcome();
+        (dots, completed)
+    }
+
     fn run_frame_timed(&mut self) -> (u32, u32) {
+        let (cycles, dots, _) = self.run_frame_outcome();
+        (cycles, dots)
+    }
+
+    /// Runs a bounded attempt, retaining the native PPU completion signal.
+    fn run_frame_outcome(&mut self) -> (u32, u32, bool) {
         const SAFETY_LIMIT: u32 = 30_000 * 4; // ~1.7× a frame, in dots
         let mut count = 0;
         let mut dots = 0;
@@ -782,8 +796,9 @@ impl GameBoy {
             dots += if self.double_speed() { 2 } else { 4 };
             self.step_m_cycle();
             count += 1;
-            if self.ppu.consume_frame_ready() || dots >= SAFETY_LIMIT {
-                return (count, dots);
+            let completed = self.ppu.consume_frame_ready();
+            if completed || dots >= SAFETY_LIMIT {
+                return (count, dots, completed);
             }
         }
     }

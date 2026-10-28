@@ -256,6 +256,7 @@ impl NeoGeo {
     /// Run until the LSPC2 finishes a frame, returning the master clocks
     /// it took.
     pub fn run_frame(&mut self) -> u64 {
+        self.lspc.take_frame_complete();
         let start = self.mclk;
         loop {
             self.tick();

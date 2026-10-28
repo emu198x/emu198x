@@ -273,6 +273,52 @@ impl emu198x_shell::FamilyRuntime for NeoGeoRuntime {
     }
 }
 
+impl NeoGeoRuntime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        let Some(machine) = self.machine.as_mut() else {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        };
+        for event in host.input_events {
+            apply_input_event(machine, event);
+        }
+
+        while self.time < target {
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let ticks = machine.run_frame();
+            let audio = machine.take_audio();
+            self.time = self.time.saturating_add(ticks);
+            self.frames += 1;
+            self.update_rgba_framebuffer();
+
+            host.frame_sink.push_frame(FramePacket {
+                signal: None,
+                timestamp: self.time,
+                format: PixelFormat::Rgba8888,
+                width: FRAME_WIDTH,
+                height: FRAME_HEIGHT,
+                palette: None,
+                pixels: &self.rgba_framebuffer,
+            })?;
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: AUDIO_SAMPLE_RATE,
+                channels: 2,
+                samples: &audio,
+            })?;
+            if one_frame {
+                break;
+            }
+        }
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl MachineCore for NeoGeoRuntime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -324,44 +370,16 @@ impl MachineCore for NeoGeoRuntime {
         Ok(())
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        let Some(machine) = self.machine.as_mut() else {
-            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
-        };
-        for event in host.input_events {
-            apply_input_event(machine, event);
-        }
-
-        while self.time < target {
-            let machine = self.machine.as_mut().expect("machine checked above");
-            let ticks = machine.run_frame();
-            let audio = machine.take_audio();
-            self.time = self.time.saturating_add(ticks);
-            self.frames += 1;
-            self.update_rgba_framebuffer();
-
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Rgba8888,
-                width: FRAME_WIDTH,
-                height: FRAME_HEIGHT,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
-                channels: 2,
-                samples: &audio,
-            })?;
-        }
-
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

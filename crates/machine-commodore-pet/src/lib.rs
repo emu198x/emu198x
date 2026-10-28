@@ -177,18 +177,24 @@ impl Pet {
     }
 
     /// Run one full frame and return the number of CPU cycles executed.
-    pub fn run_frame(&mut self) -> u64 {
+    /// Bounded frame step; false means the safety budget expired.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
         let start = self.master_clock;
-        // ~20,000 cycles per 50 Hz frame at 1 MHz; cap defensively at 30,000
-        // to avoid an infinite loop if the CRTC never raises frame-complete.
+        self.take_frame_complete();
+        let mut completed = false;
         for _ in 0..30_000 {
             self.tick();
             if self.take_frame_complete() {
+                completed = true;
                 break;
             }
         }
-        self.frame_count += 1;
-        self.master_clock - start
+        self.frame_count += u64::from(completed);
+        (self.master_clock - start, completed)
+    }
+
+    pub fn run_frame(&mut self) -> u64 {
+        self.run_native_frame().0
     }
 
     fn tick(&mut self) {

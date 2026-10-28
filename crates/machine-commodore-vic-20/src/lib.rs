@@ -446,17 +446,33 @@ impl Vic20 {
     where
         F: FnMut(bool) -> bool,
     {
+        self.run_native_frame_with_user_port(exchange).0
+    }
+
+    /// Complete one VIC field, reporting a defensive timeout explicitly.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        self.run_native_frame_with_user_port(&mut |_| true)
+    }
+
+    /// Same field operation while exchanging physical user-port signals.
+    pub fn run_native_frame_with_user_port<F>(&mut self, exchange: &mut F) -> (u64, bool)
+    where
+        F: FnMut(bool) -> bool,
+    {
         let start = self.master_clock;
+        self.vic.take_frame_complete();
+        let mut completed = false;
         for _ in 0..200_000 {
             let pb0 = exchange(self.user_port_cb2());
             self.set_user_port_pb0(pb0);
             self.tick_cycle();
             if self.vic.take_frame_complete() {
+                completed = true;
                 break;
             }
         }
-        self.frame_count += 1;
-        self.master_clock - start
+        self.frame_count += u64::from(completed);
+        (self.master_clock - start, completed)
     }
 
     fn tick_cycle(&mut self) {

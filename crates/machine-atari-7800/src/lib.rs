@@ -177,6 +177,16 @@ impl Atari7800 {
     }
 
     /// Run one frame and return elapsed native oscillator periods.
+    /// Advance to the existing raster counter's next completed field.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_clock;
+        let frame = self.frame_count;
+        while self.frame_count == frame {
+            self.tick_master_clock();
+        }
+        (self.master_clock - start, true)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
@@ -488,6 +498,26 @@ impl Atari7800 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_finishes_the_current_raster_after_partial_steps() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut machine = Atari7800::new(trap_rom_32k(), region).expect("machine");
+            for _ in 0..37 {
+                machine.tick_master_clock();
+            }
+            let before = machine.master_clock;
+            let frames = machine.frame_count();
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(completed);
+            assert_eq!(
+                ticks,
+                machine.clocks_per_frame - before % machine.clocks_per_frame
+            );
+            assert_eq!(machine.master_clock % machine.clocks_per_frame, 0);
+            assert_eq!(machine.frame_count(), frames + 1);
+        }
+    }
 
     fn trap_rom_32k() -> Vec<u8> {
         let mut rom = vec![0xEAu8; 32768];

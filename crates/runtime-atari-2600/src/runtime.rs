@@ -197,6 +197,71 @@ impl emu198x_shell::FamilyRuntime for Atari2600Runtime {
     }
 }
 
+impl Atari2600Runtime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        if self.machine.is_none() {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+
+        for event in host.input_events {
+            if let Some(machine) = self.machine.as_mut() {
+                apply_input_event(machine, &mut self.controller_cache, event);
+            }
+        }
+
+        while self.time < target {
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let (ticks, completed) = if one_frame {
+                machine.run_native_frame()
+            } else {
+                (machine.run_frame(), true)
+            };
+            // Drain this frame's TIA audio before re-borrowing self for the
+            // framebuffer update.
+            let audio_samples = machine.take_audio_samples();
+            let sample_rate = machine.audio_sample_rate();
+            self.time = self.time.saturating_add(ticks);
+            self.update_rgba_framebuffer();
+
+            if !one_frame || completed {
+                host.frame_sink.push_frame(FramePacket {
+                    signal: None,
+                    timestamp: self.time,
+                    format: PixelFormat::Rgba8888,
+                    width: self.rgba_width,
+                    height: self.rgba_height,
+                    palette: None,
+                    pixels: &self.rgba_framebuffer,
+                })?;
+            }
+
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate,
+                channels: 1,
+                samples: &audio_samples,
+            })?;
+            if one_frame {
+                return Ok(RunResult::new(
+                    self.time,
+                    if completed {
+                        StopReason::ReachedTarget
+                    } else {
+                        StopReason::NoFrame
+                    },
+                ));
+            }
+        }
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl MachineCore for Atari2600Runtime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -237,50 +302,16 @@ impl MachineCore for Atari2600Runtime {
         Ok(())
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        if self.machine.is_none() {
-            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
-        }
-
-        for event in host.input_events {
-            if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, &mut self.controller_cache, event);
-            }
-        }
-
-        while self.time < target {
-            let machine = self.machine.as_mut().expect("machine checked above");
-            let ticks = machine.run_frame();
-            // Drain this frame's TIA audio before re-borrowing self for the
-            // framebuffer update.
-            let audio_samples = machine.take_audio_samples();
-            let sample_rate = machine.audio_sample_rate();
-            self.time = self.time.saturating_add(ticks);
-            self.update_rgba_framebuffer();
-
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Rgba8888,
-                width: self.rgba_width,
-                height: self.rgba_height,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate,
-                channels: 1,
-                samples: &audio_samples,
-            })?;
-        }
-
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

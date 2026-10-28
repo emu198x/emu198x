@@ -2281,6 +2281,17 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         }
     }
 
+    fn run_frame(
+        &mut self,
+        host: &mut emu198x_shell::HostIo<'_>,
+    ) -> Result<emu198x_shell::RunResult, emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.run_frame(host),
+            Self::Ecs(rt) => rt.run_frame(host),
+            Self::Aga(rt) => rt.run_frame(host),
+        }
+    }
+
     fn run_until(
         &mut self,
         target: emu198x_shell::MachineTime,

@@ -362,51 +362,11 @@ impl emu198x_shell::FamilyRuntime for Zx81Runtime {
     }
 }
 
-impl MachineCore for Zx81Runtime {
-    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
-        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
-        machine: &str,
-    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
-        emu198x_shell::swap_variant(session, machine)
-    }
-
-    fn profile(&self) -> &MachineProfile {
-        &self.profile
-    }
-
-    fn time(&self) -> MachineTime {
-        self.time
-    }
-
-    fn reset(&mut self, _kind: ResetKind) {
-        let _ = self.rebuild_machine();
-        self.time = MachineTime::default();
-    }
-
-    /// Threads a `.p` image onto the deck. It does not start playing: the
-    /// ROM has to be sitting in `LOAD` first, so PLAY is a separate press.
-    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
-        for image in &media.images {
-            if image.kind != MediaKind::Tape {
-                return Err(MachineError::UnknownMediaSlot {
-                    slot: image.slot.as_ref().to_owned(),
-                });
-            }
-            let parsed =
-                Zx81Image::parse(image.bytes).map_err(|error| MachineError::InvalidMedia {
-                    slot: image.slot.as_ref().to_owned(),
-                    reason: error.to_string(),
-                })?;
-            // A one-character name. `LOAD ""` takes whatever it finds, but the
-            // stream still needs a name for the ROM to read past.
-            self.tape = Some(machine_sinclair_zx81::tape::pulses(&parsed, &[TAPE_NAME]));
-        }
-        Ok(())
-    }
-
-    fn run_until(
+impl Zx81Runtime {
+    fn run_window(
         &mut self,
         target: MachineTime,
+        one_frame: bool,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         if self.machine.is_none() {
@@ -452,9 +412,67 @@ impl MachineCore for Zx81Runtime {
                 channels: 1,
                 samples: &audio,
             })?;
+            if one_frame {
+                break;
+            }
         }
 
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
+impl MachineCore for Zx81Runtime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
+    fn profile(&self) -> &MachineProfile {
+        &self.profile
+    }
+
+    fn time(&self) -> MachineTime {
+        self.time
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        let _ = self.rebuild_machine();
+        self.time = MachineTime::default();
+    }
+
+    /// Threads a `.p` image onto the deck. It does not start playing: the
+    /// ROM has to be sitting in `LOAD` first, so PLAY is a separate press.
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            if image.kind != MediaKind::Tape {
+                return Err(MachineError::UnknownMediaSlot {
+                    slot: image.slot.as_ref().to_owned(),
+                });
+            }
+            let parsed =
+                Zx81Image::parse(image.bytes).map_err(|error| MachineError::InvalidMedia {
+                    slot: image.slot.as_ref().to_owned(),
+                    reason: error.to_string(),
+                })?;
+            // A one-character name. `LOAD ""` takes whatever it finds, but the
+            // stream still needs a name for the ROM to read past.
+            self.tape = Some(machine_sinclair_zx81::tape::pulses(&parsed, &[TAPE_NAME]));
+        }
+        Ok(())
+    }
+
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
+    fn run_until(
+        &mut self,
+        target: MachineTime,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

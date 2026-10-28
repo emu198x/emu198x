@@ -221,6 +221,7 @@ pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     native_frame_ticks: u64,
     queued_input: Vec<InputEvent>,
     frame_capture: LatestFrameCapture,
+    native_frames_completed: u64,
     audio_capture: AudioCapture,
     trace_sink: NullTraceSink,
     last_run_result: Option<RunResult>,
@@ -267,6 +268,7 @@ impl<M, Q> HeadlessSession<M, Q> {
             native_frame_ticks,
             queued_input: Vec::new(),
             frame_capture: LatestFrameCapture::default(),
+            native_frames_completed: 0,
             audio_capture: AudioCapture::default(),
             trace_sink: NullTraceSink,
             audio_recording: None,
@@ -318,12 +320,8 @@ impl<M, Q> HeadlessSession<M, Q> {
         self.native_frame_ticks
     }
 
-    /// Updates the native frame delta. Use after swapping the inner
-    /// machine to a variant that paces at a different number of
-    /// half-cycles per frame (e.g. Spectrum 128K's 70908 cycles vs
-    /// 48K's 69888). Without this, `run_frames` would over- or
-    /// under-shoot one native frame by a few hundred cycles on every
-    /// call after the swap.
+    /// Updates the real-time pacing hint after swapping the active machine.
+    /// Native frame stepping uses the runtime's boundary event, not this hint.
     pub const fn set_native_frame_ticks(&mut self, native_frame_ticks: u64) {
         self.native_frame_ticks = native_frame_ticks;
     }
@@ -388,15 +386,19 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         self.frame_capture.frame()
     }
 
-    /// Returns how many frames the machine has emitted since the session
-    /// was created or last reset.
-    ///
-    /// This counts the machine's own fields, not the shell's nominal frame
-    /// grid, so a caller can check that a run of `n` frames produced `n`
-    /// frames rather than trusting that the two agree.
+    /// Counts all delivered picture packets, including explicit debugger
+    /// redraws. Use [`Self::native_frames_completed`] for completed requests.
     #[must_use]
     pub const fn frames_emitted(&self) -> u64 {
         self.frame_capture.frames_seen()
+    }
+
+    /// Fields completed by exact native-frame requests since creation or reset.
+    /// Time-window packets and sub-frame debugger redraws are excluded. The
+    /// machine's own lifetime raster counter may include other execution.
+    #[must_use]
+    pub const fn native_frames_completed(&self) -> u64 {
+        self.native_frames_completed
     }
 
     /// Returns the supported shared query paths, optionally filtered by prefix.
@@ -698,6 +700,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         self.machine.reset(kind);
         self.queued_input.clear();
         self.frame_capture = LatestFrameCapture::default();
+        self.native_frames_completed = 0;
         self.audio_capture = AudioCapture::default();
         self.last_run_result = None;
         Ok(())
@@ -795,30 +798,64 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
     /// Runs the machine until the requested target time.
     ///
-    /// While a video recording is active, the call is internally chunked into
-    /// native-frame-sized steps so every emitted frame can be teed into the
-    /// recorder.
+    /// Every emitted packet is delivered to the recorder when recording is active.
     ///
     /// # Errors
     ///
     /// Returns an error if the machine or one host-side sink rejects the
     /// execution request, or if writing to the active recorder fails.
     pub fn run_until(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
-        if self.recorder.is_some() {
-            return self.run_until_recording(target);
-        }
-        self.run_until_inner(target)
+        self.run_request(Some(target), None)
     }
 
-    fn run_until_inner(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
+    /// All execution requests share input consumption, packet recording, trace
+    /// routing and audio flushing. `None` requests one native video boundary.
+    fn run_request(
+        &mut self,
+        target: Option<MachineTime>,
+        trace_sink: Option<&mut dyn TraceSink>,
+    ) -> Result<RunResult, SessionError> {
         let inputs = std::mem::take(&mut self.queued_input);
+        let frames_before = self.frame_capture.frames_seen();
+        let time_before = self.time();
+        let mut tee = RecordingTee {
+            latest: &mut self.frame_capture,
+            recorder: self.recorder.as_mut(),
+            failure: None,
+        };
         let mut host = HostIo {
             input_events: &inputs,
-            frame_sink: &mut self.frame_capture,
+            frame_sink: &mut tee,
             audio_sink: &mut self.audio_capture,
-            trace_sink: &mut self.trace_sink,
+            trace_sink: trace_sink.unwrap_or(&mut self.trace_sink),
         };
-        let result = self.machine.run_until(target, &mut host)?;
+        let result = match target {
+            Some(target) => self.machine.run_until(target, &mut host),
+            None => self.machine.run_frame(&mut host),
+        };
+        if let Some(failure) = tee.failure {
+            return Err(failure.into());
+        }
+        let result = result?;
+        if target.is_none() {
+            let emitted = self.frame_capture.frames_seen() - frames_before;
+            if emitted > 1
+                || (result.stop_reason == StopReason::ReachedTarget
+                    && (emitted != 1 || self.time() <= time_before))
+                || (result.stop_reason == StopReason::NoFrame && emitted != 0)
+            {
+                return Err(MachineError::Host {
+                    reason: format!(
+                        "native frame contract violated: {emitted} frames, {:?}",
+                        result.stop_reason
+                    ),
+                }
+                .into());
+            }
+        }
+        if target.is_none() {
+            self.native_frames_completed += self.frame_capture.frames_seen() - frames_before;
+        }
         self.last_run_result = Some(result);
         self.flush_audio_recording()?;
         Ok(result)
@@ -886,43 +923,6 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         Ok(())
     }
 
-    /// Runs with the recorder wired into the frame sink, so every frame the
-    /// machine emits is written.
-    ///
-    /// This used to advance in `native_frame_ticks` chunks and tee whichever
-    /// frame the capture happened to hold at each boundary. That samples the
-    /// shell's nominal frame grid rather than the machine's real one, and the
-    /// two need not agree: a machine whose field is *shorter* than nominal
-    /// completes two fields inside one chunk, and the first is overwritten
-    /// before the tee ever sees it. The ZX80's field is software-timed at
-    /// 64,167 T-states against a nominal 64,584, so exactly every other frame
-    /// was dropped — and with them the single-field blanks that are that
-    /// machine's defining behaviour.
-    fn run_until_recording(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
-        let inputs = std::mem::take(&mut self.queued_input);
-        let mut tee = RecordingTee {
-            latest: &mut self.frame_capture,
-            recorder: self.recorder.as_mut(),
-            failure: None,
-        };
-        let mut host = HostIo {
-            input_events: &inputs,
-            frame_sink: &mut tee,
-            audio_sink: &mut self.audio_capture,
-            trace_sink: &mut self.trace_sink,
-        };
-        let result = self.machine.run_until(target, &mut host);
-        // A broken ffmpeg pipe is the more specific fault, so report it
-        // ahead of whatever the machine returned.
-        if let Some(failure) = tee.failure {
-            return Err(failure.into());
-        }
-        let result = result?;
-        self.last_run_result = Some(result);
-        self.flush_audio_recording()?;
-        Ok(result)
-    }
-
     /// Runs the machine until the requested target time, emitting trace events
     /// to one caller-provided sink for this execution request.
     ///
@@ -935,17 +935,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         target: MachineTime,
         trace_sink: &mut dyn TraceSink,
     ) -> Result<RunResult, SessionError> {
-        let inputs = std::mem::take(&mut self.queued_input);
-        let mut host = HostIo {
-            input_events: &inputs,
-            frame_sink: &mut self.frame_capture,
-            audio_sink: &mut self.audio_capture,
-            trace_sink,
-        };
-        let result = self.machine.run_until(target, &mut host)?;
-        self.last_run_result = Some(result);
-        self.flush_audio_recording()?;
-        Ok(result)
+        self.run_request(Some(target), Some(trace_sink))
     }
 
     /// Runs the machine for `count` native video frames.
@@ -956,13 +946,13 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// execution request.
     pub fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError> {
         if count == 0 {
-            return self.run_until(self.time());
+            return Ok(RunResult::new(self.time(), StopReason::ReachedTarget));
         }
 
         let mut last = RunResult::new(self.time(), StopReason::ReachedTarget);
         for _ in 0..count {
             let before = self.time();
-            last = self.run_until(before.saturating_add(self.native_frame_ticks))?;
+            last = self.run_request(None, None)?;
             if last.stop_reason != StopReason::ReachedTarget || self.time() <= before {
                 break;
             }
@@ -1007,16 +997,13 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         trace_sink: &mut dyn TraceSink,
     ) -> Result<RunResult, SessionError> {
         if count == 0 {
-            return self.run_until_with_trace_sink(self.time(), trace_sink);
+            return Ok(RunResult::new(self.time(), StopReason::ReachedTarget));
         }
 
         let mut last = RunResult::new(self.time(), StopReason::ReachedTarget);
         for _ in 0..count {
             let before = self.time();
-            last = self.run_until_with_trace_sink(
-                before.saturating_add(self.native_frame_ticks),
-                trace_sink,
-            )?;
+            last = self.run_request(None, Some(trace_sink))?;
             if last.stop_reason != StopReason::ReachedTarget || self.time() <= before {
                 break;
             }
@@ -1403,6 +1390,8 @@ mod tests {
         frame_durations: Option<[u64; 2]>,
         frames_run: u32,
         cart_types: &'static [&'static str],
+        native_stop: Option<StopReason>,
+        extra_native_frame: bool,
     }
 
     impl DummyMachine {
@@ -1436,6 +1425,8 @@ mod tests {
                 frame_durations: None,
                 frames_run: 0,
                 cart_types: &[],
+                native_stop: None,
+                extra_native_frame: false,
             }
         }
 
@@ -1476,6 +1467,21 @@ mod tests {
 
         fn cartridge_types(&self) -> &'static [&'static str] {
             self.cart_types
+        }
+
+        fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+            if let Some(reason) = self.native_stop {
+                self.time = self.time.saturating_add(3);
+                return Ok(RunResult::new(self.time, reason));
+            }
+            let duration = self.frame_durations.map_or(DUMMY_FRAME_TICKS, |durations| {
+                durations[self.frames_run as usize % 2]
+            });
+            let result = self.run_until(self.time.saturating_add(duration), host)?;
+            if self.extra_native_frame {
+                self.run_until(self.time.saturating_add(duration), host)?;
+            }
+            Ok(result)
         }
 
         fn run_until(
@@ -1751,6 +1757,72 @@ mod tests {
 
         assert_eq!(traced.machine().frames_run, 10);
         assert_eq!(result.reached, MachineTime::new(45));
+    }
+
+    #[test]
+    fn zero_frames_preserve_queued_inputs_and_emit_nothing() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1);
+        session.queue_input(InputEvent::Key {
+            name: "a".into(),
+            pressed: true,
+        });
+        session.run_frames(0).expect("zero");
+        session
+            .run_frames_with_trace_sink(0, &mut NullTraceSink)
+            .expect("traced zero");
+        assert_eq!(session.time(), MachineTime::default());
+        assert_eq!(session.frames_emitted(), 0);
+        assert!(session.machine().received_inputs.is_empty());
+        session.run_frames(2).expect("native frames");
+        assert_eq!(session.frames_emitted(), 2);
+        assert_eq!(session.native_frames_completed(), 2);
+        session.run_until(session.time()).expect("debug redraw");
+        assert_eq!(session.frames_emitted(), 3);
+        assert_eq!(
+            session.native_frames_completed(),
+            2,
+            "redraw is not another field"
+        );
+        assert_eq!(session.machine().received_inputs.len(), 1);
+    }
+
+    #[test]
+    fn native_stops_do_not_fabricate_frames_or_retry_the_remaining_count() {
+        for reason in [
+            StopReason::NoFrame,
+            StopReason::Halted,
+            StopReason::WaitingForInput,
+        ] {
+            for traced in [false, true] {
+                let mut machine = DummyMachine::new();
+                machine.native_stop = Some(reason);
+                let mut session = HeadlessSession::new(machine, 1);
+                let result = if traced {
+                    session.run_frames_with_trace_sink(5, &mut NullTraceSink)
+                } else {
+                    session.run_frames(5)
+                }
+                .expect("explicit stop");
+                assert_eq!(result.stop_reason, reason);
+                assert_eq!(session.time().get(), 3);
+                assert_eq!(session.frames_emitted(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_native_success_or_duplicate_delivery_is_an_error() {
+        let mut empty = DummyMachine::new();
+        empty.native_stop = Some(StopReason::ReachedTarget);
+        let mut duplicate = DummyMachine::new();
+        duplicate.extra_native_frame = true;
+        for machine in [empty, duplicate] {
+            let mut session = HeadlessSession::new(machine, 1);
+            let error = session
+                .run_frames(1)
+                .expect_err("contract must fail closed");
+            assert!(error.to_string().contains("native frame contract violated"));
+        }
     }
 
     #[test]

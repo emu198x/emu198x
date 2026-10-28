@@ -1,0 +1,25 @@
+
+running 1 test
+test exact_native_frames_match_machine_boundaries_for_every_profile ... FAILED
+
+failures:
+
+---- exact_native_frames_match_machine_boundaries_for_every_profile stdout ----
+
+thread 'exact_native_frames_match_machine_boundaries_for_every_profile' (202579368) panicked at crates/runtime-nintendo-snes/tests/runtime.rs:247:21:
+assertion `left == right` failed
+  left: 6
+ right: 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    exact_native_frames_match_machine_boundaries_for_every_profile
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 3.33s
+
+   Compiling emu198x-shell v0.44.2 (/private/tmp/198x-batch-frames/crates/emu198x-shell)
+   Compiling runtime-nintendo-snes v0.45.1 (/private/tmp/198x-batch-frames/crates/runtime-nintendo-snes)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.32s
+     Running tests/runtime.rs (/private/tmp/198x-batch-target/debug/deps/runtime-2a8c2f10d5fa3d62)
+error: test failed, to rerun pass `-p runtime-nintendo-snes --test runtime`

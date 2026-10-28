@@ -391,6 +391,20 @@ impl Atari800xl {
         self.cart.as_ref()
     }
 
+    /// Complete the current fixed raster, anchored to the master clock.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_clock;
+        self.gtia.fill_border();
+        loop {
+            self.tick_colour_clock();
+            if self.master_clock.is_multiple_of(self.clocks_per_frame) {
+                break;
+            }
+        }
+        self.frame_count += 1;
+        (self.master_clock - start, true)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;

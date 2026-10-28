@@ -332,6 +332,82 @@ impl emu198x_shell::FamilyRuntime for PetRuntime {
     }
 }
 
+impl PetRuntime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        if self.machine.is_none() {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+
+        for event in host.input_events {
+            if let Some(machine) = self.machine.as_mut() {
+                apply_input_event(machine, event);
+            }
+        }
+
+        while self.time < target {
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let (ticks, completed) = if one_frame {
+                machine.run_native_frame()
+            } else {
+                (machine.run_frame(), true)
+            };
+            let inject_prg =
+                self.pending_prg.is_some() && machine.frame_count() >= PRG_AUTOLOAD_FRAME;
+            self.time = self.time.saturating_add(ticks);
+            if inject_prg {
+                let bytes = self.pending_prg.take().expect("checked above");
+                self.autoload_prg(&bytes)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: "program-1".to_owned(),
+                        reason,
+                    })?;
+            }
+            self.update_rgba_framebuffer();
+
+            if !one_frame || completed {
+                host.frame_sink.push_frame(FramePacket {
+                    signal: None,
+                    timestamp: self.time,
+                    format: PixelFormat::Rgba8888,
+                    width: self.rgba_width,
+                    height: self.rgba_height,
+                    palette: None,
+                    pixels: &self.rgba_framebuffer,
+                })?;
+            }
+
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: AUDIO_SAMPLE_RATE,
+                channels: 1,
+                samples: &audio,
+            })?;
+            if one_frame {
+                return Ok(RunResult::new(
+                    self.time,
+                    if completed {
+                        StopReason::ReachedTarget
+                    } else {
+                        StopReason::NoFrame
+                    },
+                ));
+            }
+        }
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl MachineCore for PetRuntime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -377,61 +453,16 @@ impl MachineCore for PetRuntime {
         Ok(())
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        if self.machine.is_none() {
-            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
-        }
-
-        for event in host.input_events {
-            if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, event);
-            }
-        }
-
-        while self.time < target {
-            let machine = self.machine.as_mut().expect("machine checked above");
-            let ticks = machine.run_frame();
-            let inject_prg =
-                self.pending_prg.is_some() && machine.frame_count() >= PRG_AUTOLOAD_FRAME;
-            self.time = self.time.saturating_add(ticks);
-            if inject_prg {
-                let bytes = self.pending_prg.take().expect("checked above");
-                self.autoload_prg(&bytes)
-                    .map_err(|reason| MachineError::InvalidMedia {
-                        slot: "program-1".to_owned(),
-                        reason,
-                    })?;
-            }
-            self.update_rgba_framebuffer();
-
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Rgba8888,
-                width: self.rgba_width,
-                height: self.rgba_height,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-
-            let audio = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .take_audio_buffer();
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
-                channels: 1,
-                samples: &audio,
-            })?;
-        }
-
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

@@ -119,13 +119,20 @@ impl<R: MachineCore> Runner<R> {
         }
     }
 
+    pub(crate) fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<bool, UiError> {
+        self.run(input_events, None)
+    }
+
     pub(crate) fn run_ticks(
         &mut self,
         input_events: &[InputEvent],
         ticks: u64,
     ) -> Result<bool, UiError> {
+        self.run(input_events, Some(ticks))
+    }
+
+    fn run(&mut self, input_events: &[InputEvent], ticks: Option<u64>) -> Result<bool, UiError> {
         let previous = self.frame().map(|frame| frame.timestamp);
-        let target = self.runtime.time().saturating_add(ticks);
         let mut trace_sink = NullTraceSink;
         let mut host = HostIo {
             input_events,
@@ -133,7 +140,12 @@ impl<R: MachineCore> Runner<R> {
             audio_sink: &mut self.audio_output,
             trace_sink: &mut trace_sink,
         };
-        self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
+        self.last_run_result = Some(match ticks {
+            Some(ticks) => self
+                .runtime
+                .run_until(self.runtime.time().saturating_add(ticks), &mut host)?,
+            None => self.runtime.run_frame(&mut host)?,
+        });
         Ok(self.frame().map(|frame| frame.timestamp) != previous)
     }
 
@@ -157,7 +169,6 @@ pub(crate) struct HostCore<S: UiSystem> {
     pub(crate) scale: u32,
     slice_ticks: u64,
     slice_duration: Duration,
-    full_frame_ticks: u64,
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, HostControl>,
@@ -220,7 +231,6 @@ impl<S: UiSystem> HostCore<S> {
             scale,
             slice_ticks,
             slice_duration,
-            full_frame_ticks: frame_ticks,
             next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
@@ -359,7 +369,7 @@ impl<S: UiSystem> HostCore<S> {
             let mut frame_completed = false;
             for _ in 0..MAX_TURBO_FRAMES {
                 let inputs = std::mem::take(&mut self.pending_inputs);
-                if self.runner.run_ticks(&inputs, self.full_frame_ticks)? {
+                if self.runner.run_frame(&inputs)? {
                     frame_completed = true;
                     self.queue_pointer_correction();
                 }
@@ -378,11 +388,30 @@ impl<S: UiSystem> HostCore<S> {
         let mut frame_completed = false;
         while Instant::now() >= self.next_slice_at && ran < max_slices {
             let inputs = std::mem::take(&mut self.pending_inputs);
-            if self.runner.run_ticks(&inputs, self.slice_ticks)? {
+            let before = self.runner.runtime.time();
+            let completed = if self.system.input_slices_per_frame() <= 1 {
+                self.runner.run_frame(&inputs)?
+            } else {
+                self.runner.run_ticks(&inputs, self.slice_ticks)?
+            };
+            if completed {
                 frame_completed = true;
                 self.queue_pointer_correction();
             }
-            self.next_slice_at += self.slice_duration;
+            let ticks = self
+                .runner
+                .runtime
+                .time()
+                .get()
+                .saturating_sub(before.get());
+            // Pace the time actually emulated, including a partial field or
+            // a bounded no-frame attempt. Waiting runtimes use the poll interval.
+            let elapsed = if ticks == 0 {
+                self.slice_duration
+            } else {
+                clock_duration(ticks, self.runner.runtime.profile().clock.rate)?
+            };
+            self.next_slice_at += elapsed;
             ran += 1;
         }
         if ran == max_slices && Instant::now() >= self.next_slice_at {
@@ -747,7 +776,7 @@ impl<S: UiSystem> HostCore<S> {
     /// reset, load or switch is ready to show.
     fn refresh_frame(&mut self) -> Result<(), UiError> {
         self.runner.clear_capture();
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        self.runner.run_frame(&[])?;
         Ok(())
     }
 
@@ -1126,7 +1155,6 @@ impl<S: UiSystem> HostCore<S> {
         let slices = self.system.input_slices_per_frame().max(1);
         let frame_ticks = self.system.frame_ticks(&self.runner.runtime);
         let frame_duration = self.system.frame_duration(&self.runner.runtime);
-        self.full_frame_ticks = frame_ticks;
         self.slice_ticks = frame_ticks.div_ceil(u64::from(slices));
         self.slice_duration =
             Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(slices));
@@ -1168,7 +1196,7 @@ impl<S: UiSystem> HostCore<S> {
             let (width, height) = self.picture_size(self.scale);
             shell.request_picture_size(width, height);
         }
-        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        self.runner.run_frame(&[])?;
         if let Some(current) = self.system.current_variant() {
             shell.sync_menu(MenuSync::Variant(&current));
         }
@@ -1315,6 +1343,23 @@ impl<S: UiSystem> HostCore<S> {
     }
 }
 
+/// Wall-clock pacing derives from the same authoritative clock as execution.
+fn clock_duration(ticks: u64, rate: emu198x_shell::ClockRate) -> Result<Duration, UiError> {
+    let invalid = || emu198x_shell::MachineError::Host {
+        reason: "invalid runtime clock for native pacing".to_owned(),
+    };
+    if rate.numerator_hz == 0 || rate.denominator_hz == 0 {
+        return Err(invalid().into());
+    }
+    let nanos = u128::from(ticks)
+        .checked_mul(u128::from(rate.denominator_hz))
+        .and_then(|n| n.checked_mul(1_000_000_000))
+        .ok_or_else(invalid)?
+        / u128::from(rate.numerator_hz);
+    let seconds = u64::try_from(nanos / 1_000_000_000).map_err(|_| invalid())?;
+    Ok(Duration::new(seconds, (nanos % 1_000_000_000) as u32))
+}
+
 /// The catalogue command whose shortcut this key chord is, if any.
 ///
 /// The host modifier is Command or Control, so a Mac keyboard and a PC
@@ -1441,4 +1486,116 @@ fn state_root() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|h| !h.is_empty())?;
     Some(PathBuf::from(home).join(".emu198x/state"))
+}
+
+#[cfg(test)]
+mod native_frame_tests {
+    use super::*;
+    use emu198x_shell::{
+        CapabilitySet, FramePacket, MachineError, MachineProfile, MachineTime, MediaSet,
+        PixelFormat, ResetKind, StopReason,
+    };
+
+    #[test]
+    fn pacing_tracks_elapsed_master_time_instead_of_nominal_frames() {
+        use emu198x_shell::ClockRate;
+        let rate = ClockRate::from_ratio(236_250_000, 11);
+        let full = clock_duration(357_368, rate).expect("full field");
+        let partial = clock_duration(327_364, rate).expect("partial field");
+        assert!(partial < full);
+        assert_eq!(clock_duration(0, rate).expect("zero"), Duration::ZERO);
+        assert_eq!(
+            clock_duration(236_250_000, rate).expect("rational clock"),
+            Duration::from_secs(11)
+        );
+        assert!(clock_duration(1, ClockRate::from_hz(0)).is_err());
+        assert!(clock_duration(1, ClockRate::from_ratio(1, 0)).is_err());
+    }
+
+    #[derive(Default)]
+    struct VariableFrameMachine {
+        time: MachineTime,
+        frames: u32,
+        time_calls: u32,
+        no_frame: bool,
+    }
+
+    impl VariableFrameMachine {
+        fn emit(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+            self.frames += 1;
+            host.frame_sink.push_frame(FramePacket {
+                timestamp: self.time,
+                signal: None,
+                format: PixelFormat::Indexed8,
+                width: 1,
+                height: 1,
+                palette: Some(&[0xFF00_0000, 0xFFFF_FFFF]),
+                pixels: &[1],
+            })?;
+            Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        }
+    }
+
+    impl MachineCore for VariableFrameMachine {
+        fn profile(&self) -> &MachineProfile {
+            panic!("unused in runner execution")
+        }
+        fn time(&self) -> MachineTime {
+            self.time
+        }
+        fn reset(&mut self, _: ResetKind) {
+            self.time = MachineTime::default();
+        }
+        fn load_media(&mut self, _: &MediaSet<'_>) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
+            Ok(Vec::new())
+        }
+        fn restore(&mut self, _: &[u8]) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn capabilities(&self) -> CapabilitySet {
+            CapabilitySet::new()
+        }
+        fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+            self.time = self
+                .time
+                .saturating_add(if self.frames.is_multiple_of(2) { 5 } else { 4 });
+            if self.no_frame {
+                return Ok(RunResult::new(self.time, StopReason::NoFrame));
+            }
+            self.emit(host)
+        }
+        fn run_until(
+            &mut self,
+            target: MachineTime,
+            host: &mut HostIo<'_>,
+        ) -> Result<RunResult, MachineError> {
+            self.time_calls += 1;
+            self.time = target;
+            self.emit(host)
+        }
+    }
+
+    #[test]
+    fn native_ui_runner_uses_exact_boundaries_and_keeps_time_slices_separate() {
+        let mut runner = Runner::new(VariableFrameMachine::default(), false);
+        assert!(runner.run_frame(&[]).expect("first field"));
+        assert!(runner.run_frame(&[]).expect("short field"));
+        assert_eq!(runner.runtime.time().get(), 9);
+        assert_eq!(runner.runtime.frames, 2);
+        assert_eq!(runner.runtime.time_calls, 0);
+        assert!(runner.run_ticks(&[], 3).expect("explicit time slice"));
+        assert_eq!(runner.runtime.time().get(), 12);
+        assert_eq!(runner.runtime.time_calls, 1);
+        let frames = runner.frame_capture.frames_seen();
+        runner.runtime.no_frame = true;
+        assert!(!runner.run_frame(&[]).expect("bounded no-frame stop"));
+        assert_eq!(runner.frame_capture.frames_seen(), frames);
+        assert_eq!(
+            runner.last_run_result.expect("result").stop_reason,
+            StopReason::NoFrame
+        );
+    }
 }

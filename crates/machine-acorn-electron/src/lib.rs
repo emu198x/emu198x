@@ -502,6 +502,16 @@ impl AcornElectron {
     }
 
     /// Run one PAL frame (312 scanlines × 128 CPU cycles each).
+    /// Advance to the existing raster counter's next completed field.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_ticks;
+        let frame = self.frame_count;
+        while self.frame_count == frame {
+            self.tick_cpu_cycle();
+        }
+        (self.master_ticks - start, true)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_ticks;
         while self.master_ticks - start < CYCLES_PER_FRAME {

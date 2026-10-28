@@ -113,6 +113,7 @@ impl JupiterAce {
 
     /// Run one full PAL frame (64,896 T-states); returns T-states executed.
     pub fn run_frame(&mut self) -> u64 {
+        self.display.take_frame_complete();
         let start = self.master_clock;
         loop {
             self.tick_tstate();

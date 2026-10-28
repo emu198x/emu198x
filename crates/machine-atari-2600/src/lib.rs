@@ -159,6 +159,22 @@ impl Atari2600 {
     }
 
     /// Run one frame and return colour clocks consumed.
+    /// Complete a guest-generated VSYNC field. The TIA's defensive raster
+    /// roll is not a sync event and must not be counted as a completed frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_clock;
+        self.tia.take_frame_complete();
+        while self.master_clock - start < 2 * self.clocks_per_frame {
+            let sync = self.tia.frame_sync_pending();
+            self.tick_colour_clock();
+            if self.tia.take_frame_complete() && sync {
+                self.frame_count += 1;
+                return (self.master_clock - start, true);
+            }
+        }
+        (self.master_clock - start, false)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
@@ -541,6 +557,28 @@ impl Atari2600 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_requires_sync_and_stops_on_the_real_edge() {
+        for region in [Atari2600Region::Ntsc, Atari2600Region::Pal] {
+            let mut machine = Atari2600::new(trap_rom(), region).expect("cartridge");
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(!completed, "the safety roll is not VSYNC");
+            assert_eq!(ticks, 2 * machine.clocks_per_frame);
+            assert_eq!(machine.frame_count(), 0);
+            machine.tia.write(0, 2);
+            for _ in 0..(228 + 37) {
+                machine.tick_colour_clock();
+            }
+            machine.tia.write(0, 0);
+            let remaining = 228 - u64::from(machine.tia.hpos());
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(completed);
+            assert_eq!(ticks, remaining);
+            assert_eq!(machine.tia.vpos(), 0);
+            assert_eq!(machine.frame_count(), 1);
+        }
+    }
 
     fn trap_rom() -> Vec<u8> {
         // 4 KB cart. Reset vector at $FFFC-$FFFD (high byte $1F lives

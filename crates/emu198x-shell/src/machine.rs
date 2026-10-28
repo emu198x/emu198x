@@ -159,6 +159,8 @@ pub enum StopReason {
     Breakpoint,
     /// Machine entered a halted state.
     Halted,
+    /// A bounded frame attempt advanced without completing a video field.
+    NoFrame,
 }
 
 /// Result of one shared execution request.
@@ -265,6 +267,22 @@ pub trait MachineCore {
     fn eject_media(&mut self, _slot: &str) -> Result<(), MachineError> {
         Err(MachineError::UnsupportedOperation {
             operation: "eject_media",
+        })
+    }
+
+    /// Runs to the next completed native video field, delivering it once.
+    ///
+    /// An initial partial field counts; interlaced fields count separately.
+    /// Clock time is actual elapsed machine time, not a nominal frame budget.
+    /// A bounded attempt without a video boundary returns [`StopReason::NoFrame`]
+    /// without emitting a completed-frame packet. Input/audio/state still advance.
+    /// Unsupported implementations refuse before advancing; there is no fallback.
+    ///
+    /// # Errors
+    /// Returns an error for unsupported execution or a rejected host packet.
+    fn run_frame(&mut self, _host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "run_frame",
         })
     }
 
@@ -542,8 +560,8 @@ pub trait FamilyRuntime: MachineCore + Sized {
         Self::from_firmware(model, firmware)
     }
 
-    /// Native master-clock ticks per video frame for the active variant —
-    /// the value to feed [`crate::HeadlessSession::set_native_frame_ticks`]
-    /// so the session paces one native frame per `run_frames` call.
+    /// Nominal master-clock ticks per video field for real-time pacing.
+    /// Refresh this hint after variant switches. Exact frame-count requests
+    /// use [`MachineCore::run_frame`] instead of estimating a time budget.
     fn native_frame_ticks(&self) -> u64;
 }
