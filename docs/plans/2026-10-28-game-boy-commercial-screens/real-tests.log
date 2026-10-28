@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running tests/commercial_screens.rs (/private/tmp/198x-batch-screens-target/debug/deps/commercial_screens-e966b458eec7e4c6)
+
+running 2 tests
+test mario_real_game_screens_match_sameboy_and_replay ... ok
+test tetris_real_game_screens_match_sameboy_and_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.92s
+

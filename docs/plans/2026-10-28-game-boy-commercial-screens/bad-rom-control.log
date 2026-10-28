@@ -1,0 +1,23 @@
+
+running 1 test
+test tetris_real_game_screens_match_sameboy_and_replay ... FAILED
+
+failures:
+
+---- tetris_real_game_screens_match_sameboy_and_replay stdout ----
+
+thread 'tetris_real_game_screens_match_sameboy_and_replay' (202738101) panicked at crates/runtime-nintendo-game-boy/tests/commercial_screens.rs:28:5:
+assertion `left == right` failed: fixture SHA-256: /private/tmp/198x-batch-bad-rom/tetris.gb
+  left: "93a0f92359c91a601c6b2b50032ecc825f83c6bbf4b6f33176f869393e8696de"
+ right: "0d6535aef23969c7e5af2b077acaddb4a445b3d0df7bf34c8acef07b51b015c3"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tetris_real_game_screens_match_sameboy_and_replay
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+     Running tests/commercial_screens.rs (/private/tmp/198x-batch-screens-target/debug/deps/commercial_screens-e966b458eec7e4c6)
+error: test failed, to rerun pass `-p runtime-nintendo-game-boy --test commercial_screens`

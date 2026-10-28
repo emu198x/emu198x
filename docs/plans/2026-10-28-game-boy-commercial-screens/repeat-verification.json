@@ -1,0 +1,13 @@
+{
+  "games": [
+    "tetris",
+    "mario",
+    "kirby"
+  ],
+  "checkpoints": [
+    240,
+    480,
+    720
+  ],
+  "all_identical": true
+}
