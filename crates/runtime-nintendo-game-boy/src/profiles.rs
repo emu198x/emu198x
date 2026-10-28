@@ -33,6 +33,12 @@ pub enum Model {
 
 /// Firmware id of the optional CGB boot ROM.
 pub const CGB_BOOT_ROM_ID: &str = "cgb-boot-rom";
+/// Firmware id of the optional early DMG boot ROM.
+pub const DMG0_BOOT_ROM_ID: &str = "dmg0-boot-rom";
+/// Firmware id of the optional DMG boot ROM.
+pub const DMG_BOOT_ROM_ID: &str = "dmg-boot-rom";
+/// Firmware id of the optional Pocket boot ROM.
+pub const MGB_BOOT_ROM_ID: &str = "mgb-boot-rom";
 
 impl Model {
     pub const ALL: [Self; 7] = [
@@ -52,17 +58,44 @@ impl Model {
         matches!(self, Self::Cgb | Self::Agb)
     }
 
-    /// Where the optional CGB boot ROM may be found. The monochrome
-    /// profiles take no firmware.
+    /// Optional firmware for the selected existing model. SGB execution is separate.
     #[must_use]
     pub fn firmware_sources(self) -> Vec<FirmwareSource> {
-        if self.is_cgb() {
-            vec![
+        let source = match self {
+            Self::Dmg0 => FirmwareSource::optional(DMG0_BOOT_ROM_ID, &["dmg0_boot.bin"])
+                .with_env_var("EMU198X_GB_DMG0_BOOT_ROM"),
+            Self::Dmg => FirmwareSource::optional(DMG_BOOT_ROM_ID, &["dmg_boot.bin"])
+                .with_env_var("EMU198X_GB_DMG_BOOT_ROM"),
+            Self::Mgb => FirmwareSource::optional(MGB_BOOT_ROM_ID, &["mgb_boot.bin"])
+                .with_env_var("EMU198X_GB_MGB_BOOT_ROM"),
+            Self::Cgb | Self::Agb => {
                 FirmwareSource::optional(CGB_BOOT_ROM_ID, &["cgb_boot.bin", "cgb.bin"])
-                    .with_env_var("EMU198X_GB_CGB_BOOT_ROM"),
-            ]
-        } else {
-            Vec::new()
+                    .with_env_var("EMU198X_GB_CGB_BOOT_ROM")
+            }
+            Self::Sgb | Self::Sgb2 => return Vec::new(),
+        };
+        vec![source]
+    }
+
+    pub(crate) const fn boot_firmware(self) -> Option<(&'static str, usize)> {
+        match self {
+            Self::Dmg0 => Some((
+                DMG0_BOOT_ROM_ID,
+                machine_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
+            )),
+            Self::Dmg => Some((
+                DMG_BOOT_ROM_ID,
+                machine_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
+            )),
+            Self::Mgb => Some((
+                MGB_BOOT_ROM_ID,
+                machine_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
+            )),
+            Self::Cgb | Self::Agb => Some((
+                CGB_BOOT_ROM_ID,
+                machine_nintendo_game_boy::cgb::CGB_BOOT_ROM_SIZE,
+            )),
+            Self::Sgb | Self::Sgb2 => None,
         }
     }
 
@@ -189,15 +222,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "m-cycle",
             ClockRate::from_ratio(common_nintendo_game_boy::DMG_MASTER_HZ.into(), 4),
         ),
-        firmware: if model.is_cgb() {
+        firmware: model.boot_firmware().map_or_else(Vec::new, |(id, size)| {
             vec![FirmwareRequirement::new(
-                CGB_BOOT_ROM_ID,
-                "Game Boy Color boot ROM (2304 bytes)",
+                id,
+                format!("{} boot ROM ({size} bytes)", model.display_name()),
                 true,
             )]
-        } else {
-            vec![]
-        },
+        }),
         media_slots: vec![MediaSlot::new(
             "cartridge",
             "Cartridge",
@@ -221,9 +252,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dmg_profile_is_honest_about_current_boot_scope() {
+    fn dmg_profile_offers_optional_boot_firmware() {
         let profile = profile_for(Model::Dmg);
-        assert!(profile.firmware.is_empty());
+        assert_eq!(profile.firmware.len(), 1);
+        assert_eq!(profile.firmware[0].id.as_ref(), DMG_BOOT_ROM_ID);
+        assert!(profile.firmware[0].optional);
         assert_eq!(profile.media_slots.len(), 1);
         assert_eq!(profile.media_slots[0].id.as_ref(), "cartridge");
         assert_eq!(profile.media_slots[0].kind, MediaKind::Cartridge);
@@ -287,7 +320,9 @@ mod tests {
             assert_eq!(model.firmware_sources().len(), 1);
             assert!(model.firmware_sources()[0].optional);
         }
-        assert!(Model::Dmg.firmware_sources().is_empty());
+        assert_eq!(Model::Dmg.firmware_sources().len(), 1);
+        assert!(Model::Sgb.firmware_sources().is_empty());
+        assert!(Model::Sgb2.firmware_sources().is_empty());
 
         let cgb = Model::Cgb;
         assert_eq!(cgb.variant_id(), "cgb");

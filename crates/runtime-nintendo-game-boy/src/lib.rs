@@ -19,6 +19,9 @@ mod runtime;
 mod snapshot;
 
 pub use machine_nintendo_game_boy::{ApuChannel, AudioControls};
-pub use profiles::{CGB_BOOT_ROM_ID, Model, profile_for, profiles};
+pub use profiles::{
+    CGB_BOOT_ROM_ID, DMG_BOOT_ROM_ID, DMG0_BOOT_ROM_ID, MGB_BOOT_ROM_ID, Model, profile_for,
+    profiles,
+};
 pub use queries::GameBoySessionQueryProvider;
 pub use runtime::GameBoyRuntime;

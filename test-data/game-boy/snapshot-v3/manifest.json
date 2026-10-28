@@ -1,0 +1,43 @@
+{
+  "source": "49956980d7841a53420aaa49ff16211161e38edb",
+  "original_cartridge": "runtime-nintendo-game-boy/tests/common/mod.rs::loop_rom",
+  "files": {
+    "agb.state": {
+      "bytes": 207666,
+      "sha256": "2f1cbfb89827f588ef650b0b11f87c2d05e93fd8c644642b69e8a5f47ca51be3"
+    },
+    "cgb-next.state": {
+      "bytes": 207663,
+      "sha256": "c7c4372f2cc382aa5f58632b23e1a2f93b0099b1b73137055fb1c9c8c5aaee35"
+    },
+    "cgb.state": {
+      "bytes": 207664,
+      "sha256": "5ef11b70fb37a9188b6052243bfe6ab1447545a2d756eba6bd81050db05b2c26"
+    },
+    "dmg-next.state": {
+      "bytes": 138519,
+      "sha256": "795b4772e1223c7814733e0f36e09b2e64c75b3a4e375923d71a81b9a87be217"
+    },
+    "dmg.state": {
+      "bytes": 138520,
+      "sha256": "9a91d316a5f193f0eeef3bb0a0123d96311524709354295cbbeff42869f29744"
+    },
+    "dmg0.state": {
+      "bytes": 138520,
+      "sha256": "84483993ec7e70d2fb610aa8508fb2af3515af515dc99d1df668d9013a7bd3e7"
+    },
+    "mgb.state": {
+      "bytes": 138520,
+      "sha256": "bc6c2d37e98d0719bd51b54123bf024b5f53d2808b6a07d2b649328254995e4a"
+    },
+    "sgb.state": {
+      "bytes": 138522,
+      "sha256": "09c0a755a6e2b63b7029a3d83e54dfbd078da83ac4dd261ef0d2f5e5a30d0cb7"
+    },
+    "sgb2.state": {
+      "bytes": 138524,
+      "sha256": "59b56d0f7fb59a9b4d4c5e5605ba3fe227d3e8cb4fd0246324ebd2af38b075a1"
+    }
+  },
+  "continuation": "Unchanged baseline restored each starting fixture, then ran to old_time + model.frame_ticks(); both DMG/CGB advance from 16417 to 33973."
+}

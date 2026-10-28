@@ -12,13 +12,11 @@
 //! and double speed. At double speed the CPU and timer run twice as
 //! fast as the PPU and APU, so an m-cycle is 2 dots instead of 4.
 //!
+//! Optional monochrome/CGB firmware runs through [`GameBoy::try_new_with_boot_rom`].
+//! Without firmware the documented skipped-boot profile remains the default.
+//!
 //! Deferred behaviour (will land alongside the relevant test ROMs):
 //!
-//! - Boot-ROM slot on the monochrome models. The CPU resets at
-//!   PC=$0100 with the documented post-boot register state instead of
-//!   running through the 256-byte boot ROM. A CGB can run its boot ROM
-//!   ([`GameBoy::new_cgb_with_boot_rom`]) but, without one, starts the
-//!   same way.
 //! - Full OAM DMA bus blocking. Real hardware blocks all CPU access to
 //!   non-HRAM memory for the 160 m-cycles a DMA takes; the DMA transfer
 //!   itself is paced and OAM access is blocked, but full CPU bus gating
@@ -44,8 +42,22 @@ fn board(kind: CartridgeType) -> CartType {
 }
 
 pub mod cgb;
+mod snapshot_v3;
+#[doc(hidden)]
+pub use snapshot_v3::GameBoyV3;
+
+/// Size of a DMG0, DMG or MGB boot ROM.
+pub const MONO_BOOT_ROM_SIZE: usize = 256;
+
+#[derive(Clone, Serialize, Deserialize)]
+struct MonoBootRom {
+    bytes: Vec<u8>,
+    mapped: bool,
+}
 #[cfg(test)]
 mod cgb_tests;
+#[cfg(test)]
+mod mono_boot_tests;
 #[cfg(test)]
 mod tests;
 
@@ -220,6 +232,8 @@ pub struct GameBoy {
     /// A monochrome model in STOP mode.
     #[serde(default)]
     dmg_stop_mode: bool,
+    // Runtime v4 owns this new field; v3 reads use the explicit legacy layout.
+    mono_boot: Option<MonoBootRom>,
 }
 
 /// Which of the DMG's two memory buses an address sits on. OAM DMA blocks
@@ -363,6 +377,7 @@ impl GameBoy {
             oam_dma_last_byte: 0xFF,
             cgb,
             dmg_stop_mode: false,
+            mono_boot: None,
         }
     }
 
@@ -458,6 +473,96 @@ impl GameBoy {
             header,
             Self::new_with_boot_rom(cart, boot_profile, boot_rom),
         ))
+    }
+
+    /// Build a machine with validated optional firmware for its selected hardware.
+    /// The older infallible constructor retains its CGB-only compatibility policy.
+    ///
+    /// # Errors
+    /// Rejects wrong firmware extents and unsupported SGB boot execution.
+    pub fn try_new_with_boot_rom(
+        cartridge: Cartridge,
+        boot_profile: BootProfile,
+        boot_rom: Option<Vec<u8>>,
+    ) -> Result<Self, String> {
+        let Some(bytes) = boot_rom else {
+            return Ok(Self::new_with_boot_profile(cartridge, boot_profile));
+        };
+        let expected = if boot_profile.is_cgb() {
+            cgb::CGB_BOOT_ROM_SIZE
+        } else {
+            MONO_BOOT_ROM_SIZE
+        };
+        if bytes.len() != expected {
+            return Err(format!(
+                "expected {expected} boot ROM bytes, found {}",
+                bytes.len()
+            ));
+        }
+        if matches!(boot_profile, BootProfile::Sgb | BootProfile::Sgb2) {
+            return Err("SGB boot-ROM execution is not implemented".into());
+        }
+        if boot_profile.is_cgb() {
+            return Ok(Self::new_cgb_with_boot_rom(cartridge, boot_profile, bytes));
+        }
+        let mut machine = Self::new_with_boot_profile(cartridge, boot_profile);
+        machine.cpu.reset();
+        machine.timer = Timer::new();
+        machine.apu = Apu::new();
+        machine.joypad = JoypadMatrix::new();
+        machine.if_reg = 0;
+        machine.ppu = Ppu::new();
+        machine.ppu.write_lcdc(0);
+        machine.vram.fill(0);
+        machine.mono_boot = Some(MonoBootRom {
+            bytes,
+            mapped: true,
+        });
+        Ok(machine)
+    }
+
+    /// Parse a cartridge and execute validated optional boot firmware.
+    ///
+    /// # Errors
+    /// Returns cartridge-header or boot-firmware validation failures.
+    pub fn try_from_rom_with_boot_rom(
+        rom: Vec<u8>,
+        boot_profile: BootProfile,
+        boot_rom: Option<Vec<u8>>,
+    ) -> Result<(CartridgeHeader, Self), String> {
+        let header = CartridgeHeader::parse(&rom).map_err(|error| error.to_string())?;
+        let cart = Cartridge::new(rom, board(header.cart_type), header.ram_size);
+        let machine = Self::try_new_with_boot_rom(cart, boot_profile, boot_rom)?;
+        Ok((header, machine))
+    }
+
+    /// Supplied firmware, retained after unmapping for cold-reset/snapshot use.
+    #[must_use]
+    pub fn boot_rom(&self) -> Option<&[u8]> {
+        self.mono_boot
+            .as_ref()
+            .map(|boot| boot.bytes.as_slice())
+            .or_else(|| self.cgb.as_ref().and_then(|cgb| cgb.boot_rom.as_deref()))
+    }
+
+    /// Validate boot state and selected hardware during runtime restore.
+    ///
+    /// # Errors
+    /// Rejects malformed monochrome firmware or a monochrome overlay on other hardware.
+    pub fn validate_boot_state(&self, profile: BootProfile) -> Result<(), String> {
+        if self.cgb.is_some() != profile.is_cgb() {
+            return Err("snapshot hardware does not match the selected boot profile".into());
+        }
+        if let Some(boot) = &self.mono_boot
+            && (!matches!(
+                profile,
+                BootProfile::Dmg0 | BootProfile::DmgAbc | BootProfile::Mgb
+            ) || self.cgb.is_some()
+                || boot.bytes.len() != MONO_BOOT_ROM_SIZE)
+        {
+            return Err("invalid monochrome boot state".into());
+        }
+        Ok(())
     }
 
     /// Returns the framebuffer (160 × 144 post-palette 2-bit shades).
@@ -704,6 +809,11 @@ impl GameBoy {
     }
 
     fn read_io(&self, addr: u16) -> u8 {
+        if addr == 0xFF50
+            && let Some(boot) = &self.mono_boot
+        {
+            return 0xFE | u8::from(!boot.mapped);
+        }
         if let Some(value) = self.read_cgb_io(addr) {
             return value;
         }
@@ -734,6 +844,14 @@ impl GameBoy {
     }
 
     fn write_io(&mut self, addr: u16, value: u8) {
+        if addr == 0xFF50
+            && let Some(boot) = &mut self.mono_boot
+        {
+            if value & 1 != 0 {
+                boot.mapped = false;
+            }
+            return;
+        }
         if self.write_cgb_io(addr, value) {
             return;
         }
@@ -910,6 +1028,12 @@ impl GameBoy {
     }
 
     pub(crate) fn bus_read(&self, addr: u16) -> u8 {
+        if addr < 0x100
+            && let Some(boot) = &self.mono_boot
+            && boot.mapped
+        {
+            return boot.bytes.get(usize::from(addr)).copied().unwrap_or(0xFF);
+        }
         if addr < 0x0900
             && let Some(byte) = self.cgb.as_ref().and_then(|cgb| cgb.boot_rom_byte(addr))
         {
