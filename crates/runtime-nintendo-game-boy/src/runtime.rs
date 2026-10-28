@@ -6,12 +6,11 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_nintendo_game_boy::cgb::CGB_BOOT_ROM_SIZE;
 use machine_nintendo_game_boy::{ApuChannel, AudioControls, GameBoy};
 
 use crate::input::apply_input_event;
 use crate::snapshot;
-use crate::{CGB_BOOT_ROM_ID, Model, profile_for};
+use crate::{Model, profile_for};
 use emu198x_shell::display::Display;
 
 /// Audio sample rate produced by the APU. Matches
@@ -36,7 +35,7 @@ pub struct GameBoyRuntime {
     cartridge_bytes: Option<Vec<u8>>,
     time: MachineTime,
     audio_buffer: Vec<f32>,
-    /// The CGB boot ROM, when the user supplied one.
+    /// Optional boot firmware for the selected hardware.
     boot_rom: Option<Vec<u8>>,
     /// The CGB picture converted to RGBA for the host.
     rgba: Vec<u8>,
@@ -73,28 +72,27 @@ impl GameBoyRuntime {
         self.model
     }
 
-    /// The monochrome profiles start after the boot ROM and take no
-    /// firmware. The colour models run the CGB boot ROM when it is
-    /// supplied, and otherwise start after it too.
+    /// Runs optional firmware on DMG0/DMG/MGB and colour hardware when supplied.
+    /// Without firmware, the selected skipped-boot profile remains the default.
+    /// SGB/SGB2 boot execution is outside this route.
     ///
     /// # Errors
     ///
-    /// Returns [`MachineError::InvalidFirmware`] for a CGB boot ROM that
-    /// is not 2304 bytes, or the set's own validation error.
+    /// Returns [`MachineError::InvalidFirmware`] for firmware of the wrong
+    /// size (256 monochrome or 2304 CGB bytes), or the set's validation error.
     pub fn from_firmware(
         model: Model,
         firmware: &emu198x_shell::FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         firmware.validate_for_profile(&profile_for(model))?;
         let mut runtime = Self::blank(model);
-        if let Some(boot_rom) = firmware.bytes(CGB_BOOT_ROM_ID) {
-            if boot_rom.len() != CGB_BOOT_ROM_SIZE {
+        if let Some((id, size)) = model.boot_firmware()
+            && let Some(boot_rom) = firmware.bytes(id)
+        {
+            if boot_rom.len() != size {
                 return Err(MachineError::InvalidFirmware {
-                    id: CGB_BOOT_ROM_ID.to_owned(),
-                    reason: format!(
-                        "expected {CGB_BOOT_ROM_SIZE} bytes, found {}",
-                        boot_rom.len()
-                    ),
+                    id: id.to_owned(),
+                    reason: format!("expected {size} bytes, found {}", boot_rom.len()),
                 });
             }
             runtime.boot_rom = Some(boot_rom.to_vec());
@@ -105,7 +103,7 @@ impl GameBoyRuntime {
     /// Builds the machine for a cartridge image: through the boot ROM
     /// when one is held, else from the post-boot state.
     fn machine_from_rom(&self, rom: Vec<u8>) -> Result<GameBoy, String> {
-        GameBoy::from_rom_with_boot_rom(rom, self.model.boot_profile(), self.boot_rom.clone())
+        GameBoy::try_from_rom_with_boot_rom(rom, self.model.boot_profile(), self.boot_rom.clone())
             .map(|(_, machine)| machine)
             .map_err(|reason| reason.to_string())
     }
@@ -299,6 +297,14 @@ impl GameBoyRuntime {
         self.cartridge_bytes = bytes;
     }
 
+    pub(crate) fn boot_rom(&self) -> Option<&[u8]> {
+        self.boot_rom.as_deref()
+    }
+
+    pub(crate) fn set_boot_rom(&mut self, bytes: Option<Vec<u8>>) {
+        self.boot_rom = bytes;
+    }
+
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
@@ -386,11 +392,18 @@ impl emu198x_shell::FamilyRuntime for GameBoyRuntime {
     ) -> Result<Self, MachineError> {
         let mut replacement = Self::from_firmware(model, firmware)?;
         if let Some(machine) = &self.machine {
-            let mut fresh = GameBoy::new_with_boot_rom(
+            let mut fresh = GameBoy::try_new_with_boot_rom(
                 machine.cartridge().cold_boot(),
                 model.boot_profile(),
                 replacement.boot_rom.clone(),
-            );
+            )
+            .map_err(|reason| MachineError::InvalidFirmware {
+                id: model
+                    .boot_firmware()
+                    .map_or("boot-rom", |(id, _)| id)
+                    .to_owned(),
+                reason,
+            })?;
             fresh.set_audio_controls(machine.audio_controls());
             replacement.cartridge_bytes = Some(machine.cartridge().rom().to_vec());
             replacement.machine = Some(fresh);
