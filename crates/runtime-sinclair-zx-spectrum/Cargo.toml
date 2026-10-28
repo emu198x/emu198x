@@ -31,10 +31,10 @@ machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-
 machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3", version = "0.45.0" }
 machine-timex-tc2048 = { path = "../machine-timex-tc2048", version = "0.45.0" }
 machine-timex-ts2068 = { path = "../machine-timex-ts2068", version = "0.45.0" }
-emu198x-peripheral-sinclair-zx-spectrum-divmmc = { path = "../emu198x-peripheral-sinclair-zx-spectrum-divmmc", version = "0.1.0" }
-emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick", version = "0.1.0" }
-emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse", version = "0.1.0" }
-emu198x-peripheral-sinclair-zx-spectrum-interface1 = { path = "../emu198x-peripheral-sinclair-zx-spectrum-interface1", version = "0.1.0" }
+emu198x-peripheral-sinclair-zx-spectrum-divmmc = "0.1.0"
+emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = "0.1.0"
+emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = "0.1.0"
+emu198x-peripheral-sinclair-zx-spectrum-interface1 = "0.1.0"
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

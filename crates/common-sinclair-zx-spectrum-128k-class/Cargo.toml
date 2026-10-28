@@ -10,14 +10,14 @@ repository.workspace = true
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.45.0" }
 emu198x-gi-ay-3-8912 = "0.1.0"
-emu198x-peripheral-sinclair-zx-spectrum-divmmc = { path = "../emu198x-peripheral-sinclair-zx-spectrum-divmmc", version = "0.1.0" }
-emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick", version = "0.1.0" }
-emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse", version = "0.1.0" }
-emu198x-peripheral-sinclair-zx-spectrum-interface1 = { path = "../emu198x-peripheral-sinclair-zx-spectrum-interface1", version = "0.1.0" }
+emu198x-peripheral-sinclair-zx-spectrum-divmmc = "0.1.0"
+emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = "0.1.0"
+emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = "0.1.0"
+emu198x-peripheral-sinclair-zx-spectrum-interface1 = "0.1.0"
 serde = { workspace = true }
-emu198x-sinclair-ula-7k010e = { path = "../emu198x-sinclair-ula-7k010e", version = "0.1.0" }
+emu198x-sinclair-ula-7k010e = "0.1.0"
 emu198x-zilog-z80 = "0.8.0"
-emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface = { path = "../emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface", version = "0.1.0" }
+emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface = "0.1.0"
 
 [lints]
 workspace = true

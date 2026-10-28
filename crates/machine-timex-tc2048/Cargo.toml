@@ -10,10 +10,10 @@ repository.workspace = true
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.45.0" }
 format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.45.0" }
-emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = { path = "../emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick", version = "0.1.0" }
+emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = "0.1.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }
-emu198x-timex-scld = { path = "../emu198x-timex-scld", version = "0.1.0" }
+emu198x-timex-scld = "0.1.0"
 emu198x-zilog-z80 = "0.8.0"
 
 [dev-dependencies]
