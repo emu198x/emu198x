@@ -9,8 +9,8 @@
 //! fire line — action buttons are on the keyboard). One [`ControllerCache`]
 //! mirror per port re-applies the whole state via [`SordM5::set_joystick`].
 
+use crate::machine::M5Machine as SordM5;
 use emu198x_shell::InputEvent;
-use machine_sord_m5::SordM5;
 
 /// Host-side mirror of one M5 control port's four directions, re-applied via
 /// [`SordM5::set_joystick`] on every event.
@@ -169,14 +169,14 @@ pub(crate) fn knows_key_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use machine_sord_m5::M5Region;
+    use crate::profiles::Model;
     use std::borrow::Cow;
 
     fn make_m5() -> SordM5 {
         let mut rom = vec![0u8; 0x2000];
         rom[0x0008] = 0x18; // JR -2 trap
         rom[0x0009] = 0xFE;
-        SordM5::new(rom, Vec::new(), M5Region::Ntsc)
+        SordM5::new(Model::M5Ntsc, rom, Vec::new())
     }
 
     fn button(port: u8, name: &str, pressed: bool) -> InputEvent {

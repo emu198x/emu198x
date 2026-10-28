@@ -252,3 +252,23 @@ pub(super) fn catalogue() -> Vec<Value> {
     ));
     result
 }
+
+#[cfg(all(test, feature = "sord-m5"))]
+mod sord_tests {
+    #[test]
+    fn separate_boards_keep_the_existing_family_and_profile_routes() {
+        let entries: Vec<_> = super::catalogue()
+            .into_iter()
+            .filter(|v| v["family"] == "sord-m5")
+            .collect();
+        assert_eq!(entries.len(), 2);
+        for id in ["sord-m5-ntsc", "sord-m5-pal"] {
+            let entry = entries
+                .iter()
+                .find(|v| v["id"] == id)
+                .expect("existing variant");
+            assert_eq!(entry["profileId"], id);
+            assert_eq!(entry["machineId"], id);
+        }
+    }
+}

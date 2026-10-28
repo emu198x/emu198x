@@ -18,6 +18,7 @@ import pathlib
 import re
 import subprocess
 import sys
+
 import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -56,7 +57,9 @@ def shipping_crates() -> set[str]:
     return {
         p.name
         for p in (ROOT / "crates").glob("emu198x-*")
-        if p.is_dir() and (p / "src" / "main.rs").exists() and not opts_out_of_release(p)
+        if p.is_dir()
+        and (p / "src" / "main.rs").exists()
+        and not opts_out_of_release(p)
     }
 
 
@@ -76,12 +79,16 @@ def declared_machines() -> set[str]:
     """
     found = set()
     for f in (ROOT / "crates").glob("runtime-*/src/*.rs"):
-        found |= set(re.findall(r'MachineId::from\("([a-z0-9-]+)"\)', f.read_text(errors="ignore")))
+        found |= set(
+            re.findall(
+                r'MachineId::from\("([a-z0-9-]+)"\)', f.read_text(errors="ignore")
+            )
+        )
     return {m for m in found if not m.startswith("test-")} - {"dummy-machine"}
 
 
 def gh(args: list[str]):
-    out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+    out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=False)
     if out.returncode != 0 or not out.stdout.strip():
         return None
     return json.loads(out.stdout)
@@ -103,6 +110,18 @@ def main() -> int:
     for crate in sorted(listed_crates - shipping_crates()):
         problems.append(f"registry names crate {crate}, which does not ship")
 
+    for system in systems:
+        if owner := system.get("machine_crate"):
+            manifest = ROOT / "crates" / owner / "Cargo.toml"
+            if not owner.startswith("machine-") or not manifest.is_file():
+                problems.append(
+                    f"{system['machine_id']}: unknown machine_crate {owner}"
+                )
+            elif tomllib.loads(manifest.read_text())["package"]["name"] != owner:
+                problems.append(
+                    f"{system['machine_id']}: machine_crate differs from package name"
+                )
+
     # Every declared machine must be registered. The blind-scan ones are
     # asserted explicitly, because the scan cannot see them and their absence
     # would otherwise look like agreement.
@@ -111,11 +130,20 @@ def main() -> int:
         problems.append(f"profile declares machine {machine}, absent from the registry")
     for machine in sorted(SCAN_BLIND):
         if machine not in ids:
-            problems.append(f"machine {machine} is invisible to the scan and unregistered (#998)")
+            problems.append(
+                f"machine {machine} is invisible to the scan and unregistered (#998)"
+            )
 
     # Labels and milestones, when the tracker is reachable.
     labels = gh(["gh", "label", "list", "--limit", "300", "--json", "name"])
-    stones = gh(["gh", "api", "repos/emu198x/emu198x/milestones?state=all&per_page=100", "--paginate"])
+    stones = gh(
+        [
+            "gh",
+            "api",
+            "repos/emu198x/emu198x/milestones?state=all&per_page=100",
+            "--paginate",
+        ]
+    )
     if labels is None or stones is None:
         print("note: GitHub unreachable — label and milestone checks did NOT run")
     else:
@@ -125,14 +153,18 @@ def main() -> int:
             if s["label"] not in have_labels:
                 problems.append(f"{s['machine_id']}: label {s['label']} does not exist")
             if s["milestone"] not in have_stones:
-                problems.append(f"{s['machine_id']}: milestone {s['milestone']!r} does not exist")
+                problems.append(
+                    f"{s['machine_id']}: milestone {s['milestone']!r} does not exist"
+                )
 
     if problems:
         print(f"registry check FAILED ({len(problems)}):")
         for p in problems:
             print(f"  - {p}")
         return 1
-    print(f"registry check passed: {len(systems)} machines across {len(listed_crates)} crates")
+    print(
+        f"registry check passed: {len(systems)} machines across {len(listed_crates)} crates"
+    )
     return 0
 
 

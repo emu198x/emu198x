@@ -1,11 +1,11 @@
 //! Runtime wrapper for the Sord M5.
 
+use crate::machine::M5Machine as SordM5;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_sord_m5::{M5Region, SordM5};
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
@@ -182,12 +182,8 @@ impl M5Runtime {
             self.machine = None;
             return;
         };
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => M5Region::Pal,
-            _ => M5Region::Ntsc,
-        };
         let cart = self.cart_bytes.clone().unwrap_or_default();
-        let machine = SordM5::new(rom, cart, region);
+        let machine = SordM5::new(self.model, rom, cart);
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

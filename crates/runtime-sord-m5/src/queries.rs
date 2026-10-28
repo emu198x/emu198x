@@ -1,7 +1,7 @@
 //! Family-owned query surface for the Sord M5 runtime.
 
+use crate::machine::M5Machine as SordM5;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_sord_m5::SordM5;
 use serde_json::{Value, json};
 
 use crate::runtime::M5Runtime;

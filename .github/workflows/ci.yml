@@ -131,6 +131,9 @@ jobs:
       - name: Check generated evidence keeps canonical machine IDs
         run: python3 scripts/status/test_render_status.py
 
+      - name: Check separate board evidence ownership
+        run: python3 scripts/status/test_evidence_ownership.py
+
       - name: Check the status pages are current
         run: python3 scripts/status/render_status.py --check
 

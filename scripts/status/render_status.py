@@ -35,8 +35,10 @@ import difflib
 import json
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
+
+import tomllib
+from evidence_ownership import partitions
 
 REPO = Path(__file__).resolve().parents[2]
 REGISTRY = REPO / "docs" / "status" / "systems.toml"
@@ -90,7 +92,9 @@ def workspace_closures() -> dict[str, set[str]]:
 
 def label_url(label: str) -> str:
     quoted = label.replace(":", "%3A")
-    return f"https://github.com/{REPO_SLUG}/issues?q=is%3Aissue+is%3Aopen+label%3A{quoted}"
+    return (
+        f"https://github.com/{REPO_SLUG}/issues?q=is%3Aissue+is%3Aopen+label%3A{quoted}"
+    )
 
 
 def milestone_url(title: str) -> str:
@@ -102,22 +106,12 @@ def milestone_url(title: str) -> str:
 
 
 def render(systems: list[dict], closures: dict[str, set[str]]) -> tuple[str, str]:
-    shipping = sorted({s["crate"] for s in systems})
-    reach: dict[str, set[str]] = {}
-    for crate in shipping:
-        for member in closures[crate]:
-            reach.setdefault(member, set()).add(crate)
-
+    ownership = partitions(systems, closures)
     rows = []
     for system in sorted(systems, key=lambda s: s["machine_id"]):
-        crate = system["crate"]
-        own = sorted(c for c in closures[crate] if reach[c] == {crate})
-        shared = sorted(c for c in closures[crate] if len(reach[c]) > 1)
-        cohabiting = sorted(
-            s["machine_id"]
-            for s in systems
-            if s["crate"] == crate and s["machine_id"] != system["machine_id"]
-        )
+        own, shared, cohabiting = ownership[system["machine_id"]]
+        if system.get("machine_crate"):
+            cohabiting = []  # Shared app, but the board's own evidence is distinct.
         rows.append((system, own, shared, cohabiting))
 
     return _usability(rows), _outstanding(rows)
@@ -129,28 +123,39 @@ def _usability(rows) -> str:
         "",
         "# Current system usability",
         "",
-        "Every machine this repository ships, and where the evidence for each "
-        "one lives. Thirty machines across thirty shipping crates.",
+        (
+            "Every machine this repository ships, and where the evidence for each "
+            f"one lives. {len(rows)} machines across "
+            f"{len({r[0]['crate'] for r in rows})} shipping crates."
+        ),
         "",
         "## How to read this",
         "",
-        "**Own crates** are reachable from this machine's shipping crate and no "
-        "other, so their tests are evidence about this machine. **Shared "
-        "crates** are common to several machines — `emu198x-zilog-z80` passing says "
-        "nothing about whether the Einstein boots. A machine with few own "
-        "crates has little that can be said about it specifically, however "
-        "green the suite looks.",
+        (
+            "**Own crates** are exclusive to one shipping crate, or to an explicit "
+            "concrete board when siblings share a binary. Their tests provide "
+            "evidence about that owner. Family runtime and common wiring remain "
+            "shared when board owners are explicit. **Shared "
+            "crates** are common to several machines — `emu198x-zilog-z80` passing says "
+            "nothing about whether the Einstein boots. A machine with few own "
+            "crates has little that can be said about it specifically, however "
+            "green the suite looks."
+        ),
         "",
-        "**There are no test counts on this page.** They would be stale within "
-        "a day, and a page that is usually wrong trains people to stop reading "
-        "it. Counts are published as the `status-evidence` artifact on every "
-        "CI run, where being a snapshot is the point. See "
-        "[the evidence decision](../../knowledge/decisions/"
-        "evidence-is-what-ran-not-what-was-claimed.md).",
+        (
+            "**There are no test counts on this page.** They would be stale within "
+            "a day, and a page that is usually wrong trains people to stop reading "
+            "it. Counts are published as the `status-evidence` artifact on every "
+            "CI run, where being a snapshot is the point. See "
+            "[the evidence decision](../../knowledge/decisions/"
+            "evidence-is-what-ran-not-what-was-claimed.md)."
+        ),
         "",
-        "**Milestones are claims, not verification.** A closed "
-        "`<machine> 100%` milestone says its issues were closed. It says "
-        "nothing about the machine.",
+        (
+            "**Milestones are claims, not verification.** A closed "
+            "`<machine> 100%` milestone says its issues were closed. It says "
+            "nothing about the machine."
+        ),
         "",
         "| Machine | Ships from | Own crates | Shared crates | Issues | Milestone |",
         "|---|---|---|---|---|---|",
@@ -167,17 +172,21 @@ def _usability(rows) -> str:
     out.append("")
     if any(r[3] for r in rows):
         out += [
-            "⚠️ Shares a shipping crate with another machine, so neither one's "
-            "evidence can be told from the other's.",
+            (
+                "⚠️ Shares a shipping crate without an explicit concrete board owner, so neither one's "
+                "evidence can be told from the other's."
+            ),
             "",
         ]
     else:
         out += [
-            "Machine-to-crate is 1:1 across the workspace, so every machine's "
-            "own evidence is separable from every other's. It was not always: "
-            "the Game Gear shipped from the Master System's crate until #998, "
-            "and the two reported identical results because nothing could tell "
-            "their tests apart.",
+            (
+                "Every machine has a distinct evidence owner, so every machine's "
+                "own evidence is separable from every other's. It was not always: "
+                "the Game Gear shipped from the Master System's crate until #998, "
+                "and the two reported identical results because nothing could tell "
+                "their tests apart."
+            ),
             "",
         ]
     return "\n".join(out)
@@ -195,25 +204,33 @@ def _outstanding(rows) -> str:
         "",
         "# Outstanding work",
         "",
-        "Where the open work is, by the only division the repository actually "
-        "encodes: whether an issue names a machine.",
+        (
+            "Where the open work is, by the only division the repository actually "
+            "encodes: whether an issue names a machine."
+        ),
         "",
         "## Cross-cutting work",
         "",
-        f"[Open issues carrying no `system:` label]({cross_cutting}) — shared "
-        "infrastructure, CPU and chip crates, tooling, release plumbing, and "
-        "anything spanning several machines. These are the issues that move "
-        "every machine at once, and the ones a per-machine view hides.",
+        (
+            f"[Open issues carrying no `system:` label]({cross_cutting}) — shared "
+            "infrastructure, CPU and chip crates, tooling, release plumbing, and "
+            "anything spanning several machines. These are the issues that move "
+            "every machine at once, and the ones a per-machine view hides."
+        ),
         "",
         "## Future ideas",
         "",
-        f"[Open issues labelled `idea`]({label_url('idea')}) — not yet work, "
-        "kept so they are not lost.",
+        (
+            f"[Open issues labelled `idea`]({label_url('idea')}) — not yet work, "
+            "kept so they are not lost."
+        ),
         "",
         "## Per-machine work",
         "",
-        "One row per machine. The milestone records intent and sequencing; it "
-        "is a claim about issues, not about the machine.",
+        (
+            "One row per machine. The milestone records intent and sequencing; it "
+            "is a claim about issues, not about the machine."
+        ),
         "",
         "| Machine | Open issues | Milestone |",
         "|---|---|---|",
@@ -228,16 +245,20 @@ def _outstanding(rows) -> str:
         "",
         "## What this page does not do",
         "",
-        "**It does not rank machines.** Nothing committed to this repository "
-        "encodes priority — not the registry, not the dependency graph, not "
-        "the labels. Ordering the table by anything but machine name would be "
-        "inventing a claim and presenting it as derived. Roadmap order lives "
-        "in `RULES.md` and the decision records, where it is stated by a "
-        "person and can be argued with.",
+        (
+            "**It does not rank machines.** Nothing committed to this repository "
+            "encodes priority — not the registry, not the dependency graph, not "
+            "the labels. Ordering the table by anything but machine name would be "
+            "inventing a claim and presenting it as derived. Roadmap order lives "
+            "in `RULES.md` and the decision records, where it is stated by a "
+            "person and can be argued with."
+        ),
         "",
-        "**It does not list issue counts.** They change hourly. Every link "
-        "above is a live query, which is both current and honest about being "
-        "fetched rather than remembered.",
+        (
+            "**It does not list issue counts.** They change hourly. Every link "
+            "above is a live query, which is both current and honest about being "
+            "fetched rather than remembered."
+        ),
         "",
     ]
     return "\n".join(out)

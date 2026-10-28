@@ -12,7 +12,7 @@
 //! Gated `#[ignore]` because the Monitor ROM is copyrighted. Run with:
 //! ```text
 //! EMU198X_SORD_M5_BIOS=/path/sord-m5.rom EMU198X_SORD_M5_CART=/path/cart.bin \
-//!   cargo test --release -p machine-sord-m5 \
+//!   cargo test --release -p machine-sord-m5-pal \
 //!     --test keyboard_io_trace -- --ignored --nocapture
 //! ```
 
@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 
-use machine_sord_m5::{M5Region, SordM5};
+use machine_sord_m5_pal::SordM5;
 
 #[test]
 #[ignore = "FIXTURE: needs Sord M5 BIOS — run with --ignored"]
@@ -34,7 +34,7 @@ fn trace_keyboard_scan_ports() {
         .and_then(|p| fs::read(p).ok())
         .unwrap_or_default();
 
-    let mut sys = SordM5::new(bios, cart, M5Region::Ntsc);
+    let mut sys = SordM5::new(bios, cart);
     // Boot well past VDP/CTC init so the monitor is in its keyboard-polling
     // loop / interrupt handler.
     for _ in 0..240 {

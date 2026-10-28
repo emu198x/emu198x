@@ -1,4 +1,4 @@
-//! Sord M5 machine wiring: pin-driven Z80, TMS9918-family video,
+//! Shared Sord M5 wiring, statically bound by each concrete board crate: pin-driven Z80, TMS9918-family video,
 //! SN76489 sound and Z80 CTC.
 //!
 //! # Memory map
@@ -49,26 +49,17 @@
 //! These are the implemented rates, not a claim of hardware-measured phase.
 
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
-use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+pub use emu198x_ti_tms9918::Tms9918;
+pub use emu198x_ti_tms9918::VdpRegion;
 use emu198x_z80_cadence::Z80Machine;
-use emu198x_zilog_z80::{BusOp, Z80};
-use emu198x_zilog_z80_ctc::Ctc;
+use emu198x_zilog_z80::BusOp;
+pub use emu198x_zilog_z80::Z80;
+pub use emu198x_zilog_z80_ctc::Ctc;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
 const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
-const CPU_TSTATES_PER_SCANLINE: u64 = 228;
-const NTSC_SCANLINES_PER_FRAME: u64 = 262;
-const PAL_SCANLINES_PER_FRAME: u64 = 313;
-const NTSC_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PER_FRAME;
-const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_FRAME;
-
-const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
-// PAL changes the VDP raster, not the shared CPU/PSG clock. MAME's
-// Sord `m5` base configuration supplies 10.738635 MHz / 3 in both regions.
-const PAL_PSG_CLOCK_HZ: u32 = 3_579_545;
-
 /// Number of keyboard matrix rows on the M5. The keyboard is seven rows
 /// (Y0-Y6) read directly at I/O ports `$30`-`$36`, active-high — MAME
 /// `sord/m5.cpp` `portr("Y0")`..`"Y6"`.
@@ -105,9 +96,9 @@ pub struct IoEvent {
     pub write: bool,
 }
 
-/// Sord M5 machine.
+/// Version-5-compatible live state. Board constructors validate its identity.
 #[derive(Serialize, Deserialize)]
-pub struct SordM5 {
+pub struct M5State {
     cpu: Z80,
     vdp: Tms9918,
     psg: Sn76489,
@@ -155,40 +146,74 @@ pub struct SordM5 {
     irq_acks_by_channel: [u64; 4],
 }
 
-impl SordM5 {
+/// Fixed wiring supplied by a concrete machine crate; no model switch runs here.
+pub trait Board {
+    const REGION: M5Region;
+    const VDP_REGION: VdpRegion;
+    const PSG_CLOCK_HZ: u32;
+    const TSTATES_PER_FRAME: u64;
+    const FRAMEBUFFER_HEIGHT: u32;
+}
+/// Shared wiring engine, statically bound to one board.
+pub struct M5Core<B: Board> {
+    state: M5State,
+    board: std::marker::PhantomData<B>,
+}
+impl M5State {
+    #[must_use]
+    pub fn region(&self) -> M5Region {
+        self.region
+    }
+}
+impl<B: Board> M5Core<B> {
+    /// Validate an existing state without reinitialising any chip.
+    pub fn from_state(state: M5State) -> Result<Self, &'static str> {
+        if state.region != B::REGION
+            || state.tstates_per_frame != B::TSTATES_PER_FRAME
+            || state.vdp.framebuffer_height() != B::FRAMEBUFFER_HEIGHT
+        {
+            return Err("snapshot video/region does not match this Sord M5 board");
+        }
+        Ok(Self {
+            state,
+            board: std::marker::PhantomData,
+        })
+    }
+    #[must_use]
+    pub fn into_state(self) -> M5State {
+        self.state
+    }
+}
+impl<B: Board> Serialize for M5Core<B> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.state.serialize(serializer)
+    }
+}
+impl<'de, B: Board> Deserialize<'de> for M5Core<B> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_state(M5State::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+impl<B: Board> M5Core<B> {
     /// Original cartridge image retained by the live machine.
     #[must_use]
     pub fn cartridge_rom(&self) -> &[u8] {
-        &self.cart_rom
+        &self.state.cart_rom
     }
 
     /// Original firmware image retained by the live machine.
     #[must_use]
     pub fn firmware_rom(&self) -> &[u8] {
-        &self.rom
+        &self.state.rom
     }
 
-    /// Create a new Sord M5 with the given Monitor ROM and
-    /// optional cart ROM. Cart RAM starts empty; call
-    /// [`SordM5::set_cart_ram_size`] to allocate it.
+    /// Construct this compile-time board using its fixed wiring constants.
     #[must_use]
-    pub fn new(rom: Vec<u8>, cart_rom: Vec<u8>, region: M5Region) -> Self {
-        let vdp_region = match region {
-            M5Region::Ntsc => VdpRegion::Ntsc,
-            M5Region::Pal => VdpRegion::Pal,
-        };
-        let psg_clock_hz = match region {
-            M5Region::Ntsc => NTSC_PSG_CLOCK_HZ,
-            M5Region::Pal => PAL_PSG_CLOCK_HZ,
-        };
-        let tstates_per_frame = match region {
-            M5Region::Ntsc => NTSC_TSTATES_PER_FRAME,
-            M5Region::Pal => PAL_TSTATES_PER_FRAME,
-        };
-        Self {
+    pub fn new(rom: Vec<u8>, cart_rom: Vec<u8>) -> Self {
+        let state = M5State {
             cpu: Z80::new(),
-            vdp: Tms9918::new(vdp_region),
-            psg: Sn76489::new(psg_clock_hz, NoiseLfsr::Tms15),
+            vdp: Tms9918::new(B::VDP_REGION),
+            psg: Sn76489::new(B::PSG_CLOCK_HZ, NoiseLfsr::Tms15),
             rom,
             cart_rom,
             cart_ram: Vec::new(),
@@ -198,15 +223,19 @@ impl SordM5 {
             ctc: Ctc::new(),
             prev_opcode_ed: false,
             io_trace: None,
-            region,
+            region: B::REGION,
             cpu_tstates: 0,
             cadence_hc: 0,
-            tstates_per_frame,
+            tstates_per_frame: B::TSTATES_PER_FRAME,
             vdp_phase: 0,
             frame_count: 0,
             native_frame_ready: false,
             irq_acks: 0,
             irq_acks_by_channel: [0; 4],
+        };
+        Self {
+            state,
+            board: std::marker::PhantomData,
         }
     }
 
@@ -214,45 +243,50 @@ impl SordM5 {
     /// Diagnostic for which channel drives the Z80 interrupt.
     #[must_use]
     pub fn irq_acks_by_channel(&self) -> [u64; 4] {
-        self.irq_acks_by_channel
+        self.state.irq_acks_by_channel
     }
 
     /// Number of IM 2 interrupt acknowledgements taken since power-on.
     /// Diagnostic for VDP/CTC frame-interrupt delivery.
     #[must_use]
     pub fn irq_acks(&self) -> u64 {
-        self.irq_acks
+        self.state.irq_acks
     }
 
     /// Allocate (or resize) cart RAM at `$8000-$BFFF`. Some carts
     /// (FALC and friends) need extra RAM beyond the built-in 4 KB.
     pub fn set_cart_ram_size(&mut self, bytes: usize) {
         let capped = bytes.min(0x4000);
-        self.cart_ram.resize(capped, 0);
+        self.state.cart_ram.resize(capped, 0);
     }
 
     /// Run one frame and return T-states consumed.
     /// Stop on the video chip's next raster wrap, not a rounded CPU budget.
     /// The two-field safety budget reports false rather than inventing a frame.
     pub fn run_native_frame(&mut self) -> (u64, bool) {
-        let start = self.cpu_tstates;
-        self.native_frame_ready = false;
-        while !self.native_frame_ready && self.cpu_tstates - start < 2 * self.tstates_per_frame {
+        let start = self.state.cpu_tstates;
+        self.state.native_frame_ready = false;
+        while !self.state.native_frame_ready
+            && self.state.cpu_tstates - start < 2 * self.state.tstates_per_frame
+        {
             self.tick_tstate();
         }
-        if self.native_frame_ready {
-            self.frame_count += 1;
+        if self.state.native_frame_ready {
+            self.state.frame_count += 1;
         }
-        (self.cpu_tstates - start, self.native_frame_ready)
+        (
+            self.state.cpu_tstates - start,
+            self.state.native_frame_ready,
+        )
     }
 
     pub fn run_frame(&mut self) -> u64 {
-        let target = self.cpu_tstates + self.tstates_per_frame;
-        while self.cpu_tstates < target {
+        let target = self.state.cpu_tstates + self.state.tstates_per_frame;
+        while self.state.cpu_tstates < target {
             self.tick_tstate();
         }
-        self.frame_count += 1;
-        self.tstates_per_frame
+        self.state.frame_count += 1;
+        self.state.tstates_per_frame
     }
 
     /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
@@ -264,29 +298,29 @@ impl SordM5 {
     }
 
     fn handle_bus(&mut self) {
-        match self.cpu.bus_request() {
+        match self.state.cpu.bus_request() {
             Some(BusOp::MemRead) => {
-                let byte = self.mem_read(self.cpu.addr);
-                self.cpu.data_in = byte;
+                let byte = self.mem_read(self.state.cpu.addr);
+                self.state.cpu.data_in = byte;
                 // Watch the opcode stream for RETI (ED 4D) so the CTC
                 // daisy chain can release its in-service channel. M1 marks
                 // an opcode fetch; the ED prefix and its 4D second byte are
                 // consecutive M1 fetches.
-                if self.cpu.m1 {
-                    if self.prev_opcode_ed && byte == 0x4D {
-                        self.ctc.reti();
+                if self.state.cpu.m1 {
+                    if self.state.prev_opcode_ed && byte == 0x4D {
+                        self.state.ctc.reti();
                     }
-                    self.prev_opcode_ed = byte == 0xED;
+                    self.state.prev_opcode_ed = byte == 0xED;
                 }
             }
             Some(BusOp::MemWrite) => {
-                self.mem_write(self.cpu.addr, self.cpu.data);
+                self.mem_write(self.state.cpu.addr, self.state.cpu.data);
             }
             Some(BusOp::IoRead) => {
-                self.cpu.data_in = self.io_read(self.cpu.addr);
+                self.state.cpu.data_in = self.io_read(self.state.cpu.addr);
             }
             Some(BusOp::IoWrite) => {
-                self.io_write(self.cpu.addr, self.cpu.data);
+                self.io_write(self.state.cpu.addr, self.state.cpu.data);
             }
             Some(BusOp::IntAck) => {
                 // The Monitor ROM runs IM 2 with `I = $70`. The CTC
@@ -294,12 +328,12 @@ impl SordM5 {
                 // the Z80 forms the table address `(I << 8) | vector` and
                 // fetches the handler. The CTC inserts the requesting
                 // channel into vector bits 2:1 (channel 3 contributes $06).
-                let vector = self.ctc.acknowledge();
-                self.cpu.data_in = vector;
-                self.irq_acks += 1;
+                let vector = self.state.ctc.acknowledge();
+                self.state.cpu.data_in = vector;
+                self.state.irq_acks += 1;
                 // The CTC encodes the requesting channel in vector bits 2:1.
                 let channel = usize::from((vector >> 1) & 0x03);
-                self.irq_acks_by_channel[channel] += 1;
+                self.state.irq_acks_by_channel[channel] += 1;
             }
             None => {}
         }
@@ -307,14 +341,16 @@ impl SordM5 {
 
     fn mem_read(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x1FFF => self.rom.get(addr as usize).copied().unwrap_or(0xFF),
+            0x0000..=0x1FFF => self.state.rom.get(addr as usize).copied().unwrap_or(0xFF),
             0x2000..=0x6FFF => self
+                .state
                 .cart_rom
                 .get((addr - 0x2000) as usize)
                 .copied()
                 .unwrap_or(0xFF),
-            0x7000..=0x7FFF => self.ram[(addr & 0x0FFF) as usize],
+            0x7000..=0x7FFF => self.state.ram[(addr & 0x0FFF) as usize],
             0x8000..=0xBFFF => self
+                .state
                 .cart_ram
                 .get((addr - 0x8000) as usize)
                 .copied()
@@ -325,10 +361,10 @@ impl SordM5 {
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x7000..=0x7FFF => self.ram[(addr & 0x0FFF) as usize] = value,
+            0x7000..=0x7FFF => self.state.ram[(addr & 0x0FFF) as usize] = value,
             0x8000..=0xBFFF => {
                 let idx = (addr - 0x8000) as usize;
-                if let Some(slot) = self.cart_ram.get_mut(idx) {
+                if let Some(slot) = self.state.cart_ram.get_mut(idx) {
                     *slot = value;
                 }
             }
@@ -337,17 +373,17 @@ impl SordM5 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
-        let pc = self.cpu.regs.pc;
+        let pc = self.state.cpu.regs.pc;
         let p = port as u8;
         let value = match p & 0xF0 {
             // CTC at $00-$03 (channel = CS1,CS0 = A1,A0); read = live counter.
-            0x00 => self.ctc.read(p & 0x03),
+            0x00 => self.state.ctc.read(p & 0x03),
             // TMS9918A at $10 (data) / $11 (status).
             0x10 => {
                 if p & 1 == 0 {
-                    self.vdp.read_data()
+                    self.state.vdp.read_data()
                 } else {
-                    self.vdp.read_status()
+                    self.state.vdp.read_status()
                 }
             }
             // Keyboard rows Y0-Y6 at $30-$36 and the joystick at $37, each read
@@ -358,14 +394,14 @@ impl SordM5 {
             0x30 => {
                 let sel = (p & 0x07) as usize;
                 if sel < NUM_KEY_ROWS {
-                    self.key_matrix[sel]
+                    self.state.key_matrix[sel]
                 } else {
-                    self.joystick
+                    self.state.joystick
                 }
             }
             _ => 0xFF,
         };
-        if let Some(trace) = &mut self.io_trace {
+        if let Some(trace) = &mut self.state.io_trace {
             trace.push(IoEvent {
                 pc,
                 port: p,
@@ -377,9 +413,9 @@ impl SordM5 {
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
-        let pc = self.cpu.regs.pc;
+        let pc = self.state.cpu.regs.pc;
         let p = port as u8;
-        if let Some(trace) = &mut self.io_trace {
+        if let Some(trace) = &mut self.state.io_trace {
             trace.push(IoEvent {
                 pc,
                 port: p,
@@ -389,17 +425,17 @@ impl SordM5 {
         }
         match p & 0xF0 {
             // CTC at $00-$03 (channel = CS1,CS0 = A1,A0).
-            0x00 => self.ctc.write(p & 0x03, value),
+            0x00 => self.state.ctc.write(p & 0x03, value),
             // TMS9918A at $10 (data) / $11 (control).
             0x10 => {
                 if p & 1 == 0 {
-                    self.vdp.write_data(value);
+                    self.state.vdp.write_data(value);
                 } else {
-                    self.vdp.write_control(value);
+                    self.state.vdp.write_control(value);
                 }
             }
             // SN76489A PSG at $20.
-            0x20 => self.psg.write(value),
+            0x20 => self.state.psg.write(value),
             // $30 write is the 64KBF memory-paging latch (expansion RAM, not
             // modelled); $40 is the Centronics data latch. Neither touches the
             // keyboard, which is read-only at $30-$36.
@@ -410,19 +446,19 @@ impl SordM5 {
     /// Framebuffer (ARGB32).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
-        self.vdp.framebuffer()
+        self.state.vdp.framebuffer()
     }
 
     /// Framebuffer width.
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
-        self.vdp.framebuffer_width()
+        self.state.vdp.framebuffer_width()
     }
 
     /// Framebuffer height.
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        self.vdp.framebuffer_height()
+        self.state.vdp.framebuffer_height()
     }
 
     /// Observe one byte on the Z80 bus without side effects.
@@ -439,45 +475,45 @@ impl SordM5 {
     /// Start (or restart) the I/O port-access trace. Every subsequent
     /// `IN`/`OUT` is recorded until [`SordM5::take_io_trace`].
     pub fn start_io_trace(&mut self) {
-        self.io_trace = Some(Vec::new());
+        self.state.io_trace = Some(Vec::new());
     }
 
     /// Stop tracing and return the captured I/O events.
     pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
-        self.io_trace.take().unwrap_or_default()
+        self.state.io_trace.take().unwrap_or_default()
     }
 
     /// Run whole instructions until the CPU reaches `target_pc` or
     /// `max_tstates` elapse. Returns `(tstates_consumed, reached)`.
     pub fn run_until_pc(&mut self, target_pc: u16, max_tstates: u64) -> (u64, bool) {
-        let start = self.cpu_tstates;
-        while self.cpu_tstates - start < max_tstates {
+        let start = self.state.cpu_tstates;
+        while self.state.cpu_tstates - start < max_tstates {
             self.tick_tstate();
-            if self.cpu.instruction_complete() && self.cpu.regs.pc == target_pc {
-                return (self.cpu_tstates - start, true);
+            if self.state.cpu.instruction_complete() && self.state.cpu.regs.pc == target_pc {
+                return (self.state.cpu_tstates - start, true);
             }
         }
-        (self.cpu_tstates - start, false)
+        (self.state.cpu_tstates - start, false)
     }
 
     /// Take the accumulated PSG audio buffer.
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
-        self.psg.take_buffer()
+        self.state.psg.take_buffer()
     }
 
     /// Press a key at the given matrix (row, bit) cell. Active-high: a pressed
     /// key sets its bit (the BIOS reads `$30`-`$36` and sees the 1).
     pub fn press_key(&mut self, row: usize, bit: u8) {
-        if row < self.key_matrix.len() && bit < 8 {
-            self.key_matrix[row] |= 1 << bit;
+        if row < self.state.key_matrix.len() && bit < 8 {
+            self.state.key_matrix[row] |= 1 << bit;
         }
     }
 
     /// Release a key at the given matrix (row, bit) cell. Active-high: clearing
     /// the bit returns the cell to its idle (released) state.
     pub fn release_key(&mut self, row: usize, bit: u8) {
-        if row < self.key_matrix.len() && bit < 8 {
-            self.key_matrix[row] &= !(1 << bit);
+        if row < self.state.key_matrix.len() && bit < 8 {
+            self.state.key_matrix[row] &= !(1 << bit);
         }
     }
 
@@ -494,76 +530,76 @@ impl SordM5 {
             }
         }
         let shift = (port.clamp(1, 2) - 1) * 4;
-        self.joystick = (self.joystick & !(0x0F << shift)) | (nibble << shift);
+        self.state.joystick = (self.state.joystick & !(0x0F << shift)) | (nibble << shift);
     }
 
     /// The joystick directions byte read at `$37`. For inspection and
     /// host-side input wiring.
     #[must_use]
     pub fn joystick_byte(&self) -> u8 {
-        self.joystick
+        self.state.joystick
     }
 
     /// Mutable keyboard matrix (active-high; 1 = pressed).
     pub fn key_matrix_mut(&mut self) -> &mut [u8; NUM_KEY_ROWS] {
-        &mut self.key_matrix
+        &mut self.state.key_matrix
     }
 
     /// CPU reference.
     #[must_use]
     pub fn cpu(&self) -> &Z80 {
-        &self.cpu
+        &self.state.cpu
     }
 
     /// CPU mutable reference.
     pub fn cpu_mut(&mut self) -> &mut Z80 {
-        &mut self.cpu
+        &mut self.state.cpu
     }
 
     /// VDP reference.
     #[must_use]
     pub fn vdp(&self) -> &Tms9918 {
-        &self.vdp
+        &self.state.vdp
     }
 
     /// CTC reference (for observation / debug).
     #[must_use]
     pub fn ctc(&self) -> &Ctc {
-        &self.ctc
+        &self.state.ctc
     }
 
     /// Region.
     #[must_use]
     pub fn region(&self) -> M5Region {
-        self.region
+        self.state.region
     }
 
     /// CPU T-states executed since power-on.
     #[must_use]
     pub fn cpu_tstates(&self) -> u64 {
-        self.cpu_tstates
+        self.state.cpu_tstates
     }
 
     /// Frame count since power-on.
     #[must_use]
     pub fn frame_count(&self) -> u64 {
-        self.frame_count
+        self.state.frame_count
     }
 
     /// CPU T-states in one frame for the current region.
     #[must_use]
     pub fn tstates_per_frame(&self) -> u64 {
-        self.tstates_per_frame
+        self.state.tstates_per_frame
     }
 }
 
-impl Z80Machine for SordM5 {
+impl<B: Board> Z80Machine for M5Core<B> {
     fn hc(&self) -> u64 {
-        self.cadence_hc
+        self.state.cadence_hc
     }
 
     fn hc_mut(&mut self) -> &mut u64 {
-        &mut self.cadence_hc
+        &mut self.state.cadence_hc
     }
 
     // The VDP is *not* re-denominated to half-cycles, because it does not
@@ -571,22 +607,22 @@ impl Z80Machine for SordM5 {
     // per T-state, so a finer VDP interleave could not change when the
     // interrupt arrives.
     fn feed_interrupt_pins(&mut self) {
-        self.cpu.irq = self.ctc.interrupt();
+        self.state.cpu.irq = self.state.ctc.interrupt();
     }
 
     fn tick_cpu_and_bus(&mut self) {
-        self.cpu.tick();
+        self.state.cpu.tick();
         self.handle_bus();
     }
 
     fn tick_chips(&mut self) {
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.native_frame_ready |= self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        self.state.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.state.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.state.native_frame_ready |= self.state.vdp.tick();
+            self.state.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
 
-        self.psg.tick();
+        self.state.psg.tick();
 
         // VDP /INT feeds the CTC channel's CLK/TRG input; the CTC ticks
         // on the CPU clock and edge-counts those frame interrupts. The
@@ -600,16 +636,18 @@ impl Z80Machine for SordM5 {
         // the game waits on. Feeding the raw line instead put the falling edge
         // at status-read time — inside the very handler the interrupt is meant
         // to trigger — so the channel deadlocked and round logic never advanced.
-        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, !self.vdp.interrupt);
-        self.ctc.tick();
+        self.state
+            .ctc
+            .set_trg(VDP_INT_CTC_CHANNEL, !self.state.vdp.interrupt);
+        self.state.ctc.tick();
 
-        self.cpu_tstates += 1;
+        self.state.cpu_tstates += 1;
     }
 }
 
-impl emu198x_zilog_z80::Z80Stepper for SordM5 {
+impl<B: Board> emu198x_zilog_z80::Z80Stepper for M5Core<B> {
     fn z80_instructions_retired(&self) -> u64 {
-        self.cpu.instructions_retired()
+        self.state.cpu.instructions_retired()
     }
 
     fn step_tick(&mut self) {
@@ -618,207 +656,4 @@ impl emu198x_zilog_z80::Z80Stepper for SordM5 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
-        for region in [M5Region::Ntsc, M5Region::Pal] {
-            let mut machine = SordM5::new(trap_rom(), vec![], region);
-            let line = |m: &SordM5| m.vdp.scanline();
-            for _ in 0..37 {
-                machine.tick_tstate();
-            }
-            for _ in 0..4 {
-                let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
-                let mut direct: SordM5 = postcard::from_bytes(&bytes).expect("restore control");
-                let start = direct.cpu_tstates;
-                loop {
-                    let before = line(&direct);
-                    direct.tick_tstate();
-                    assert!(direct.cpu_tstates - start < 200_000, "control must wrap");
-                    if line(&direct) < before {
-                        break;
-                    }
-                }
-                let (ticks, completed) = machine.run_native_frame();
-                assert!(completed);
-                assert_eq!(
-                    ticks,
-                    direct.cpu_tstates - start,
-                    "elapsed time must match the chip event"
-                );
-                assert_eq!(
-                    line(&machine),
-                    0,
-                    "raster must wrap, not merely consume a nominal budget"
-                );
-                assert_eq!(machine.cpu_tstates, direct.cpu_tstates);
-                // A debugger can leave us partway through the next field.
-                for _ in 0..53 {
-                    machine.tick_tstate();
-                }
-            }
-        }
-    }
-
-    fn trap_rom() -> Vec<u8> {
-        // 8 KB Monitor-ROM stub: NOPs with a JR -2 trap at $0008.
-        let mut rom = vec![0u8; 8192];
-        rom[0x0008] = 0x18;
-        rom[0x0009] = 0xFE;
-        rom
-    }
-
-    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP + SN76489
-    /// PSG + Z80 CTC + RAM), not cold-boot from the ROM. Serialise, advance (so
-    /// the state differs), then deserialise the first snapshot and confirm
-    /// re-serialising it is byte-identical — every stateful field across all
-    /// chips round-trips, including the VDP's 16 KB VRAM and the CTC channels.
-    #[test]
-    fn snapshot_round_trips_live_state() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        sys.run_frame();
-        sys.poke(0x7100, 0xA5); // a system-RAM byte ($7000-$7FFF) to carry across
-        sys.run_frame();
-        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
-
-        sys.run_frame(); // advance past the snapshot point
-        let s2 = postcard::to_allocvec(&sys).expect("encode again");
-        assert_ne!(s1, s2, "running a frame should change the serialised state");
-
-        let restored: SordM5 = postcard::from_bytes(&s1).expect("decode snapshot");
-        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
-        assert_eq!(
-            s1, s3,
-            "restore should reproduce the snapshot state exactly"
-        );
-    }
-
-    #[test]
-    fn ntsc_frame_returns_expected_tstates() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        let t = sys.run_frame();
-        assert_eq!(t, NTSC_TSTATES_PER_FRAME);
-        assert_eq!(sys.frame_count(), 1);
-    }
-
-    #[test]
-    fn pal_frame_returns_expected_tstates() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Pal);
-        let t = sys.run_frame();
-        assert_eq!(t, PAL_TSTATES_PER_FRAME);
-    }
-
-    #[test]
-    fn many_frames_complete_without_panic() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        for _ in 0..60 {
-            sys.run_frame();
-        }
-        assert_eq!(sys.frame_count(), 60);
-    }
-
-    #[test]
-    fn memory_map_routes_pages() {
-        let mut sys = SordM5::new(trap_rom(), vec![0xCAu8; 0x4000], M5Region::Ntsc);
-        // BIOS trap byte.
-        assert_eq!(sys.mem_read(0x0008), 0x18);
-        // Cart ROM mirror.
-        assert_eq!(sys.mem_read(0x2000), 0xCA);
-        // RAM round-trip.
-        sys.mem_write(0x7100, 0x42);
-        assert_eq!(sys.mem_read(0x7100), 0x42);
-        // Cart RAM round-trip after allocating.
-        sys.set_cart_ram_size(0x4000);
-        sys.mem_write(0x8000, 0x77);
-        assert_eq!(sys.mem_read(0x8000), 0x77);
-        // Unmapped region.
-        assert_eq!(sys.mem_read(0xC000), 0xFF);
-    }
-
-    #[test]
-    fn keyboard_rows_read_directly_at_0x30_block() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        // Each row Y0-Y6 is read directly at its own port $30+row — no strobe.
-        sys.key_matrix[3] = 0x77;
-        assert_eq!(sys.io_read(0x33), 0x77, "row 3 reads at $33");
-        sys.key_matrix[6] = 0xAA;
-        assert_eq!(sys.io_read(0x36), 0xAA, "row 6 reads at $36");
-        // A3 mirror: $38-$3E fold onto $30-$36.
-        assert_eq!(sys.io_read(0x3B), 0x77, "$3B mirrors $33");
-        // $37 in the same block is the joystick, not a keyboard row.
-        sys.set_joystick(1, true, false, false, false);
-        assert_eq!(sys.io_read(0x37) & 0x02, 0x02, "$37 is JOY (P1 up)");
-        // $40 read is unmapped open bus (Centronics is write-only there).
-        assert_eq!(sys.io_read(0x40), 0xFF);
-    }
-
-    #[test]
-    fn joystick_reads_active_high_at_0x37() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        // Idle: nothing pressed → all lines low (active high).
-        assert_eq!(sys.io_read(0x37), 0x00);
-
-        // Player 1 right + up → bits 0 and 1 high. (up, down, left, right)
-        sys.set_joystick(1, true, false, false, true);
-        let v = sys.io_read(0x37);
-        assert_eq!(v & 0x01, 0x01, "P1 right → bit 0 high");
-        assert_eq!(v & 0x02, 0x02, "P1 up → bit 1 high");
-        assert_eq!(v & 0xF0, 0x00, "P2 nibble idle low");
-
-        // Player 2 down → bit 7; independent of P1.
-        sys.set_joystick(2, false, true, false, false);
-        let v = sys.io_read(0x37);
-        assert_eq!(v & 0x80, 0x80, "P2 down → bit 7 high");
-        assert_eq!(v & 0x03, 0x03, "P1 right+up still held");
-
-        // Mirror: $3F (A3 set) reads the same byte.
-        assert_eq!(sys.io_read(0x3F), sys.io_read(0x37));
-    }
-
-    #[test]
-    fn vdp_io_routes_at_0x10_block() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        sys.io_write(0x11, 0x00); // VDP control low byte
-        sys.io_write(0x11, 0x40); // VDP control high (set VRAM write addr $0000)
-        sys.io_write(0x10, 0x42); // VDP data write
-        // Reading status ($11) doesn't panic.
-        let _ = sys.io_read(0x11);
-    }
-
-    #[test]
-    fn ctc_routes_at_0x00_block() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        // Channel 0: vector base, then a ÷16 timer with time constant 5.
-        sys.io_write(0x00, 0x40); // vector base $40 (D0=0 → vector)
-        sys.io_write(0x00, 0x05); // control: TC follows + control word
-        sys.io_write(0x00, 5); // time constant
-        assert!(sys.ctc().running(0));
-        assert_eq!(sys.io_read(0x00), 5, "read returns the live counter");
-        assert_eq!(sys.ctc().vector_base(), 0x40);
-    }
-
-    #[test]
-    fn vdp_dot_ratio_is_three_per_two_tstates() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        let start = sys.vdp.scanline();
-        for _ in 0..4 {
-            sys.tick_tstate();
-        }
-        assert_eq!(sys.vdp.scanline(), start);
-        assert_eq!(sys.vdp_phase, 0);
-    }
-
-    #[test]
-    fn key_press_and_release_round_trip() {
-        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
-        // Active-high: pressing sets the cell, releasing clears it. Reading the
-        // row's port shows the BIOS-visible bit.
-        sys.press_key(2, 5);
-        assert_eq!(sys.key_matrix[2] & 0b0010_0000, 0b0010_0000);
-        assert_eq!(sys.io_read(0x32) & 0b0010_0000, 0b0010_0000);
-        sys.release_key(2, 5);
-        assert_eq!(sys.key_matrix[2] & 0b0010_0000, 0);
-    }
-}
+mod tests;

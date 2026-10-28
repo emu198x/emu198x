@@ -1,3 +1,4 @@
+# Optional machine_crate names a concrete board evidence owner when a family shares a binary.
 # The system registry: one entry per machine, and the only place the repo's
 # four vocabularies are joined.
 #
@@ -235,8 +236,18 @@ label = "system:neo-geo"
 milestone = "Neo Geo 100%"
 
 [[system]]
-machine_id = "sord-m5"
+machine_id = "sord-m5-ntsc"
+machine_crate = "machine-sord-m5-ntsc"
 crate = "emu198x-sord-m5"
+# The family backlog applies to both boards; this is not a board qualification.
+label = "system:sord-m5"
+milestone = "Sord M5 100%"
+
+[[system]]
+machine_id = "sord-m5-pal"
+machine_crate = "machine-sord-m5-pal"
+crate = "emu198x-sord-m5"
+# The family backlog applies to both boards; this is not a board qualification.
 label = "system:sord-m5"
 milestone = "Sord M5 100%"
 

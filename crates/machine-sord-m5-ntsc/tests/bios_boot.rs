@@ -16,7 +16,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-sord-m5 \
+//! cargo test --release -p machine-sord-m5-ntsc \
 //!     --test bios_boot -- --ignored --nocapture
 //! ```
 //!
@@ -30,7 +30,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sord_m5::{M5Region, SordM5, VDP_INT_CTC_CHANNEL};
+use machine_sord_m5_ntsc::{SordM5, VDP_INT_CTC_CHANNEL};
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_SORD_M5_BIOS") {
@@ -70,7 +70,7 @@ fn boots_through_ctc_to_a_rendered_screen() {
     let cart = cart()
         .expect("need a Sord M5 cart (basic-i.bin or dig-dug.bin) in ~/.emu198x/media/sord-m5/");
 
-    let mut sys = SordM5::new(bios, cart, M5Region::Ntsc);
+    let mut sys = SordM5::new(bios, cart);
     for _ in 0..600 {
         sys.run_frame();
     }

@@ -1,7 +1,8 @@
 //! PAL timing and boot coverage. Reference: MAME's common M5 clock and
 //! European monitor `sordint.ic21`, SHA-1 ac042c4ae8272ad6abe09ae83492ef9a0026d0b2.
+use common_sord_m5::M5Region;
 use emu198x_z80_cadence::Z80Machine;
-use machine_sord_m5::{M5Region, SordM5};
+use machine_sord_m5_pal::SordM5;
 use std::{fs, path::PathBuf};
 
 fn fixture_root() -> PathBuf {
@@ -24,7 +25,7 @@ fn pal_boot(cart_name: &str, expected_text: &[u8]) -> SordM5 {
     );
     let cart = fs::read(root.join(format!("media/sord-m5/{cart_name}.bin")))
         .expect("install the named cartridge fixture");
-    let mut machine = SordM5::new(bios, cart, M5Region::Pal);
+    let mut machine = SordM5::new(bios, cart);
     for _ in 0..600 {
         machine.run_frame();
         machine.take_audio_buffer();
@@ -103,10 +104,11 @@ fn european_dig_dug_reaches_player_selection_with_pal_frame_interrupts() {
 
 #[test]
 fn each_runtime_second_produces_48000_audio_samples() {
-    for region in [M5Region::Ntsc, M5Region::Pal] {
+    {
+        let region = M5Region::Pal;
         let mut rom = vec![0; 8192];
         rom[..2].copy_from_slice(&[0xf3, 0x76]); // DI; HALT
-        let mut machine = SordM5::new(rom, vec![], region);
+        let mut machine = SordM5::new(rom, vec![]);
         // Both runtime profiles and MAME's common CPU/PSG configuration use
         // 3,579,545 Hz. A region-dependent PSG denominator overproduced PAL
         // audio, stretching a runtime second into 48,441 host samples.
@@ -123,7 +125,7 @@ fn pal_audio_continues_identically_after_save_restore() {
     rom[..14].copy_from_slice(&[
         0xf3, 0x3e, 0x85, 0xd3, 0x20, 0x3e, 0x12, 0xd3, 0x20, 0x3e, 0x90, 0xd3, 0x20, 0x76,
     ]);
-    let mut original = SordM5::new(rom, vec![], M5Region::Pal);
+    let mut original = SordM5::new(rom, vec![]);
     original.advance_tstates(12_347); // Inside a frame and audio sample interval.
     original.take_audio_buffer();
     let saved = postcard::to_allocvec(&original).expect("save PAL machine");
