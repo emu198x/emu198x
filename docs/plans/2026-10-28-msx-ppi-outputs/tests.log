@@ -1,0 +1,210 @@
+   Compiling machine-msx v0.45.1 (/private/tmp/198x-batch-msx/crates/machine-msx)
+   Compiling runtime-msx v0.45.1 (/private/tmp/198x-batch-msx/crates/runtime-msx)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.80s
+     Running unittests src/lib.rs (/private/tmp/198x-batch-msx-target/debug/deps/machine_msx-9e961667469ce20a)
+
+running 51 tests
+test note_tests::a_cpu_read_of_the_deformation_register_writes_ff ... ok
+test note_tests::the_scc_megarom_mirrors_pages_0_and_3 ... ok
+test note_tests::the_fm_pac_keeps_pac_data_in_sram ... ok
+test note_tests::msx_music_maps_its_rom_in_its_own_slot ... ok
+test note_tests::the_scc_window_opens_only_with_3f ... ok
+test sound::tests::msx_music_maps_its_rom_into_page_1 ... ok
+test sound::tests::the_fm_pac_switches_rom_banks ... ok
+test sound::tests::levels_are_scaled_to_a_psg_channel ... ok
+test sound::tests::the_mixer_emits_on_the_psg_cadence ... ok
+test sound::tests::the_sound_cartridge_moves_the_scc_in_plus_mode ... ok
+test sound::tests::the_fm_pac_unlocks_its_sram_with_4d_69 ... ok
+test sound::tests::the_sound_cartridge_writes_ram_where_its_mode_allows ... ok
+test tests::a_long_bios_maps_its_logo_rom_at_8000 ... ok
+test tests::an_msx1_has_no_msx2_parts ... ok
+test note_tests::a_frame_of_audio_is_the_psg_cadence_long ... ok
+test tests::an_msx2_has_a_v9938_and_a_sub_rom ... ok
+test tests::an_unexpanded_slot_has_no_subslot_register ... ok
+test tests::ay_watch_captures_psg_data_writes ... ok
+test tests::cart_plain_mapper_reads_at_0x4000 ... ok
+test tests::default_slot_layout_reads_bios_then_ram ... ok
+test tests::joystick_reads_through_psg_port_a ... ok
+test tests::keyboard_io_returns_selected_row ... ok
+test tests::keyboard_press_and_release_round_trip ... ok
+test tests::mapper_detection_keeps_small_and_unrecognised_images_plain ... ok
+test tests::mapper_detection_scores_each_supported_register_family ... ok
+test tests::mapper_ports_read_ff_without_a_mapper ... ok
+test tests::click_integrates_both_halfcycles_and_preserves_mid_sample_history ... ok
+test tests::ntsc_frame_returns_expected_tstates ... ok
+test tests::pal_frame_returns_expected_tstates ... ok
+test tests::ppi_click_reaches_generated_audio_and_is_not_applied_at_drain ... ok
+test tests::ppi_output_controls_follow_direction_bsr_and_mode_reset ... ok
+test tests::ram_answers_only_in_its_subslot ... ok
+test tests::ram_beside_the_bios_covers_only_its_pages ... ok
+test tests::slot_select_routes_pages ... ok
+test tests::snapshot_round_trips_live_state ... ok
+test tests::an_msx2_snapshot_round_trips ... ok
+test tests::the_mapper_selects_a_segment_a_page ... ok
+test tests::the_subslot_register_reads_back_complemented ... ok
+test tests::the_v9938_takes_palette_and_indirect_writes ... ok
+test tests::vdp_dot_ratio_is_three_per_two_tstates ... ok
+test note_tests::a_snapshot_carries_the_sound_chips ... ok
+test tests::native_frame_stops_at_the_chip_wrap_after_partial_stepping ... ok
+test note_tests::scc_and_psg_mix ... ok
+test note_tests::scc_volume_scales_the_note ... ok
+test note_tests::the_fm_pac_plays_through_its_memory_mapped_registers ... ok
+test note_tests::the_sound_cartridge_plays_channel_5_in_scc_plus_mode ... ok
+test tests::many_frames_complete_without_panic ... ok
+test note_tests::msx_music_plays_a_440_hz_note ... ok
+test note_tests::the_scc_plays_a_440_hz_note ... ok
+test note_tests::the_fm_pac_plays_through_its_ports_once_enabled ... ok
+test tests::the_rtc_answers_on_b4_and_b5 ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.04s
+
+     Running tests/bios_boot.rs (/private/tmp/198x-batch-msx-target/debug/deps/bios_boot-d8af81e1d51e3f97)
+
+running 1 test
+test bios_boots_to_initial_screen ... ignored, FIXTURE: needs a 32 KB MSX1 BIOS (real or C-BIOS) — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cbios_boot.rs (/private/tmp/198x-batch-msx-target/debug/deps/cbios_boot-e7c2a1ecb8f9018a)
+
+running 4 tests
+test cbios_boots_with_32k_beside_the_bios ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom
+test cbios_boots_with_ram_in_an_expanded_slot ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom
+test cbios_boots_with_ram_in_slot_2 ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom
+test cbios_cold_starts_and_renders_its_screen ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cbios_msx2_boot.rs (/private/tmp/198x-batch-msx-target/debug/deps/cbios_msx2_boot-c4f1bb13f7b97457)
+
+running 1 test
+test cbios_msx2_draws_its_logo_then_its_text_screen ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_{main_msx2_eu,logo_msx2,sub}.rom
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cpu_rate.rs (/private/tmp/198x-batch-msx-target/debug/deps/cpu_rate-d4fd17514f1e3024)
+
+running 1 test
+test a_nop_costs_five_tstates_on_msx ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/synthetic_firmware_boot.rs (/private/tmp/198x-batch-msx-target/debug/deps/synthetic_firmware_boot-b7281f9f37f9e4f0)
+
+running 2 tests
+test firmware_that_programs_nothing_does_not_look_like_a_boot ... ok
+test the_msx_runs_firmware_and_paints_its_backdrop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/lib.rs (/private/tmp/198x-batch-msx-target/debug/deps/runtime_msx-eb65086b85eff4e7)
+
+running 19 tests
+test input::tests::unknown_key_returns_none ... ok
+test input::tests::key_press_event_pulls_matrix_cell_low ... ok
+test input::tests::return_lands_on_row_7_bit_7 ... ok
+test input::tests::button_event_drives_joystick_port_one ... ok
+test input::tests::key_a_lands_on_row_2_bit_6 ... ok
+test profiles::tests::every_model_round_trips_its_variant_id ... ok
+test input::tests::key_release_event_sets_matrix_cell_high ... ok
+test input::tests::button_event_targets_the_named_port ... ok
+test input::tests::space_lands_on_row_8_bit_0 ... ok
+test profiles::tests::msx2_models_carry_their_layouts ... ok
+test profiles::tests::ntsc_profile_declares_bios_firmware ... ok
+test profiles::tests::each_generation_is_its_own_machine ... ok
+test profiles::tests::msx2_models_need_a_sub_rom ... ok
+test profiles::tests::pal_profile_uses_pal_region ... ok
+test profiles::tests::real_models_carry_their_ram ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+test snapshot::tests::msx2_snapshots_are_keyed_by_model_not_machine ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/catalogue.rs (/private/tmp/198x-batch-msx-target/debug/deps/catalogue-cf59d0a7f1fc3b3b)
+
+running 1 test
+test regional_replacement_retains_restored_cartridges_and_cold_boots ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+     Running tests/debug_target.rs (/private/tmp/198x-batch-msx-target/debug/deps/debug_target-f5c5579df0d00ef2)
+
+running 2 tests
+test debug_surface_works_on_z80 ... ignored, FIXTURE: needs MSX BIOS — run with --ignored
+test z80_disasm_is_wired ... ok
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/media.rs (/private/tmp/198x-batch-msx-target/debug/deps/media-f8f2c37021d36ed3)
+
+running 2 tests
+test explicit_mapper_selection_remains_an_override ... ok
+test standard_media_path_detects_megarom_mapper ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/models_boot.rs (/private/tmp/198x-batch-msx-target/debug/deps/models_boot-56de3492b8de36f2)
+
+running 2 tests
+test every_msx1_model_boots_cbios_to_its_screen ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom
+test every_msx2_model_boots_cbios_to_its_screen ... ignored, FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_{main_msx2,main_msx2_eu,sub}.rom
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/msx2.rs (/private/tmp/198x-batch-msx-target/debug/deps/msx2-23d2d0a64f1a323c)
+
+running 5 tests
+test from_firmware_reads_the_sub_rom ... ok
+test an_msx2_needs_both_roms ... ok
+test the_v9938_framebuffer_has_half_width_pixels ... ok
+test queries_name_the_chip_and_the_msx2_parts ... ok
+test an_msx2_snapshot_restores_its_sub_rom ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/ppi_outputs.rs (/private/tmp/198x-batch-msx-target/debug/deps/ppi_outputs-89da780ff7d3e376)
+
+running 1 test
+test guest_ppi_controls_reach_queries_and_the_host_audio_packet ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/queries.rs (/private/tmp/198x-batch-msx-target/debug/deps/queries-22333069911d8de2)
+
+running 4 tests
+test query_paths_lists_the_folded_chip_paths ... ok
+test ppi_resolves_grouped_object_and_leaves ... ok
+test vdp_resolves_grouped_object_and_matching_leaf ... ok
+test psg_is_exposed_under_the_canonical_ay_namespace ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-batch-msx-target/debug/deps/snapshot_roundtrip-e4236ce38f96068c)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sound_carts.rs (/private/tmp/198x-batch-msx-target/debug/deps/sound_carts-272e11c3591961de)
+
+running 2 tests
+test the_media_path_detects_an_fm_pac ... ok
+test an_scc_note_reaches_the_host ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+
+   Doc-tests machine_msx
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_msx
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

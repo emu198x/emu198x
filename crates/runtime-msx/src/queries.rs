@@ -30,6 +30,11 @@ pub(crate) const MSX_QUERY_PATHS: &[&str] = &[
     "ppi",
     "ppi.keyboard_row",
     "ppi.port_a",
+    "ppi.port_c",
+    "ppi.caps_led_on",
+    "ppi.cassette_motor_on",
+    "ppi.cassette_output",
+    "ppi.key_click_output",
     "rtc",
     "vdp",
     "vdp.framebuffer_height",
@@ -119,10 +124,16 @@ impl SessionQueryProvider<MsxRuntime> for MsxSessionQueryProvider {
 
             // Intel 8255 PPI — grouped snapshot + leaves.
             "ppi" => {
-                let ppi = loaded_machine(machine, path)?.ppi();
+                let msx = loaded_machine(machine, path)?;
+                let ppi = msx.ppi();
                 json!({
                     "port_a": format!("${:02X}", ppi.port_a()),
+                    "port_c": format!("${:02X}", ppi.port_c()),
                     "keyboard_row": ppi.port_c() & 0x0F,
+                    "caps_led_on": msx.caps_led_on(),
+                    "cassette_motor_on": msx.cassette_motor_on(),
+                    "cassette_output": msx.cassette_output(),
+                    "key_click_output": msx.key_click_output(),
                 })
             }
             "ppi.port_a" => {
@@ -132,6 +143,14 @@ impl SessionQueryProvider<MsxRuntime> for MsxSessionQueryProvider {
                 ))
             }
             "ppi.keyboard_row" => json!(loaded_machine(machine, path)?.ppi().port_c() & 0x0F),
+            "ppi.port_c" => json!(format!(
+                "${:02X}",
+                loaded_machine(machine, path)?.ppi().port_c()
+            )),
+            "ppi.caps_led_on" => json!(loaded_machine(machine, path)?.caps_led_on()),
+            "ppi.cassette_motor_on" => json!(loaded_machine(machine, path)?.cassette_motor_on()),
+            "ppi.cassette_output" => json!(loaded_machine(machine, path)?.cassette_output()),
+            "ppi.key_click_output" => json!(loaded_machine(machine, path)?.key_click_output()),
 
             _ => return Ok(None),
         };
