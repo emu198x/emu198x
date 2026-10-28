@@ -16,7 +16,7 @@
 //! **Mapper 22 (VRC2a)**, **Mappers 21, 23 and 25 (VRC2b/c and VRC4)**,
 //! **Mapper 28 (Action 53)**,
 //! **Mapper 5 (MMC5)**, **Mapper 34 (BxROM/BNROM and NINA-001)**,
-//! **Mapper 68 (Sunsoft-4)**, and **Mapper 71 (Camerica/Codemasters)** —
+//! **Mapper 66 (GxROM)**, **Mapper 68 (Sunsoft-4)**, and **Mapper 71 (Camerica/Codemasters)** —
 //! the trait, the header parser, and the first mappers needed to boot
 //! flat-layout test ROMs plus common PRG/CHR-bank-switched cartridges.
 //!
@@ -64,6 +64,7 @@ pub use mappers::cnrom::CnRom;
 pub use mappers::colordreams::ColorDreams;
 pub use mappers::fds::Fds;
 pub use mappers::fme7::Fme7;
+pub use mappers::gxrom::GxRom;
 pub use mappers::mmc1::Mmc1;
 pub use mappers::mmc3::Mmc3;
 pub use mappers::mmc5::Mmc5;

@@ -11,8 +11,8 @@ use crate::mapper::Mapper;
 use crate::mappers::fds::Fds;
 use crate::mappers::{
     action53::Action53, axrom::AxRom, bxrom::BxRom, camerica::Camerica, cnrom::CnRom,
-    colordreams::ColorDreams, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001, nrom::Nrom,
-    sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a,
+    colordreams::ColorDreams, gxrom::GxRom, mmc1::Mmc1, mmc3::Mmc3, mmc5::Mmc5, nina001::Nina001,
+    nrom::Nrom, sunsoft4::Sunsoft4, uxrom::UxRom, vrc2a::Vrc2a,
 };
 use crate::mappers::{fme7::Fme7, namco163::Namco163, vrc4::Vrc4, vrc6::Vrc6, vrc7::Vrc7};
 
@@ -59,6 +59,9 @@ pub enum MapperSnapshot {
     Vrc4(Box<Vrc4>),
     /// The Famicom Disk System RAM adapter.
     Fds(Box<Fds>),
+    // Append only: postcard encodes existing variants by their ordinal.
+    /// Mapper 66.
+    GxRom(GxRom),
 }
 
 /// Rebuild a boxed mapper from a previously exported mapper snapshot.
@@ -85,5 +88,6 @@ pub fn mapper_from_snapshot(snapshot: MapperSnapshot) -> Box<dyn Mapper> {
         MapperSnapshot::Vrc7(mapper) => mapper,
         MapperSnapshot::Vrc4(mapper) => mapper,
         MapperSnapshot::Fds(mapper) => mapper,
+        MapperSnapshot::GxRom(mapper) => Box::new(mapper),
     }
 }

@@ -13,6 +13,7 @@ pub mod colordreams;
 pub mod fds;
 pub mod fds_audio;
 pub mod fme7;
+pub mod gxrom;
 pub mod mmc1;
 pub mod mmc3;
 pub mod mmc5;
