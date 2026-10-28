@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "model": "dmg",
+  "boot": {
+    "file": "dmg_boot.bin",
+    "bytes": 256,
+    "sha256": "cf053eccb4ccafff9e67339d4e78e98dce7d1ed59be819d2a1ba2232c6fce1c7"
+  },
+  "cases": [
+    {
+      "id": "tetris",
+      "title": "Tetris Rev 1 (1989, Nintendo, EU-US)",
+      "rom": {
+        "file": "tetris.gb",
+        "bytes": 32768,
+        "sha256": "0d6535aef23969c7e5af2b077acaddb4a445b3d0df7bf34c8acef07b51b015c3"
+      },
+      "checkpoints": [
+        {
+          "frames": 240,
+          "sha256": "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60"
+        },
+        {
+          "frames": 480,
+          "sha256": "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60"
+        },
+        {
+          "frames": 720,
+          "sha256": "4facb9a12a821dc8437afeb167dd690c481cc9bc4182e4085e2c5c741aab1296"
+        }
+      ]
+    },
+    {
+      "id": "mario",
+      "title": "Super Mario Land Rev 1 (1989, Nintendo)",
+      "rom": {
+        "file": "mario.gb",
+        "bytes": 65536,
+        "sha256": "49fbd2f61f953d5ef28cab73e357e524c3009ad19fcf30f6a9ee0ae273be41dc"
+      },
+      "checkpoints": [
+        {
+          "frames": 240,
+          "sha256": "b7ec5def7ac390d40e7fca049d621af3a9156d2b596b5461cc41c0412a2a4b7e"
+        },
+        {
+          "frames": 480,
+          "sha256": "b7ec5def7ac390d40e7fca049d621af3a9156d2b596b5461cc41c0412a2a4b7e"
+        },
+        {
+          "frames": 720,
+          "sha256": "9459ed345937e52f62eb7ad00401aeeac8f7f2ea222fcf54dd6b37eb830eaeed"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "tetris",
+    "source": "/Volumes/Data/Library/ROMs/TOSEC/Nintendo/Game Boy/Games/Tetris Rev 1 (1989)(Nintendo)(EU-US).zip",
+    "member": "Tetris Rev 1 (1989)(Nintendo)(EU-US).gb",
+    "size": 32768,
+    "sha256": "0d6535aef23969c7e5af2b077acaddb4a445b3d0df7bf34c8acef07b51b015c3"
+  },
+  {
+    "id": "mario",
+    "source": "/Volumes/Data/Library/ROMs/TOSEC/Nintendo/Game Boy/Games/Super Mario Land Rev 1 (1989)(Nintendo).zip",
+    "member": "Super Mario Land Rev 1 (1989)(Nintendo).gb",
+    "size": 65536,
+    "sha256": "49fbd2f61f953d5ef28cab73e357e524c3009ad19fcf30f6a9ee0ae273be41dc"
+  },
+  {
+    "id": "kirby",
+    "source": "/Volumes/Data/Library/ROMs/TOSEC/Nintendo/Game Boy/Games/Kirby's Dream Land Rev 0 (1992)(HAL Laboratory)(EU-US).zip",
+    "member": "Kirby's Dream Land Rev 0 (1992)(HAL Laboratory)(EU-US).gb",
+    "size": 262144,
+    "sha256": "0f6dba94fae248d419083001c42c02a78be6bd3dff679c895517559e72c98d58"
+  }
+]

@@ -1,0 +1,24 @@
+
+running 1 test
+test tetris_real_game_screens_match_sameboy_and_replay ... FAILED
+
+failures:
+
+---- tetris_real_game_screens_match_sameboy_and_replay stdout ----
+
+thread 'tetris_real_game_screens_match_sameboy_and_replay' (202738366) panicked at crates/runtime-nintendo-game-boy/tests/commercial_screens.rs:96:9:
+assertion `left == right` failed: Tetris Rev 1 (1989, Nintendo, EU-US) at native field 240
+  left: "5034befc0b856131a3e9934c887bfab5ab4afde2b122ca7bac1cd5879b9ddd63"
+ right: "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tetris_real_game_screens_match_sameboy_and_replay
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 8.42s
+
+   Compiling runtime-nintendo-game-boy v0.45.1 (/private/tmp/198x-batch-game-screens/crates/runtime-nintendo-game-boy)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.85s
+     Running tests/commercial_screens.rs (/private/tmp/198x-batch-screens-target/debug/deps/commercial_screens-e966b458eec7e4c6)
+error: test failed, to rerun pass `-p runtime-nintendo-game-boy --test commercial_screens`

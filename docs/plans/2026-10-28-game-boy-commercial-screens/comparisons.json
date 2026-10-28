@@ -1,0 +1,65 @@
+[
+  {
+    "game": "tetris",
+    "frame": 240,
+    "sha256": "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60",
+    "reference_sha256": "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60",
+    "mismatches": 0
+  },
+  {
+    "game": "tetris",
+    "frame": 480,
+    "sha256": "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60",
+    "reference_sha256": "42c7d825a52ff8a5c44c3524133230deb588503d2e36829c8ad3b4a719b8ad60",
+    "mismatches": 0
+  },
+  {
+    "game": "tetris",
+    "frame": 720,
+    "sha256": "4facb9a12a821dc8437afeb167dd690c481cc9bc4182e4085e2c5c741aab1296",
+    "reference_sha256": "4facb9a12a821dc8437afeb167dd690c481cc9bc4182e4085e2c5c741aab1296",
+    "mismatches": 0
+  },
+  {
+    "game": "mario",
+    "frame": 240,
+    "sha256": "b7ec5def7ac390d40e7fca049d621af3a9156d2b596b5461cc41c0412a2a4b7e",
+    "reference_sha256": "b7ec5def7ac390d40e7fca049d621af3a9156d2b596b5461cc41c0412a2a4b7e",
+    "mismatches": 0
+  },
+  {
+    "game": "mario",
+    "frame": 480,
+    "sha256": "b7ec5def7ac390d40e7fca049d621af3a9156d2b596b5461cc41c0412a2a4b7e",
+    "reference_sha256": "b7ec5def7ac390d40e7fca049d621af3a9156d2b596b5461cc41c0412a2a4b7e",
+    "mismatches": 0
+  },
+  {
+    "game": "mario",
+    "frame": 720,
+    "sha256": "9459ed345937e52f62eb7ad00401aeeac8f7f2ea222fcf54dd6b37eb830eaeed",
+    "reference_sha256": "9459ed345937e52f62eb7ad00401aeeac8f7f2ea222fcf54dd6b37eb830eaeed",
+    "mismatches": 0
+  },
+  {
+    "game": "kirby",
+    "frame": 240,
+    "sha256": "546630511d7166f8b7f12d8916f94d98c28159e77df71a9d5fa6dbb433a9fe03",
+    "reference_sha256": "c168d4a4543eb4eac204131dd06022449b6b357329aef3e232660adbaadab4a7",
+    "mismatches": 201
+  },
+  {
+    "game": "kirby",
+    "frame": 480,
+    "sha256": "9a19698f078bf891abf7cfc3da213cb1412e60711f02607e6a7773f3d744c5b2",
+    "reference_sha256": "bacfef29ef6622ee7a57c2db0ba994869b790ec540b63c053f4fa3a382c9b061",
+    "mismatches": 135
+  },
+  {
+    "game": "kirby",
+    "frame": 720,
+    "sha256": "519a5653a7b136c9d3f3726c60fb5a4185679e78f1d3e256afa6b57fc06ebd87",
+    "reference_sha256": "b632c142b55f88f1b6663f80b46fdffa46c661eb1c6b9839d05258e3342afbe2",
+    "mismatches": 177
+  }
+]

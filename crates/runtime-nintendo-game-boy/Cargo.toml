@@ -17,6 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+sha2 = { workspace = true }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 [lints]
