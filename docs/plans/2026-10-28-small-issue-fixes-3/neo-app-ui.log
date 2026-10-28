@@ -1,0 +1,140 @@
+   Compiling unicode-ident v1.0.24
+   Compiling foldhash v0.2.0
+   Compiling autocfg v1.5.0
+   Compiling libm v0.2.16
+   Compiling zerocopy v0.8.48
+   Compiling rustc-hash v1.1.0
+   Compiling block2 v0.6.2
+   Compiling raw-window-handle v0.6.2
+   Compiling naga v30.0.0
+   Compiling bit-vec v0.9.1
+   Compiling serde_core v1.0.229
+   Compiling objc-sys v0.3.5
+   Compiling proc-macro2 v1.0.106
+   Compiling hashbrown v0.17.1
+   Compiling parking_lot_core v0.9.12
+   Compiling dispatch2 v0.3.1
+   Compiling unicode-width v0.1.14
+   Compiling bit-set v0.10.0
+   Compiling num-traits v0.2.19
+   Compiling static_assertions v1.1.0
+   Compiling codespan-reporting v0.13.1
+   Compiling scopeguard v1.2.0
+   Compiling quote v1.0.45
+   Compiling objc2-core-foundation v0.3.2
+   Compiling once_cell v1.21.4
+   Compiling indexmap v2.14.0
+   Compiling smallvec v1.15.1
+   Compiling arrayvec v0.7.6
+   Compiling syn v3.0.3
+   Compiling syn v2.0.117
+   Compiling lock_api v0.4.14
+   Compiling wgpu-hal v30.0.0
+   Compiling objc2 v0.5.2
+   Compiling core-foundation-sys v0.8.7
+   Compiling winnow v1.0.3
+   Compiling parking_lot v0.12.5
+   Compiling profiling v1.0.18
+   Compiling core-foundation v0.9.4
+   Compiling zip v9.1.2
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling wgpu-core v30.0.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling bitflags v1.3.2
+   Compiling crossbeam-utils v0.8.21
+   Compiling block2 v0.5.1
+   Compiling dispatch v0.2.0
+   Compiling semver v1.0.28
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling litrs v1.0.0
+   Compiling objc2-foundation v0.2.2
+   Compiling rustc_version v0.4.1
+   Compiling cc v1.2.62
+   Compiling core-graphics-types v0.1.3
+   Compiling wgpu v30.0.1
+   Compiling winit v0.30.13
+   Compiling pin-project-lite v0.2.17
+   Compiling document-features v0.2.12
+   Compiling tracing-core v0.1.36
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling objc2-io-kit v0.3.2
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling tracing v0.1.44
+   Compiling toml v1.1.3+spec-1.1.0
+   Compiling muda v0.21.2
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling rfd v0.17.2
+   Compiling crossbeam-channel v0.5.15
+   Compiling keyboard-types v0.8.3
+   Compiling gilrs-core v0.6.8
+   Compiling pollster v1.0.1
+   Compiling emu198x-pointer v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-pointer)
+   Compiling gilrs v0.11.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling bytemuck_derive v1.10.2
+   Compiling foreign-types-macros v0.2.3
+   Compiling embed-resource v3.0.12
+   Compiling emu198x-app-icon v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-app-icon)
+   Compiling thiserror v2.0.21
+   Compiling foreign-types v0.5.0
+   Compiling emu198x-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-snk-neo-geo)
+   Compiling naga-types v30.0.0
+   Compiling cobs v0.3.0
+   Compiling core-graphics v0.23.2
+   Compiling format-snk-neo-geo-romset v0.45.1 (/private/tmp/198x-batch3-fixes/crates/format-snk-neo-geo-romset)
+   Compiling bytemuck v1.25.2
+   Compiling wgpu-types v30.0.0
+   Compiling objc2-app-kit v0.2.2
+   Compiling serde v1.0.229
+   Compiling objc2-metal v0.3.2
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-app-kit v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling dpi v0.1.2
+   Compiling postcard v1.1.3
+   Compiling debug198x v0.1.0
+   Compiling emu198x-yamaha-ym2612 v0.1.0 (/private/tmp/198x-batch3-fixes/crates/emu198x-yamaha-ym2612)
+   Compiling cursor-icon v1.2.0
+   Compiling emu198x-gi-ay-3-8910 v0.6.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-gi-ay-3-8910)
+   Compiling motorola-68k-common v0.45.1 (/private/tmp/198x-batch3-fixes/crates/motorola-68k-common)
+   Compiling serde-big-array v0.5.1
+   Compiling smol_str v0.2.2
+   Compiling emu198x-snk-lspc2 v0.1.0 (/private/tmp/198x-batch3-fixes/crates/emu198x-snk-lspc2)
+   Compiling coreaudio-rs v0.14.2
+   Compiling emu198x-zilog-z80 v0.8.0
+   Compiling emu198x-yamaha-ym2610 v0.1.0 (/private/tmp/198x-batch3-fixes/crates/emu198x-yamaha-ym2610)
+   Compiling motorola-68000 v0.45.1 (/private/tmp/198x-batch3-fixes/crates/motorola-68000)
+   Compiling cpal v0.18.2
+   Compiling emu198x-shell v0.44.2 (/private/tmp/198x-batch3-fixes/crates/emu198x-shell)
+   Compiling machine-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/machine-snk-neo-geo)
+   Compiling half v2.7.1
+   Compiling objc2-quartz-core v0.3.2
+   Compiling raw-window-metal v1.1.0
+   Compiling runtime-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/runtime-snk-neo-geo)
+   Compiling wgpu-naga-bridge v30.0.0
+   Compiling wgpu-core-deps-apple v30.0.0
+   Compiling emu198x-native-video v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-native-video)
+   Compiling emu198x-ui v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-ui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.20s
+     Running unittests src/main.rs (/private/tmp/198x-batch3-target/debug/deps/emu198x_snk_neo_geo-b5153da13cfeaf23)
+
+running 4 tests
+test app::tests::a_positional_cart_is_accepted_once ... ok
+test app::tests::parse_cli_defaults_and_flags ... ok
+test app::tests::a_directory_packs_into_a_zip_the_runtime_reads ... ok
+test ui::tests::pacing_and_keys ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/launch.rs (/private/tmp/198x-batch3-target/debug/deps/launch-843079708c7f499f)
+
+running 1 test
+test a_directory_cartridge_runs_and_reads_the_controller ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+

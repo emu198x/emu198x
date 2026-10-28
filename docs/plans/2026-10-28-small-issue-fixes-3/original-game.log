@@ -1,0 +1,10 @@
+   Compiling format-snk-neo-geo-romset v0.45.1 (/private/tmp/198x-batch3-fixes/crates/format-snk-neo-geo-romset)
+   Compiling runtime-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/runtime-snk-neo-geo)
+    Finished `release` profile [optimized] target(s) in 6.95s
+     Running tests/original_game.rs (/private/tmp/198x-batch3-target/release/deps/original_game-762a8e1f67215023)
+
+running 1 test
+test metal_slug_matches_the_reference_attract_frame ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.48s
+

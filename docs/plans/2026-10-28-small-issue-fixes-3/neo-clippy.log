@@ -1,0 +1,38 @@
+    Checking objc2-foundation v0.3.2
+    Checking objc2-io-kit v0.3.2
+    Checking zerocopy v0.8.48
+    Checking bytemuck v1.25.2
+    Checking objc2-core-graphics v0.3.2
+    Checking motorola-68000 v0.45.1 (/private/tmp/198x-batch3-fixes/crates/motorola-68000)
+    Checking foreign-types v0.5.0
+    Checking objc2-app-kit v0.2.2
+    Checking format-snk-neo-geo-romset v0.45.1 (/private/tmp/198x-batch3-fixes/crates/format-snk-neo-geo-romset)
+   Compiling emu198x-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-snk-neo-geo)
+    Checking core-graphics v0.23.2
+    Checking gilrs-core v0.6.8
+    Checking wgpu-types v30.0.0
+    Checking gilrs v0.11.2
+    Checking machine-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/machine-snk-neo-geo)
+    Checking objc2-core-audio v0.3.2
+    Checking objc2-metal v0.3.2
+    Checking objc2-app-kit v0.3.2
+    Checking winit v0.30.13
+    Checking objc2-audio-toolbox v0.3.2
+    Checking coreaudio-rs v0.14.2
+    Checking cpal v0.18.2
+    Checking half v2.7.1
+    Checking emu198x-shell v0.44.2 (/private/tmp/198x-batch3-fixes/crates/emu198x-shell)
+    Checking naga v30.0.0
+    Checking rfd v0.17.2
+    Checking muda v0.21.2
+    Checking objc2-quartz-core v0.3.2
+    Checking raw-window-metal v1.1.0
+    Checking runtime-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/runtime-snk-neo-geo)
+    Checking wgpu-naga-bridge v30.0.0
+    Checking wgpu-hal v30.0.0
+    Checking wgpu-core-deps-apple v30.0.0
+    Checking wgpu-core v30.0.0
+    Checking wgpu v30.0.1
+    Checking emu198x-native-video v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-native-video)
+    Checking emu198x-ui v0.45.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-ui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.72s
