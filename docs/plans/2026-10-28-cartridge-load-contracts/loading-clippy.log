@@ -1,0 +1,6 @@
+mise WARN  tracking config: failed to ln -sf /private/tmp/198x-next-issues/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/ba0fee1dd5f7736a: Operation not permitted (os error 1)
+    Blocking waiting for file lock on build directory
+    Checking runtime-coleco-colecovision v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-coleco-colecovision)
+    Checking runtime-sord-m5 v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-sord-m5)
+    Checking runtime-sega-sg-1000 v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-sega-sg-1000)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.99s
