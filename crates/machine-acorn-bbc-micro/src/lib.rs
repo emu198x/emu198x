@@ -748,6 +748,8 @@ pub struct BbcMicro {
     /// fits a variable number of cycles into it.
     master_ticks: u64,
     frame_count: u64,
+    #[serde(skip)]
+    native_frame_ready: bool,
     /// Tick at which the current frame started, and the line within it.
     ///
     /// Line boundaries used to be local to `run_frame`, so the work done at
@@ -826,6 +828,7 @@ impl BbcMicro {
             cpu_cycles: 0,
             master_ticks: 0,
             frame_count: 0,
+            native_frame_ready: false,
             frame_base: 0,
             scanline: 0,
             fire: [false; 2],
@@ -1152,6 +1155,21 @@ impl BbcMicro {
     }
 
     /// Run one PAL frame.
+    /// Advance to the CRTC field event; the safety budget is not a frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_ticks;
+        self.native_frame_ready = false;
+        while (!self.native_frame_ready || self.video_frame_ended)
+            && self.master_ticks - start < 2 * CYCLES_PER_FRAME
+        {
+            self.tick_cpu_cycle();
+        }
+        (
+            self.master_ticks - start,
+            self.native_frame_ready && !self.video_frame_ended,
+        )
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_ticks;
         while self.master_ticks - start < CYCLES_PER_FRAME {
@@ -1606,6 +1624,7 @@ impl BbcMicro {
         self.draw_cursor(column);
         if frame_ended {
             self.video_frame_ended = true;
+            self.native_frame_ready = true;
         }
     }
 
@@ -1966,6 +1985,32 @@ impl BbcMicro {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_follows_the_programmed_crtc_field_length() {
+        let mut durations = Vec::new();
+        for rows in [38, 19] {
+            let mut machine = BbcMicro::new(trap_rom());
+            let mut regs = MODE0_CRTC;
+            regs[4] = rows;
+            program_mode(&mut machine, regs, 0x9C);
+            for _ in 0..37 {
+                machine.tick_cpu_cycle();
+            }
+            assert!(machine.run_native_frame().1);
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(completed && ticks > 0);
+            assert!(
+                !machine.video_frame_ended,
+                "completed field must have been presented"
+            );
+            durations.push(ticks);
+        }
+        assert!(
+            durations[1] < durations[0] * 3 / 4,
+            "R4 must change the boundary, not merely a host budget: {durations:?}"
+        );
+    }
 
     fn trap_rom() -> Vec<u8> {
         // 16 KB MOS ROM with JMP self at $C000 + reset / IRQ / NMI

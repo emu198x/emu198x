@@ -965,6 +965,113 @@ impl emu198x_shell::FamilyRuntime for DragonRuntime {
     }
 }
 
+impl DragonRuntime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        for event in host.input_events {
+            self.apply_input_event(event)?;
+        }
+
+        if target <= self.time {
+            return Ok(RunResult::new(self.time, StopReason::ReachedTarget));
+        }
+
+        let (report, completed) = if one_frame {
+            self.machine.run_frame(RUNTIME_TRACE_LIMIT)
+        } else {
+            (
+                self.machine
+                    .run_cycles(target.0.saturating_sub(self.time.0), RUNTIME_TRACE_LIMIT),
+                false,
+            )
+        };
+        self.time = self.time.saturating_add(report.cycles);
+        for access in &report.device_accesses {
+            let payload = serde_json::to_vec(&json!({
+                "cycle": access.cycle,
+                "rw": if access.rw { "read" } else { "write" },
+                "device": format!("{:?}", access.device),
+                "addr": access.addr,
+                "value": access.value,
+            }))
+            .map_err(|reason| MachineError::Host {
+                reason: format!("failed to encode Dragon device trace: {reason}"),
+            })?;
+            host.trace_sink.push_trace(TraceEvent {
+                timestamp: self.time,
+                kind: Cow::Borrowed("device_access"),
+                payload: &payload,
+            })?;
+        }
+        for accept in &report.interrupt_accepts {
+            let payload = serde_json::to_vec(&json!({
+                "cycle": accept.cycle,
+                "kind": format!("{:?}", accept.kind),
+                "pc": accept.pc,
+                "cc": accept.cc,
+            }))
+            .map_err(|reason| MachineError::Host {
+                reason: format!("failed to encode Dragon interrupt trace: {reason}"),
+            })?;
+            host.trace_sink.push_trace(TraceEvent {
+                timestamp: self.time,
+                kind: Cow::Borrowed("interrupt_accept"),
+                payload: &payload,
+            })?;
+        }
+        for line in &report.interrupt_lines {
+            let payload = serde_json::to_vec(&json!({
+                "cycle": line.cycle,
+                "kind": format!("{:?}", line.kind),
+                "level": line.level,
+                "pc": line.pc,
+                "cc": line.cc,
+            }))
+            .map_err(|reason| MachineError::Host {
+                reason: format!("failed to encode Dragon interrupt line trace: {reason}"),
+            })?;
+            host.trace_sink.push_trace(TraceEvent {
+                timestamp: self.time,
+                kind: Cow::Borrowed("interrupt_line"),
+                payload: &payload,
+            })?;
+        }
+        self.update_rgba_framebuffer();
+        self.audio_buffer.clear();
+        self.machine.drain_audio_samples(&mut self.audio_buffer);
+        if !one_frame || completed {
+            host.frame_sink.push_frame(FramePacket {
+                signal: None,
+                timestamp: self.time,
+                format: PixelFormat::Rgba8888,
+                width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
+                height: VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32,
+                palette: None,
+                pixels: &self.rgba_framebuffer,
+            })?;
+        }
+        host.audio_sink.push_audio(AudioPacket {
+            timestamp: self.time,
+            sample_rate: self.machine.audio_sample_rate(),
+            channels: 1,
+            samples: &self.audio_buffer,
+        })?;
+
+        let stop_reason = if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
+            StopReason::Halted
+        } else if one_frame && !completed {
+            StopReason::NoFrame
+        } else {
+            StopReason::ReachedTarget
+        };
+        Ok(RunResult::new(self.time, stop_reason))
+    }
+}
+
 impl MachineCore for DragonRuntime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -1117,97 +1224,16 @@ impl MachineCore for DragonRuntime {
         }
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        for event in host.input_events {
-            self.apply_input_event(event)?;
-        }
-
-        if target <= self.time {
-            return Ok(RunResult::new(self.time, StopReason::ReachedTarget));
-        }
-
-        let cycles_to_run = target.0.saturating_sub(self.time.0);
-        let report = self.machine.run_cycles(cycles_to_run, RUNTIME_TRACE_LIMIT);
-        self.time = self.time.saturating_add(report.cycles);
-        for access in &report.device_accesses {
-            let payload = serde_json::to_vec(&json!({
-                "cycle": access.cycle,
-                "rw": if access.rw { "read" } else { "write" },
-                "device": format!("{:?}", access.device),
-                "addr": access.addr,
-                "value": access.value,
-            }))
-            .map_err(|reason| MachineError::Host {
-                reason: format!("failed to encode Dragon device trace: {reason}"),
-            })?;
-            host.trace_sink.push_trace(TraceEvent {
-                timestamp: self.time,
-                kind: Cow::Borrowed("device_access"),
-                payload: &payload,
-            })?;
-        }
-        for accept in &report.interrupt_accepts {
-            let payload = serde_json::to_vec(&json!({
-                "cycle": accept.cycle,
-                "kind": format!("{:?}", accept.kind),
-                "pc": accept.pc,
-                "cc": accept.cc,
-            }))
-            .map_err(|reason| MachineError::Host {
-                reason: format!("failed to encode Dragon interrupt trace: {reason}"),
-            })?;
-            host.trace_sink.push_trace(TraceEvent {
-                timestamp: self.time,
-                kind: Cow::Borrowed("interrupt_accept"),
-                payload: &payload,
-            })?;
-        }
-        for line in &report.interrupt_lines {
-            let payload = serde_json::to_vec(&json!({
-                "cycle": line.cycle,
-                "kind": format!("{:?}", line.kind),
-                "level": line.level,
-                "pc": line.pc,
-                "cc": line.cc,
-            }))
-            .map_err(|reason| MachineError::Host {
-                reason: format!("failed to encode Dragon interrupt line trace: {reason}"),
-            })?;
-            host.trace_sink.push_trace(TraceEvent {
-                timestamp: self.time,
-                kind: Cow::Borrowed("interrupt_line"),
-                payload: &payload,
-            })?;
-        }
-        self.update_rgba_framebuffer();
-        self.audio_buffer.clear();
-        self.machine.drain_audio_samples(&mut self.audio_buffer);
-        host.frame_sink.push_frame(FramePacket {
-            signal: None,
-            timestamp: self.time,
-            format: PixelFormat::Rgba8888,
-            width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
-            height: VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT as u32,
-            palette: None,
-            pixels: &self.rgba_framebuffer,
-        })?;
-        host.audio_sink.push_audio(AudioPacket {
-            timestamp: self.time,
-            sample_rate: self.machine.audio_sample_rate(),
-            channels: 1,
-            samples: &self.audio_buffer,
-        })?;
-
-        let stop_reason = if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
-            StopReason::Halted
-        } else {
-            StopReason::ReachedTarget
-        };
-        Ok(RunResult::new(self.time, stop_reason))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

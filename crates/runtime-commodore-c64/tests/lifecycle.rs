@@ -552,3 +552,44 @@ fn run_until_reports_reached_target_with_zero_target() {
     assert_eq!(result.stop_reason, StopReason::ReachedTarget);
     assert_eq!(frame_sink.count, 0);
 }
+
+#[test]
+fn native_frame_completes_the_partial_raster_without_an_extra_field() {
+    for model in [
+        Model::C64PalBreadbin,
+        Model::C64NtscBreadbin,
+        Model::C64cPal,
+        Model::C64cNtsc,
+    ] {
+        let mut runtime = C64Runtime::from_firmware(model, &blank_firmware()).expect("firmware");
+        let mut frames = FrameCollector::default();
+        let mut audio = AudioCollector::default();
+        let mut trace = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frames,
+            audio_sink: &mut audio,
+            trace_sink: &mut trace,
+        };
+        runtime
+            .run_until(MachineTime::new(123), &mut host)
+            .expect("partial step");
+        assert_eq!(frames.count, 0);
+        let before = runtime.time();
+        for expected in 1..=3 {
+            let mut host = HostIo {
+                input_events: &[],
+                frame_sink: &mut frames,
+                audio_sink: &mut audio,
+                trace_sink: &mut trace,
+            };
+            let result = runtime.run_frame(&mut host).expect("native field");
+            assert_eq!(result.stop_reason, StopReason::ReachedTarget);
+            assert_eq!(frames.count, expected);
+            assert_eq!(runtime.machine().raster_line(), 0);
+            assert_eq!(runtime.machine().cycle_in_line(), 0);
+            assert_eq!(runtime.time().get(), runtime.machine().phi2_cycles());
+        }
+        assert!(runtime.time() > before);
+    }
+}

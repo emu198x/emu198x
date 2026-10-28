@@ -448,6 +448,84 @@ impl emu198x_shell::FamilyRuntime for Vic20Runtime {
     }
 }
 
+impl Vic20Runtime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        if self.machine.is_none() {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        }
+
+        for event in host.input_events {
+            if let Some(machine) = self.machine.as_mut() {
+                apply_input_event(machine, &mut self.controller_cache, event);
+            }
+        }
+
+        while self.time < target {
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let (ticks, completed) = if let Some(bridge) = &mut self.esp_at_tcp_bridge {
+                machine.run_native_frame_with_user_port(&mut |cb2| bridge.tick(cb2))
+            } else if let Some(modem) = &mut self.esp_at_modem {
+                machine.run_native_frame_with_user_port(&mut |cb2| modem.tick(cb2))
+            } else if let Some(serial) = &mut self.user_port_serial {
+                machine.run_native_frame_with_user_port(&mut |cb2| serial.tick(cb2))
+            } else {
+                machine.run_native_frame()
+            };
+            // Drain the VIC's audio for the frame just run before releasing the
+            // machine borrow for the framebuffer conversion below.
+            let audio = machine.take_vic_audio();
+            let inject_prg =
+                self.pending_prg.is_some() && machine.frame_count() >= PRG_AUTOLOAD_FRAME;
+            self.time = self.time.saturating_add(ticks);
+            if inject_prg {
+                let bytes = self.pending_prg.take().expect("checked above");
+                self.autoload_prg(&bytes, false)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: "program-1".to_owned(),
+                        reason,
+                    })?;
+            }
+            self.update_rgba_framebuffer();
+
+            if !one_frame || completed {
+                host.frame_sink.push_frame(FramePacket {
+                    signal: None,
+                    timestamp: self.time,
+                    format: PixelFormat::Rgba8888,
+                    width: self.rgba_width,
+                    height: self.rgba_height,
+                    palette: None,
+                    pixels: &self.rgba_framebuffer,
+                })?;
+            }
+
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: AUDIO_SAMPLE_RATE,
+                channels: 1,
+                samples: &audio,
+            })?;
+            if one_frame {
+                return Ok(RunResult::new(
+                    self.time,
+                    if completed {
+                        StopReason::ReachedTarget
+                    } else {
+                        StopReason::NoFrame
+                    },
+                ));
+            }
+        }
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl MachineCore for Vic20Runtime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -516,67 +594,16 @@ impl MachineCore for Vic20Runtime {
         Ok(())
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        if self.machine.is_none() {
-            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
-        }
-
-        for event in host.input_events {
-            if let Some(machine) = self.machine.as_mut() {
-                apply_input_event(machine, &mut self.controller_cache, event);
-            }
-        }
-
-        while self.time < target {
-            let machine = self.machine.as_mut().expect("machine checked above");
-            let ticks = if let Some(bridge) = &mut self.esp_at_tcp_bridge {
-                machine.run_frame_with_user_port(&mut |cb2| bridge.tick(cb2))
-            } else if let Some(modem) = &mut self.esp_at_modem {
-                machine.run_frame_with_user_port(&mut |cb2| modem.tick(cb2))
-            } else if let Some(serial) = &mut self.user_port_serial {
-                machine.run_frame_with_user_port(&mut |cb2| serial.tick(cb2))
-            } else {
-                machine.run_frame()
-            };
-            // Drain the VIC's audio for the frame just run before releasing the
-            // machine borrow for the framebuffer conversion below.
-            let audio = machine.take_vic_audio();
-            let inject_prg =
-                self.pending_prg.is_some() && machine.frame_count() >= PRG_AUTOLOAD_FRAME;
-            self.time = self.time.saturating_add(ticks);
-            if inject_prg {
-                let bytes = self.pending_prg.take().expect("checked above");
-                self.autoload_prg(&bytes, false)
-                    .map_err(|reason| MachineError::InvalidMedia {
-                        slot: "program-1".to_owned(),
-                        reason,
-                    })?;
-            }
-            self.update_rgba_framebuffer();
-
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Rgba8888,
-                width: self.rgba_width,
-                height: self.rgba_height,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
-                channels: 1,
-                samples: &audio,
-            })?;
-        }
-
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

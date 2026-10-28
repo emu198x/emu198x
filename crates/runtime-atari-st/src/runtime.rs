@@ -308,6 +308,67 @@ impl emu198x_shell::FamilyRuntime for AtariStRuntime {
     }
 }
 
+impl AtariStRuntime {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        let Some(machine) = self.machine.as_mut() else {
+            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
+        };
+        for event in host.input_events {
+            apply_input_event(machine, event);
+            if let InputEvent::PointerMotion { device, dx, dy } = event
+                && device.as_ref() == MOUSE_DEVICE
+            {
+                self.gem_pointer.sent(*dx, *dy);
+            }
+        }
+
+        while self.time < target {
+            let ticks = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .run_frame();
+            self.time = self.time.saturating_add(ticks);
+            if let Some(machine) = self.machine.as_ref() {
+                self.gem_pointer.after_frame(machine);
+            }
+            self.update_rgba_framebuffer();
+
+            host.frame_sink.push_frame(FramePacket {
+                signal: None,
+                timestamp: self.time,
+                format: PixelFormat::Rgba8888,
+                width: self.rgba_width,
+                height: self.rgba_height,
+                palette: None,
+                pixels: &self.rgba_framebuffer,
+            })?;
+
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio();
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: AUDIO_SAMPLE_RATE,
+                channels: 1,
+                samples: &audio,
+            })?;
+            if one_frame {
+                break;
+            }
+        }
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl MachineCore for AtariStRuntime {
     fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
         session: &mut emu198x_shell::HeadlessSession<Self, Q>,
@@ -383,59 +444,16 @@ impl MachineCore for AtariStRuntime {
         }
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        let Some(machine) = self.machine.as_mut() else {
-            return Ok(RunResult::new(self.time, StopReason::WaitingForInput));
-        };
-        for event in host.input_events {
-            apply_input_event(machine, event);
-            if let InputEvent::PointerMotion { device, dx, dy } = event
-                && device.as_ref() == MOUSE_DEVICE
-            {
-                self.gem_pointer.sent(*dx, *dy);
-            }
-        }
-
-        while self.time < target {
-            let ticks = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .run_frame();
-            self.time = self.time.saturating_add(ticks);
-            if let Some(machine) = self.machine.as_ref() {
-                self.gem_pointer.after_frame(machine);
-            }
-            self.update_rgba_framebuffer();
-
-            host.frame_sink.push_frame(FramePacket {
-                signal: None,
-                timestamp: self.time,
-                format: PixelFormat::Rgba8888,
-                width: self.rgba_width,
-                height: self.rgba_height,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-
-            let audio = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .take_audio();
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
-                channels: 1,
-                samples: &audio,
-            })?;
-        }
-
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

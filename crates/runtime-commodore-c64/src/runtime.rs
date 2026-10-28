@@ -1003,44 +1003,14 @@ where
     }
 }
 
-impl<M: C64FamilyMachine> MachineCore for C64FamilyRuntime<M>
+impl<M: C64FamilyMachine> C64FamilyRuntime<M>
 where
     Self: emu198x_shell::DebugTarget,
 {
-    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
-        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
-        machine: &str,
-    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
-        emu198x_shell::swap_variant(session, machine)
-    }
-
-    fn profile(&self) -> &MachineProfile {
-        &self.profile
-    }
-
-    fn time(&self) -> MachineTime {
-        self.time
-    }
-
-    fn reset(&mut self, _kind: ResetKind) {
-        self.rebuild_machine()
-            .expect("C64 runtime reset should rebuild from already-validated ROMs");
-    }
-
-    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
-        for image in &media.images {
-            M::load_media_image(self, image)?;
-        }
-        Ok(())
-    }
-
-    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
-        M::eject_media_slot(self, slot)
-    }
-
-    fn run_until(
+    fn run_window(
         &mut self,
         target: MachineTime,
+        one_frame: bool,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
         for event in host.input_events {
@@ -1205,12 +1175,63 @@ where
                         samples: &audio,
                     })?;
                 }
+                if one_frame {
+                    break;
+                }
             }
         }
 
         let _ = &host.trace_sink;
 
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
+impl<M: C64FamilyMachine> MachineCore for C64FamilyRuntime<M>
+where
+    Self: emu198x_shell::DebugTarget,
+{
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
+    fn profile(&self) -> &MachineProfile {
+        &self.profile
+    }
+
+    fn time(&self) -> MachineTime {
+        self.time
+    }
+
+    fn reset(&mut self, _kind: ResetKind) {
+        self.rebuild_machine()
+            .expect("C64 runtime reset should rebuild from already-validated ROMs");
+    }
+
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            M::load_media_image(self, image)?;
+        }
+        Ok(())
+    }
+
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        M::eject_media_slot(self, slot)
+    }
+
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
+    fn run_until(
+        &mut self,
+        target: MachineTime,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

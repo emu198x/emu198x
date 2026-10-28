@@ -520,6 +520,22 @@ impl Nes {
 
     /// Run until the PPU completes a frame (scanline wraps from
     /// pre-render to 0). Returns the number of master clock ticks.
+    /// Complete the next native raster, including an initial partial field.
+    /// Unlike the legacy full-picture helper, this does not skip the first
+    /// pre-render-to-zero transition merely because VBlank was not observed.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_clock;
+        let pre = self.ppu.pre_render_line();
+        loop {
+            let before = self.ppu.scanline();
+            self.tick();
+            if before == pre && self.ppu.scanline() == 0 {
+                self.frame_count += 1;
+                return (self.master_clock - start, true);
+            }
+        }
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         // A frame is 341 × 262 = 89 342 PPU dots (NTSC).

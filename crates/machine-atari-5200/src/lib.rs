@@ -186,6 +186,20 @@ impl Atari5200 {
     }
 
     /// Run one frame and return colour clocks consumed.
+    /// Complete the current fixed raster, anchored to the master clock.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.master_clock;
+        self.gtia.fill_border();
+        loop {
+            self.tick_colour_clock();
+            if self.master_clock.is_multiple_of(self.clocks_per_frame) {
+                break;
+            }
+        }
+        self.frame_count += 1;
+        (self.master_clock - start, true)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
@@ -548,6 +562,26 @@ impl Atari5200 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_finishes_the_current_raster_after_partial_steps() {
+        for region in [Atari5200Region::Ntsc, Atari5200Region::Pal] {
+            let mut machine = Atari5200::new(trap_rom_8k(), vec![], region).expect("machine");
+            for _ in 0..37 {
+                machine.tick_colour_clock();
+            }
+            let before = machine.master_clock;
+            let frames = machine.frame_count();
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(completed);
+            assert_eq!(
+                ticks,
+                machine.clocks_per_frame - before % machine.clocks_per_frame
+            );
+            assert_eq!(machine.master_clock % machine.clocks_per_frame, 0);
+            assert_eq!(machine.frame_count(), frames + 1);
+        }
+    }
 
     fn trap_rom_8k() -> Vec<u8> {
         // 8 KB cart at $A000-$BFFF. JMP self at $A000 + reset vector at

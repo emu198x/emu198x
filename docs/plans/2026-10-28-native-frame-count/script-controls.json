@@ -1,0 +1,74 @@
+[
+  {
+    "model": "snes-ntsc",
+    "report": {
+      "cart_loaded": true,
+      "frames_run": 5,
+      "observations": [
+        {
+          "frames": 2,
+          "kind": "run_frames",
+          "reached": 684732,
+          "stop_reason": "ReachedTarget"
+        },
+        {
+          "frames": 0,
+          "kind": "run_frames",
+          "reached": 684732,
+          "stop_reason": "ReachedTarget"
+        },
+        {
+          "frames": 3,
+          "kind": "run_frames",
+          "reached": 1756828,
+          "stop_reason": "ReachedTarget"
+        },
+        {
+          "colour": "#000000",
+          "frames_seen": 5,
+          "height": 240,
+          "kind": "blank_frame",
+          "last_painted_frame": null,
+          "width": 512
+        }
+      ],
+      "time": 1756828
+    }
+  },
+  {
+    "model": "snes-pal",
+    "report": {
+      "cart_loaded": true,
+      "frames_run": 5,
+      "observations": [
+        {
+          "frames": 2,
+          "kind": "run_frames",
+          "reached": 752932,
+          "stop_reason": "ReachedTarget"
+        },
+        {
+          "frames": 0,
+          "kind": "run_frames",
+          "reached": 752932,
+          "stop_reason": "ReachedTarget"
+        },
+        {
+          "frames": 3,
+          "kind": "run_frames",
+          "reached": 2029636,
+          "stop_reason": "ReachedTarget"
+        },
+        {
+          "colour": "#000000",
+          "frames_seen": 5,
+          "height": 240,
+          "kind": "blank_frame",
+          "last_painted_frame": null,
+          "width": 512
+        }
+      ],
+      "time": 2029636
+    }
+  }
+]

@@ -204,6 +204,9 @@ pub struct ColecoVision {
     vdp_phase: u32,
     /// Frame counter.
     frame_count: u64,
+    /// Transient observation for a bounded native-frame request.
+    #[serde(skip)]
+    native_frame_ready: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -237,11 +240,26 @@ impl ColecoVision {
             cpu_cycles_per_frame,
             vdp_phase: 0,
             frame_count: 0,
+            native_frame_ready: false,
             io_trace: None,
         }
     }
 
     /// Run one frame and return the number of CPU cycles consumed.
+    /// Stop on the video chip's next raster wrap, not a rounded CPU budget.
+    /// The two-field safety budget reports false rather than inventing a frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.cpu_cycles;
+        self.native_frame_ready = false;
+        while !self.native_frame_ready && self.cpu_cycles - start < 2 * self.cpu_cycles_per_frame {
+            self.tick_cpu_cycle();
+        }
+        if self.native_frame_ready {
+            self.frame_count += 1;
+        }
+        (self.cpu_cycles - start, self.native_frame_ready)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let target = self.cpu_cycles + self.cpu_cycles_per_frame;
         while self.cpu_cycles < target {
@@ -475,7 +493,7 @@ impl Z80Machine for ColecoVision {
         // per half-cycle.
         self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
         while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
+            self.native_frame_ready |= self.vdp.tick();
             self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
     }
@@ -501,6 +519,48 @@ impl emu198x_zilog_z80::Z80Stepper for ColecoVision {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
+        for region in [CvRegion::Ntsc, CvRegion::Pal] {
+            let mut machine = ColecoVision::new(empty_bios(), vec![], region);
+            let line = |m: &ColecoVision| m.vdp.scanline();
+            for _ in 0..37 {
+                machine.tick_cpu_cycle();
+            }
+            for _ in 0..4 {
+                let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
+                let mut direct: ColecoVision =
+                    postcard::from_bytes(&bytes).expect("restore control");
+                let start = direct.cpu_cycles;
+                loop {
+                    let before = line(&direct);
+                    direct.tick_cpu_cycle();
+                    assert!(direct.cpu_cycles - start < 200_000, "control must wrap");
+                    if line(&direct) < before {
+                        break;
+                    }
+                }
+                let (ticks, completed) = machine.run_native_frame();
+                assert!(completed);
+                assert_eq!(
+                    ticks,
+                    direct.cpu_cycles - start,
+                    "elapsed time must match the chip event"
+                );
+                assert_eq!(
+                    line(&machine),
+                    0,
+                    "raster must wrap, not merely consume a nominal budget"
+                );
+                assert_eq!(machine.cpu_cycles, direct.cpu_cycles);
+                // A debugger can leave us partway through the next field.
+                for _ in 0..53 {
+                    machine.tick_cpu_cycle();
+                }
+            }
+        }
+    }
 
     fn empty_bios() -> Vec<u8> {
         // 8 KB of NOPs followed by a JR to itself at $0008 — gives the

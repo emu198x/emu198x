@@ -880,8 +880,7 @@ pub fn run_with_phosphor<S: UiSystem + 'static>(
     // own per-machine controls line doesn't have to repeat them.
     println!("Save-state: Cmd/Ctrl+S quick-save, Cmd/Ctrl+L quick-load (one slot per machine).");
     let mut runner = Runner::new(runtime, audio);
-    let frame_ticks = system.frame_ticks(&runner.runtime);
-    runner.run_ticks(&[], frame_ticks)?;
+    runner.run_frame(&[])?;
 
     let mut core = HostCore::new(system, runner, scale, video);
     core.presentation.phosphor_tau_ms = phosphor_ms;

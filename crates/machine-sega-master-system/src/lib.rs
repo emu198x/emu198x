@@ -319,6 +319,9 @@ pub struct Sms {
     /// VDP dot-clock phase accumulator (3 dots per 2 CPU T-states).
     vdp_phase: u32,
     frame_count: u64,
+    /// Transient observation for a bounded native-frame request.
+    #[serde(skip)]
+    native_frame_ready: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -389,6 +392,7 @@ impl Sms {
             tstates_per_frame: variant.tstates_per_frame(),
             vdp_phase: 0,
             frame_count: 0,
+            native_frame_ready: false,
             io_trace: None,
             virtual_uart_tx: None,
             virtual_uart_rx: None,
@@ -431,6 +435,20 @@ impl Sms {
     }
 
     /// Run one frame and return T-states consumed.
+    /// Stop on the video chip's next raster wrap, not a rounded CPU budget.
+    /// The two-field safety budget reports false rather than inventing a frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.cpu_tstates;
+        self.native_frame_ready = false;
+        while !self.native_frame_ready && self.cpu_tstates - start < 2 * self.tstates_per_frame {
+            self.tick_tstate();
+        }
+        if self.native_frame_ready {
+            self.frame_count += 1;
+        }
+        (self.cpu_tstates - start, self.native_frame_ready)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let target = self.cpu_tstates + self.tstates_per_frame;
         while self.cpu_tstates < target {
@@ -1023,7 +1041,7 @@ impl Z80Machine for Sms {
             // Where the beam is *about* to draw, taken before the dot is
             // drawn so the pixel read afterwards is the one it just lit.
             let beam = self.vdp.beam_framebuffer_position();
-            self.vdp.tick();
+            self.native_frame_ready |= self.vdp.tick();
             self.tick_light_phasers(beam);
             self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
@@ -1053,6 +1071,51 @@ impl emu198x_zilog_z80::Z80Stepper for Sms {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
+        for region in [
+            SmsVariant::SmsNtsc,
+            SmsVariant::SmsPal,
+            SmsVariant::GameGear,
+        ] {
+            let mut machine = Sms::new(trap_cart_64k(), region);
+            let line = |m: &Sms| m.vdp.scanline();
+            for _ in 0..37 {
+                machine.tick_tstate();
+            }
+            for _ in 0..4 {
+                let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
+                let mut direct: Sms = postcard::from_bytes(&bytes).expect("restore control");
+                let start = direct.cpu_tstates;
+                loop {
+                    let before = line(&direct);
+                    direct.tick_tstate();
+                    assert!(direct.cpu_tstates - start < 200_000, "control must wrap");
+                    if line(&direct) < before {
+                        break;
+                    }
+                }
+                let (ticks, completed) = machine.run_native_frame();
+                assert!(completed);
+                assert_eq!(
+                    ticks,
+                    direct.cpu_tstates - start,
+                    "elapsed time must match the chip event"
+                );
+                assert_eq!(
+                    line(&machine),
+                    0,
+                    "raster must wrap, not merely consume a nominal budget"
+                );
+                assert_eq!(machine.cpu_tstates, direct.cpu_tstates);
+                // A debugger can leave us partway through the next field.
+                for _ in 0..53 {
+                    machine.tick_tstate();
+                }
+            }
+        }
+    }
 
     fn trap_cart_64k() -> Vec<u8> {
         // 64 KB cart: NOPs + JR -2 trap at $0008. Enough to fill all

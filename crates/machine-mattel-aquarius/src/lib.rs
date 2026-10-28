@@ -374,6 +374,20 @@ impl Aquarius {
     }
 
     /// Run one frame and return T-states consumed.
+    /// Complete the current fixed raster, anchored to the master clock.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.cpu_tstates;
+        loop {
+            self.tick_tstate();
+            if self.cpu_tstates.is_multiple_of(self.tstates_per_frame) {
+                break;
+            }
+        }
+        self.render_display();
+        self.frame_count += 1;
+        (self.cpu_tstates - start, true)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let target = self.cpu_tstates + self.tstates_per_frame;
         // The base Aquarius wires no periodic CPU interrupt. Per MAME
@@ -824,6 +838,26 @@ impl emu198x_zilog_z80::Z80Stepper for Aquarius {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_finishes_the_current_raster_after_partial_steps() {
+        for region in [AquariusRegion::Ntsc, AquariusRegion::Pal] {
+            let mut machine = Aquarius::new(trap_rom(), 0, region);
+            for _ in 0..37 {
+                machine.tick_tstate();
+            }
+            let before = machine.cpu_tstates;
+            let frames = machine.frame_count();
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(completed);
+            assert_eq!(
+                ticks,
+                machine.tstates_per_frame - before % machine.tstates_per_frame
+            );
+            assert_eq!(machine.cpu_tstates % machine.tstates_per_frame, 0);
+            assert_eq!(machine.frame_count(), frames + 1);
+        }
+    }
 
     /// Save-state must capture LIVE machine state, not cold-boot from ROM.
     /// Serialise, advance (so the state differs), then deserialise the first

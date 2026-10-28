@@ -911,6 +911,90 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     }
 }
 
+impl<M: SpectrumMachine> SpectrumRuntime<M> {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        for event in host.input_events {
+            crate::input::apply_input_event(self, event);
+        }
+        self.machine.set_keyboard_rows(self.keyboard.rows());
+
+        while self.time < target {
+            // Stepping or cycle profiling can leave us partway through a
+            // frame. run_frame consumes only its remainder.
+            let remaining = self.machine.frame_halfcycles() - self.machine.hc();
+            SpectrumMachine::run_frame(&mut self.machine);
+            self.time = self.time.saturating_add(u64::from(remaining));
+
+            let codes: Vec<u16> = self
+                .machine
+                .framebuffer()
+                .iter()
+                .map(|&v| u16::from(v))
+                .collect();
+            // Only the measured 48K family model is claimed here. Other ULA
+            // and SCLD variants need their own electrical models.
+            let signal = (matches!(
+                self.profile.profile_id.as_str(),
+                "sinclair-zx-spectrum-16k-pal"
+                    | "sinclair-zx-spectrum-48k-pal"
+                    | "sinclair-zx-spectrum-plus-pal"
+            ) && self.machine.frame_halfcycles()
+                == common_sinclair_zx_spectrum::timing::TIMING_48K.halfcycles_per_frame
+                && M::FRAME_WIDTH == 352)
+                .then_some(emu198x_shell::SignalFrame {
+                    field: None,
+                    encoding: emu198x_shell::SignalEncoding::Yuv {
+                        pal: true,
+                        separate_chroma: false,
+                    },
+                    timing: emu198x_shell::SignalTiming {
+                        pixel_hz: 7_000_000.0,
+                        carrier_hz: 4_433_618.75,
+                        line_pixels: 448,
+                        first_pixel: 412,
+                        first_line: 264,
+                        phase_cycles: ((self
+                            .time
+                            .get()
+                            .saturating_sub(u64::from(self.machine.frame_halfcycles()))
+                            as f64)
+                            * 4_433_618.75
+                            / 14_000_000.0)
+                            .fract(),
+                    },
+                    codes: &codes,
+                    levels: &*crate::signal::LEVELS,
+                });
+            host.frame_sink.push_frame(FramePacket {
+                signal,
+                timestamp: self.time,
+                format: PixelFormat::Indexed8,
+                width: M::FRAME_WIDTH,
+                height: M::FRAME_HEIGHT,
+                palette: Some(&SPECTRUM_PALETTE),
+                pixels: self.machine.framebuffer(),
+            })?;
+
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: M::AUDIO_SAMPLE_RATE,
+                channels: 1,
+                samples: self.machine.audio_frame(),
+            })?;
+            if one_frame {
+                break;
+            }
+        }
+
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
     fn cycle_profile_timing(&self) -> Option<emu198x_shell::static_cycles::CycleTiming> {
         Some(emu198x_shell::static_cycles::CycleTiming {
@@ -1069,82 +1153,16 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
             })
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        for event in host.input_events {
-            crate::input::apply_input_event(self, event);
-        }
-        self.machine.set_keyboard_rows(self.keyboard.rows());
-
-        while self.time < target {
-            // Stepping or cycle profiling can leave us partway through a
-            // frame. run_frame consumes only its remainder.
-            let remaining = self.machine.frame_halfcycles() - self.machine.hc();
-            SpectrumMachine::run_frame(&mut self.machine);
-            self.time = self.time.saturating_add(u64::from(remaining));
-
-            let codes: Vec<u16> = self
-                .machine
-                .framebuffer()
-                .iter()
-                .map(|&v| u16::from(v))
-                .collect();
-            // Only the measured 48K family model is claimed here. Other ULA
-            // and SCLD variants need their own electrical models.
-            let signal = (matches!(
-                self.profile.profile_id.as_str(),
-                "sinclair-zx-spectrum-16k-pal"
-                    | "sinclair-zx-spectrum-48k-pal"
-                    | "sinclair-zx-spectrum-plus-pal"
-            ) && self.machine.frame_halfcycles()
-                == common_sinclair_zx_spectrum::timing::TIMING_48K.halfcycles_per_frame
-                && M::FRAME_WIDTH == 352)
-                .then_some(emu198x_shell::SignalFrame {
-                    field: None,
-                    encoding: emu198x_shell::SignalEncoding::Yuv {
-                        pal: true,
-                        separate_chroma: false,
-                    },
-                    timing: emu198x_shell::SignalTiming {
-                        pixel_hz: 7_000_000.0,
-                        carrier_hz: 4_433_618.75,
-                        line_pixels: 448,
-                        first_pixel: 412,
-                        first_line: 264,
-                        phase_cycles: ((self
-                            .time
-                            .get()
-                            .saturating_sub(u64::from(self.machine.frame_halfcycles()))
-                            as f64)
-                            * 4_433_618.75
-                            / 14_000_000.0)
-                            .fract(),
-                    },
-                    codes: &codes,
-                    levels: &*crate::signal::LEVELS,
-                });
-            host.frame_sink.push_frame(FramePacket {
-                signal,
-                timestamp: self.time,
-                format: PixelFormat::Indexed8,
-                width: M::FRAME_WIDTH,
-                height: M::FRAME_HEIGHT,
-                palette: Some(&SPECTRUM_PALETTE),
-                pixels: self.machine.framebuffer(),
-            })?;
-
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: M::AUDIO_SAMPLE_RATE,
-                channels: 1,
-                samples: self.machine.audio_frame(),
-            })?;
-        }
-
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

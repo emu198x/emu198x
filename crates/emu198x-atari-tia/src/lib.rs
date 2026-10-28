@@ -1696,9 +1696,14 @@ impl Tia {
         u32::from(self.max_lines)
     }
 
-    /// Whether a frame has completed (VSYNC deasserted).
-    ///
-    /// Calling this clears the flag.
+    /// Whether VSYNC deassertion is pending at the next horizontal wrap.
+    /// Observes the existing line latch without changing the raster or flags.
+    #[must_use]
+    pub fn frame_sync_pending(&self) -> bool {
+        self.in_vsync && !self.vsync
+    }
+
+    /// Consume the raster completion flag (sync or defensive roll).
     pub fn take_frame_complete(&mut self) -> bool {
         let complete = self.frame_complete;
         self.frame_complete = false;

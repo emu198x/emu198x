@@ -323,3 +323,54 @@ fn snapshot_round_trip_preserves_live_state() {
     let empty = blank(Model::Aes).snapshot().expect("snapshot");
     blank(Model::Aes).restore(&empty).expect("restore");
 }
+
+/// Native events, rather than the session's pacing hint, determine both count
+/// and elapsed time. The independent machine path advances the same fields.
+#[test]
+fn exact_native_frames_match_machine_boundaries_for_every_profile() {
+    for model in Model::ALL {
+        for pacing in [1, model.frame_ticks(), model.frame_ticks() * 3] {
+            assert_eq!(model, Model::Aes);
+            for count in [0, 1, 2, 5] {
+                for traced in [false, true] {
+                    let mut expected = loaded();
+                    for _ in 0..count {
+                        expected.machine_mut().expect("machine").run_frame();
+                    }
+                    let mut session = HeadlessSession::new(loaded(), pacing);
+                    let mut trace = emu198x_shell::NullTraceSink;
+                    if traced {
+                        session
+                            .run_frames_with_trace_sink(count, &mut trace)
+                            .expect("frames");
+                    } else {
+                        session.run_frames(count).expect("frames");
+                    }
+                    assert_eq!(
+                        session.frames_emitted(),
+                        u64::from(count),
+                        "{model:?}, traced={traced}"
+                    );
+                    assert_eq!(
+                        session.time().get(),
+                        expected.machine().expect("reference").mclk()
+                    );
+                    assert_eq!(
+                        session.time().get(),
+                        session.machine().machine().expect("machine").mclk()
+                    );
+                    // Repeated calls start at the actual prior boundary.
+                    for _ in 0..3 {
+                        expected.machine_mut().expect("machine").run_frame();
+                    }
+                    session.run_frames(3).expect("successive frames");
+                    assert_eq!(session.frames_emitted(), u64::from(count + 3));
+                    assert_eq!(
+                        session.time().get(),
+                        expected.machine().expect("reference").mclk()
+                    );
+                }
+            }
+        }
+    }
+}

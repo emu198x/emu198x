@@ -2736,6 +2736,10 @@ mod tests {
             Ok(())
         }
 
+        fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+            self.run_until(self.time.saturating_add(69_888), host)
+        }
+
         fn run_until(
             &mut self,
             target: MachineTime,

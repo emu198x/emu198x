@@ -134,6 +134,7 @@ impl Zx80 {
     }
 
     pub fn run_frame(&mut self) -> u64 {
+        self.video.take_frame_complete();
         let start = self.master_clock;
         // Start from paper. A frame in which the CPU never entered the
         // display routine must come out blank rather than holding the last

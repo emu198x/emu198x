@@ -1,0 +1,38 @@
+[
+  {
+    "model": "snes-ntsc",
+    "requested": 1,
+    "reported": 1,
+    "time": 327364
+  },
+  {
+    "model": "snes-ntsc",
+    "requested": 2,
+    "reported": 2,
+    "time": 684732
+  },
+  {
+    "model": "snes-ntsc",
+    "requested": 5,
+    "reported": 5,
+    "time": 1756828
+  },
+  {
+    "model": "snes-pal",
+    "requested": 1,
+    "reported": 1,
+    "time": 327364
+  },
+  {
+    "model": "snes-pal",
+    "requested": 2,
+    "reported": 2,
+    "time": 752932
+  },
+  {
+    "model": "snes-pal",
+    "requested": 5,
+    "reported": 5,
+    "time": 2029636
+  }
+]

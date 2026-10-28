@@ -351,6 +351,13 @@ impl MachineCore for C64RuntimeKind {
         }
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        match self {
+            Self::C64(rt) => rt.run_frame(host),
+            Self::C128(rt) => rt.run_frame(host),
+        }
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

@@ -431,6 +431,8 @@ pub struct AmstradCpc {
     #[serde(skip)]
     cadence_hc: u64,
     frame_count: u64,
+    #[serde(skip)]
+    native_frame_ready: bool,
 
     /// Visible display, ARGB32. Per
     /// `knowledge/decisions/framebuffer-pixel-format.md` the format is the
@@ -513,6 +515,7 @@ impl AmstradCpc {
             cpu_tstates: 0,
             cadence_hc: 0,
             frame_count: 0,
+            native_frame_ready: false,
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             // Active low: every key released.
             keyboard: [0xFF; KEYBOARD_ROWS],
@@ -886,6 +889,17 @@ impl AmstradCpc {
     /// T-states and the firmware never runs far enough to program the CRTC out
     /// of that state. Frame completion is still available to a video layer
     /// through the CRTC itself; it just cannot be what paces the CPU.
+    /// Advance to the CRTC field event; the safety budget is not a frame.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
+        let start = self.cpu_tstates;
+        self.native_frame_ready = false;
+        while (!self.native_frame_ready) && self.cpu_tstates - start < 2 * TSTATES_PER_FRAME {
+            self.tick_tstate();
+        }
+        self.frame_count += u64::from(self.native_frame_ready);
+        (self.cpu_tstates - start, self.native_frame_ready)
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.cpu_tstates;
         while self.cpu_tstates - start < TSTATES_PER_FRAME {
@@ -1266,7 +1280,7 @@ impl Z80Machine for AmstradCpc {
         self.crtc_phase += 1;
         if self.crtc_phase >= TSTATES_PER_CRTC_TICK {
             self.crtc_phase = 0;
-            self.crtc.tick();
+            self.native_frame_ready |= self.crtc.tick();
             self.track_beam();
             self.draw_char();
             // The Gate Array counts the CRTC's syncs; this is the whole of the
@@ -1305,6 +1319,27 @@ impl emu198x_zilog_z80::Z80Stepper for AmstradCpc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frame_follows_the_programmed_crtc_field_length() {
+        let mut durations = Vec::new();
+        for rows in [38, 19] {
+            let mut machine = booted(&test_firmware());
+            machine.crtc.write_address(4);
+            machine.crtc.write_data(rows);
+            for _ in 0..37 {
+                machine.tick_tstate();
+            }
+            assert!(machine.run_native_frame().1);
+            let (ticks, completed) = machine.run_native_frame();
+            assert!(completed && ticks > 0);
+            durations.push(ticks);
+        }
+        assert!(
+            durations[1] < durations[0] * 3 / 4,
+            "R4 must change the boundary: {durations:?}"
+        );
+    }
 
     /// A CPC whose 8255 has the mode the firmware sets at reset: port A
     /// out, port B in, port C out. The test firmware never runs it.

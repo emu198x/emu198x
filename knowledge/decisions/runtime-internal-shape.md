@@ -102,31 +102,41 @@ impl<M: FamilyRuntime, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
 Each family enum does `impl FamilyRuntime` (a 3-to-13-arm `from_firmware` dispatch + a `native_frame_ticks` reading the active variant's frame length). The MCP `set_machine` tool and the `--script` `SetMachine` step both call `swap_machine` — one implementation, so the two modes can't drift. `from_firmware` is the trait method *only* (not also inherent) — same name on both makes `Type::from_firmware(…)` calls ambiguous (E0034), so call sites that build the enum bring `FamilyRuntime` into scope.
 
-## Native-frame requests are sequential
+## Native-frame requests stop at real boundaries
 
-`HeadlessSession::run_frames(N)` advances one native-frame target at a time.
-It does not multiply an integer `native_frame_ticks` estimate by `N` and issue
-one large request.
+Adopted 2026-10-28 for #2136, with explicit approval of the shared contract.
 
-The distinction is observable on machines whose physical frame length is
-fractional or alternates between adjacent integer lengths. A single rounded
-budget can be safely below the shortest frame because a field-granular runtime
-stops at the next raster wrap. Multiplying that rounded value, however,
-accumulates the discarded fraction: the old MTX path requested 1,718 frames
-and emitted 1,717. Issuing successive targets lets each completed frame become
-the origin for the next and preserves the requested count. Normal and traced
-execution share this rule.
+`MachineCore::run_frame` advances to the next native video boundary and delivers
+that completed field once, with its audio and trace data. Interlaced fields count
+individually. `HeadlessSession::run_frames(N)` calls it sequentially; ordinary,
+traced and recorded requests use the same operation. Zero frames do not advance,
+consume queued input or emit a redraw. Unsupported implementations refuse before
+advancing. There is no nominal-time fallback.
 
-The same boundary applies to UI input slicing. A runtime that can stop only at
-a complete field must request one slice per displayed frame. Requesting four
-sub-field targets does not manufacture sub-field stops; it advances four full
-fields. A frontend may use more slices only after the runtime can demonstrably
-stop at those intermediate targets.
+`run_until(time)` remains a time-budget operation. `native_frame_ticks` is a
+pacing hint for real-time scheduling, not authority for counting completed frames.
+An initial partial field, alternating short/long fields and software-defined sync
+must not cause one frame request to advance two fields. Time is always the elapsed
+machine clock; neither frame counts nor hardware clocks are rescaled to hide a
+boundary mismatch.
 
-`native_frame_ticks` remains a per-active-variant pacing hint, not a second
-source of raster truth. `swap_machine` must refresh it after model or region
-changes, and the machine's own raster-wrap event decides when a frame actually
-completes.
+If a bounded frame attempt produces no completed field (for example, a Game Boy
+with its LCD disabled), it returns `StopReason::NoFrame` and does not emit a
+completed-frame packet. The advanced clock/audio/input state is retained. A safety
+timeout is not a video event. This operation does not add serialized state.
+
+Headless `frames_run` counts these completed native requests in the session;
+a runtime's restored/lifetime counter remains available as
+`machine_frame_counter`. Time-window packets and debugger redraws do not inflate
+the request count. `run_result` exposes a bounded no-frame stop explicitly.
+Whole-frame native UI requests use the same operation and pace the actual elapsed
+master time; nominal frame durations are only scheduling hints.
+
+All current runtime implementations supply the operation. Concrete runtimes share
+their execution and delivery with `run_until`; family dispatchers forward the
+operation. Existing chip/master-clock loops remain the source of frame boundaries.
+UI slicing remains a separate concern: sub-field time requests are meaningful only
+for runtimes that can actually stop at them.
 
 **Why a trait + enum and not `Box<dyn>`.** The variant set is closed and known at compile time — exactly what an enum is for. Eliminating the enum via `Box<dyn MachineCore>` was considered and rejected: it contradicts this record's "generic-over-`M` within the crate" stance, reintroduces the heap indirection the Amiga enum explicitly rejects (`#[allow(clippy::large_enum_variant)]` — one instance per session, held for its lifetime, so boxing only adds per-tick indirection on the hot forwarding path), and `SpectrumMachine::variant_query_paths()` is a static (no-`self`) method, making the query surface not object-safe without a wrapper rewrite across every machine impl + MCP handler + test. The trait lifts the *shared shape*; the enum keeps the *closed dispatch*.
 

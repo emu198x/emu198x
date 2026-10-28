@@ -283,16 +283,24 @@ impl AcornAtom {
         true
     }
 
-    pub fn run_frame(&mut self) -> u64 {
+    /// Bounded frame step; false means the safety budget expired.
+    pub fn run_native_frame(&mut self) -> (u64, bool) {
         let start = self.master_clock;
+        self.vdg.take_frame_complete();
+        let mut completed = false;
         for _ in 0..200_000 {
             self.tick();
             if self.vdg.take_frame_complete() {
+                completed = true;
                 break;
             }
         }
-        self.frame_count += 1;
-        self.master_clock - start
+        self.frame_count += u64::from(completed);
+        (self.master_clock - start, completed)
+    }
+
+    pub fn run_frame(&mut self) -> u64 {
+        self.run_native_frame().0
     }
 
     /// Present the keyboard rows for the column the MOS has driven on 8255

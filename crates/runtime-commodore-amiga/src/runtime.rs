@@ -496,6 +496,115 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
     }
 }
 
+impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
+    fn run_window(
+        &mut self,
+        target: MachineTime,
+        one_frame: bool,
+        host: &mut HostIo<'_>,
+    ) -> Result<RunResult, MachineError> {
+        // Apply queued input at the top of the run window. Keyboard,
+        // mouse, and joystick are wired through the generic
+        // `apply_input_event`; unknown event kinds are silently
+        // dropped.
+        for event in host.input_events {
+            apply_input_event(&mut self.machine, event);
+        }
+
+        while self.time < target {
+            // Run to the display pipeline's next completed video field. A
+            // nominal PAL field is 141,648 ticks, but guest software may
+            // enable interlace after the field has begun and add one line.
+            // The variant's completed-field projection also holds Agnus's
+            // raw increment back while Denise finishes the preceding raster
+            // row across horizontal counter wrap.
+            let starting_field = self.machine.video_field_count();
+            // Read the field being rendered, before Agnus advances LOF at
+            // raw wrap. Denise completes its carried final row afterwards.
+            let source_field = self.machine.agnus().vbl_count;
+            let source_lace = self.machine.agnus().bplcon0 & 4 != 0;
+            let source_lof = self.machine.agnus().lof;
+            let mut stable_field = self.machine.agnus().vpos == 0;
+            let mut field_ticks = 0_u64;
+            self.audio_buffer.clear();
+            // One emulated second is a host safety policy, not a raster length.
+            while self.machine.video_field_count() == starting_field
+                && (!one_frame || field_ticks < self.tick_hz)
+            {
+                let agnus = self.machine.agnus();
+                if agnus.vbl_count == source_field {
+                    stable_field &=
+                        (agnus.bplcon0 & 4 != 0) == source_lace && agnus.lof == source_lof;
+                }
+                self.tick_and_sample_audio();
+                field_ticks = field_ticks.saturating_add(1);
+            }
+            // The completed-field projection advances on the first half of a
+            // CCK. Finish the second half before exposing the field so both
+            // hires pixels at the display boundary have been processed and
+            // the next run starts on a complete CCK boundary.
+            self.tick_and_sample_audio();
+            field_ticks = field_ticks.saturating_add(1);
+            let completed = self.machine.video_field_count() != starting_field;
+            self.frame_count = self.frame_count.saturating_add(u64::from(completed));
+            self.time = self.time.saturating_add(field_ticks);
+            self.update_rgba_framebuffer();
+
+            if !one_frame || completed {
+                host.frame_sink.push_frame(FramePacket {
+                    signal: Some(emu198x_shell::SignalFrame {
+                        field: (source_lace && stable_field).then_some(emu198x_shell::VideoField {
+                            sequence: source_field,
+                            // The board renderer maps long fields to row 0.
+                            parity: if source_lof {
+                                emu198x_shell::FieldParity::Even
+                            } else {
+                                emu198x_shell::FieldParity::Odd
+                            },
+                        }),
+                        encoding: emu198x_shell::SignalEncoding::Rgb,
+                        timing: emu198x_shell::SignalTiming {
+                            pixel_hz: self.tick_hz as f64 * 2.0 * f64::from(M::CHIPSET_FB_WIDTH)
+                                / f64::from(DISPLAY_WIDTH),
+                            carrier_hz: 0.0,
+                            line_pixels: M::CHIPSET_FB_WIDTH,
+                            first_pixel: 0,
+                            first_line: 0,
+                            phase_cycles: 0.0,
+                        },
+                        codes: &[],
+                        levels: &[],
+                    }),
+                    timestamp: self.time,
+                    format: emu198x_shell::PixelFormat::Rgba8888,
+                    width: M::CHIPSET_FB_WIDTH,
+                    height: M::CHIPSET_FB_HEIGHT,
+                    palette: None,
+                    pixels: &self.rgba_framebuffer,
+                })?;
+            }
+
+            host.audio_sink.push_audio(AudioPacket {
+                timestamp: self.time,
+                sample_rate: AUDIO_SAMPLE_RATE_HZ,
+                channels: AUDIO_CHANNELS,
+                samples: &self.audio_buffer,
+            })?;
+            if one_frame {
+                return Ok(RunResult::new(
+                    self.time,
+                    if completed {
+                        StopReason::ReachedTarget
+                    } else {
+                        StopReason::NoFrame
+                    },
+                ));
+            }
+        }
+        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+    }
+}
+
 impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
     fn profile(&self) -> &MachineProfile {
         &self.profile
@@ -563,94 +672,16 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         Ok(())
     }
 
+    fn run_frame(&mut self, host: &mut HostIo<'_>) -> Result<RunResult, MachineError> {
+        self.run_window(MachineTime::new(u64::MAX), true, host)
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,
         host: &mut HostIo<'_>,
     ) -> Result<RunResult, MachineError> {
-        // Apply queued input at the top of the run window. Keyboard,
-        // mouse, and joystick are wired through the generic
-        // `apply_input_event`; unknown event kinds are silently
-        // dropped.
-        for event in host.input_events {
-            apply_input_event(&mut self.machine, event);
-        }
-
-        while self.time < target {
-            // Run to the display pipeline's next completed video field. A
-            // nominal PAL field is 141,648 ticks, but guest software may
-            // enable interlace after the field has begun and add one line.
-            // The variant's completed-field projection also holds Agnus's
-            // raw increment back while Denise finishes the preceding raster
-            // row across horizontal counter wrap.
-            let starting_field = self.machine.video_field_count();
-            // Read the field being rendered, before Agnus advances LOF at
-            // raw wrap. Denise completes its carried final row afterwards.
-            let source_field = self.machine.agnus().vbl_count;
-            let source_lace = self.machine.agnus().bplcon0 & 4 != 0;
-            let source_lof = self.machine.agnus().lof;
-            let mut stable_field = self.machine.agnus().vpos == 0;
-            let mut field_ticks = 0_u64;
-            self.audio_buffer.clear();
-            while self.machine.video_field_count() == starting_field {
-                let agnus = self.machine.agnus();
-                if agnus.vbl_count == source_field {
-                    stable_field &=
-                        (agnus.bplcon0 & 4 != 0) == source_lace && agnus.lof == source_lof;
-                }
-                self.tick_and_sample_audio();
-                field_ticks = field_ticks.saturating_add(1);
-            }
-            // The completed-field projection advances on the first half of a
-            // CCK. Finish the second half before exposing the field so both
-            // hires pixels at the display boundary have been processed and
-            // the next run starts on a complete CCK boundary.
-            self.tick_and_sample_audio();
-            field_ticks = field_ticks.saturating_add(1);
-            self.frame_count = self.frame_count.saturating_add(1);
-            self.time = self.time.saturating_add(field_ticks);
-            self.update_rgba_framebuffer();
-
-            host.frame_sink.push_frame(FramePacket {
-                signal: Some(emu198x_shell::SignalFrame {
-                    field: (source_lace && stable_field).then_some(emu198x_shell::VideoField {
-                        sequence: source_field,
-                        // The board renderer maps long fields to row 0.
-                        parity: if source_lof {
-                            emu198x_shell::FieldParity::Even
-                        } else {
-                            emu198x_shell::FieldParity::Odd
-                        },
-                    }),
-                    encoding: emu198x_shell::SignalEncoding::Rgb,
-                    timing: emu198x_shell::SignalTiming {
-                        pixel_hz: self.tick_hz as f64 * 2.0 * f64::from(M::CHIPSET_FB_WIDTH)
-                            / f64::from(DISPLAY_WIDTH),
-                        carrier_hz: 0.0,
-                        line_pixels: M::CHIPSET_FB_WIDTH,
-                        first_pixel: 0,
-                        first_line: 0,
-                        phase_cycles: 0.0,
-                    },
-                    codes: &[],
-                    levels: &[],
-                }),
-                timestamp: self.time,
-                format: emu198x_shell::PixelFormat::Rgba8888,
-                width: M::CHIPSET_FB_WIDTH,
-                height: M::CHIPSET_FB_HEIGHT,
-                palette: None,
-                pixels: &self.rgba_framebuffer,
-            })?;
-
-            host.audio_sink.push_audio(AudioPacket {
-                timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE_HZ,
-                channels: AUDIO_CHANNELS,
-                samples: &self.audio_buffer,
-            })?;
-        }
-        Ok(RunResult::new(self.time, StopReason::ReachedTarget))
+        self.run_window(target, false, host)
     }
 
     fn snapshot(&self) -> Result<Vec<u8>, MachineError> {

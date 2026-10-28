@@ -373,6 +373,7 @@ impl Zx81 {
     }
 
     pub fn run_frame(&mut self) -> u64 {
+        self.video.take_frame_complete();
         let start = self.master_clock;
         self.video.clear();
         loop {
