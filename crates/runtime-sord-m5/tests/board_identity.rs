@@ -37,18 +37,19 @@ fn each_board_accepts_its_legacy_payload_and_rejects_the_other() {
         }
         // A correct payload under a false profile label must fail atomically.
         let mut envelope: LegacyEnvelope = postcard::from_bytes(bytes).expect("legacy envelope");
-        envelope.2 = match model {
-            Model::M5Ntsc => "sord-m5-pal",
-            Model::M5Pal => "sord-m5-ntsc",
-        }
-        .into();
-        let mut runtime = M5Runtime::blank(model);
+        let labelled_model = match model {
+            Model::M5Ntsc => Model::M5Pal,
+            Model::M5Pal => Model::M5Ntsc,
+        };
+        envelope.2 = labelled_model.model_id().into();
+        // The label matches the receiving runtime: only the live board is false.
+        // Otherwise the older profile-name guard would reject this first.
+        let mut runtime = M5Runtime::blank(labelled_model);
         let before = runtime.snapshot().expect("before");
-        assert!(
-            runtime
-                .restore(&postcard::to_allocvec(&envelope).expect("mislabelled state"))
-                .is_err()
-        );
+        let error = runtime
+            .restore(&postcard::to_allocvec(&envelope).expect("mislabelled state"))
+            .expect_err("false board identity must fail");
+        assert!(error.to_string().contains("snapshot board does not match"));
         assert_eq!(runtime.snapshot().expect("after"), before);
     }
 }
