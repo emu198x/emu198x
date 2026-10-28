@@ -17,7 +17,7 @@ format198x-commodore-c64-g64 = "0.1.0"
 emu198x-mos-6502 = "0.6.1"
 emu198x-mos-via-6522 = "0.1.0"
 emu198x-mos-cia-6526 = "0.1.0"
-emu198x-western-digital-wd1770 = { path = "../emu198x-western-digital-wd1770", version = "0.1.0" }
+emu198x-western-digital-wd1770 = "0.1.0"
 serde = { workspace = true }
 thiserror = { workspace = true }
 

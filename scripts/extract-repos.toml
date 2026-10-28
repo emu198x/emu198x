@@ -22,14 +22,6 @@ consumers = "Used by the SNES."
 coverage_floor = 99
 
 [[repo]]
-name = "gi-ay-3-8910"
-crates = ["emu198x-gi-ay-3-8910", "emu198x-gi-ay-3-8912"]
-summary = "The General Instrument AY-3-8910 programmable sound generator, with its single-port AY-3-8912 facade."
-consumers = "Used by the Spectrum 128, Amstrad CPC, MSX, Oric and other machines, and by Play198x for `.ay` playback."
-# 95.37% line coverage on 2026-10-24.
-coverage_floor = 95
-
-[[repo]]
 name = "mos-sid-6581"
 crates = ["emu198x-mos-sid-6581"]
 summary = "The MOS 6581 and 8580 SID sound chips."
@@ -75,30 +67,6 @@ summary = "The audio unit of the Ricoh 2A03, the NES CPU."
 consumers = "Used by the NES and by Play198x for NSF playback."
 # 99.27% line coverage on 2026-10-24, with the corpus tests ignored.
 coverage_floor = 98
-
-[[repo]]
-name = "ti-tms9918"
-crates = ["emu198x-ti-tms9918"]
-summary = "The Texas Instruments TMS9918A video display processor and its 9928A/9929A variants."
-consumers = "Used by the ColecoVision, Memotech MTX, MSX, Sega SG-1000, Sord M5, Spectravideo and Tatung Einstein."
-# 95.96% line coverage on 2026-10-24.
-coverage_floor = 95
-
-[[repo]]
-name = "intel-8255"
-crates = ["emu198x-intel-8255"]
-summary = "The Intel 8255 programmable peripheral interface."
-consumers = "Used by the Acorn Atom, Amstrad CPC, MSX and Spectravideo."
-# 87.32% line coverage on 2026-10-24.
-coverage_floor = 87
-
-[[repo]]
-name = "western-digital-wd1770"
-crates = ["emu198x-western-digital-wd1770"]
-summary = "The Western Digital WD1770 floppy disk controller and its WD177x/179x relatives."
-consumers = "Used by the BBC Micro, the Acorn Electron Plus 3, the Atari ST, the Commodore 1571 and 1581 drives and the Tatung Einstein."
-# 89.15% line coverage on 2026-10-24.
-coverage_floor = 89
 
 [[repo]]
 name = "sega-315-5313"
@@ -155,14 +123,6 @@ summary = "The Yamaha YM2612 (OPN2) FM synthesis chip and its CMOS twin, the YM3
 consumers = "Used by the Sega Mega Drive, and by the YM2610 for the SNK Neo Geo; Play198x's VGM playback is a planned consumer."
 # 99.88% line coverage on 2026-10-24.
 coverage_floor = 99
-
-[[repo]]
-name = "zilog-z80-ctc"
-crates = ["emu198x-zilog-z80-ctc"]
-summary = "The Zilog Z80 CTC (Z8430) counter/timer circuit."
-consumers = "Used by the Memotech MTX and Sord M5."
-# 97.51% line coverage on 2026-10-24.
-coverage_floor = 97
 
 [[repo]]
 name = "atari-tia"
@@ -292,14 +252,6 @@ summary = "The Amstrad Gate Array (40007 and 40010)."
 consumers = "Used by the Amstrad CPC."
 # 96.41% line coverage on 2026-10-25.
 coverage_floor = 96
-
-[[repo]]
-name = "z80-cadence"
-crates = ["emu198x-z80-cadence"]
-summary = "The cadence every Z80 machine shares: two CPU half-cycles per T-state, interrupt pins fed before each."
-consumers = "Used by thirteen Z80 machines across eleven families, from the CPC to the Tatung Einstein."
-# 91.89% line coverage on 2026-10-25.
-coverage_floor = 91
 
 [[repo]]
 name = "tape-playback"

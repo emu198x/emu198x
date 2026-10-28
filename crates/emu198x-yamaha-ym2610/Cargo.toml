@@ -13,7 +13,7 @@ keywords = ["ym2610", "opnb", "adpcm", "neo-geo", "emulator"]
 categories = ["emulators"]
 
 [dependencies]
-emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
+emu198x-gi-ay-3-8910 = "0.6.0"
 emu198x-yamaha-ym2612 = { path = "../emu198x-yamaha-ym2612", version = "0.1.0" }
 serde = { workspace = true }
 

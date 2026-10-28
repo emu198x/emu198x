@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
+emu198x-gi-ay-3-8910 = "0.6.0"
 emu198x-ricoh-ppu-2c02 = { path = "../emu198x-ricoh-ppu-2c02", version = "0.1.0" }
 emu198x-yamaha-ym2413 = { path = "../emu198x-yamaha-ym2413", version = "0.1.0" }
 format-nintendo-famicom-fds = { path = "../format-nintendo-famicom-fds", version = "0.45.0" }

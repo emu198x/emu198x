@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-sega-315-5124 = { path = "../emu198x-sega-315-5124", version = "0.1.0" }
 emu198x-ti-sn76489 = "0.1.0"
 emu198x-yamaha-ym2413 = { path = "../emu198x-yamaha-ym2413", version = "0.1.0" }
-emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
+emu198x-z80-cadence = "0.1.0"
 emu198x-zilog-z80 = "0.8.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }

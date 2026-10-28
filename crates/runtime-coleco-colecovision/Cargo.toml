@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
+emu198x-ti-tms9918 = "0.1.0"
 machine-coleco-colecovision = { path = "../machine-coleco-colecovision", version = "0.45.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }

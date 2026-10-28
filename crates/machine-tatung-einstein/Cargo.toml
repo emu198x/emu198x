@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
-emu198x-ti-tms9918 = { path = "../emu198x-ti-tms9918", version = "0.1.0" }
-emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
-emu198x-western-digital-wd1770 = { path = "../emu198x-western-digital-wd1770", version = "0.1.0" }
+emu198x-gi-ay-3-8910 = "0.6.0"
+emu198x-ti-tms9918 = "0.1.0"
+emu198x-z80-cadence = "0.1.0"
+emu198x-western-digital-wd1770 = "0.1.0"
 emu198x-zilog-z80 = "0.8.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }

@@ -10,9 +10,9 @@ repository.workspace = true
 [dependencies]
 emu198x-tape-playback = { path = "../emu198x-tape-playback", version = "0.1.0" }
 emu198x-amstrad-gate-array = { path = "../emu198x-amstrad-gate-array", version = "0.1.0" }
-emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
-emu198x-gi-ay-3-8912 = { path = "../emu198x-gi-ay-3-8912", version = "0.1.0" }
-emu198x-intel-8255 = { path = "../emu198x-intel-8255", version = "0.1.0" }
+emu198x-z80-cadence = "0.1.0"
+emu198x-gi-ay-3-8912 = "0.1.0"
+emu198x-intel-8255 = "0.1.0"
 emu198x-motorola-6845 = "0.1.0"
 emu198x-nec-upd765a = "0.1.0"
 serde = { workspace = true }
