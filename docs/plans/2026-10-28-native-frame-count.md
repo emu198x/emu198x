@@ -171,3 +171,11 @@ Headless reports now distinguish the session's verified native request count
 (`machine_frame_counter`). `run_result` exposes an early stop such as `NoFrame`.
 The final shell/UI rerun after this reporting change passes separately in the
 verification ledger. Machine clocks and snapshot layouts are unchanged.
+
+CI follow-up: the full workspace run found three integration assertions still
+requiring at least N nominal frame durations (SNES, Mega Drive and Spectrum
+after debug stepping). Those are incompatible with the approved next-boundary
+contract. The console tests now require exactly five completed fields and
+compare CLI time with five direct native machine completions. Spectrum checks
+the two actual boundaries following its partial field. All affected integration
+binaries pass locally; no production fallback or test disabling was added.

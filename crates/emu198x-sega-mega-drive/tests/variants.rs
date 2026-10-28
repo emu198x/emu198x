@@ -173,7 +173,7 @@ fn a_synthetic_cartridge_runs_and_reads_the_pad_through_a_script() {
                 .arg(fixture.0.join(image)),
         );
         assert_eq!(report["cart_loaded"], true, "{image}");
-        assert!(report["frames_run"].as_u64().expect("frames") >= 5);
+        assert_eq!(report["frames_run"], 5);
         let mclk = report["observations"]
             .as_array()
             .expect("observations")
@@ -182,7 +182,14 @@ fn a_synthetic_cartridge_runs_and_reads_the_pad_through_a_script() {
             .expect("query")["result"]["value"]
             .clone();
         assert_eq!(report["time"], mclk, "{image}: time counts master clocks");
-        assert!(report["time"].as_u64().expect("time") >= 5 * Model::Genesis.frame_ticks());
+        // Compare the script with native machine boundaries, including the
+        // initial partial field; nominal frame durations are not a budget.
+        let mut direct =
+            runtime_sega_mega_drive::MegaDriveRuntime::new(Model::Genesis, cartridge(b"JUE"));
+        let expected_ticks: u64 = (0..5)
+            .map(|_| direct.machine_mut().expect("loaded").run_frame())
+            .sum();
+        assert_eq!(report["time"], expected_ticks);
         let reads = memory_reads(&report);
         assert_eq!(reads[0], json!([0x7F]), "{image}: nothing pressed");
         assert_eq!(reads[1], json!([0x5F]), "{image}: C pressed");

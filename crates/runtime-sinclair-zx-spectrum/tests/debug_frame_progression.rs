@@ -64,11 +64,14 @@ fn frame_execution_after_debug_steps_settles_the_border_and_keeps_time() {
     let SpectrumRuntimeKind::Spectrum48K(runtime) = session.machine() else {
         panic!("48K fixture");
     };
-    // run_until rounds a target up to a complete frame. Its reported time
-    // must count only the ticks actually consumed from a partial frame.
+    // Two native completions consume the remaining partial field plus one
+    // complete field; debug stepping already consumed the earlier time.
     assert_eq!(runtime.machine().hc(), 0);
     assert_eq!(session.time().get() % frame_ticks, 0);
-    assert!(session.time().get() >= elapsed + frame_ticks * 2);
+    assert_eq!(
+        session.time().get(),
+        (elapsed / frame_ticks + 2) * frame_ticks
+    );
 
     let mut normal = HeadlessSession::new(
         SpectrumRuntimeKind::Spectrum48K(Box::new(self::runtime())),
