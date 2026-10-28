@@ -1,0 +1,16 @@
+{
+  "bios_loaded": true,
+  "cart_loaded": true,
+  "frames_run": 901,
+  "observations": [
+    {
+      "colour": "#0000E9",
+      "frames_seen": 901,
+      "height": 224,
+      "kind": "blank_frame",
+      "last_painted_frame": 119,
+      "width": 320
+    }
+  ],
+  "time": 365322241
+}

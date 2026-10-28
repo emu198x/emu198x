@@ -11,7 +11,9 @@
 //! follows MAME's `neogeo.cpp` (BSD-3-Clause):
 //!
 //! - P-ROMs are stored with each 16-bit word byte-swapped; they are swapped
-//!   back to the 68000's order and joined, P1 first.
+//!   back to the 68000's order and joined, P1 first. A single 2 MiB P1
+//!   with no lower-half recognition code and a complete upper-half header
+//!   has its two 1 MiB halves exchanged before mapping.
 //! - V-ROMs with one digit (`v1`, `v2`) feed ADPCM-A, which ADPCM-B shares.
 //!   Two digits (`v11`, `v21`) name the region first: `v1x` for ADPCM-A,
 //!   `v2x` for ADPCM-B, as on the first boards that kept them apart.
@@ -19,8 +21,7 @@
 //!   byte at a time, the odd ROM in even bytes.
 //!
 //! Files that fit no role, a BIOS or a readme in the same archive, are left
-//! out. Some games load a P-ROM's halves in the other order, and some are
-//! encrypted; neither is handled here.
+//! out. Other bank wiring and encrypted sets are not inferred here.
 
 use std::io::{Cursor, Read};
 
@@ -118,9 +119,13 @@ pub fn from_files(
     let of = |role: char| roles.iter().filter(move |r| r.0 == role);
 
     let mut set = RomSet::default();
-    for (_, _, _, bytes) in of('p') {
+    let program_parts = of('p').count();
+    for (_, index, _, bytes) in of('p') {
         set.p
             .extend(bytes.chunks(2).flat_map(|w| w.iter().rev().copied()));
+        if program_parts == 1 && *index == 1 {
+            normalise_p1_halves(&mut set.p);
+        }
     }
     if set.p.is_empty() {
         return Err(RomSetError::NoProgramRom);
@@ -157,6 +162,25 @@ pub fn from_files(
         }
     }
     Ok(set)
+}
+
+// SNK's Hardware Specification (1989), System Program p.6: recognition
+// code at $100, version at $107, nonzero game ID at $108, ROM size at $10A.
+// MAME neogeo.cpp::mslug loads a single 2 MiB P1's first MiB at $100000,
+// continuing at $000000. Recognise that layout by the header, not a game name.
+// Never override a header already in the fixed bank, or infer other layouts.
+fn normalise_p1_halves(program: &mut [u8]) {
+    const HALF: usize = 0x100000;
+    if program.len() != 2 * HALF || &program[0x100..0x107] == b"NEO-GEO" {
+        return;
+    }
+    let header = &program[HALF + 0x100..HALF + 0x10e];
+    if &header[..8] == b"NEO-GEO\0"
+        && header[8..10] != [0, 0]
+        && header[10..14] == (program.len() as u32).to_be_bytes()
+    {
+        program.rotate_left(HALF);
+    }
 }
 
 /// Build a ROM set from a zip archive's bytes, as MAME keeps one game.

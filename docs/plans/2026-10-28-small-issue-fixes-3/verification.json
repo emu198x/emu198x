@@ -1,0 +1,78 @@
+{
+  "base": "07097e0f2abbed44e1fbc83e528ce4869cef303d",
+  "inputs": {
+    "aes": {
+      "archive_sha256": "51b42ce9752f3180fc7b25f5cf24bfd5330c665a8f3e823245292e7981904b03",
+      "entries": {
+        "000-lo.lo": {
+          "bytes": 131072,
+          "sha1": "5992277debadeb64d1c1c64b0a92d9293eaf7e4a",
+          "sha256": "2a76f023dc578804c6bcd58ed514ffc04fcb433b3bd75d4452575ffda57a0707"
+        },
+        "neo-epo.bin": {
+          "bytes": 131072,
+          "sha1": "1b3b22092f30c4d1b2c15f04d1670eb1e9fbea07",
+          "sha256": "70f7906d68acbc3630b6e7792ebb485288b05ca72c6d4c243e07e230aae8d1e4"
+        },
+        "neo-po.bin": {
+          "bytes": 131072,
+          "sha1": "4e4a440cae46f3889d20234aebd7f8d5f522e22c",
+          "sha256": "b6e770df3f83ec559e2727357224eb8d31666402fc673f5b77586a465fdfbde3"
+        }
+      }
+    },
+    "mslug": {
+      "archive_sha256": "a5e609e545d4a003fdaa46c17fae103ec03f30e8bd3b3f2903be25876ddf7085",
+      "entries": {
+        "201-p1.p1": {
+          "bytes": 2097152,
+          "sha1": "b888993dbb7e9f0a28a01d7d2e1da00ef9cf6f38",
+          "sha256": "53406b796e4def5df52d4169bafb4384ad80d787792e8efe46c7298d46f98ea5"
+        }
+      }
+    },
+    "nam1975": {
+      "archive_sha256": "436c48e0d7f270e36a15ad944836d09e4250b4ba4593ba246cf4f1a81fed1603",
+      "entries": {
+        "001-p1.p1": {
+          "bytes": 524288,
+          "sha1": "92f4e6ddeeb825077d92dbb70b50afea985f15c0",
+          "sha256": "1e8a533dcb2e43c7b36f8a1e3aa9754d40cfd4524b61a4c37aa92e9597f76874"
+        }
+      }
+    }
+  },
+  "reference": {
+    "binary": "MAME 0.289 (unknown build source)",
+    "binary_sha256": "6d40df87963c58cdd3857d203e186af854fea49ae03b2ab555e30ef1029636d9",
+    "held_source": "9391e1eff80eb04abd58d48218a1d3b9643c1ea8",
+    "layout_source": "src/mame/snk/neogeo.cpp:6886-6889",
+    "installed_software_xml_sha256": "f2b78a6a5f64e1fa146298878e83e0ef4b472a4dae85437708fd2d8768082326",
+    "command": "SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy mame aes mslug -bios asia|japan -rompath ROM_DIR -hashpath HASH_DIR -video none -sound none -nothrottle -skip_gameinfo -noreadconfig -autoboot_script reference-frame.lua -autoboot_delay 0 -seconds_to_run 20; cfg and nvram use task-owned temporary directories"
+  },
+  "frame_900_rgb_comparison": {
+    "asia": {
+      "size": [
+        320,
+        224
+      ],
+      "different_pixels": 0,
+      "rgb_sha256": "af0455203f8f46437189694bf16875ef4cb182649419053dbc648a9429a91a75"
+    },
+    "japan": {
+      "size": [
+        320,
+        224
+      ],
+      "different_pixels": 0,
+      "rgb_sha256": "fad4bfb73fc00526168351cf2c1a26cb9f9853ebe0b4373bda94162a275b41cd"
+    }
+  },
+  "nam1975_before_after_png_sha256": "ec66a87b1105adee9066ba390881dc98991a9f32f75d7693fc3218da2c500857",
+  "limits": "Two no-input frame captures and one unchanged standard-layout control; no blanket timing, audio, mapper, encrypted-set or compatibility qualification.",
+  "emulator_requested_frames": 900,
+  "emulator_reported_frames": 901,
+  "reference_frame": 900,
+  "primary": "SNK Neo Geo Hardware Specification (1989), System Program p.6: recognition code, version, game ID and program ROM size",
+  "reference_reproducer": "reference-frame.lua was run with a fresh cfg/nvram directory; frame/header/game-ID assertions passed and RGB bytes match the original Asia reference capture."
+}

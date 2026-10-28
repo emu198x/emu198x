@@ -1,0 +1,31 @@
+   Compiling format-snk-neo-geo-romset v0.45.1 (/private/tmp/198x-batch3-fixes/crates/format-snk-neo-geo-romset)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.57s
+     Running unittests src/lib.rs (/private/tmp/198x-batch3-target/debug/deps/format_snk_neo_geo_romset-6e8c60b461fc599c)
+
+running 10 tests
+test tests::sample_roms_split_by_region_when_two_digits_say_so ... ok
+test tests::sprite_roms_interleave_by_pair ... ok
+test tests::names_classify_by_extension_or_stem ... ok
+test tests::fix_and_sound_roms_are_taken_whole ... ok
+test tests::errors_name_what_is_wrong ... ok
+test tests::program_roms_are_word_swapped_and_joined_in_order ... ok
+test tests::a_zip_archive_reads_like_its_files ... ok
+test tests::reversed_p1_halves_put_the_only_valid_header_in_the_fixed_bank ... FAILED
+test tests::only_a_complete_unambiguous_single_p1_header_selects_reversed_halves ... ok
+test tests::p1_layout_recognition_does_not_change_standard_or_ambiguous_images ... ok
+
+failures:
+
+---- tests::reversed_p1_halves_put_the_only_valid_header_in_the_fixed_bank stdout ----
+
+thread 'tests::reversed_p1_halves_put_the_only_valid_header_in_the_fixed_bank' (201060585) panicked at crates/format-snk-neo-geo-romset/src/tests.rs:164:5:
+both complete banks must match their CPU-visible order; first difference: Some(0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::reversed_p1_halves_put_the_only_valid_header_in_the_fixed_bank
+
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+error: test failed, to rerun pass `-p format-snk-neo-geo-romset --lib`

@@ -1,0 +1,118 @@
+   Compiling bitflags v2.11.1
+   Compiling serde_core v1.0.229
+   Compiling objc2 v0.6.5
+   Compiling objc2-encode v4.1.0
+   Compiling serde v1.0.229
+   Compiling simd-adler32 v0.3.9
+   Compiling adler2 v2.0.1
+   Compiling serde_derive v1.0.229
+   Compiling zlib-rs v0.6.3
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.154
+   Compiling gilrs v0.11.2
+   Compiling miniz_oxide v0.9.1
+   Compiling nix v0.31.3
+   Compiling zopfli v0.8.3
+   Compiling vec_map v0.8.2
+   Compiling uuid v1.23.1
+   Compiling itoa v1.0.18
+   Compiling cpal v0.18.2
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling cobs v0.3.0
+   Compiling fnv v1.0.7
+   Compiling isa198x v0.1.0
+   Compiling mach2 v0.6.0
+   Compiling dasp_sample v0.11.0
+   Compiling block2 v0.6.2
+   Compiling dispatch2 v0.3.1
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling isa198x-disasm v0.1.0
+   Compiling motorola-68k-common v0.45.1 (/private/tmp/198x-batch3-fixes/crates/motorola-68k-common)
+   Compiling serde-big-array v0.5.1
+   Compiling emu198x-yamaha-ym2612 v0.1.0 (/private/tmp/198x-batch3-fixes/crates/emu198x-yamaha-ym2612)
+   Compiling emu198x-gi-ay-3-8910 v0.6.1 (/private/tmp/198x-batch3-fixes/crates/emu198x-gi-ay-3-8910)
+   Compiling emu198x-zilog-z80 v0.8.0
+   Compiling emu198x-snk-lspc2 v0.1.0 (/private/tmp/198x-batch3-fixes/crates/emu198x-snk-lspc2)
+   Compiling postcard v1.1.3
+   Compiling debug198x v0.1.0
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-io-kit v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling flate2 v1.1.10
+   Compiling emu198x-yamaha-ym2610 v0.1.0 (/private/tmp/198x-batch3-fixes/crates/emu198x-yamaha-ym2610)
+   Compiling gilrs-core v0.6.8
+   Compiling zip v9.1.2
+   Compiling png v0.18.1
+   Compiling motorola-68000 v0.45.1 (/private/tmp/198x-batch3-fixes/crates/motorola-68000)
+   Compiling coreaudio-rs v0.14.2
+   Compiling machine-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/machine-snk-neo-geo)
+   Compiling format-snk-neo-geo-romset v0.45.1 (/private/tmp/198x-batch3-fixes/crates/format-snk-neo-geo-romset)
+   Compiling emu198x-shell v0.44.2 (/private/tmp/198x-batch3-fixes/crates/emu198x-shell)
+   Compiling runtime-snk-neo-geo v0.45.1 (/private/tmp/198x-batch3-fixes/crates/runtime-snk-neo-geo)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.75s
+     Running unittests src/lib.rs (/private/tmp/198x-batch3-target/debug/deps/format_snk_neo_geo_romset-3f054ce39af9e597)
+
+running 10 tests
+test tests::names_classify_by_extension_or_stem ... ok
+test tests::fix_and_sound_roms_are_taken_whole ... ok
+test tests::program_roms_are_word_swapped_and_joined_in_order ... ok
+test tests::errors_name_what_is_wrong ... ok
+test tests::sample_roms_split_by_region_when_two_digits_say_so ... ok
+test tests::sprite_roms_interleave_by_pair ... ok
+test tests::a_zip_archive_reads_like_its_files ... ok
+test tests::reversed_p1_halves_put_the_only_valid_header_in_the_fixed_bank ... ok
+test tests::only_a_complete_unambiguous_single_p1_header_selects_reversed_halves ... ok
+test tests::p1_layout_recognition_does_not_change_standard_or_ambiguous_images ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+     Running unittests src/lib.rs (/private/tmp/198x-batch3-target/debug/deps/runtime_snk_neo_geo-47e6625fd3ce7a73)
+
+running 8 tests
+test profiles::tests::the_one_model_round_trips_its_ids ... ok
+test profiles::tests::a_frame_is_264_lines_of_the_master_clock ... ok
+test profiles::tests::the_bios_is_required_and_the_l0_is_not ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+test input::tests::keys_go_to_port_1_and_unknown_names_and_ports_are_ignored ... ok
+test input::tests::each_name_reaches_its_button_on_its_port ... ok
+test debug::tests::peek_and_poke_go_through_the_machine ... ok
+test debug::tests::stepping_walks_the_program_an_instruction_at_a_time ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/original_game.rs (/private/tmp/198x-batch3-target/debug/deps/original_game-351de417aa899cb2)
+
+running 1 test
+test metal_slug_matches_the_reference_attract_frame ... ignored, FIXTURE: aes.zip and mslug.zip in EMU198X_NEOGEO_MAME_ROMS; exact identities in the #2133 receipt
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/runtime.rs (/private/tmp/198x-batch3-target/debug/deps/runtime-7d28032230ac1b30)
+
+running 8 tests
+test the_bios_must_be_128_kb_and_the_l0_is_optional ... ok
+test a_blank_runtime_waits_for_bios_and_cartridge ... ok
+test input_events_reach_the_controller ... ok
+test a_zip_rom_set_loads_through_the_cartridge_slot ... ok
+test queries_resolve_grouped_and_leaves ... ok
+test resets_restart_from_the_bios ... ok
+test the_cartridge_runs_takes_interrupts_and_makes_sound ... ok
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+
+   Doc-tests format_snk_neo_geo_romset
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_snk_neo_geo
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
