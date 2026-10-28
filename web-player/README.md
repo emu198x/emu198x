@@ -268,3 +268,17 @@ normal runtime controls and file selection remain available after startup.
 Hosts that hide the player can call `player.pause()` before closing their panel.
 This releases held controls and silences audio while preserving the machine;
 the player’s Resume control continues it.
+
+### Live presentation
+
+The player uses runtime-derived pixel aspect and the native sharp-bilinear
+filter through a dependency-free WebGL presenter. Smooth selects bilinear
+sampling. The visible canvas remains 2-D, with a nearest/smooth compatibility
+fallback when WebGL is unavailable or lost. Presentation does not resize or
+filter the native frames used by captures and golden comparisons.
+
+`node web-player/check-presentation.mjs` reads pixels from real Chrome canvases
+at DPR 1 and 2. It checks fractional stroke widths, aspect, Sharp/Smooth,
+downscale, frame upload and resize, paused resize, context loss/restoration,
+fallback, source immutability, mouse coordinates and disposal. Its deliberate
+source-mutation control must fail. Set `CHROME_BIN` to override Chrome's path.

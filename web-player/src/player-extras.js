@@ -2,7 +2,7 @@ import {readPreferences,writePreferences} from './preferences.js';
 // Pads with face buttons beyond A and B, and their default keys. They are
 // remappable like the others.
 export const extraButtons={'sega-mega-drive':{c:'KeyC'},'snk-neo-geo':{c:'KeyC',d:'KeyV'}};
-export function playerExtras({root,system,model,asset,pause,release,setVolume,loadExample}) {
+export function playerExtras({root,system,model,asset,pause,release,setDisplay,setVolume,loadExample}) {
  const $=id=>root.getElementById(id), prefs=readPreferences(system.id);
  let disposed=false, revision='unavailable', mapping={};
  const save=changes=>{if(!writePreferences(system.id,changes))$('preferences-status').textContent='Preferences could not be remembered in this browser. Your current choices still work.';};
@@ -10,7 +10,7 @@ export function playerExtras({root,system,model,asset,pause,release,setVolume,lo
  const volume=()=>{setVolume(Number($('volume').value)/100);$('volume-value').textContent=`${$('volume').value}%`;};
  volume();$('volume').oninput=()=>{volume();save({volume:Number($('volume').value)});};
  $('display').value=prefs.display==='smooth'?'smooth':'pixel';
- const display=()=>$('screen').style.imageRendering=$('display').value==='smooth'?'auto':'pixelated';
+ const display=()=>setDisplay($('display').value);
  display();$('display').onchange=()=>{display();save({display:$('display').value});};
  $('sound').checked=prefs.sound===true;
  $('sound').addEventListener('change',()=>save({sound:$('sound').checked}));

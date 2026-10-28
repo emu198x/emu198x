@@ -642,6 +642,9 @@ jobs:
       - name: Native and browser must draw the same pixels
         run: wasm-pack test --headless --chrome --release crates/emu198x-web
 
+      - name: Browser player sharp pixels, aspect and fallback
+        run: node web-player/check-presentation.mjs
+
       # The GPU presenter, read back off a real canvas (#1436). The runner has
       # no GPU, so Chrome offers no WebGPU adapter and this exercises the
       # WebGL2 fallback; the crate's webdriver.json passes

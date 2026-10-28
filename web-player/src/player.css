@@ -9,6 +9,7 @@
 [hidden] { display: none !important; }
 form { margin: 0; }
 .screen-wrap { position: relative; background: #11151a; overflow: hidden; border-radius: 3px; }
+/* The presenter filters into device pixels; CSS must not filter them again. */
 canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 :host([system="nintendo-game-boy"]), :host([system="game-boy"]) { max-width: 480px; }
 :host([system="nintendo-nes"]) { max-width: 640px; }

@@ -1,0 +1,118 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Browser presentation regression</title>
+<style>
+body { background:#151515; color:#eee; font:14px monospace; }
+canvas { display:block; image-rendering:pixelated; width:190.72px; height:auto; margin-bottom:12px; }
+pre { white-space:pre-wrap; }
+</style>
+<h1>Browser presentation regression</h1>
+<pre id="result">RUNNING</pre>
+<script type="module">
+import {framePresenter,frameViewport} from './src/presentation.js';
+import {toFramebuffer} from '../crates/emu198x-commodore-web/example/mouse.js';
+const result=document.getElementById('result'), receipts=[];
+const assert=(condition,message)=>{if(!condition)throw new Error(message);};
+const wait=()=>new Promise(resolve=>setTimeout(resolve,50));
+const create=document.createElement.bind(document), surfaces=[];
+// Retain internal canvases to exercise actual WebGL context loss/restoration.
+document.createElement=(name,...args)=>{const node=create(name,...args);if(name==='canvas')surfaces.push(node);return node;};
+let unavailable=false;
+const originalContext=HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext=function(kind,...args){return unavailable && kind==='webgl'?null:originalContext.call(this,kind,...args);};
+const width=64,height=16;
+// A nonzero-offset view also catches accidentally presenting the whole buffer.
+const bytes=new Uint8Array(width*height*4+32),pixels=bytes.subarray(16,-16);
+for(let y=0;y<height;y++)for(let x=0;x<width;x++)pixels.set([x%4===1?255:0,y<8?64:192,(x*13+y*17)%256,255],(y*width+x)*4);
+const original=bytes.slice();
+if(new URL(location.href).searchParams.has('negative'))pixels[4]^=255;
+const frame={width,height,pixels,pixelAspectRatio:1};
+function sample(x,y,c){return pixels[(Math.max(0,Math.min(height-1,y))*width+Math.max(0,Math.min(width-1,x)))*4+c];}
+// Independent area-coverage oracle for enlargement: source pixels are rectangles,
+// each output pixel receives the colour of the area it covers. Downscaling uses
+// the native filter's bilinear reconstruction, rather than claiming area filtering.
+function expected(x,y,c,sx,sy,sharp){
+ const axis=(p,s,n)=>{
+  if(sharp && s>=1){
+   const a=p/s,b=(p+1)/s,out=[];
+   for(let i=Math.floor(a);i<Math.ceil(b);i++)out.push([i,(Math.min(b,i+1)-Math.max(a,i))*s]);
+   return out;
+  }
+  const p0=(p+.5)/s-.5,i=Math.floor(p0),t=p0-i;return [[i,1-t],[i+1,t]];
+ };
+ let value=0;for(const [iy,wy] of axis(y,sy,height))for(const [ix,wx] of axis(x,sx,width))value+=sample(ix,iy,c)*wx*wy;
+ return value;
+}
+function verify(canvas,presenter,sharp,label){
+ const viewport=frameViewport(canvas.width,canvas.height,width,height,presenter.aspect());
+ const rgba=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+ let worst=0;
+ for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++)for(let c=0;c<3;c++){
+  const inside=x>=viewport.x && x<viewport.x+viewport.width && y>=viewport.y && y<viewport.y+viewport.height;
+  const wanted=inside?expected(x-viewport.x,y-viewport.y,c,viewport.width/width,viewport.height/height,sharp):0;
+  worst=Math.max(worst,Math.abs(rgba[(y*canvas.width+x)*4+c]-wanted));
+ }
+ assert(worst<=2,`${label}: pixel error ${worst}`);
+ const fit=Math.min(canvas.width/(width*presenter.aspect()),canvas.height/height);
+ const aspectError=Math.max(Math.abs(viewport.width-width*presenter.aspect()*fit),Math.abs(viewport.height-height*fit));
+ assert(aspectError<=1,`${label}: aspect error ${aspectError}`);
+ assert(bytes.every((v,i)=>v===original[i]),`${label}: source frame changed`);
+ assert(presenter.size()[0]===width && presenter.size()[1]===height,`${label}: native dimensions changed`);
+ let strokeRange;
+ if(sharp && label==='fractional') {
+  const sx=viewport.width/width,weights=[];
+  for(let source=5;source<60;source+=4) {
+   let sum=0;
+   for(let x=Math.floor((source-1)*sx);x<Math.ceil((source+2)*sx);x++)sum+=rgba[((viewport.y+Math.floor(viewport.height/2))*canvas.width+viewport.x+x)*4]/255;
+   weights.push(sum);
+  }
+  strokeRange=Math.max(...weights)-Math.min(...weights);
+  assert(strokeRange<=2/255,`Uneven single-pixel strokes: ${strokeRange}`);
+ }
+ receipts.push({label,backend:presenter.backend,backing:[canvas.width,canvas.height],viewport,worst,aspectError,strokeRange});
+}
+try {
+ const canvas=create('canvas');document.body.insertBefore(canvas,result);const presenter=framePresenter(canvas);
+ for(const [label,cssWidth,par,sharp] of [
+  ['integer',192,1,true],['fractional',190.72,1,true],['aspect',223,1.0549,true],
+  ['smooth',190.72,1.0549,false],['downscale',43,1,true],
+ ]){
+  canvas.style.width=`${cssWidth}px`;presenter.setSharp(sharp);presenter.draw({...frame,pixelAspectRatio:par});await wait();
+  assert(presenter.backend==='webgl',`${label}: WebGL did not render`);verify(canvas,presenter,sharp,label);
+ }
+ // A new same-size frame must upload new pixels, rather than reuse old texture.
+ canvas.style.width='192px';presenter.setSharp(true);presenter.draw(frame);await wait();
+ const prior=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+ const inverted=pixels.map((v,i)=>i%4===3?v:255-v);
+ presenter.draw({...frame,pixels:inverted});
+ const changed=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+ assert(prior.some((v,i)=>i%4!==3 && v>0),'Frame upload control is blank');
+ assert(changed.every((v,i)=>i%4===3 || Math.abs(v+prior[i]-255)<=1),'Same-size frame was not uploaded');
+ presenter.draw({width:32,height,pixels:new Uint8Array(32*height*4).fill(255),pixelAspectRatio:1});await wait();
+ assert(presenter.size()[0]===32,'Native resize did not recreate texture');
+ presenter.draw({...frame,pixelAspectRatio:1.0549});
+ // Explicitly constrained fullscreen-like box; both axes must fit and letterbox.
+ canvas.style.width='250px';canvas.style.height='110px';presenter.setSharp(true);presenter.draw({...frame,pixelAspectRatio:1.0549});await wait();
+ verify(canvas,presenter,true,'fullscreen geometry');
+ const box=canvas.getBoundingClientRect(),point=toFramebuffer(box,presenter.size(),true,box.left+box.width/2,box.top+box.height/2,presenter.aspect());
+ assert(Math.abs(point[0]-width/2)<1e-8 && Math.abs(point[1]-height/2)<1e-8,'Mouse coordinates use output dimensions');
+ // Resize with no new frame (paused presentation).
+ canvas.style.width='301px';await wait();verify(canvas,presenter,true,'paused resize');
+ const gpu=surfaces.find(surface=>surface.getContext('webgl'));
+ assert(gpu,'No internal GPU surface');const lose=gpu.getContext('webgl').getExtension('WEBGL_lose_context');assert(lose,'Cannot exercise context loss');
+ lose.loseContext();await wait();assert(presenter.backend==='2d','Lost context did not fall back');
+ assert(canvas.getContext('2d').getImageData(125,55,1,1).data[3]===255,'Fallback lost the frame');
+ lose.restoreContext();await wait();await wait();assert(presenter.backend==='webgl','Context restoration did not rebuild presenter');verify(canvas,presenter,true,'restored');
+ const before=[canvas.width,canvas.height];presenter.destroy();canvas.style.width='400px';window.dispatchEvent(new Event('resize'));await wait();
+ assert(canvas.width===before[0] && canvas.height===before[1],'Disposed presenter resized');
+ unavailable=true;
+ const fallback=create('canvas');document.body.insertBefore(fallback,result);const compatibility=framePresenter(fallback);
+ compatibility.draw(frame);assert(compatibility.backend==='2d','Unavailable WebGL did not fall back');
+ const fallbackPixels=fallback.getContext('2d').getImageData(0,0,fallback.width,fallback.height).data;
+ assert(fallbackPixels.some((v,i)=>i%4!==3 && v>0),'Fallback picture is blank');
+ compatibility.setSharp(false);compatibility.destroy();
+ receipts.push({label:'fallback, input, immutability, disposal',passed:true});
+ result.textContent=JSON.stringify({status:'PASS',dpr:devicePixelRatio,receipts},null,2);
+ document.documentElement.dataset.result='PASS';
+} catch(error) {result.textContent=`FAIL: ${error.stack}`;document.documentElement.dataset.result='FAIL';}
+</script>

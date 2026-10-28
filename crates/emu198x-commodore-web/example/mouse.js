@@ -18,10 +18,11 @@ export function relativeCounts() {
 // Where a page position falls on the picture, in framebuffer pixels. `box`
 // is the canvas's client rectangle and `size` its framebuffer; `contain` is
 // true when the canvas letterboxes the picture (`object-fit: contain`).
-export function toFramebuffer(box, size, contain, clientX, clientY) {
+export function toFramebuffer(box, size, contain, clientX, clientY, pixelAspectRatio = 1) {
   let sx = box.width / size[0], sy = box.height / size[1], ox = 0, oy = 0;
   if (contain) {
-    sx = sy = Math.min(sx, sy);
+    sy = Math.min(sx / pixelAspectRatio, sy);
+    sx = sy * pixelAspectRatio;
     ox = (box.width - size[0] * sx) / 2;
     oy = (box.height - size[1] * sy) / 2;
   }
@@ -38,7 +39,7 @@ export function toFramebuffer(box, size, contain, clientX, clientY) {
 //   pointer there each frame. Clicks go to the guest.
 // - Capture (pointer lock), the fallback: relative counts, and the only
 //   choice while the machine cannot find its pointer, as in a game.
-export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
+export function amigaMouse({canvas, button, hint, send, releaseKeys, framebufferSize = () => [canvas.width, canvas.height], pixelAspectRatio = () => 1}) {
   let enabled = false, wasLocked = false, guestPointer = false, hovering = false;
   let queuedTarget = null;
   const motion = relativeCounts();
@@ -93,7 +94,7 @@ export function amigaMouse({canvas, button, hint, send, releaseKeys}) {
     const box = canvas.getBoundingClientRect();
     const contain = getComputedStyle(canvas).objectFit === 'contain';
     const first = !queuedTarget;
-    queuedTarget = toFramebuffer(box, [canvas.width, canvas.height], contain, event.clientX, event.clientY);
+    queuedTarget = toFramebuffer(box, framebufferSize(), contain, event.clientX, event.clientY, pixelAspectRatio());
     if (first) requestAnimationFrame(() => {
       if (queuedTarget && following()) send([['target', ...queuedTarget]]);
       queuedTarget = null;
