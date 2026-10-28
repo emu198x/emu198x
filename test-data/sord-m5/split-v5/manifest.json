@@ -1,0 +1,46 @@
+{
+  "source_revision": "ee937d475890cf1013a16935f5d2502413be54f3",
+  "origin": "original synthetic CPU guest, before the board split",
+  "files": {
+    "sord-m5-ntsc.after.state": {
+      "bytes": 403630,
+      "sha256": "ff05e3b668399a228baa7761878f2b787eeb3b823d4f852005deab3c3ab8b78a"
+    },
+    "sord-m5-ntsc.audio": {
+      "bytes": 9608,
+      "sha256": "1125148b10942dabac6876df617fe7b485cfb9a9f3c7ab45834e2aebdc76c38f"
+    },
+    "sord-m5-ntsc.pixels": {
+      "bytes": 268800,
+      "sha256": "53c348a0b5e9ba07facdbef12431cde16b95646a71f0202bc424b8881fac2eaf"
+    },
+    "sord-m5-ntsc.state": {
+      "bytes": 188473,
+      "sha256": "9696f01ec01aeeac281e8289174e9c552c61759bcf2b2b46ade42900ed71ec50"
+    },
+    "sord-m5-ntsc.times.json": {
+      "bytes": 21,
+      "sha256": "4c661e04996ce160fcb1a1cec55218e5fc306a73b2591871e7ec269023e96ad5"
+    },
+    "sord-m5-pal.after.state": {
+      "bytes": 475444,
+      "sha256": "8e93107faf7c8d3fb7ecf5513b83032c3f29bcc65e988878607cc0571469dd55"
+    },
+    "sord-m5-pal.audio": {
+      "bytes": 11480,
+      "sha256": "3bccd6dc36734f81c5a9fdd2617e6ca9a544587f75bebaa6a49e686c30d99e3d"
+    },
+    "sord-m5-pal.pixels": {
+      "bytes": 320256,
+      "sha256": "c3195be8c48f71bed604420e7c8a2dfd92073bcffaf13a1ebd85773f0ea1d289"
+    },
+    "sord-m5-pal.state": {
+      "bytes": 229608,
+      "sha256": "745a7d094ab1384b6876dd9788e712227d146e858dd592c7c1c711bf7e2d07e2"
+    },
+    "sord-m5-pal.times.json": {
+      "bytes": 21,
+      "sha256": "e0dee74fa396bc79a3c5044ae5b1887e14afc57ba25fb7d2cfc7cd44e2f333e7"
+    }
+  }
+}
