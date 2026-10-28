@@ -1398,14 +1398,17 @@ dependencies = [
 [[package]]
 name = "emu198x-gi-ay-3-8910"
 version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31e0881240bff8e895d8e4712ce6567f36fb0de65984b5e10d8dcaf922d4247"
 dependencies = [
  "serde",
- "serde_json",
 ]
 
 [[package]]
 name = "emu198x-gi-ay-3-8912"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "227e01a2eac9d3cba4ec82924900f4c1a23415ceac9ce377b2ad42c912270657"
 dependencies = [
  "emu198x-gi-ay-3-8910",
  "serde",
@@ -1425,6 +1428,8 @@ dependencies = [
 [[package]]
 name = "emu198x-intel-8255"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f56d58395310537009928bc5d4ece5201ba7d6c648eb4039fe57db22025ddb52"
 dependencies = [
  "serde",
 ]
@@ -2160,6 +2165,8 @@ dependencies = [
 [[package]]
 name = "emu198x-ti-tms9918"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1efcb631e636384ca6b766dd1c6e80cf43836ad72f525d1fb7bb8e47ee8c6610"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -2216,6 +2223,8 @@ dependencies = [
 [[package]]
 name = "emu198x-western-digital-wd1770"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff704cad1ba044b2536bd76bc4af71998e8781c1c5ccc957cc4aace3d231721b"
 dependencies = [
  "serde",
 ]
@@ -2264,6 +2273,8 @@ dependencies = [
 [[package]]
 name = "emu198x-z80-cadence"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce4a110c9f0d0335dc2e26b7b2350e077d1d691da4a5c0af3c808fa258846d87"
 
 [[package]]
 name = "emu198x-zilog-z80"
@@ -2277,6 +2288,8 @@ dependencies = [
 [[package]]
 name = "emu198x-zilog-z80-ctc"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10b5ba59827897d41ba47ec269c29451cec76f29c5e2cf1a9eedfb3eb1bf7448"
 dependencies = [
  "serde",
 ]

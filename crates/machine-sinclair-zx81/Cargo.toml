@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 format198x-sinclair-zx81-p = "0.1.0"
-emu198x-z80-cadence = { path = "../emu198x-z80-cadence", version = "0.1.0" }
+emu198x-z80-cadence = "0.1.0"
 serde = { workspace = true }
 emu198x-sinclair-zx81-ula = { path = "../emu198x-sinclair-zx81-ula", version = "0.1.0" }
 emu198x-zilog-z80 = "0.8.0"
