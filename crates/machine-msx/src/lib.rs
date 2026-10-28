@@ -1238,6 +1238,37 @@ impl Msx {
         ppi
     }
 
+    /// The upper PPI nibble actively drives these board controls in output
+    /// mode. An input-configured latch is not an asserted output control.
+    fn ppi_upper_output(&self) -> Option<u8> {
+        (self.ppi.mode() & 0x08 == 0).then(|| self.ppi.port_c())
+    }
+
+    /// Driven CAPS-lamp control: C6 is active-low.
+    #[must_use]
+    pub fn caps_led_on(&self) -> bool {
+        self.ppi_upper_output().is_some_and(|v| v & 0x40 == 0)
+    }
+
+    /// Driven cassette motor control: C4 is active-low.
+    /// This exposes the line; it does not implement cassette transport.
+    #[must_use]
+    pub fn cassette_motor_on(&self) -> bool {
+        self.ppi_upper_output().is_some_and(|v| v & 0x10 == 0)
+    }
+
+    /// Driven cassette write-data level on C5.
+    #[must_use]
+    pub fn cassette_output(&self) -> bool {
+        self.ppi_upper_output().is_some_and(|v| v & 0x20 != 0)
+    }
+
+    /// Driven keyboard-click DAC level on C7.
+    #[must_use]
+    pub fn key_click_output(&self) -> bool {
+        self.ppi_upper_output().is_some_and(|v| v & 0x80 != 0)
+    }
+
     /// PPI reference.
     #[must_use]
     pub fn ppi(&self) -> &Ppi8255 {
@@ -1361,6 +1392,11 @@ impl Z80Machine for Msx {
     }
 
     fn tick_chips_halfcycle(&mut self) {
+        // Sample after the CPU's port-write edge. Two half-cycle charges
+        // compose one T-state in the existing mixer; old samples retain
+        // their original level when a later BSR/mode write changes C7.
+        self.expansion
+            .accumulate_click_halfcycle(self.key_click_output());
         // VDP dots at 3:2 against T-states, accumulated per
         // half-cycle so the frame interrupt lands at the correct
         // scanline relative to CPU execution.
@@ -1414,6 +1450,121 @@ mod note_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ppi_output_controls_follow_direction_bsr_and_mode_reset() {
+        let mut machine = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        assert!(!machine.caps_led_on() && !machine.cassette_motor_on());
+        assert!(!machine.cassette_output() && !machine.key_click_output());
+        machine.io_write(0xAB, 0x82);
+        machine.io_write(0xAA, 0xAA);
+        assert!(machine.caps_led_on() && machine.cassette_motor_on());
+        assert!(machine.cassette_output() && machine.key_click_output());
+        assert_eq!(machine.ppi.port_c() & 15, 10);
+        machine.io_write(0xAB, 0x0E);
+        assert!(!machine.key_click_output());
+        assert!(machine.caps_led_on() && machine.cassette_output());
+        machine.io_write(0xAB, 9); // set C4: motor off
+        machine.io_write(0xAB, 13); // set C6: CAPS off
+        machine.io_write(0xAB, 10); // clear C5
+        assert!(!machine.cassette_motor_on() && !machine.caps_led_on());
+        assert!(!machine.cassette_output());
+        assert_eq!(
+            machine.ppi.port_c() & 15,
+            10,
+            "upper BSR preserves keyboard row"
+        );
+        machine.io_write(0xAB, 0x8A); // upper nibble becomes input
+        machine.io_write(0xAB, 0x0F); // latch high, still undriven
+        assert!(!machine.key_click_output());
+        assert!(!machine.caps_led_on() && !machine.cassette_motor_on());
+        machine.io_write(0xAB, 0x82); // mode write clears the output latches
+        assert!(!machine.key_click_output() && !machine.cassette_output());
+        assert!(
+            machine.caps_led_on() && machine.cassette_motor_on(),
+            "active-low controls"
+        );
+        assert_eq!(machine.ppi.port_c() & 15, 0);
+    }
+
+    #[test]
+    fn click_integrates_both_halfcycles_and_preserves_mid_sample_history() {
+        let mut full = booted(MsxRegion::Ntsc);
+        let mut half = booted(MsxRegion::Ntsc);
+        for _ in 0..1000 {
+            full.io_write(0xAB, 0x0F);
+            half.io_write(0xAB, 0x0F);
+            full.advance_halfcycles(1);
+            half.advance_halfcycles(1);
+            half.io_write(0xAB, 0x0E);
+            full.advance_halfcycles(1);
+            half.advance_halfcycles(1);
+        }
+        let mut full_audio = [0.0; 1024];
+        let mut half_audio = [0.0; 1024];
+        let count = full.end_audio_frame(&mut full_audio);
+        assert_eq!(half.end_audio_frame(&mut half_audio), count);
+        assert!(full_audio.iter().any(|s| s.abs() > 0.000_001));
+        for (full, half) in full_audio.iter().zip(&half_audio) {
+            assert!(
+                (half - full * 0.5).abs() < 0.000_001,
+                "one high half must contribute half the charge"
+            );
+        }
+        // Save with a partial output sample at the supported T-state boundary.
+        // The existing snapshot skips cadence_hc; arbitrary half-T-state
+        // restores are outside that contract.
+        half.io_write(0xAB, 0x0F);
+        half.advance_halfcycles(2);
+        let bytes = postcard::to_allocvec(&half).expect("mid-sample state");
+        let mut restored: Msx = postcard::from_bytes(&bytes).expect("restore");
+        restored.cpu_mut().rehydrate_walker_sequence();
+        for machine in [&mut half, &mut restored] {
+            machine.io_write(0xAB, 0x0E);
+            machine.advance_halfcycles(2);
+            for edge in 0..24 {
+                machine.io_write(0xAB, if edge % 2 == 0 { 0x0F } else { 0x0E });
+                machine.advance_tstates(29);
+            }
+        }
+        let mut replay_audio = [0.0; 1024];
+        let mut continued_audio = [0.0; 1024];
+        assert_eq!(
+            half.end_audio_frame(&mut continued_audio),
+            restored.end_audio_frame(&mut replay_audio)
+        );
+        assert_eq!(continued_audio, replay_audio);
+        assert_eq!(
+            postcard::to_allocvec(&half).expect("continued"),
+            postcard::to_allocvec(&restored).expect("replayed")
+        );
+    }
+
+    #[test]
+    fn ppi_click_reaches_generated_audio_and_is_not_applied_at_drain() {
+        let render = |toggle: bool| {
+            let mut machine = booted(MsxRegion::Ntsc);
+            for edge in 0..16 {
+                machine.io_write(0xAB, if toggle && edge % 2 == 0 { 0x0F } else { 0x0E });
+                for _ in 0..500 {
+                    machine.tick_tstate();
+                }
+            }
+            machine.io_write(0xAB, 0x0E); // final low must not erase earlier sound
+            let mut audio = [0.0; 1024];
+            let count = machine.end_audio_frame(&mut audio);
+            assert!(count > 0);
+            audio
+        };
+        let silent = render(false);
+        assert!(silent.iter().all(|s| *s == 0.0));
+        let click = render(true);
+        assert!(click.iter().all(|s| s.is_finite()));
+        assert!(
+            click.iter().any(|s| s.abs() > 0.000_001),
+            "PPI SOUND must reach the mixer"
+        );
+    }
 
     #[test]
     fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {

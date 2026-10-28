@@ -456,6 +456,16 @@ pub(crate) struct ExpansionMixer {
 }
 
 impl ExpansionMixer {
+    /// Integrate the driven click line for half a CPU T-state. Its gain is
+    /// the same nominal one-channel convention as the expansion sources;
+    /// per-board analog calibration is separate. The existing accumulator
+    /// also preserves this charge across a mid-sample save.
+    pub(crate) fn accumulate_click_halfcycle(&mut self, high: bool) {
+        if high {
+            self.accumulator += CHANNEL_SWING * 0.5;
+        }
+    }
+
     /// Add one T-state's output.
     pub(crate) fn accumulate(&mut self, level: f32) {
         self.accumulator += level;
