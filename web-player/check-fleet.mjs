@@ -12,7 +12,19 @@ import {fixtures} from './fixtures.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const dist=path.resolve(process.argv[2]);
 const profiles=JSON.parse(execFileSync('cargo',['run','--quiet','--locked','-p','emu198x-fleet-web','--features','all-families','--bin','fleet-catalogue'],{cwd:root,encoding:'utf8',maxBuffer:4e6}));
-const {cases,missing}=fixtures(profiles);
+// The native registry also has families not shipped by this browser bundle
+// (for example SNES). Qualify the explicit browser manifest, never that superset.
+const families=JSON.parse(readFileSync(new URL('./families.json',import.meta.url))).map(entry=>entry.family);
+const catalogue=JSON.parse(readFileSync(path.join(dist,'catalog.json')));
+assert(families.length>0);
+assert.deepEqual(catalogue.map(entry=>entry.family).sort(),[...families].sort(),'Complete browser family manifest must be shipped');
+const browserProfiles=profiles.filter(profile=>families.includes(profile.family));
+for(const entry of catalogue) {
+ assert(entry.variants.length>0,`${entry.family}: no shipped models`);
+ assert.deepEqual(entry.variants.map(variant=>variant.id).sort(),browserProfiles.filter(profile=>profile.family===entry.family).map(profile=>profile.id).sort(),`${entry.family}: runtime models must match shipped catalogue`);
+}
+const {cases,missing}=fixtures(browserProfiles);
+assert(cases.length>0,'No browser fixture cases selected');
 const scratch=mkdtempSync(path.join(tmpdir(),'198x-fleet-'));
 let native;
 try {
@@ -43,6 +55,7 @@ for(const [index,test] of cases.entries()) {
    await rpc('input',[['key','A',pressed],['button','fire1',pressed]]);
    let frame,samples=0,energy=0;
    for(let n=0;n<6;n++){frame=await rpc('step');samples+=frame.audio.length;for(const sample of frame.audio){assert(Number.isFinite(sample));energy+=Math.abs(sample);}}
+   assert(Number.isFinite(frame.pixelAspectRatio) && frame.pixelAspectRatio>0, `${test.id}: runtime pixel aspect`);
    assert.equal(frame.pixels.length,frame.width*frame.height*4);assert.equal(frame.width,expected.width);assert.equal(frame.height,expected.height);
    const hash=frame.pixels.reduce((h,b)=>Math.imul(h^b,16777619)>>>0,2166136261);
    assert.equal(hash,expected.checkpoints[i].hash,`${test.id}: frame mismatch`);

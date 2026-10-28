@@ -388,6 +388,19 @@ impl<R: FamilyRuntime, Q: SessionQueryProvider<R>> WebMachine<R, Q> {
         self.frame.size()
     }
 
+    /// Pixel width relative to height, from the runtime's display contract.
+    ///
+    /// Uses the current frame geometry, including interlaced or cropped modes.
+    /// Before a frame arrives, the display contract supplies its empty-frame
+    /// fallback. Raw frame bytes and dimensions are unaffected.
+    #[must_use]
+    pub fn pixel_aspect_ratio(&self) -> f32 {
+        let (width, height) = self.frame_size();
+        self.runtime
+            .display()
+            .map_or(1.0, |display| display.pixel_aspect_ratio(width, height))
+    }
+
     /// Runs the machine ahead of the clock, or stops doing so.
     ///
     /// For fast-loading a tape. The caller decides when, because whether a

@@ -87,6 +87,10 @@ impl GameBoy {
     pub fn pixels(&self) -> Vec<u8> {
         self.machine.frame_rgba().to_vec()
     }
+    /// Pixel width relative to height, from the live runtime.
+    pub fn pixel_aspect_ratio(&self) -> f32 {
+        self.machine.pixel_aspect_ratio()
+    }
     pub fn width(&self) -> u32 {
         self.machine.frame_size().0
     }

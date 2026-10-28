@@ -135,11 +135,7 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
         None
     }
     fn pixel_aspect_ratio(&self) -> f32 {
-        let (width, height) = self.web.frame_size();
-        self.web
-            .runtime()
-            .display()
-            .map_or(1.0, |display| display.pixel_aspect_ratio(width, height))
+        self.web.pixel_aspect_ratio()
     }
     fn input(&mut self, event: InputEvent) {
         self.web.queue_input(event);

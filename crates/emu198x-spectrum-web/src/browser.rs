@@ -648,6 +648,11 @@ impl Spectrum {
         self.machine.frame_rgba().to_vec()
     }
 
+    /// Pixel width relative to height, from the selected runtime.
+    pub fn pixel_aspect_ratio(&self) -> f32 {
+        self.machine.pixel_aspect_ratio()
+    }
+
     /// Width and height of the machine's picture, as `[width, height]`.
     #[wasm_bindgen(js_name = frameSize)]
     #[must_use]

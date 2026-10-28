@@ -21,7 +21,7 @@
 //! border and the palette walk, all the places a target-dependent difference
 //! (float rounding, endianness, a `usize` width assumption) would surface.
 
-use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet};
+use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore};
 use emu198x_web::WebMachine;
 use runtime_sinclair_zx_spectrum::{Model, SpectrumLiveAccess, SpectrumRuntimeKind};
 use twox_hash::XxHash64;
@@ -158,4 +158,21 @@ fn the_painted_pattern_actually_reaches_the_picture() {
         unpainted.as_slice(),
         "painting the display file changed nothing on screen"
     );
+}
+
+/// Host presentation metadata agrees with the runtime, without rewriting the
+/// native capture buffer or changing its geometry.
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+fn presentation_metadata_preserves_native_frame() {
+    let mut machine = machine();
+    machine.run_one_frame().expect("the machine runs");
+    let size = machine.frame_size();
+    let before = machine.frame_rgba().to_vec();
+    let display = machine.runtime().display().expect("Spectrum display");
+    let expected = display.pixel_aspect_ratio(size.0, size.1);
+    assert_eq!(machine.pixel_aspect_ratio(), expected);
+    assert!(expected > 1.0, "PAL Spectrum pixels are wider than square");
+    assert_eq!(machine.frame_size(), size);
+    assert_eq!(machine.frame_rgba(), before);
 }

@@ -266,6 +266,10 @@ impl Commodore {
     pub fn pixels(&self) -> Vec<u8> {
         with_machine!(&self.machine, m, m.frame_rgba().to_vec())
     }
+    /// Pixel width relative to height, from the selected runtime.
+    pub fn pixel_aspect_ratio(&self) -> f32 {
+        with_machine!(&self.machine, m, m.pixel_aspect_ratio())
+    }
     /// Current frame width; zero until the first frame arrives.
     pub fn width(&self) -> u32 {
         with_machine!(&self.machine, m, m.frame_size().0)

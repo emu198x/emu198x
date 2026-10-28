@@ -2,6 +2,7 @@ import {extraButtons,playerExtras} from './player-extras.js';
 import {writePreferences} from './preferences.js';
 import {sessionControls} from './session-controls.js';
 import {amigaMouse} from './mouse.js';
+import {framePresenter} from './presentation.js';
 export function mountPlayer(root, system, asset, selectVariant) {
 const $ = id => root.getElementById(id);
 const listeners = new AbortController();
@@ -17,7 +18,7 @@ let keymap={};
 const slots=fleet ? variant.slots : [];
 const slot=()=>slots.find(entry=>entry.id===$('slot').value) || slots[0];
 const mouseMachine=system.family==='commodore-amiga' || system.kind==='amiga';
-const canvas = $('screen'), context = canvas.getContext('2d');
+const canvas = $('screen'), presenter = framePresenter(canvas);
 let worker, serial = 0, generation = 0, running = false, busy = false, last = 0;
 let audioContext, audioNode, gainNode, volume=0.7, persistence, sessionSeed, extras, exampleMedia;
 let mounted={};
@@ -40,7 +41,7 @@ function release() {
   send([...held.values()].flat().map(([type,name])=>[type,name,false])); held.clear();
   root.querySelectorAll('#pad button').forEach(button=>button.setAttribute('aria-pressed','false'));
 }
-const mouse = amigaMouse({canvas,button:$('capture-mouse'),hint:$('mouse-hint'),send,releaseKeys:release});
+const mouse = amigaMouse({canvas,button:$('capture-mouse'),hint:$('mouse-hint'),send,releaseKeys:release,framebufferSize:presenter.size,pixelAspectRatio:presenter.aspect});
 function clearAudio() { audioNode?.port.postMessage('clear'); }
 function stop() {
   mouse.setEnabled(false); release(); generation++; running = false; busy = false;
@@ -123,10 +124,7 @@ $('begin').onclick=()=>cartridge ? $('media').click() : startMachine();
 $('choose-media').onclick=()=>$('media').click();
 function draw(result) {
   mouse.setGuestPointer(result.pointer);
-  if(result.pixels.length) {
-    if(canvas.width !== result.width || canvas.height !== result.height) { canvas.width=result.width; canvas.height=result.height; }
-    context.putImageData(new ImageData(new Uint8ClampedArray(result.pixels.buffer),result.width,result.height),0,0);
-  }
+  presenter.draw(result);
   if(running && $('sound').checked && audioNode && result.audio.length) audioNode.port.postMessage(result.audio,[result.audio.buffer]);
 }
 async function tick(now) {
@@ -376,10 +374,10 @@ async function loadMedia({name,bytes}) {
  exampleMedia={name,format,slot:target?(target.id==='snapshot'?format:target.id):undefined,bytes:bytes.slice(),autorun:format==='prg' && system.family==='commodore-c64' && bytes[0]===1 && bytes[1]===8?'run':undefined};
  return Boolean(await startMachine(true));
 }
-extras=playerExtras({root,system,model:variant?.id || system.model,asset,pause,release,setVolume:value=>{volume=value;if(gainNode)gainNode.gain.value=value;},loadExample});
+extras=playerExtras({root,system,model:variant?.id || system.model,asset,pause,release,setDisplay:value=>presenter.setSharp(value!=='smooth'),setVolume:value=>{volume=value;if(gainNode)gainNode.gain.value=value;},loadExample});
 
 const destroy = () => {
-  disposed=true; extras.destroy(); persistence.destroy(); stop(); mouse.destroy(); listeners.abort(); cancelAnimationFrame(animation);
+  disposed=true; extras.destroy(); persistence.destroy(); stop(); mouse.destroy(); presenter.destroy(); listeners.abort(); cancelAnimationFrame(animation);
   audioNode?.disconnect(); audioContext?.close().catch(()=>{});
 };
 return Object.assign(destroy,{loadMedia,pause:()=>{if(running){pause();status('Paused.');}}});

@@ -68,7 +68,7 @@ async function handle({id, command, args = []}) {
         const [width,height] = kind === 'spectrum' ? machine.frameSize() : [machine.width(),machine.height()];
         // Where the guest's own mouse pointer is, when the machine can say.
         const pointer = machine.guest_pointer ? (machine.guest_pointer() ?? null) : null;
-        self.postMessage({id,result:{frames,pixels,audio:samples,width,height,pointer}},[pixels.buffer,samples.buffer]); return;
+        self.postMessage({id,result:{frames,pixels,audio:samples,width,height,pointer,pixelAspectRatio:machine.pixel_aspect_ratio()}},[pixels.buffer,samples.buffer]); return;
       }
       if (command === 'input') for (const [type,...values] of args[0]) {
         if (type === 'code') (values[1] ? machine.keyDown(values[0]) : machine.keyUp(values[0]));

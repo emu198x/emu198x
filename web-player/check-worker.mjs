@@ -40,6 +40,7 @@ async function check(kind,roms,media) {
   for(let i=0;i<60;i++)frame=await rpc('step');
   assert.equal(frame.pixels.length,frame.width*frame.height*4);assert(frame.width>0);assert(frame.audio.length>0);assert.equal(frame.audio.length%2,0);
   assert([...frame.audio].every(Number.isFinite));
+  assert(Number.isFinite(frame.pixelAspectRatio) && frame.pixelAspectRatio>0, `${kind} runtime pixel aspect`);
   const event=kind==='spectrum'?['code','KeyA']:['nes','game-boy'].includes(kind)?['button','a']:['key','A'];
   await rpc('input',[[...event,true]]);await rpc('step');await rpc('input',[[...event,false]]);
   const saved=await rpc('save');assert(saved.length>0);
@@ -98,5 +99,5 @@ for(let repeat=0;repeat<2;repeat++) {
  }
  machine.free();
 }
-assert.throws(()=>new GameBoy('dmg',new Uint8Array(4)));assert.throws(()=>new GameBoy('cgb',fixture('nintendo-game-boy-logo.gb')));
+assert.throws(()=>new GameBoy('dmg',new Uint8Array(4)));assert.throws(()=>new GameBoy('unknown-model',fixture('nintendo-game-boy-logo.gb')));
 console.log('Game Boy native/WASM frame hashes, sample counts and audio energy match twice; malformed inputs rejected.');
