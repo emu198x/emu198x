@@ -12,10 +12,10 @@
 # COVERAGE_GATE_THRESHOLD env var.
 #
 # The "Spectrum-specific" scope is the set of crates that exist
-# primarily for the Spectrum family. The Z80, the uPD765 and the
-# AY-3-8910/8912 left with their own repositories, emu198x/zilog-z80,
-# emu198x/nec-upd765a and emu198x/gi-ay-3-8910, whose CI holds their
-# coverage floors.
+# primarily for the Spectrum family. The Z80, the uPD765, the
+# AY-3-8910/8912, the Spectrum bus, the ULAs and the edge-connector
+# peripherals left with their own repositories in the emu198x
+# organisation, whose CI holds their coverage floors.
 #
 # The gate splits the scope in two:
 #   - GATED:    the 8 in-scope October-public variants and their
@@ -63,13 +63,6 @@ GATED_CRATES = [
     "common-sinclair-zx-spectrum-48k-class",
     "common-sinclair-zx-spectrum-128k-class",
     "common-sinclair-zx-spectrum-amstrad-class",
-    # The wiring the family glue re-exports
-    "emu198x-bus-sinclair-zx-spectrum",
-    # Chip crates the Spectrum drives today
-    "emu198x-amstrad-ula-40077",
-    "emu198x-ferranti-ula-6c001e",
-    "emu198x-sinclair-ula-7k010e",
-    "emu198x-sinclair-zx-spectrum-ula",
     # Format crates
     "format-amstrad-dsk",
     "format-sinclair-zx-spectrum-sna",
@@ -86,8 +79,6 @@ GATED_CRATES = [
     "machine-sinclair-zx-spectrum-plus2a",
     "machine-sinclair-zx-spectrum-plus2b",
     "machine-sinclair-zx-spectrum-plus3",
-    # Peripheral crates
-    "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
     # Runtime
     "runtime-sinclair-zx-spectrum",
 ]
@@ -96,14 +87,10 @@ GATED_CRATES = [
 # without an October deadline. Promoted into GATED_CRATES when their
 # engineering bar work lands.
 REPORTED_CRATES = [
-    "emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
     "machine-pentagon-128",
     "machine-scorpion-zs256",
     "machine-timex-tc2048",
     "machine-timex-ts2068",
-    "emu198x-pentagon-ula",
-    "emu198x-scorpion-ula",
-    "emu198x-timex-scld",
 ]
 
 # Data-only crates exempt from the line-coverage gate per
