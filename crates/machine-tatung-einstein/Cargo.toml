@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+format198x-amstrad-cpc-dsk = "0.1.2"
 emu198x-gi-ay-3-8910 = "0.6.0"
 emu198x-ti-tms9918 = "0.1.0"
 emu198x-z80-cadence = "0.1.0"

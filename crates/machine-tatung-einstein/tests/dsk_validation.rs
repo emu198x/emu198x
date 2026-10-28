@@ -124,3 +124,56 @@ fn every_sector_size_code_is_bounded_by_the_supplied_payload() {
         }
     }
 }
+
+#[test]
+fn sector_status_and_nonphysical_address_marks_are_not_discarded() {
+    let mut machine = Einstein::new(vec![0; 8192]);
+    machine.insert_cpc_dsk(0, &disk(true)).expect("valid disk");
+    let before = machine.disk(0).expect("mounted").data().to_vec();
+    for extended in [false, true] {
+        for (offset, value) in [(0x118, 1), (0x119, 1), (0x11c, 0x20), (0x11d, 0x40)] {
+            let mut image = disk(extended);
+            image[offset] = value;
+            assert!(
+                machine.insert_cpc_dsk(0, &image).is_err(),
+                "discarded metadata at {offset:x}"
+            );
+            assert_eq!(
+                machine.disk(0).expect("original remains mounted").data(),
+                before
+            );
+        }
+    }
+}
+
+#[test]
+fn physical_track_headers_can_differ_from_container_order() {
+    for extended in [false, true] {
+        let mut image = disk(extended);
+        let second = image[256..].to_vec();
+        image.extend_from_slice(&second);
+        image[0x30] = 2;
+        image[0x35] = 5;
+        for (slot, physical) in [(0, 1u8), (1, 0u8)] {
+            let base = 256 + slot * 1280;
+            image[base + 0x10] = physical;
+            for record in 0..2usize {
+                image[base + 0x18 + record * 8] = physical;
+            }
+            image[base + 256..base + 1280].fill(0xB0 + physical);
+        }
+        let mut machine = Einstein::new(vec![0; 8192]);
+        machine.insert_cpc_dsk(0, &image).expect("reordered tracks");
+        let mounted = machine.disk(0).expect("mounted").data();
+        assert_eq!(&mounted[..1024], &[0xB0; 1024]);
+        assert_eq!(&mounted[1024..], &[0xB1; 1024]);
+        // Preserve the existing compatibility convention for a zeroed TIB.
+        image[256..512].fill(0);
+        machine
+            .insert_cpc_dsk(0, &image)
+            .expect("zeroed track header");
+        let mounted = machine.disk(0).expect("mounted").data();
+        assert_eq!(&mounted[..1024], &[0xB0; 1024]);
+        assert_eq!(&mounted[1024..], &[0; 1024]);
+    }
+}
