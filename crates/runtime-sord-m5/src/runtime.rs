@@ -13,6 +13,8 @@ use crate::snapshot;
 use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
+// The current flat mapper cannot expose bytes beyond this window.
+const LINEAR_CARTRIDGE_BYTES: usize = 20480;
 
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
@@ -340,7 +342,15 @@ impl MachineCore for M5Runtime {
         for image in &media.images {
             match (image.slot.as_ref(), image.kind) {
                 ("cartridge-1", MediaKind::Cartridge) => {
-                    self.insert_cartridge(image.bytes.to_vec());
+                    if image.bytes.is_empty() || image.bytes.len() > LINEAR_CARTRIDGE_BYTES {
+                        return Err(MachineError::InvalidMedia {
+                            slot: image.slot.to_string(),
+                            reason: format!(
+                                "unsupported cartridge size {}; the current linear mapper accepts 1..={LINEAR_CARTRIDGE_BYTES} bytes",
+                                image.bytes.len()
+                            ),
+                        });
+                    }
                 }
                 (slot, MediaKind::Cartridge) => {
                     return Err(MachineError::UnknownMediaSlot {
@@ -351,6 +361,10 @@ impl MachineCore for M5Runtime {
                     return Err(MachineError::UnsupportedMediaKind { kind });
                 }
             }
+        }
+        // Preflight the entire request before replacing a running cartridge.
+        for image in &media.images {
+            self.insert_cartridge(image.bytes.to_vec());
         }
         Ok(())
     }

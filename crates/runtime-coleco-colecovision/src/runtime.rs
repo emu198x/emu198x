@@ -340,6 +340,12 @@ impl MachineCore for CvRuntime {
                             reason: "ColecoVision cartridge header is truncated; expected at least 36 bytes".to_owned(),
                         });
                     }
+                    if image.bytes.len() > 0x8000 {
+                        return Err(MachineError::InvalidMedia {
+                            slot: image.slot.to_string(),
+                            reason: "cartridge exceeds the current 32 KiB linear mapper; banked cartridges are not supported".to_owned(),
+                        });
+                    }
                     if !matches!(&image.bytes[..2], [0xaa, 0x55] | [0x55, 0xaa]) {
                         return Err(MachineError::InvalidMedia {
                             slot: image.slot.to_string(),

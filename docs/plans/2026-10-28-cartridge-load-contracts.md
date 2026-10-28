@@ -47,3 +47,15 @@ verify the final mapped byte, completion, exact save/replay and reset; stale
 cartridge and blank-state restoration are separately covered. The old positive
 guests fail at reset with no live machine in all three runtimes. Strict
 all-target Clippy, formatting and diff checks pass. No snapshot layout changed.
+
+Admission verification: all affected runtime tests pass, strict all-target
+Clippy passes, and all three headless apps build without default UI features.
+Nine CLI cases verify valid guest output [167,90], oversized-image rejection,
+empty-image rejection and input-file SHA-256 immutability. The retained probe
+fails on any unexpected exit, guest byte or modified source; each child has a
+30-second timeout. Legacy unchecked oversized snapshots still restore with
+identical bytes. Existing restore/reset tests pass unchanged after the guards.
+
+These fixes do not complete #720's fleet-wide media conformance work or the
+mapper support in #223/#229/#249. They address measured false success and
+rejection-state loss in the three current linear cartridge loaders.

@@ -1,0 +1,196 @@
+mise WARN  tracking config: failed to ln -sf /private/tmp/198x-next-issues/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/ba0fee1dd5f7736a: Operation not permitted (os error 1)
+   Compiling runtime-sord-m5 v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-sord-m5)
+   Compiling runtime-sega-sg-1000 v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-sega-sg-1000)
+   Compiling runtime-coleco-colecovision v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-coleco-colecovision)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/runtime_coleco_colecovision-5567c7975f4cd475)
+
+running 4 tests
+test profiles::tests::profile_ids_are_unique ... ok
+test profiles::tests::ntsc_declares_bios_firmware ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cartridge_loading.rs (/private/tmp/198x-next-issues-target/debug/deps/cartridge_loading-74c6c2cf2d51b077)
+
+running 3 tests
+test inaccessible_images_reject_without_changing_live_or_blank_state ... ok
+test later_invalid_image_cannot_replace_a_running_cartridge ... ok
+test old_unchecked_snapshot_images_remain_restorable ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/media_validation.rs (/private/tmp/198x-next-issues-target/debug/deps/media_validation-4f5c498ba6634c3c)
+
+running 4 tests
+test original_bios_executes_a_valid_test_cartridge ... ignored, FIXTURE: requires original ColecoVision BIOS in EMU198X_COLECO_BIOS
+test both_bios_header_signatures_load ... ok
+test raw_insertion_and_saved_diagnostic_cartridges_remain_supported ... ok
+test rejected_media_preserves_the_complete_live_snapshot ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/queries.rs (/private/tmp/198x-next-issues-target/debug/deps/queries-71e8a51cf2223a29)
+
+running 2 tests
+test query_paths_lists_the_folded_vdp_paths ... ok
+test vdp_resolves_grouped_object_and_leaves ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restored_media.rs (/private/tmp/198x-next-issues-target/debug/deps/restored_media-f2bfceb6d47f6450)
+
+running 3 tests
+test restoring_empty_state_clears_reset_images ... ok
+test restoring_over_other_media_replaces_reset_images ... ok
+test maximum_linear_image_is_guest_visible_after_load_reset_and_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-issues-target/debug/deps/snapshot_roundtrip-5d1b15960ce4d1f9)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-issues-target/debug/deps/variants-9e6f332d406c9ed3)
+
+running 3 tests
+test catalogue_round_trips_and_declares_switching ... ok
+test invalid_target_firmware_preserves_running_state ... ok
+test regional_switches_keep_cartridge_but_reset_machine_and_session ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/runtime_sega_sg_1000-f7ddb9912dfbafa5)
+
+running 5 tests
+test profiles::tests::ntsc_profile_uses_ntsc_region ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test profiles::tests::the_sg_1000_ii_is_the_same_machine_in_a_new_case ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cartridge_loading.rs (/private/tmp/198x-next-issues-target/debug/deps/cartridge_loading-4c8fa281f1e57bcb)
+
+running 3 tests
+test later_invalid_image_cannot_replace_a_running_cartridge ... ok
+test old_unchecked_snapshot_images_remain_restorable ... ok
+test inaccessible_images_reject_without_changing_live_or_blank_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/queries.rs (/private/tmp/198x-next-issues-target/debug/deps/queries-d302624262111b9a)
+
+running 2 tests
+test query_paths_lists_the_folded_vdp_paths ... ok
+test vdp_resolves_grouped_object_and_leaves ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restored_media.rs (/private/tmp/198x-next-issues-target/debug/deps/restored_media-29a4f3b2de6503d7)
+
+running 3 tests
+test restoring_empty_state_clears_reset_images ... ok
+test restoring_over_other_media_replaces_reset_images ... ok
+test maximum_linear_image_is_guest_visible_after_load_reset_and_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-issues-target/debug/deps/snapshot_roundtrip-906b4cf1b6f24cf4)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-issues-target/debug/deps/variants-a01bc43fd8f88556)
+
+running 2 tests
+test catalogue_round_trips_and_declares_switching ... ok
+test regional_switches_keep_cartridge_but_reset_machine_and_session ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/runtime_sord_m5-e3d5a3c3c34e9dee)
+
+running 12 tests
+test runtime::tests::the_arithmetic_operators_are_reachable ... ok
+test profiles::tests::profile_declares_rom_firmware ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+test input::tests::fire_button_is_ignored_no_joystick_trigger_line ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test input::tests::the_keys_that_were_already_right_did_not_move ... ok
+test input::tests::backspace_is_refused_rather_than_typing_a_backslash ... ok
+test input::tests::the_jis_keycaps_are_named_after_what_they_type ... ok
+test runtime::tests::every_legend_names_a_key_this_machine_has ... ok
+test runtime::tests::legends_are_one_to_one ... ok
+test input::tests::no_two_key_names_share_a_cell ... ok
+test input::tests::button_events_drive_both_joystick_ports_active_high ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cartridge_loading.rs (/private/tmp/198x-next-issues-target/debug/deps/cartridge_loading-17e973871e329044)
+
+running 3 tests
+test later_invalid_image_cannot_replace_a_running_cartridge ... ok
+test old_unchecked_snapshot_images_remain_restorable ... ok
+test inaccessible_images_reject_without_changing_live_or_blank_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/queries.rs (/private/tmp/198x-next-issues-target/debug/deps/queries-9356cb1b8b00cf1e)
+
+running 3 tests
+test query_paths_lists_the_folded_paths ... ok
+test vdp_resolves_grouped_with_registers_and_leaves ... ok
+test ctc_resolves_grouped_with_channels_and_scalar_leaves ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restored_media.rs (/private/tmp/198x-next-issues-target/debug/deps/restored_media-f464bc0cd4dd8b72)
+
+running 3 tests
+test restoring_empty_state_clears_reset_images ... ok
+test restoring_over_other_media_replaces_reset_images ... ok
+test maximum_linear_image_is_guest_visible_after_load_reset_and_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-issues-target/debug/deps/snapshot_roundtrip-dd0fef4c8a581046)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-issues-target/debug/deps/variants-dbcbf681ee55979f)
+
+running 1 test
+test every_region_installs_its_framebuffer_and_budget_and_ejects_cartridges ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests runtime_coleco_colecovision
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_sega_sg_1000
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_sord_m5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,65 @@
+[
+  {
+    "system": "sord-m5",
+    "input": "valid",
+    "returncode": 0,
+    "guest_bytes": [
+      167,
+      90
+    ]
+  },
+  {
+    "system": "sord-m5",
+    "input": "oversize",
+    "returncode": 1,
+    "error": "error: machine preparation failed: media for slot cartridge-1 is invalid: unsupported cartridge size 20481; the current linear mapper accepts 1..=20480 bytes"
+  },
+  {
+    "system": "sord-m5",
+    "input": "empty",
+    "returncode": 1,
+    "error": "error: machine preparation failed: media for slot cartridge-1 is invalid: unsupported cartridge size 0; the current linear mapper accepts 1..=20480 bytes"
+  },
+  {
+    "system": "sega-sg-1000",
+    "input": "valid",
+    "returncode": 0,
+    "guest_bytes": [
+      167,
+      90
+    ]
+  },
+  {
+    "system": "sega-sg-1000",
+    "input": "oversize",
+    "returncode": 1,
+    "error": "error: machine preparation failed: media for slot cartridge-1 is invalid: unsupported cartridge size 49153; the current linear mapper accepts 1..=49152 bytes"
+  },
+  {
+    "system": "sega-sg-1000",
+    "input": "empty",
+    "returncode": 1,
+    "error": "error: machine preparation failed: media for slot cartridge-1 is invalid: unsupported cartridge size 0; the current linear mapper accepts 1..=49152 bytes"
+  },
+  {
+    "system": "colecovision",
+    "input": "valid",
+    "returncode": 0,
+    "guest_bytes": [
+      167,
+      90
+    ]
+  },
+  {
+    "system": "colecovision",
+    "input": "oversize",
+    "returncode": 1,
+    "error": "error: machine preparation failed: media for slot cartridge-1 is invalid: cartridge exceeds the current 32 KiB linear mapper; banked cartridges are not supported"
+  },
+  {
+    "system": "colecovision",
+    "input": "empty",
+    "returncode": 1,
+    "error": "error: machine preparation failed: media for slot cartridge-1 is invalid: ColecoVision cartridge header is truncated; expected at least 36 bytes"
+  }
+]
