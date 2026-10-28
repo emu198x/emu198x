@@ -2545,9 +2545,9 @@ dependencies = [
 
 [[package]]
 name = "format198x-amstrad-cpc-dsk"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2010c7ec3087163d2a94f82b0be46c79512117c72655695a0e2783d38ef0f479"
+checksum = "0f77fe6fb0505090e8f5a39b2968cd0ffc7c3ae5e86d0bd3f670e7b48ba0ba9a"
 
 [[package]]
 name = "format198x-atari-8bit-atr"
@@ -4167,6 +4167,7 @@ dependencies = [
  "emu198x-western-digital-wd1770",
  "emu198x-z80-cadence",
  "emu198x-zilog-z80",
+ "format198x-amstrad-cpc-dsk",
  "postcard",
  "serde",
  "serde-big-array",

@@ -1,0 +1,27 @@
+
+running 6 tests
+test malformed_counts_sizes_and_missing_payload_are_rejected ... ok
+test physical_track_headers_can_differ_from_container_order ... ok
+test rejected_disk_does_not_replace_live_media ... ok
+test standard_and_extended_disks_keep_sector_id_order ... ok
+test every_sector_size_code_is_bounded_by_the_supplied_payload ... ok
+test sector_status_and_nonphysical_address_marks_are_not_discarded ... FAILED
+
+failures:
+
+---- sector_status_and_nonphysical_address_marks_are_not_discarded stdout ----
+
+thread 'sector_status_and_nonphysical_address_marks_are_not_discarded' (201993013) panicked at crates/machine-tatung-einstein/tests/dsk_validation.rs:136:13:
+discarded metadata at 118
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sector_status_and_nonphysical_address_marks_are_not_discarded
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling machine-tatung-einstein v0.45.1 (/private/tmp/198x-next-einstein/crates/machine-tatung-einstein)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.35s
+     Running tests/dsk_validation.rs (/private/tmp/198x-next-target/debug/deps/dsk_validation-060ae849fb3dc8dd)
+error: test failed, to rerun pass `-p machine-tatung-einstein --test dsk_validation`
