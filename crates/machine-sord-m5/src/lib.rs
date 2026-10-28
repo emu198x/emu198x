@@ -156,6 +156,18 @@ pub struct SordM5 {
 }
 
 impl SordM5 {
+    /// Original cartridge image retained by the live machine.
+    #[must_use]
+    pub fn cartridge_rom(&self) -> &[u8] {
+        &self.cart_rom
+    }
+
+    /// Original firmware image retained by the live machine.
+    #[must_use]
+    pub fn firmware_rom(&self) -> &[u8] {
+        &self.rom
+    }
+
     /// Create a new Sord M5 with the given Monitor ROM and
     /// optional cart ROM. Cart RAM starts empty; call
     /// [`SordM5::set_cart_ram_size`] to allocate it.

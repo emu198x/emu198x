@@ -213,6 +213,18 @@ pub struct ColecoVision {
 }
 
 impl ColecoVision {
+    /// Original cartridge image retained by the live machine.
+    #[must_use]
+    pub fn cartridge_rom(&self) -> &[u8] {
+        &self.cart_rom
+    }
+
+    /// Original firmware image retained by the live machine.
+    #[must_use]
+    pub fn firmware_rom(&self) -> &[u8] {
+        &self.bios
+    }
+
     /// Create a new ColecoVision with the given BIOS and cartridge ROM.
     #[must_use]
     pub fn new(bios: Vec<u8>, cart_rom: Vec<u8>, region: CvRegion) -> Self {

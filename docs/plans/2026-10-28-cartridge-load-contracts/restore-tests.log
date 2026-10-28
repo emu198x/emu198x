@@ -1,0 +1,358 @@
+mise WARN  tracking config: failed to ln -sf /private/tmp/198x-next-issues/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/ba0fee1dd5f7736a: Operation not permitted (os error 1)
+   Compiling machine-sega-sg-1000 v0.45.1 (/private/tmp/198x-next-issues/crates/machine-sega-sg-1000)
+   Compiling machine-coleco-colecovision v0.45.1 (/private/tmp/198x-next-issues/crates/machine-coleco-colecovision)
+   Compiling machine-sord-m5 v0.45.1 (/private/tmp/198x-next-issues/crates/machine-sord-m5)
+   Compiling runtime-sord-m5 v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-sord-m5)
+   Compiling runtime-sega-sg-1000 v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-sega-sg-1000)
+   Compiling runtime-coleco-colecovision v0.45.1 (/private/tmp/198x-next-issues/crates/runtime-coleco-colecovision)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.63s
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/machine_coleco_colecovision-d625be6750760e1e)
+
+running 10 tests
+test tests::keypad_read_routes_to_correct_controller ... ok
+test tests::joystick_mode_toggle_via_io ... ok
+test tests::vdp_runs_at_three_dots_per_two_tstates ... ok
+test tests::ntsc_frame_returns_expected_cpu_cycles ... ok
+test tests::vdp_drives_cpu_irq_at_vblank ... ok
+test tests::one_frame_of_tstates_is_exactly_one_vdp_frame ... ok
+test tests::pal_frame_returns_expected_cpu_cycles ... ok
+test tests::snapshot_round_trips_live_state ... ok
+test tests::native_frame_stops_at_the_chip_wrap_after_partial_stepping ... ok
+test tests::many_frames_complete_without_panic ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/bios_boot.rs (/private/tmp/198x-next-issues-target/debug/deps/bios_boot-724e1821a84e8ea3)
+
+running 1 test
+test bios_boots_to_title_screen ... ignored, FIXTURE: needs ColecoVision BIOS — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cpu_rate.rs (/private/tmp/198x-next-issues-target/debug/deps/cpu_rate-714ef752225cba4f)
+
+running 1 test
+test a_nop_costs_four_tstates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/synthetic_firmware_boot.rs (/private/tmp/198x-next-issues-target/debug/deps/synthetic_firmware_boot-2477bf8191a05f3d)
+
+running 2 tests
+test firmware_that_programs_nothing_does_not_look_like_a_boot ... ok
+test the_colecovision_runs_firmware_and_paints_its_backdrop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/machine_sega_sg_1000-163588eb0ea12681)
+
+running 9 tests
+test tests::controller_routing_by_port_parity ... ok
+test tests::pause_line_drives_z80_nmi ... ok
+test tests::psg_write_port_range ... ok
+test tests::vdp_dot_ratio_is_three_per_two_tstates ... ok
+test tests::ntsc_frame_returns_expected_tstates ... ok
+test tests::pal_frame_returns_expected_tstates ... ok
+test tests::snapshot_round_trips_live_state ... ok
+test tests::native_frame_stops_at_the_chip_wrap_after_partial_stepping ... ok
+test tests::many_frames_complete_without_panic ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running tests/cart_boot.rs (/private/tmp/198x-next-issues-target/debug/deps/cart_boot-46de61b37650f9b6)
+
+running 1 test
+test cart_boots_to_title_screen ... ignored, FIXTURE: needs an SG-1000 / Othello Multivision .sg cart — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/controller_wiring.rs (/private/tmp/198x-next-issues-target/debug/deps/controller_wiring-828a271782213983)
+
+running 2 tests
+test both_controllers_survive_snapshot_and_release_without_stuck_bits ... ok
+test all_controller_states_reach_the_wired_bits_in_every_alias ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.07s
+
+     Running tests/cpu_rate.rs (/private/tmp/198x-next-issues-target/debug/deps/cpu_rate-831273d86ce9e8c1)
+
+running 1 test
+test a_nop_costs_four_tstates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/synthetic_cart_boot.rs (/private/tmp/198x-next-issues-target/debug/deps/synthetic_cart_boot-71a7eccba86004bf)
+
+running 2 tests
+test an_empty_cartridge_does_not_look_like_a_boot ... ok
+test the_sg_1000_boots_a_cartridge_and_paints_its_backdrop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/vram_access_windows.rs (/private/tmp/198x-next-issues-target/debug/deps/vram_access_windows-517e1279f1bdc1c8)
+
+running 3 tests
+test the_same_loop_loses_nothing_with_the_display_blanked ... ok
+test a_loop_paced_to_the_worst_case_window_loses_nothing ... ok
+test an_18_t_state_copy_loop_loses_bytes_during_active_display ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/machine_sord_m5-c22b69f653f289be)
+
+running 12 tests
+test tests::key_press_and_release_round_trip ... ok
+test tests::ctc_routes_at_0x00_block ... ok
+test tests::joystick_reads_active_high_at_0x37 ... ok
+test tests::keyboard_rows_read_directly_at_0x30_block ... ok
+test tests::memory_map_routes_pages ... ok
+test tests::vdp_dot_ratio_is_three_per_two_tstates ... ok
+test tests::vdp_io_routes_at_0x10_block ... ok
+test tests::ntsc_frame_returns_expected_tstates ... ok
+test tests::pal_frame_returns_expected_tstates ... ok
+test tests::snapshot_round_trips_live_state ... ok
+test tests::native_frame_stops_at_the_chip_wrap_after_partial_stepping ... ok
+test tests::many_frames_complete_without_panic ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running tests/bios_boot.rs (/private/tmp/198x-next-issues-target/debug/deps/bios_boot-a7f7c9ed4a110c0d)
+
+running 1 test
+test boots_through_ctc_to_a_rendered_screen ... ignored, FIXTURE: needs Sord M5 BIOS + cart — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cpu_rate.rs (/private/tmp/198x-next-issues-target/debug/deps/cpu_rate-ddcce11200283753)
+
+running 1 test
+test a_nop_costs_four_tstates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/digdug_freeze_probe.rs (/private/tmp/198x-next-issues-target/debug/deps/digdug_freeze_probe-c28e6a12904f8187)
+
+running 2 tests
+test cart_round_spawns_and_runs ... ignored, FIXTURE: needs Sord M5 BIOS + Dig Dug cart — run with --ignored
+test vdp_int_drives_ctc_channel3 ... ignored, FIXTURE: needs Sord M5 BIOS + Dig Dug cart — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/io_aliases.rs (/private/tmp/198x-next-issues-target/debug/deps/io_aliases-9989b1c0f25b790f)
+
+running 5 tests
+test keyboard_joystick_and_unmapped_reads_keep_their_own_decode ... ok
+test ctc_counter_writes_and_reads_reach_all_sixteen_ports ... ok
+test vdp_data_and_control_aliases_share_vram_and_read_buffer ... ok
+test vdp_status_aliases_observe_and_clear_vblank ... ok
+test sound_aliases_produce_the_same_non_silent_waveform ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/keyboard_io_trace.rs (/private/tmp/198x-next-issues-target/debug/deps/keyboard_io_trace-8274d1a933a76437)
+
+running 1 test
+test trace_keyboard_scan_ports ... ignored, FIXTURE: needs Sord M5 BIOS — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pal_validation.rs (/private/tmp/198x-next-issues-target/debug/deps/pal_validation-8cc7e3451bd059af)
+
+running 4 tests
+test european_basic_i_reaches_ready_with_pal_frame_interrupts ... ignored, FIXTURE: needs European M5 BIOS and BASIC-I cartridge
+test european_dig_dug_reaches_player_selection_with_pal_frame_interrupts ... ignored, FIXTURE: needs European M5 BIOS and Dig Dug cartridge
+test each_runtime_second_produces_48000_audio_samples ... ok
+test pal_audio_continues_identically_after_save_restore ... ok
+
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.36s
+
+     Running tests/synthetic_firmware_boot.rs (/private/tmp/198x-next-issues-target/debug/deps/synthetic_firmware_boot-6e97227c59810013)
+
+running 2 tests
+test firmware_that_programs_nothing_does_not_look_like_a_boot ... ok
+test the_m5_runs_firmware_and_paints_its_backdrop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/runtime_coleco_colecovision-5567c7975f4cd475)
+
+running 4 tests
+test profiles::tests::ntsc_declares_bios_firmware ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/media_validation.rs (/private/tmp/198x-next-issues-target/debug/deps/media_validation-4f5c498ba6634c3c)
+
+running 4 tests
+test original_bios_executes_a_valid_test_cartridge ... ignored, FIXTURE: requires original ColecoVision BIOS in EMU198X_COLECO_BIOS
+test both_bios_header_signatures_load ... ok
+test raw_insertion_and_saved_diagnostic_cartridges_remain_supported ... ok
+test rejected_media_preserves_the_complete_live_snapshot ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/queries.rs (/private/tmp/198x-next-issues-target/debug/deps/queries-71e8a51cf2223a29)
+
+running 2 tests
+test vdp_resolves_grouped_object_and_leaves ... ok
+test query_paths_lists_the_folded_vdp_paths ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restored_media.rs (/private/tmp/198x-next-issues-target/debug/deps/restored_media-f2bfceb6d47f6450)
+
+running 3 tests
+test restoring_empty_state_clears_reset_images ... ok
+test restoring_over_other_media_replaces_reset_images ... ok
+test maximum_linear_image_is_guest_visible_after_load_reset_and_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-issues-target/debug/deps/snapshot_roundtrip-5d1b15960ce4d1f9)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-issues-target/debug/deps/variants-9e6f332d406c9ed3)
+
+running 3 tests
+test catalogue_round_trips_and_declares_switching ... ok
+test invalid_target_firmware_preserves_running_state ... ok
+test regional_switches_keep_cartridge_but_reset_machine_and_session ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/runtime_sega_sg_1000-f7ddb9912dfbafa5)
+
+running 5 tests
+test profiles::tests::ntsc_profile_uses_ntsc_region ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test profiles::tests::the_sg_1000_ii_is_the_same_machine_in_a_new_case ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/queries.rs (/private/tmp/198x-next-issues-target/debug/deps/queries-d302624262111b9a)
+
+running 2 tests
+test query_paths_lists_the_folded_vdp_paths ... ok
+test vdp_resolves_grouped_object_and_leaves ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/restored_media.rs (/private/tmp/198x-next-issues-target/debug/deps/restored_media-29a4f3b2de6503d7)
+
+running 3 tests
+test restoring_empty_state_clears_reset_images ... ok
+test restoring_over_other_media_replaces_reset_images ... ok
+test maximum_linear_image_is_guest_visible_after_load_reset_and_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-issues-target/debug/deps/snapshot_roundtrip-906b4cf1b6f24cf4)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-issues-target/debug/deps/variants-a01bc43fd8f88556)
+
+running 2 tests
+test catalogue_round_trips_and_declares_switching ... ok
+test regional_switches_keep_cartridge_but_reset_machine_and_session ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running unittests src/lib.rs (/private/tmp/198x-next-issues-target/debug/deps/runtime_sord_m5-e3d5a3c3c34e9dee)
+
+running 12 tests
+test input::tests::button_events_drive_both_joystick_ports_active_high ... ok
+test input::tests::fire_button_is_ignored_no_joystick_trigger_line ... ok
+test profiles::tests::profile_declares_rom_firmware ... ok
+test input::tests::backspace_is_refused_rather_than_typing_a_backslash ... ok
+test input::tests::the_keys_that_were_already_right_did_not_move ... ok
+test input::tests::no_two_key_names_share_a_cell ... ok
+test input::tests::the_jis_keycaps_are_named_after_what_they_type ... ok
+test runtime::tests::every_legend_names_a_key_this_machine_has ... ok
+test runtime::tests::legends_are_one_to_one ... ok
+test runtime::tests::the_arithmetic_operators_are_reachable ... ok
+test snapshot::tests::decode_rejects_future_version_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/queries.rs (/private/tmp/198x-next-issues-target/debug/deps/queries-9356cb1b8b00cf1e)
+
+running 3 tests
+test query_paths_lists_the_folded_paths ... ok
+test ctc_resolves_grouped_with_channels_and_scalar_leaves ... ok
+test vdp_resolves_grouped_with_registers_and_leaves ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/restored_media.rs (/private/tmp/198x-next-issues-target/debug/deps/restored_media-f464bc0cd4dd8b72)
+
+running 3 tests
+test restoring_empty_state_clears_reset_images ... ok
+test restoring_over_other_media_replaces_reset_images ... ok
+test maximum_linear_image_is_guest_visible_after_load_reset_and_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/snapshot_roundtrip.rs (/private/tmp/198x-next-issues-target/debug/deps/snapshot_roundtrip-dd0fef4c8a581046)
+
+running 1 test
+test snapshot_round_trip_preserves_live_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (/private/tmp/198x-next-issues-target/debug/deps/variants-dbcbf681ee55979f)
+
+running 1 test
+test every_region_installs_its_framebuffer_and_budget_and_ejects_cartridges ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests machine_coleco_colecovision
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests machine_sega_sg_1000
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests machine_sord_m5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_coleco_colecovision
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_sega_sg_1000
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests runtime_sord_m5
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
