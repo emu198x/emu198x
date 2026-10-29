@@ -19,8 +19,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use common_sinclair_zx80::{Zx80Key, Zx80State};
 use format198x_sinclair_zx80_o::Zx80Image;
-use machine_sinclair_zx80::{Zx80, Zx80Key};
 
 /// Two bytes of the system variables track running time, so a machine that
 /// has been on for a different length of time disagrees there. They are the
@@ -40,15 +40,15 @@ fn rom_path() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-fn boot(rom: &[u8]) -> Zx80 {
-    let mut machine = Zx80::new(rom.to_vec(), 16 * 1024).expect("init");
+fn boot(rom: &[u8]) -> Zx80State {
+    let mut machine = Zx80State::new(rom.to_vec(), 16 * 1024).expect("init");
     for _ in 0..250 {
         machine.run_frame();
     }
     machine
 }
 
-fn press(machine: &mut Zx80, key: Zx80Key) {
+fn press(machine: &mut Zx80State, key: Zx80Key) {
     machine.press_key(key);
     for _ in 0..6 {
         machine.run_frame();
@@ -69,7 +69,7 @@ fn same_program(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// RAM from `$4000` to the address in `$400A` — what `SAVE` puts on tape.
-fn image(machine: &Zx80) -> Vec<u8> {
+fn image(machine: &Zx80State) -> Vec<u8> {
     let end =
         u16::from(machine.peek_memory(0x400A)) | (u16::from(machine.peek_memory(0x400B)) << 8);
     (0x4000..end).map(|a| machine.peek_memory(a)).collect()
@@ -99,7 +99,7 @@ fn a_saved_program_loads_back_through_the_rom() {
     );
 
     let parsed = Zx80Image::parse(&saved).expect("a real save should parse");
-    let pulses = machine_sinclair_zx80::tape::pulses(&parsed);
+    let pulses = common_sinclair_zx80::tape::pulses(&parsed);
 
     // W is LOAD on a ZX80. The tape is threaded first and plays while the
     // user types, as it would on a recorder left running.
@@ -149,8 +149,8 @@ fn a_tape_with_no_leader_is_missed_entirely() {
     let parsed = Zx80Image::parse(&saved).expect("parses");
     // Strip the lead-in: pulses now start immediately, inside the leader
     // search, and every one of them resets its countdown.
-    let lead_in = machine_sinclair_zx80::tape::LEAD_IN_T;
-    let no_leader: Vec<u64> = machine_sinclair_zx80::tape::pulses(&parsed)
+    let lead_in = common_sinclair_zx80::tape::LEAD_IN_T;
+    let no_leader: Vec<u64> = common_sinclair_zx80::tape::pulses(&parsed)
         .into_iter()
         .map(|t| t - lead_in + 1_000)
         .collect();
@@ -192,7 +192,7 @@ fn real_software_loads_through_the_rom() {
     let rom = fs::read(&rom_path).expect("read ROM");
     let data = fs::read(&tape).expect("read tape image");
     let parsed = Zx80Image::parse(&data).expect("a real .o should parse");
-    let pulses = machine_sinclair_zx80::tape::pulses(&parsed);
+    let pulses = common_sinclair_zx80::tape::pulses(&parsed);
 
     let mut machine = boot(&rom);
     press(&mut machine, Zx80Key::W);

@@ -70,7 +70,7 @@ pub const FB_WIDTH: u32 = 384;
 /// It used to be justified as 312 less the 24-line vertical interval, which
 /// reads across from a fixed-raster machine. This one emits 310 lines, so
 /// there was no 312 to subtract from and the position that arithmetic implied
-/// was wrong by 16 lines. Where the window sits is [`FIRST_VISIBLE_LINE`],
+/// was wrong by 16 lines. Where the window sits is `FIRST_VISIBLE_LINE`,
 /// derived from the ROM's pads; see #1116.
 ///
 /// This was 240, which cropped 48 lines a set would have shown. That matters

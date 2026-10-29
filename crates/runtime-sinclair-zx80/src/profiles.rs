@@ -1,6 +1,6 @@
 //! ZX80 family profile catalogue.
 
-use machine_sinclair_zx80::TelevisionStandard;
+use common_sinclair_zx80::TelevisionStandard;
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
@@ -56,7 +56,7 @@ impl Model {
         }
     }
 
-    /// Region and RAM configuration within the single ZX80 base machine.
+    /// Board selection and fitted RAM configuration.
     #[must_use]
     pub const fn menu_label(self) -> &'static str {
         match self {
@@ -130,7 +130,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("sinclair-zx80"),
+        machine_id: MachineId::from(match model{Model::Zx80Usa=>"sinclair-zx80-usa",_=>"sinclair-zx80"}),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Spectrum,
@@ -176,14 +176,18 @@ mod tests {
         }
     }
 
-    /// All three profiles are the same machine, so they share a `machine_id`
-    /// and differ only where the RAM pack and the strap make them differ.
+    /// The UK board keeps its RAM-pack profile; D11 makes the USA board distinct.
     #[test]
     fn ram_pack_is_a_second_profile_of_the_same_machine() {
         let stock = profile_for(Model::Zx80);
         let packed = profile_for(Model::Zx80RamPack);
 
         assert_eq!(stock.machine_id, packed.machine_id);
+        assert_eq!(stock.machine_id.as_str(), "sinclair-zx80");
+        assert_eq!(
+            profile_for(Model::Zx80Usa).machine_id.as_str(),
+            "sinclair-zx80-usa"
+        );
         assert_ne!(stock.profile_id, packed.profile_id);
         assert_eq!(profiles().len(), 3, "stock, USA, and the RAM pack");
 

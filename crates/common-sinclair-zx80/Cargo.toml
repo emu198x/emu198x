@@ -1,0 +1,23 @@
+[package]
+name = "common-sinclair-zx80"
+description = "Shared original ZX80 wiring and state"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+format198x-sinclair-zx80-o = "0.1.0"
+emu198x-z80-cadence = "0.1.0"
+serde = { workspace = true }
+emu198x-sinclair-zx81-ula = { path = "../emu198x-sinclair-zx81-ula", version = "0.1.0" }
+emu198x-zilog-z80 = "0.8.0"
+
+[dev-dependencies]
+png = { workspace = true }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
+postcard = { workspace = true }
+
+[lints]
+workspace = true

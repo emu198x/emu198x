@@ -39,7 +39,7 @@
 
 use std::{env, fs, io::BufReader, path::PathBuf};
 
-use machine_sinclair_zx80::Zx80;
+use common_sinclair_zx80::Zx80State;
 
 /// Frames to settle before capture, matching `rom_boot.rs` so the two tests
 /// describe the same moment.
@@ -100,7 +100,7 @@ fn the_boot_screen_matches_its_baseline() {
         );
     };
 
-    let mut machine = Zx80::new(rom, 16384).expect("machine");
+    let mut machine = Zx80State::new(rom, 16384).expect("machine");
     for _ in 0..SETTLE_FRAMES {
         machine.run_frame();
     }

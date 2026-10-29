@@ -24,7 +24,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_WIDTH, Zx80, Zx80Key};
+use common_sinclair_zx80::{FB_WIDTH, Zx80Key, Zx80State};
 
 /// ZX80 character set, codes 0..=63. Graphics codes are irrelevant here and
 /// are named rather than drawn.
@@ -42,7 +42,7 @@ const ORIGIN_X: usize = 80;
 /// Was a literal 24, fitted to a 240-line window and left behind when the
 /// window became the 288 a set shows. Taken from the video module now, so it
 /// cannot drift again — see #1116.
-const ORIGIN_Y: usize = machine_sinclair_zx80::TelevisionStandard::FiftyHz.text_top() as usize;
+const ORIGIN_Y: usize = common_sinclair_zx80::TelevisionStandard::FiftyHz.text_top() as usize;
 const INK: u32 = 0xFF00_0000;
 
 fn rom_path() -> Option<PathBuf> {
@@ -59,7 +59,7 @@ fn rom_path() -> Option<PathBuf> {
 
 /// Decodes one screen row to text by matching each cell against the ROM's own
 /// character bitmaps at `I * 256 + code * 8`, in normal and inverse form.
-fn read_row(machine: &Zx80, rom: &[u8], row: usize) -> String {
+fn read_row(machine: &Zx80State, rom: &[u8], row: usize) -> String {
     let frame = machine.framebuffer();
     let base = usize::from(machine.cpu().regs.i) << 8;
     let mut text = String::new();
@@ -91,7 +91,7 @@ fn read_row(machine: &Zx80, rom: &[u8], row: usize) -> String {
 
 /// Boots, presses one key at the `K` cursor, and returns the input line.
 fn press_at_k_cursor(rom: &[u8], key: Zx80Key) -> String {
-    let mut machine = Zx80::new(rom.to_vec(), 16 * 1024).expect("init");
+    let mut machine = Zx80State::new(rom.to_vec(), 16 * 1024).expect("init");
     for _ in 0..250 {
         machine.run_frame();
     }
@@ -202,7 +202,7 @@ fn a_keyword_switches_to_literal_entry_and_the_line_runs() {
     };
     let rom = fs::read(&path).expect("read ROM");
 
-    let mut machine = Zx80::new(rom.clone(), 16 * 1024).expect("init");
+    let mut machine = Zx80State::new(rom.clone(), 16 * 1024).expect("init");
     for _ in 0..250 {
         machine.run_frame();
     }

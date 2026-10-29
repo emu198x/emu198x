@@ -5,8 +5,8 @@
 //! from the ROM. Mirrors the ZX81 shape: a borrowing envelope for encode (no
 //! clone), an owning envelope for decode.
 
+use crate::machine::Zx80Machine as Zx80;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_sinclair_zx80::Zx80;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Zx80Runtime;
@@ -29,7 +29,7 @@ struct Zx80RuntimeSnapshotV4 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Zx80>,
+    machine: Option<common_sinclair_zx80::Zx80State>,
 }
 
 pub(crate) fn encode(runtime: &Zx80Runtime) -> Result<Vec<u8>, MachineError> {
@@ -84,8 +84,12 @@ pub(crate) fn decode(runtime: &mut Zx80Runtime, bytes: &[u8]) -> Result<(), Mach
             ),
         });
     }
+    let mut machine = snapshot
+        .machine
+        .map(|state| Zx80::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
     if let Some(machine) = &mut machine {
         machine.cpu_mut().rehydrate_walker_sequence();
     }

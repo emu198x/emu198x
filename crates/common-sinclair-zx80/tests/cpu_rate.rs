@@ -19,8 +19,8 @@
 //! `NOP` is right the clock division is right, and if it is wrong nothing
 //! else can be.
 
+use common_sinclair_zx80::Zx80State;
 use emu198x_zilog_z80::Z80Stepper;
-use machine_sinclair_zx80::Zx80;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -29,7 +29,7 @@ const NOP_TSTATES: u64 = 4;
 fn a_nop_costs_four_tstates() {
     // 4 KB of `NOP` in place of the ZX80 ROM, 16 KB RAM. The ZX80 does not
     // wire `/NMI` to the ULA, so nothing interrupts the `NOP` stream.
-    let mut zx80 = Zx80::new(vec![0x00u8; 0x1000], 16 * 1024).expect("build machine");
+    let mut zx80 = Zx80State::new(vec![0x00u8; 0x1000], 16 * 1024).expect("build machine");
 
     // Clear the reset sequence so the measurement covers steady-state `NOP`s
     // rather than whatever the first instruction happens to be.

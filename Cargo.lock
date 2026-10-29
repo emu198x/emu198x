@@ -697,6 +697,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sinclair-zx80"
+version = "0.45.1"
+dependencies = [
+ "emu198x-sinclair-zx81-ula",
+ "emu198x-test-skip",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "format198x-sinclair-zx80-o",
+ "png",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "common-sord-m5"
 version = "0.45.1"
 dependencies = [
@@ -4362,14 +4376,14 @@ dependencies = [
 name = "machine-sinclair-zx80"
 version = "0.45.1"
 dependencies = [
- "emu198x-sinclair-zx81-ula",
- "emu198x-test-skip",
- "emu198x-z80-cadence",
- "emu198x-zilog-z80",
- "format198x-sinclair-zx80-o",
- "png",
- "postcard",
- "serde",
+ "common-sinclair-zx80",
+]
+
+[[package]]
+name = "machine-sinclair-zx80-usa"
+version = "0.45.1"
+dependencies = [
+ "common-sinclair-zx80",
 ]
 
 [[package]]
@@ -6088,10 +6102,12 @@ dependencies = [
 name = "runtime-sinclair-zx80"
 version = "0.45.1"
 dependencies = [
+ "common-sinclair-zx80",
  "emu198x-shell",
  "emu198x-zilog-z80",
  "format198x-sinclair-zx80-o",
  "machine-sinclair-zx80",
+ "machine-sinclair-zx80-usa",
  "postcard",
  "serde",
  "serde_json",

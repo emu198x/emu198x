@@ -1,7 +1,8 @@
 //! ZX80 keyboard input mapping.
 
+use crate::machine::Zx80Machine as Zx80;
+use common_sinclair_zx80::Zx80Key;
 use emu198x_shell::InputEvent;
-use machine_sinclair_zx80::{Zx80, Zx80Key};
 
 pub(crate) fn apply_input_event(machine: &mut Zx80, event: &InputEvent) {
     if let InputEvent::Key { name, pressed } = event
