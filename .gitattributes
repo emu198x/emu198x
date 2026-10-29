@@ -8,3 +8,7 @@
 /test-data/dragon/board-split-v2/control.rom binary
 /test-data/synthetic-firmware/dragon-32.rom binary
 /test-data/synthetic-firmware/dragon-32-control.rom binary
+# Frozen whole-state and native-output regression data.
+/test-data/msx/board-split-v10/*.state binary
+/test-data/msx/board-split-v10/*.frames binary
+/test-data/msx/board-split-v10/*.audio binary
