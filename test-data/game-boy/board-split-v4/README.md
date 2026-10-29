@@ -68,3 +68,21 @@ the split and retain the independently generated genuine v3 fixtures.
 - `sgb2.audio`: SHA-256 `7cd96b01c414d0fe34a9294b911a21aca363e66c368f382748eac3dd532bd8b2`
 - `sgb2.frames`: SHA-256 `79cb66ef9efadddef4352905dcbc1e274d01be2cbebe4a033d1e4d18a25b9157`
 - `sgb2.state`: SHA-256 `77d552ea53424a5b5cfe9ccc224f1bb51cafb7f08292ff7227d6981d77b2d5bf`
+
+## External colour validation
+
+The split was also checked against Matt Currie's MIT-licensed
+[cgb-acid2 v1.1](https://github.com/mattcurrie/cgb-acid2/releases/tag/v1.1),
+using the upstream `img/reference.png`. These external inputs are not needed
+for the synthetic replay above and are not included here. To repeat the pixel
+check, set `EMU198X_GB_CGB_ACID2_ROM` and `EMU198X_GB_CGB_ACID2_REFERENCE`,
+then run `cargo test -p machine-nintendo-game-boy-color --test cgb_acid2`.
+Verify the input SHA-256 identities first:
+
+- `cgb-acid2.gbc`: `197fb0bcec544f0400527fc707e0a94f55435974986e6986b424ace5de81720e`
+- `reference.png`: `9ea9c262c5383353e77d715d021a0f7c5ccbe438f88082cb225756e50c4fdf01`
+
+The complete framebuffer matches. A 160×144 black RGB reference makes the
+same test fail with 19,667 differing pixels, confirming the fixture path
+actually reaches the pixel comparison. A missing external input records a
+skip; that result does not establish cgb-acid2 conformance.
