@@ -727,3 +727,6 @@ impl Zx80 {
         self.io_trace.take().unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod board_baseline_tests;
