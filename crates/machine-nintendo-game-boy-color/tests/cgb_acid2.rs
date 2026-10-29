@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use machine_nintendo_game_boy::{BootProfile, GameBoy};
+use machine_nintendo_game_boy_color::GameBoy;
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;
@@ -70,7 +70,7 @@ fn cgb_acid2_matches_reference() {
         return;
     };
     let rom = std::fs::read(rom_path).unwrap();
-    let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::Cgb).unwrap();
+    let (_, mut gb) = GameBoy::from_rom(rom).unwrap();
     assert!(gb.cgb_mode(), "cgb-acid2 is a CGB-only cartridge");
 
     // The test signals completion with `LD B,B`; a fixed budget of

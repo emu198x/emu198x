@@ -13,12 +13,14 @@
 //! at the host boundary.
 
 mod input;
+mod machine;
+pub use machine::GameBoyMachine;
 mod profiles;
 mod queries;
 mod runtime;
 mod snapshot;
 
-pub use machine_nintendo_game_boy::{ApuChannel, AudioControls};
+pub use common_nintendo_game_boy::{ApuChannel, AudioControls};
 pub use profiles::{
     CGB_BOOT_ROM_ID, DMG_BOOT_ROM_ID, DMG0_BOOT_ROM_ID, MGB_BOOT_ROM_ID, Model, profile_for,
     profiles,

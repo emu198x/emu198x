@@ -547,8 +547,16 @@ dependencies = [
 name = "common-nintendo-game-boy"
 version = "0.45.1"
 dependencies = [
+ "emu198x-nintendo-game-boy-apu",
+ "emu198x-nintendo-game-boy-mbc",
  "emu198x-nintendo-game-boy-ppu",
+ "emu198x-nintendo-game-boy-timer",
+ "emu198x-sharp-lr35902",
+ "format-nintendo-game-boy-cartridge",
+ "png",
+ "postcard",
  "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -3953,17 +3961,29 @@ name = "machine-nintendo-game-boy"
 version = "0.45.1"
 dependencies = [
  "common-nintendo-game-boy",
- "emu198x-nintendo-game-boy-apu",
- "emu198x-nintendo-game-boy-mbc",
- "emu198x-nintendo-game-boy-ppu",
- "emu198x-nintendo-game-boy-timer",
- "emu198x-sharp-lr35902",
+]
+
+[[package]]
+name = "machine-nintendo-game-boy-advance"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-game-boy",
+]
+
+[[package]]
+name = "machine-nintendo-game-boy-color"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-game-boy",
  "emu198x-test-skip",
- "format-nintendo-game-boy-cartridge",
  "png",
- "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-nintendo-game-boy-pocket"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-game-boy",
 ]
 
 [[package]]
@@ -3991,6 +4011,20 @@ dependencies = [
  "format-nintendo-snes-sfc",
  "postcard",
  "serde",
+]
+
+[[package]]
+name = "machine-nintendo-super-game-boy"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-game-boy",
+]
+
+[[package]]
+name = "machine-nintendo-super-game-boy-2"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-game-boy",
 ]
 
 [[package]]
@@ -5639,6 +5673,11 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "machine-nintendo-game-boy",
+ "machine-nintendo-game-boy-advance",
+ "machine-nintendo-game-boy-color",
+ "machine-nintendo-game-boy-pocket",
+ "machine-nintendo-super-game-boy",
+ "machine-nintendo-super-game-boy-2",
  "postcard",
  "serde",
  "serde_json",

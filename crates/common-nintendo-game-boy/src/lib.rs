@@ -20,3 +20,13 @@ pub use timing::{
     MCYCLES_PER_SCANLINE, OAM_DMA_M_CYCLES, PPU_MODE2_DOTS, PPU_MODE3_MIN_DOTS,
     SCANLINES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH, VBLANK_SCANLINES, VISIBLE_SCANLINES,
 };
+
+mod board;
+mod wiring;
+pub use board::{GameBoyBoard, GameBoyCore, GameBoyHardware};
+pub use emu198x_nintendo_game_boy_mbc::Cartridge;
+pub use emu198x_sharp_lr35902::Sm83;
+pub use format_nintendo_game_boy_cartridge::{CartridgeHeader, HeaderError};
+pub use wiring::{
+    ApuChannel, AudioControls, BootProfile, GameBoyState, GameBoyV3, MONO_BOOT_ROM_SIZE, cgb,
+};

@@ -62,7 +62,7 @@ pub struct GameBoyV3 {
     dmg_stop_mode: bool,
 }
 
-impl From<GameBoyV3> for GameBoy {
+impl From<GameBoyV3> for GameBoyState {
     fn from(old: GameBoyV3) -> Self {
         Self {
             cpu: old.cpu,

@@ -1,15 +1,13 @@
 //! Game Boy family machine catalogue.
 //!
-//! Exposes the DMG-class skipped-boot profiles and the Game Boy Color
-//! models. They share one machine id: a CGB is the same machine with
-//! colour hardware, as the SGB is the same machine with a different
-//! boot state.
+//! Concrete DMG, Pocket, SGB/SGB2, CGB and Advance-in-CGB-mode owners.
+//! DMG0 is a boot-ROM revision. SGB execution remains partial (#326).
 
+use common_nintendo_game_boy::BootProfile;
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
     MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
-use machine_nintendo_game_boy::BootProfile;
 
 /// Supported Game Boy models.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -81,19 +79,19 @@ impl Model {
         match self {
             Self::Dmg0 => Some((
                 DMG0_BOOT_ROM_ID,
-                machine_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
+                common_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
             )),
             Self::Dmg => Some((
                 DMG_BOOT_ROM_ID,
-                machine_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
+                common_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
             )),
             Self::Mgb => Some((
                 MGB_BOOT_ROM_ID,
-                machine_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
+                common_nintendo_game_boy::MONO_BOOT_ROM_SIZE,
             )),
             Self::Cgb | Self::Agb => Some((
                 CGB_BOOT_ROM_ID,
-                machine_nintendo_game_boy::cgb::CGB_BOOT_ROM_SIZE,
+                common_nintendo_game_boy::cgb::CGB_BOOT_ROM_SIZE,
             )),
             Self::Sgb | Self::Sgb2 => None,
         }
@@ -152,8 +150,8 @@ impl Model {
             Self::Dmg0 => "Nintendo Game Boy (DMG0 boot profile)",
             Self::Dmg => "Nintendo Game Boy (DMG)",
             Self::Mgb => "Nintendo Game Boy Pocket (MGB)",
-            Self::Sgb => "Nintendo Super Game Boy (post-boot profile)",
-            Self::Sgb2 => "Nintendo Super Game Boy 2 (post-boot profile)",
+            Self::Sgb => "Nintendo Super Game Boy (Game Boy execution only)",
+            Self::Sgb2 => "Nintendo Super Game Boy 2 (Game Boy execution only)",
             Self::Cgb => "Nintendo Game Boy Color (CGB)",
             Self::Agb => "Nintendo Game Boy Advance (Game Boy Color software)",
         }
@@ -187,10 +185,19 @@ impl Model {
 
     /// One-line hardware description for the profile summary.
     const fn hardware(self) -> &'static str {
-        if self.is_cgb() {
-            "SM83 CPU at 4.194 or 8.389 MHz, 160×144 LCD in 32 768 colours, 4-channel audio. Without the optional CGB boot ROM the runtime enters cartridges from the post-boot-ROM register state."
-        } else {
-            "SM83 CPU at 4.194 MHz, 160×144 4-shade LCD, 4-channel audio. Current runtime enters cartridges from the selected post-boot-ROM register state; boot ROM execution will land separately."
+        match self {
+            Self::Dmg0 | Self::Dmg | Self::Mgb => {
+                "160×144 monochrome Game Boy execution and four-channel audio, with optional model-matched boot firmware or its skipped-boot state."
+            }
+            Self::Sgb | Self::Sgb2 => {
+                "Partial Super Game Boy support: Game Boy execution from the skipped-boot state. SGB boot firmware, SNES communication, borders and host timing remain unimplemented (#326)."
+            }
+            Self::Cgb => {
+                "Game Boy Color hardware: banked memory, palettes, double speed, HDMA and optional boot firmware, including monochrome compatibility mode."
+            }
+            Self::Agb => {
+                "Game Boy Advance execution of Game Boy Color software only, with its existing boot profile. This does not emulate the full Game Boy Advance."
+            }
         }
     }
 }
@@ -205,7 +212,14 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("nintendo-game-boy"),
+        machine_id: match model {
+            Model::Dmg0 | Model::Dmg => MachineId::from("nintendo-game-boy"),
+            Model::Mgb => MachineId::from("nintendo-game-boy-pocket"),
+            Model::Sgb => MachineId::from("nintendo-super-game-boy"),
+            Model::Sgb2 => MachineId::from("nintendo-super-game-boy-2"),
+            Model::Cgb => MachineId::from("nintendo-game-boy-color"),
+            Model::Agb => MachineId::from("nintendo-game-boy-advance"),
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::GameBoy,
@@ -294,7 +308,7 @@ mod tests {
         assert_eq!(sgb.profile_id(), "nintendo-super-game-boy");
         assert_eq!(
             sgb.display_name(),
-            "Nintendo Super Game Boy (post-boot profile)"
+            "Nintendo Super Game Boy (Game Boy execution only)"
         );
         assert_eq!(sgb.release_year(), 1994);
         assert_eq!(sgb.boot_profile(), BootProfile::Sgb);
@@ -304,7 +318,7 @@ mod tests {
         assert_eq!(sgb2.profile_id(), "nintendo-super-game-boy-2");
         assert_eq!(
             sgb2.display_name(),
-            "Nintendo Super Game Boy 2 (post-boot profile)"
+            "Nintendo Super Game Boy 2 (Game Boy execution only)"
         );
         assert_eq!(sgb2.release_year(), 1998);
         assert_eq!(sgb2.boot_profile(), BootProfile::Sgb2);
@@ -343,8 +357,17 @@ mod tests {
     fn profiles_returns_full_catalogue() {
         let all = profiles();
         assert_eq!(all.len(), 7);
-        for profile in &all {
-            assert_eq!(profile.machine_id.as_str(), "nintendo-game-boy");
+        let boards = [
+            "nintendo-game-boy",
+            "nintendo-game-boy",
+            "nintendo-game-boy-pocket",
+            "nintendo-super-game-boy",
+            "nintendo-super-game-boy-2",
+            "nintendo-game-boy-color",
+            "nintendo-game-boy-advance",
+        ];
+        for (profile, board) in all.iter().zip(boards) {
+            assert_eq!(profile.machine_id.as_str(), board);
             assert_eq!(profile.family, Family::GameBoy);
             assert_eq!(profile.region, Region::Other);
             assert!(profile.firmware.iter().all(|firmware| firmware.optional));

@@ -6,9 +6,9 @@
 //! has no keyboard, so a host-key event with a recognised name is
 //! treated as a button press on the joypad.
 
+use crate::machine::GameBoyMachine as GameBoy;
 use common_nintendo_game_boy::JoypadButton;
 use emu198x_shell::InputEvent;
-use machine_nintendo_game_boy::GameBoy;
 
 /// Apply one host input event to the machine: either a recognised
 /// joypad button name lands as a press, or the event is dropped. Does

@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 43 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 48 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -40,9 +40,14 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `memotech-mtx` | `emu198x-memotech-mtx` | 3 | 5 | [system:mtx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amtx) | [Memotech MTX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Memotech+MTX+100%25%22) |
 | `microsoft-msx1` ⚠️ | `emu198x-msx` | 6 | 6 | [system:msx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amsx) | [MSX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22MSX+100%25%22) |
 | `microsoft-msx2` ⚠️ | `emu198x-msx` | 6 | 6 | [system:msx2](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amsx2) | [MSX2 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22MSX2+100%25%22) |
-| `nintendo-game-boy` | `emu198x-game-boy` | 9 | 5 | [system:game-boy](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy) | [Game Boy 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+100%25%22) |
+| `nintendo-game-boy` | `emu198x-game-boy` | 1 | 13 | [system:game-boy](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy) | [Game Boy 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+100%25%22) |
+| `nintendo-game-boy-advance` | `emu198x-game-boy` | 1 | 13 | [system:game-boy-advance](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy-advance) | [Game Boy Advance CGB mode 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+Advance+CGB+mode+100%25%22) |
+| `nintendo-game-boy-color` | `emu198x-game-boy` | 1 | 13 | [system:game-boy-color](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy-color) | [Game Boy Color 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+Color+100%25%22) |
+| `nintendo-game-boy-pocket` | `emu198x-game-boy` | 1 | 13 | [system:game-boy-pocket](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy-pocket) | [Game Boy Pocket 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+Pocket+100%25%22) |
 | `nintendo-nes` | `emu198x-nes` | 8 | 6 | [system:nes](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Anes) | [NES 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22NES+100%25%22) |
 | `nintendo-snes` | `emu198x-snes` | 7 | 5 | [system:snes](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asnes) | [SNES 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SNES+100%25%22) |
+| `nintendo-super-game-boy` | `emu198x-game-boy` | 1 | 13 | [system:super-game-boy](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asuper-game-boy) | [Super Game Boy 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Super+Game+Boy+100%25%22) |
+| `nintendo-super-game-boy-2` | `emu198x-game-boy` | 1 | 13 | [system:super-game-boy-2](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asuper-game-boy-2) | [Super Game Boy 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Super+Game+Boy+100%25%22) |
 | `oric` | `emu198x-oric-atmos` | 3 | 5 | [system:oric](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aoric) | [Oric 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Oric+100%25%22) |
 | `sega-game-gear` | `emu198x-sega-game-gear` | 2 | 9 | [system:game-gear](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-gear) | [Game Gear 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Gear+100%25%22) |
 | `sega-master-system` | `emu198x-sega-master-system` | 2 | 9 | [system:master-system](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amaster-system) | [Master System 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Master+System+100%25%22) |

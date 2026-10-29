@@ -6,7 +6,7 @@
 
 use super::*;
 
-/// The cartridge a ROM image describes, as `GameBoy::from_rom` builds it.
+/// The cartridge a ROM image describes, as `GameBoyState::from_rom` builds it.
 fn cartridge(rom: Vec<u8>) -> Cartridge {
     let header = CartridgeHeader::parse(&rom).unwrap();
     Cartridge::new(rom, board(header.cart_type), header.ram_size)
@@ -28,14 +28,15 @@ fn rom_with(code: &[u8], cgb_flag: u8) -> Vec<u8> {
 /// `JR -2`: spin at `$0100`.
 const SPIN: [u8; 2] = [0x18, 0xFE];
 
-fn cgb(code: &[u8], cgb_flag: u8) -> GameBoy {
+fn cgb(code: &[u8], cgb_flag: u8) -> GameBoyState {
     let (_, gb) =
-        GameBoy::from_rom_with_boot_profile(rom_with(code, cgb_flag), BootProfile::Cgb).unwrap();
+        GameBoyState::from_rom_with_boot_profile(rom_with(code, cgb_flag), BootProfile::Cgb)
+            .unwrap();
     gb
 }
 
 /// A CGB-mode machine with the LCD off, so VRAM and palettes are open.
-fn cgb_lcd_off() -> GameBoy {
+fn cgb_lcd_off() -> GameBoyState {
     let mut gb = cgb(&SPIN, 0x80);
     gb.bus_write(0xFF40, 0x00);
     gb
@@ -70,14 +71,14 @@ fn a_dmg_cartridge_runs_in_compatibility_mode_with_the_default_palettes() {
 #[test]
 fn the_agb_differs_only_in_its_registers() {
     let (_, gb) =
-        GameBoy::from_rom_with_boot_profile(rom_with(&SPIN, 0x80), BootProfile::Agb).unwrap();
+        GameBoyState::from_rom_with_boot_profile(rom_with(&SPIN, 0x80), BootProfile::Agb).unwrap();
     assert!(gb.cgb_mode());
     assert_eq!((gb.cpu.b, gb.cpu.f), (0x01, 0x00));
 }
 
 #[test]
 fn a_monochrome_model_has_no_cgb_registers() {
-    let (_, mut gb) = GameBoy::from_rom(rom_with(&SPIN, 0x80)).unwrap();
+    let (_, mut gb) = GameBoyState::from_rom(rom_with(&SPIN, 0x80)).unwrap();
     assert!(!gb.is_cgb());
     assert!(gb.color_framebuffer().is_none());
     gb.bus_write(0xFF4F, 1);
@@ -169,13 +170,13 @@ fn palette_data_is_out_of_reach_in_mode_3() {
 }
 
 /// Fill `len` bytes of WRAM from `$C000` with a counting pattern.
-fn fill_wram(gb: &mut GameBoy, len: u16) {
+fn fill_wram(gb: &mut GameBoyState, len: u16) {
     for i in 0..len {
         gb.bus_write(0xC000 + i, (i as u8).wrapping_add(1));
     }
 }
 
-fn set_hdma(gb: &mut GameBoy, source: u16, dest: u16) {
+fn set_hdma(gb: &mut GameBoyState, source: u16, dest: u16) {
     gb.bus_write(0xFF51, (source >> 8) as u8);
     gb.bus_write(0xFF52, source as u8);
     gb.bus_write(0xFF53, (dest >> 8) as u8);
@@ -184,7 +185,7 @@ fn set_hdma(gb: &mut GameBoy, source: u16, dest: u16) {
 
 /// Steps until no HDMA is copying, returning the m-cycles it held the
 /// CPU and checking the CPU did not move meanwhile.
-fn run_hdma(gb: &mut GameBoy) -> u32 {
+fn run_hdma(gb: &mut GameBoyState) -> u32 {
     let pc = gb.cpu.pc;
     let mut cycles = 0;
     while gb.cgb.as_ref().unwrap().hdma_running {
@@ -295,7 +296,7 @@ fn clearing_hdma5_bit_7_stops_an_hblank_transfer() {
 /// `LD A,1 / LDH ($4D),A / STOP / JR -2` (the loop is at `$0106`).
 const SPEED_SWITCH: [u8; 8] = [0x3E, 0x01, 0xE0, 0x4D, 0x10, 0x00, 0x18, 0xFE];
 
-fn run_until_pc(gb: &mut GameBoy, pc: u16, limit: u32) -> u32 {
+fn run_until_pc(gb: &mut GameBoyState, pc: u16, limit: u32) -> u32 {
     for cycles in 0..limit {
         if gb.cpu.pc == pc && gb.cpu.instruction_complete() && !gb.cpu.halt_mode {
             return cycles;
@@ -360,7 +361,7 @@ fn a_pending_interrupt_cuts_the_speed_switch_halt_short() {
 #[test]
 fn stop_without_a_switch_waits_for_a_button() {
     // `STOP / JR -2` on a DMG: STOP mode until a selected button.
-    let (_, mut gb) = GameBoy::from_rom(rom_with(&[0x10, 0x00, 0x18, 0xFE], 0x00)).unwrap();
+    let (_, mut gb) = GameBoyState::from_rom(rom_with(&[0x10, 0x00, 0x18, 0xFE], 0x00)).unwrap();
     gb.ie_reg = 0;
     gb.bus_write(0xFF00, 0x10); // select the action buttons
     for _ in 0..8 {
@@ -383,7 +384,7 @@ fn stop_without_a_switch_waits_for_a_button() {
 
 #[test]
 fn stop_with_a_button_held_halts_instead() {
-    let (_, mut gb) = GameBoy::from_rom(rom_with(&[0x10, 0x00, 0x18, 0xFE], 0x00)).unwrap();
+    let (_, mut gb) = GameBoyState::from_rom(rom_with(&[0x10, 0x00, 0x18, 0xFE], 0x00)).unwrap();
     gb.ie_reg = 0;
     gb.bus_write(0xFF00, 0x10);
     gb.set_button(JoypadButton::A, true);
@@ -405,7 +406,7 @@ fn the_boot_rom_maps_until_ff50_and_key0_picks_the_mode() {
     rom[0x0000] = 0x5A;
     rom[0x0200] = 0x77;
     let cart = cartridge(rom);
-    let mut gb = GameBoy::new_cgb_with_boot_rom(cart, BootProfile::Cgb, boot);
+    let mut gb = GameBoyState::new_cgb_with_boot_rom(cart, BootProfile::Cgb, boot);
 
     assert_eq!(gb.cpu.pc, 0);
     assert!(gb.cgb_mode(), "the boot ROM runs in CGB mode");
@@ -431,7 +432,7 @@ fn opri_reorders_objects_only_while_the_boot_rom_runs() {
     boot[0] = 0x18;
     boot[1] = 0xFE;
     let cart = cartridge(rom_with(&SPIN, 0x80));
-    let mut gb = GameBoy::new_cgb_with_boot_rom(cart, BootProfile::Cgb, boot);
+    let mut gb = GameBoyState::new_cgb_with_boot_rom(cart, BootProfile::Cgb, boot);
     gb.bus_write(0xFF6C, 0x01);
     assert_eq!(gb.bus_read(0xFF6C), 0xFF);
     assert!(!gb.ppu.object_priority_by_index());
@@ -470,7 +471,7 @@ fn snapshots_round_trip_the_cgb_state() {
     gb.bus_write(0xD123, 0x42);
     gb.bus_write(0xFF4F, 1);
     let bytes = postcard::to_allocvec(&gb).unwrap();
-    let back: GameBoy = postcard::from_bytes(&bytes).unwrap();
+    let back: GameBoyState = postcard::from_bytes(&bytes).unwrap();
     assert!(back.cgb_mode());
     assert_eq!(back.bus_read(0xD123), 0x42);
     assert_eq!(back.bus_read(0xFF4F), 0xFF);
