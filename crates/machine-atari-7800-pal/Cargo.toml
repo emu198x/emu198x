@@ -1,0 +1,12 @@
+[package]
+name = "machine-atari-7800-pal"
+description = "Fixed Atari 7800 Pal board"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-atari-7800 = { path = "../common-atari-7800", version = "0.45.1" }
+[lints]
+workspace = true

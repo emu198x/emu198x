@@ -1,23 +1,12 @@
 [package]
 name = "machine-atari-7800"
-description = "Atari 7800 ProSystem machine wiring — 6502C 'Sally' + MARIA + RIOT + TIA audio"
+description = "Fixed Atari 7800 Ntsc board"
 version.workspace = true
 publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
 [dependencies]
-emu198x-atari-maria = { path = "../emu198x-atari-maria", version = "0.1.0" }
-emu198x-atari-pokey = { path = "../emu198x-atari-pokey", version = "0.1.0" }
-emu198x-atari-tia = { path = "../emu198x-atari-tia", version = "0.1.0" }
-emu198x-mos-6502 = "0.6.1"
-emu198x-mos-riot-6532 = "0.1.0"
-serde = { workspace = true }
-serde-big-array = { workspace = true }
-
-[dev-dependencies]
-postcard = { workspace = true }
-
+common-atari-7800 = { path = "../common-atari-7800", version = "0.45.1" }
 [lints]
 workspace = true

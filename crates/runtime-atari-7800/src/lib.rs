@@ -1,6 +1,7 @@
 //! Atari 7800 family metadata and runtime surface.
 
 mod input;
+mod machine;
 mod profiles;
 mod queries;
 mod runtime;

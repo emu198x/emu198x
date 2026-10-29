@@ -1,7 +1,7 @@
 //! Family-owned query surface for the Atari 7800 runtime.
 
+use crate::machine::Atari7800Machine as Atari7800;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_atari_7800::Atari7800;
 use serde_json::json;
 
 use crate::runtime::Atari7800Runtime;

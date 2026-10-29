@@ -10,8 +10,8 @@
 //! two fire buttons map via `fire`/`fire1` and `fire2`; the P1 port (second
 //! controller) is not yet exposed by `machine-atari-7800`.
 
+use crate::machine::Atari7800Machine as Atari7800;
 use emu198x_shell::InputEvent;
-use machine_atari_7800::Atari7800;
 
 /// Host-side mirror of the P0 joystick directions, fire buttons + console
 /// switches.

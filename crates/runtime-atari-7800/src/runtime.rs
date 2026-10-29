@@ -1,11 +1,12 @@
 //! Runtime wrapper for the Atari 7800.
 
+use crate::machine::Atari7800Machine as Atari7800;
+use common_atari_7800::Atari7800Region;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_atari_7800::{Atari7800, Atari7800Region};
 
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;

@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_atari_7800::{Atari7800, Atari7800Region};
+use common_atari_7800::{Atari7800Region, Atari7800State};
 
 fn first_cart(dir: &PathBuf) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;
@@ -45,7 +45,7 @@ fn cart_boots_without_panic() {
     };
     let rom = fs::read(&path).expect("read cart");
 
-    let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("init");
+    let mut sys = Atari7800State::new(rom, Atari7800Region::Ntsc).expect("init");
     for _ in 0..200 {
         sys.run_frame();
     }

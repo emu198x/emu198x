@@ -56,7 +56,7 @@ fn every_native_request_reaches_an_executed_handler() {
                             rom[0x100] = 0x40;
                         }
                         rom[0x7ffa..].copy_from_slice(&[0, 0x81, 0, 0x80, 0, 0x80]);
-                        let mut sys = Atari7800::new(rom, region).expect("probe guest");
+                        let mut sys = Atari7800State::new(rom, region).expect("probe guest");
                         // Exercise the handler's carry path in every row
                         // with two or more delivered interrupts.
                         sys.ram_zp[0] = 0xfe;
@@ -159,7 +159,7 @@ fn every_native_request_reaches_an_executed_handler() {
     );
 }
 
-fn interrupt_guest(region: Atari7800Region, guest: u8) -> Atari7800 {
+fn interrupt_guest(region: Atari7800Region, guest: u8) -> Atari7800State {
     let mut rom = vec![0xea; 0x8000];
     let mut code = vec![
         0x78, 0xd8, 0xa2, 0xff, 0x9a, 0xa9, 0x18, 0x85, 0x2c, 0xa9, 0, 0x85, 0x30, 0xa9, 0x40,
@@ -175,7 +175,7 @@ fn interrupt_guest(region: Atari7800Region, guest: u8) -> Atari7800 {
     rom[..code.len()].copy_from_slice(&code);
     rom[0x100..0x107].copy_from_slice(&[0xe6, 0x40, 0xd0, 2, 0xe6, 0x41, 0x40]);
     rom[0x7ffa..].copy_from_slice(&[0, 0x81, 0, 0x80, 0, 0x80]);
-    let mut sys = Atari7800::new(rom, region).expect("interrupt guest");
+    let mut sys = Atari7800State::new(rom, region).expect("interrupt guest");
     for entry in sys.ram_main[..0x400].as_chunks_mut::<3>().0 {
         entry.copy_from_slice(&[0x80, 0x1c, 0]);
     }
@@ -199,7 +199,7 @@ fn snapshots_resume_pending_and_asserted_interrupts() {
                 waiting += usize::from(sys.maria.wsync_halt() && sys.maria.nmi);
                 sys.take_audio_samples();
                 let saved = postcard::to_allocvec(&sys).expect("interrupt save");
-                let mut restored: Atari7800 =
+                let mut restored: Atari7800State =
                     postcard::from_bytes(&saved).expect("interrupt restore");
                 for _ in 0..2048 {
                     sys.tick_master_clock();
