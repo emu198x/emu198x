@@ -23,11 +23,11 @@
 //! edges — four and nine pulses, the ZX81's 0 and 1 — matching burst for burst
 //! through the system-variable header.
 
-use machine_sinclair_zx81::tape::LEAD_IN_T;
-use machine_sinclair_zx81::{Zx81, Zx81Key};
+use common_sinclair_zx81::tape::LEAD_IN_T;
+use common_sinclair_zx81::{Zx81Key, Zx81State};
 use std::{env, fs};
 
-fn tap(machine: &mut Zx81, key: Zx81Key) {
+fn tap(machine: &mut Zx81State, key: Zx81Key) {
     machine.press_key(key);
     for _ in 0..25 {
         machine.run_frame();
@@ -38,7 +38,7 @@ fn tap(machine: &mut Zx81, key: Zx81Key) {
     }
 }
 
-fn shifted(machine: &mut Zx81, key: Zx81Key) {
+fn shifted(machine: &mut Zx81State, key: Zx81Key) {
     machine.press_key(Zx81Key::Shift);
     machine.press_key(key);
     for _ in 0..25 {
@@ -51,7 +51,7 @@ fn shifted(machine: &mut Zx81, key: Zx81Key) {
     }
 }
 
-fn newline(machine: &mut Zx81) {
+fn newline(machine: &mut Zx81State) {
     machine.press_key(Zx81Key::Newline);
     for _ in 0..25 {
         machine.run_frame();
@@ -59,8 +59,8 @@ fn newline(machine: &mut Zx81) {
     machine.release_key(Zx81Key::Newline);
 }
 
-fn booted(rom: Vec<u8>) -> Zx81 {
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+fn booted(rom: Vec<u8>) -> Zx81State {
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..400 {
         machine.run_frame();
     }

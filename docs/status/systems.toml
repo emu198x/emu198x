@@ -444,6 +444,15 @@ milestone = "ZX80 100%"
 
 [[system]]
 machine_id = "sinclair-zx81"
+machine_crate = "machine-sinclair-zx81"
+crate = "emu198x-sinclair-zx81"
+label = "system:zx81"
+milestone = "ZX81 100%"
+
+# Shared family backlog; qualification belongs to the concrete board.
+[[system]]
+machine_id = "timex-ts1000"
+machine_crate = "machine-timex-ts1000"
 crate = "emu198x-sinclair-zx81"
 label = "system:zx81"
 milestone = "ZX81 100%"

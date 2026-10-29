@@ -1,6 +1,6 @@
 //! ZX81 family profile catalogue.
 
-use machine_sinclair_zx81::TelevisionStandard;
+use common_sinclair_zx81::TelevisionStandard;
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
@@ -18,9 +18,8 @@ pub enum Model {
     Zx81Ram16k,
     /// Timex/Sinclair TS1000 -- the US machine: 2 KB and 60 Hz.
     ///
-    /// *"`ZX81` and `TS1000` are the same machine. The differences are RAM
-    /// size (1 K vs 2 K) and television standard."*
-    /// (`reference/by-system/sinclair-zx81/zx81-hardware-reference.md`)
+    /// The shared ULA and monitor ROM are documented in
+    /// `reference/by-system/sinclair-zx81/zx81-hardware-reference.md`.
     ///
     /// The 60 Hz half is one strap: ULA pin 22 grounded, which the ROM reads
     /// on port bit 6 and turns into a shorter field via `MARGIN`. The ULA is
@@ -49,8 +48,8 @@ impl Model {
         ]
     }
     #[must_use]
-    /// Both boards are the same machine, so they share a `machine_id`. The
-    /// registry joins on this, and it is deliberately not the profile id.
+    /// Legacy snapshot family identifier, preserved for version-5 save bytes.
+    /// Physical registry identities are assigned separately in `profile_for`.
     pub const fn model_id(self) -> &'static str {
         "sinclair-zx81"
     }
@@ -114,7 +113,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("sinclair-zx81"),
+        machine_id: MachineId::from(match model{Model::Ts1000=>"timex-ts1000",_=>"sinclair-zx81"}),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Spectrum,
@@ -154,15 +153,13 @@ mod tests {
         assert_eq!(p.firmware[0].id.as_ref(), ROM_FIRMWARE_ID);
     }
 
-    /// The boards are one machine with one ROM. They must stay joined on
-    /// `machine_id` — the registry keys on it, and a second machine_id would
-    /// un-join the other boards from the ZX81's own issues and milestone.
+    /// Pin 22 makes the TS1000 a distinct board; RAM packs remain ZX81 profiles.
     #[test]
-    fn the_boards_share_a_machine_but_not_a_profile() {
+    fn physical_boards_have_distinct_ids_and_ram_packs_remain_profiles() {
         let ids: Vec<_> = Model::ALL.iter().map(|m| profile_for(*m)).collect();
-        for board in &ids {
-            assert_eq!(board.machine_id, ids[0].machine_id);
-        }
+        assert_eq!(ids[0].machine_id.as_str(), "sinclair-zx81");
+        assert_eq!(ids[1].machine_id, ids[0].machine_id);
+        assert_eq!(ids[2].machine_id.as_str(), "timex-ts1000");
         let mut profile_ids: Vec<String> = Model::ALL
             .iter()
             .map(|m| m.profile_id().to_owned())

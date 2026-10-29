@@ -40,7 +40,7 @@
 
 use std::{env, fs, io::BufReader, path::PathBuf};
 
-use machine_sinclair_zx81::Zx81;
+use common_sinclair_zx81::Zx81State;
 
 /// Frames to settle before capture. The ROM has established its display and
 /// the `K` cursor well before this.
@@ -101,7 +101,7 @@ fn the_boot_screen_matches_its_baseline() {
         );
     };
 
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..SETTLE_FRAMES {
         machine.run_frame();
     }

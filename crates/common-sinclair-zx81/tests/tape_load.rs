@@ -1,8 +1,8 @@
+use common_sinclair_zx81::{Zx81Key, Zx81State};
 use format198x_sinclair_zx81_p::Zx81Image;
-use machine_sinclair_zx81::{Zx81, Zx81Key};
 use std::{env, fs};
 
-fn read_row(sys: &Zx81, row: usize) -> String {
+fn read_row(sys: &Zx81State, row: usize) -> String {
     let fb = sys.framebuffer();
     let width = sys.framebuffer_width() as usize;
     let i = u16::from(sys.cpu().regs.i);
@@ -44,7 +44,7 @@ fn character(code: u8) -> char {
     }
 }
 
-fn tap(m: &mut Zx81, k: Zx81Key) {
+fn tap(m: &mut Zx81State, k: Zx81Key) {
     m.press_key(k);
     for _ in 0..25 {
         m.run_frame();
@@ -55,7 +55,7 @@ fn tap(m: &mut Zx81, k: Zx81Key) {
     }
 }
 
-fn shifted(m: &mut Zx81, k: Zx81Key) {
+fn shifted(m: &mut Zx81State, k: Zx81Key) {
     m.press_key(Zx81Key::Shift);
     m.press_key(k);
     for _ in 0..25 {
@@ -107,9 +107,9 @@ fn a_real_image_loads_from_the_cassette_line() {
     let raw = fs::read(&image_path).expect("read .p");
 
     let image = Zx81Image::parse(&raw).expect("a valid .p");
-    let pulses = machine_sinclair_zx81::tape::pulses(&image, &[0x26]);
+    let pulses = common_sinclair_zx81::tape::pulses(&image, &[0x26]);
 
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..400 {
         machine.run_frame();
     }

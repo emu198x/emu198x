@@ -191,7 +191,7 @@ fn the_text_area_matches_zesarux() {
     );
 
     let ours = golden("zx81-boot.png");
-    let our_y = machine_sinclair_zx81::TelevisionStandard::FiftyHz.text_top();
+    let our_y = common_sinclair_zx81::TelevisionStandard::FiftyHz.text_top();
     let shifted = |x: u32, y: u32| ours(x, our_y + y);
     let diffs = scanline_diff(&shifted, &theirs, (ZESARUX_X, ZESARUX_Y), 0..TEXT_H);
 
@@ -253,7 +253,7 @@ const PATTERN_STEP: u8 = 0x4D;
 #[test]
 #[ignore = "FIXTURE: needs a ZX81 ROM and a capture from tools/zx8x-zesarux-capture/wrx-fixture.sh"]
 fn the_wrx_fixture_matches_zesarux() {
-    use machine_sinclair_zx81::Zx81;
+    use common_sinclair_zx81::Zx81State;
 
     let Ok(rom_path) = env::var("EMU198X_ZX81_ROM")
         .or_else(|_| env::var("HOME").map(|h| format!("{h}/.emu198x/roms/sinclair-zx81/zx81.rom")))
@@ -270,7 +270,7 @@ fn the_wrx_fixture_matches_zesarux() {
         );
     };
 
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..400 {
         machine.run_frame();
     }
@@ -285,7 +285,7 @@ fn the_wrx_fixture_matches_zesarux() {
         machine.run_frame();
     }
 
-    let read = |m: &Zx81| -> Vec<bool> {
+    let read = |m: &Zx81State| -> Vec<bool> {
         let w = m.framebuffer_width() as usize;
         let top = m.text_top() as usize;
         let fb = m.framebuffer();

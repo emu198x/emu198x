@@ -331,7 +331,7 @@ mod tests {
 #[cfg(test)]
 mod board_tests {
     use super::{BOARD_ROM_SIZE, HiResBoard};
-    use crate::Zx81;
+    use crate::Zx81State;
 
     const INK: u32 = 0xFF00_0000;
 
@@ -374,8 +374,8 @@ mod board_tests {
 
     /// A 16 KB machine whose display file at `$C000` (RAM at `$4000`)
     /// opens with `PATTERN` repeated.
-    fn machine(board: HiResBoard, mode: u8) -> Zx81 {
-        let mut sys = Zx81::new(rom(mode), 0x4000).expect("init");
+    fn machine(board: HiResBoard, mode: u8) -> Zx81State {
+        let mut sys = Zx81State::new(rom(mode), 0x4000).expect("init");
         sys.set_hires_board(board);
         for offset in 0..64u16 {
             sys.poke(0x4000 + offset, PATTERN[usize::from(offset & 1)]);
@@ -385,8 +385,8 @@ mod board_tests {
 
     /// A 16 KB machine with a Quicksilva board whose bitmap is `PATTERN`
     /// repeated, running `rom`.
-    fn quicksilva(rom: Vec<u8>) -> Zx81 {
-        let mut sys = Zx81::new(rom, 0x4000).expect("init");
+    fn quicksilva(rom: Vec<u8>) -> Zx81State {
+        let mut sys = Zx81State::new(rom, 0x4000).expect("init");
         sys.set_hires_board(HiResBoard::Quicksilva);
         for offset in 0..0x1800u16 {
             sys.poke(0xA000 + offset, PATTERN[usize::from(offset & 1)]);
@@ -395,7 +395,7 @@ mod board_tests {
     }
 
     /// Whether some row shows `bytes` as contiguous pixels.
-    fn shows(sys: &Zx81, bytes: &[u8]) -> bool {
+    fn shows(sys: &Zx81State, bytes: &[u8]) -> bool {
         let want: Vec<bool> = bytes
             .iter()
             .flat_map(|byte| (0..8).map(move |bit| byte & (0x80 >> bit) != 0))
@@ -443,7 +443,7 @@ mod board_tests {
     /// only while `I` is odd; the EPROM sits at `$2000`.
     #[test]
     fn the_memotech_ram_overlays_the_rom_while_i_is_odd() {
-        let mut sys = Zx81::new(rom(0), 0x400).expect("init");
+        let mut sys = Zx81State::new(rom(0), 0x400).expect("init");
         sys.set_hires_board(HiResBoard::Memotech);
         sys.poke(0x0100, 0x5A);
         assert_eq!(sys.peek(0x0100), 0x00, "I even: the ROM");
@@ -483,7 +483,7 @@ mod board_tests {
 
     #[test]
     fn the_g007_maps_its_ram_and_eprom() {
-        let mut sys = Zx81::new(rom(0), 0x400).expect("init");
+        let mut sys = Zx81State::new(rom(0), 0x400).expect("init");
         sys.set_hires_board(HiResBoard::G007);
         sys.poke(0x2000, 0x11);
         sys.poke(0x2200, 0x22);
@@ -500,7 +500,7 @@ mod board_tests {
         let mut sys = machine(HiResBoard::G007, 0);
         sys.poke(0x2001, 0x77);
         let bytes = postcard::to_allocvec(&sys).expect("encode");
-        let restored: Zx81 = postcard::from_bytes(&bytes).expect("decode");
+        let restored: Zx81State = postcard::from_bytes(&bytes).expect("decode");
         assert_eq!(restored.hires_board(), HiResBoard::G007);
         assert_eq!(restored.peek(0x2001), 0x77);
     }

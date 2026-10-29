@@ -1,12 +1,13 @@
 //! Runtime wrapper for the Sinclair ZX81.
 
+use crate::machine::Zx81Machine as Zx81;
+use common_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
     PixelFormat, ResetKind, RunResult, StopReason,
 };
 use format198x_sinclair_zx81_p::Zx81Image;
-use machine_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard, Zx81};
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
@@ -281,14 +282,14 @@ impl Zx81Runtime {
             self.machine = None;
             return Ok(());
         };
-        let mut machine =
-            Zx81::new(rom, self.ram_bytes).map_err(|reason| MachineError::InvalidFirmware {
+        let mut machine = Zx81::new(rom, self.ram_bytes, self.model).map_err(|reason| {
+            MachineError::InvalidFirmware {
                 id: ROM_FIRMWARE_ID.to_owned(),
                 reason,
-            })?;
+            }
+        })?;
         // The board strap is the whole of the region difference: the ROM reads
         // it on port bit 6 and lays out a shorter field for 60 Hz.
-        machine.set_television_standard(self.model.television_standard());
         machine.set_hires_board(self.hires_board);
         if let Some(image) = &self.hires_rom {
             machine
@@ -458,7 +459,7 @@ impl MachineCore for Zx81Runtime {
                 })?;
             // A one-character name. `LOAD ""` takes whatever it finds, but the
             // stream still needs a name for the ROM to read past.
-            self.tape = Some(machine_sinclair_zx81::tape::pulses(&parsed, &[TAPE_NAME]));
+            self.tape = Some(common_sinclair_zx81::tape::pulses(&parsed, &[TAPE_NAME]));
         }
         Ok(())
     }
@@ -660,8 +661,8 @@ mod tests {
 mod hires_tests {
     use super::Zx81Runtime;
     use crate::profiles::Model;
+    use common_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard};
     use emu198x_shell::{MachineCore, MachineError};
-    use machine_sinclair_zx81::{BOARD_ROM_SIZE, HiResBoard};
 
     fn fresh() -> Zx81Runtime {
         Zx81Runtime::new(Model::Zx81Ram16k, vec![0; 0x2000]).expect("runtime")
