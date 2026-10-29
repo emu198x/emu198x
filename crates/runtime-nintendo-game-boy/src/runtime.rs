@@ -1,12 +1,13 @@
 //! `MachineCore` wrapper for the Game Boy family.
 
+use crate::machine::GameBoyMachine as GameBoy;
+use common_nintendo_game_boy::{ApuChannel, AudioControls};
 use common_nintendo_game_boy::{DMG_GREYSCALE_RGBA, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_nintendo_game_boy::{ApuChannel, AudioControls, GameBoy};
 
 use crate::input::apply_input_event;
 use crate::snapshot;

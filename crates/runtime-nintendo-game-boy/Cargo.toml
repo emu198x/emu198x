@@ -1,6 +1,6 @@
 [package]
 name = "runtime-nintendo-game-boy"
-description = "Nintendo Game Boy runtime — bridges machine-nintendo-game-boy with the emu198x-shell MachineCore trait"
+description = "Nintendo Game Boy family runtime over concrete board owners"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -11,6 +11,11 @@ repository.workspace = true
 common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.45.0" }
 emu198x-shell = { workspace = true }
 machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy", version = "0.45.0" }
+machine-nintendo-game-boy-pocket = { path = "../machine-nintendo-game-boy-pocket", version = "0.45.0" }
+machine-nintendo-super-game-boy = { path = "../machine-nintendo-super-game-boy", version = "0.45.0" }
+machine-nintendo-super-game-boy-2 = { path = "../machine-nintendo-super-game-boy-2", version = "0.45.0" }
+machine-nintendo-game-boy-color = { path = "../machine-nintendo-game-boy-color", version = "0.45.0" }
+machine-nintendo-game-boy-advance = { path = "../machine-nintendo-game-boy-advance", version = "0.45.0" }
 emu198x-sharp-lr35902 = "0.1.0"
 postcard = { workspace = true }
 serde = { workspace = true }

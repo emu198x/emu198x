@@ -192,9 +192,45 @@ milestone = "MSX2 100%"
 
 [[system]]
 machine_id = "nintendo-game-boy"
+machine_crate = "machine-nintendo-game-boy"
 crate = "emu198x-game-boy"
 label = "system:game-boy"
 milestone = "Game Boy 100%"
+
+[[system]]
+machine_id = "nintendo-game-boy-pocket"
+machine_crate = "machine-nintendo-game-boy-pocket"
+crate = "emu198x-game-boy"
+label = "system:game-boy-pocket"
+milestone = "Game Boy Pocket 100%"
+
+[[system]]
+machine_id = "nintendo-super-game-boy"
+machine_crate = "machine-nintendo-super-game-boy"
+crate = "emu198x-game-boy"
+label = "system:super-game-boy"
+milestone = "Super Game Boy 100%"
+
+[[system]]
+machine_id = "nintendo-super-game-boy-2"
+machine_crate = "machine-nintendo-super-game-boy-2"
+crate = "emu198x-game-boy"
+label = "system:super-game-boy-2"
+milestone = "Super Game Boy 100%"
+
+[[system]]
+machine_id = "nintendo-game-boy-color"
+machine_crate = "machine-nintendo-game-boy-color"
+crate = "emu198x-game-boy"
+label = "system:game-boy-color"
+milestone = "Game Boy Color 100%"
+
+[[system]]
+machine_id = "nintendo-game-boy-advance"
+machine_crate = "machine-nintendo-game-boy-advance"
+crate = "emu198x-game-boy"
+label = "system:game-boy-advance"
+milestone = "Game Boy Advance CGB mode 100%"
 
 [[system]]
 machine_id = "nintendo-nes"

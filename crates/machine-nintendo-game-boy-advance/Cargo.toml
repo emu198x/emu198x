@@ -1,0 +1,14 @@
+[package]
+name = "machine-nintendo-game-boy-advance"
+description = "Fixed Agb Game Boy execution board"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.45.0" }
+
+[lints]
+workspace = true

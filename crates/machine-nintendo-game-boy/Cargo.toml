@@ -1,6 +1,6 @@
 [package]
 name = "machine-nintendo-game-boy"
-description = "Nintendo Game Boy and Game Boy Color machine — composes the CPU, PPU, APU, timer, MBC and I/O"
+description = "Fixed Dmg Game Boy execution board"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -9,19 +9,6 @@ repository.workspace = true
 
 [dependencies]
 common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.45.0" }
-format-nintendo-game-boy-cartridge = { path = "../format-nintendo-game-boy-cartridge", version = "0.45.0" }
-emu198x-nintendo-game-boy-apu = { path = "../emu198x-nintendo-game-boy-apu", version = "0.1.0" }
-emu198x-nintendo-game-boy-mbc = { path = "../emu198x-nintendo-game-boy-mbc", version = "0.1.0" }
-emu198x-nintendo-game-boy-ppu = { path = "../emu198x-nintendo-game-boy-ppu", version = "0.1.0" }
-emu198x-nintendo-game-boy-timer = { path = "../emu198x-nintendo-game-boy-timer", version = "0.1.0" }
-serde = { workspace = true }
-serde-big-array = { workspace = true }
-emu198x-sharp-lr35902 = "0.1.0"
-
-[dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
-png = { workspace = true }
-postcard = { workspace = true }
 
 [lints]
 workspace = true

@@ -47,8 +47,9 @@ fn original_firmware_checks_logo_checksum_and_hands_off_with_hardware_registers(
                 bytes[offset] ^= 1;
             }
             let cart = Cartridge::new(bytes, CartType::RomOnly { battery: false }, 0);
-            let mut machine = GameBoy::try_new_with_boot_rom(cart, model, Some(firmware.clone()))
-                .expect("original boot firmware");
+            let mut machine =
+                GameBoyState::try_new_with_boot_rom(cart, model, Some(firmware.clone()))
+                    .expect("original boot firmware");
             assert_eq!(machine.cpu().pc, 0);
             let mut unmapped = None;
             for cycle in 0..8_000_000u32 {

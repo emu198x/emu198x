@@ -1,7 +1,8 @@
 //! Versioned postcard envelopes; version 3 uses its exact legacy machine layout.
+use crate::machine::GameBoyMachine;
 use crate::runtime::GameBoyRuntime;
+use common_nintendo_game_boy::{GameBoyState, GameBoyV3};
 use emu198x_shell::{MachineError, MachineTime};
-use machine_nintendo_game_boy::{GameBoy, GameBoyV3};
 use serde::{Deserialize, Serialize};
 
 const SNAPSHOT_VERSION: u32 = 4;
@@ -12,7 +13,7 @@ struct GameBoyRuntimeSnapshotRefV4<'a> {
     profile_id: &'a str,
     time: MachineTime,
     cartridge_bytes: Option<&'a [u8]>,
-    machine: Option<&'a GameBoy>,
+    machine: Option<&'a GameBoyMachine>,
     boot_rom: Option<&'a [u8]>,
 }
 
@@ -22,7 +23,7 @@ struct SnapshotV4 {
     profile_id: String,
     time: MachineTime,
     cartridge_bytes: Option<Vec<u8>>,
-    machine: Option<GameBoy>,
+    machine: Option<GameBoyState>,
     boot_rom: Option<Vec<u8>>,
 }
 
@@ -68,10 +69,10 @@ pub(crate) fn decode(runtime: &mut GameBoyRuntime, bytes: &[u8]) -> Result<(), M
     let snapshot = match version {
         3 => {
             let old: SnapshotV3 = decode_exact(bytes)?;
-            let machine = old.machine.map(GameBoy::from);
+            let machine = old.machine.map(GameBoyState::from);
             let boot_rom = machine
                 .as_ref()
-                .and_then(GameBoy::boot_rom)
+                .and_then(GameBoyState::boot_rom)
                 .map(<[u8]>::to_vec);
             SnapshotV4 {
                 version: old.version,
@@ -112,7 +113,13 @@ pub(crate) fn decode(runtime: &mut GameBoyRuntime, bytes: &[u8]) -> Result<(), M
         }
     }
     // All decoding and validation completes before replacing any live state.
-    runtime.set_machine(snapshot.machine);
+    let profile = runtime.model().boot_profile();
+    let machine = snapshot
+        .machine
+        .map(|state| GameBoyMachine::from_state(profile, state))
+        .transpose()
+        .map_err(invalid)?;
+    runtime.set_machine(machine);
     runtime.set_cartridge_bytes(snapshot.cartridge_bytes);
     runtime.set_boot_rom(snapshot.boot_rom);
     runtime.set_time(snapshot.time);
@@ -123,7 +130,7 @@ pub(crate) fn decode(runtime: &mut GameBoyRuntime, bytes: &[u8]) -> Result<(), M
 #[cfg(test)]
 mod tests {
     use super::{GameBoyRuntimeSnapshotRefV4, decode};
-    use crate::{Model, runtime::GameBoyRuntime};
+    use crate::{GameBoyMachine, Model, runtime::GameBoyRuntime};
     use emu198x_shell::{MachineError, MachineTime};
 
     /// Decode rejects a snapshot whose version field is not the one
@@ -184,7 +191,7 @@ mod tests {
         let rom =
             include_bytes!("../../../test-data/synthetic-cartridges/nintendo-game-boy-logo.gb")
                 .to_vec();
-        let (_, machine) = machine_nintendo_game_boy::GameBoy::try_from_rom_with_boot_rom(
+        let (_, machine) = GameBoyMachine::try_from_rom_with_boot_rom(
             rom,
             Model::Dmg.boot_profile(),
             Some(vec![0; 256]),
@@ -210,12 +217,9 @@ mod tests {
         let rom =
             include_bytes!("../../../test-data/synthetic-cartridges/nintendo-game-boy-logo.gb")
                 .to_vec();
-        let (_, machine) = machine_nintendo_game_boy::GameBoy::try_from_rom_with_boot_rom(
-            rom,
-            Model::Cgb.boot_profile(),
-            None,
-        )
-        .expect("colour machine");
+        let (_, machine) =
+            GameBoyMachine::try_from_rom_with_boot_rom(rom, Model::Cgb.boot_profile(), None)
+                .expect("colour machine");
         let bytes = postcard::to_allocvec(&GameBoyRuntimeSnapshotRefV4 {
             version: 4,
             profile_id: runtime.profile().profile_id.as_str(),

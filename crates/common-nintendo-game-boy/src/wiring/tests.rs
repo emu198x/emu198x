@@ -40,13 +40,13 @@ fn jr_loop_rom() -> Vec<u8> {
     rom
 }
 
-fn boot_machine(rom: Vec<u8>) -> GameBoy {
-    let (_, gb) = GameBoy::from_rom(rom).unwrap();
+fn boot_machine(rom: Vec<u8>) -> GameBoyState {
+    let (_, gb) = GameBoyState::from_rom(rom).unwrap();
     gb
 }
 
-fn boot_machine_with_profile(rom: Vec<u8>, boot_profile: BootProfile) -> GameBoy {
-    let (_, gb) = GameBoy::from_rom_with_boot_profile(rom, boot_profile).unwrap();
+fn boot_machine_with_profile(rom: Vec<u8>, boot_profile: BootProfile) -> GameBoyState {
+    let (_, gb) = GameBoyState::from_rom_with_boot_profile(rom, boot_profile).unwrap();
     gb
 }
 
@@ -67,7 +67,7 @@ fn diagnostic_mooneye_boot_div_counter_phase_search() {
         let rom = std::fs::read(format!("{root}/acceptance/{rom_name}")).unwrap();
         for counter in range {
             let (_, mut gb) =
-                GameBoy::from_rom_with_boot_profile(rom.clone(), boot_profile).unwrap();
+                GameBoyState::from_rom_with_boot_profile(rom.clone(), boot_profile).unwrap();
             gb.timer.counter = counter;
 
             let mut serial = Vec::new();
@@ -109,7 +109,7 @@ fn diagnostic_mooneye_boot_hwio_read_trace() {
     ] {
         eprintln!("trace {rom_name}");
         let rom = std::fs::read(format!("{root}/acceptance/{rom_name}")).unwrap();
-        let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, boot_profile).unwrap();
+        let (_, mut gb) = GameBoyState::from_rom_with_boot_profile(rom, boot_profile).unwrap();
 
         let mut serial_log = Vec::new();
         for _ in 0..250_000 {
@@ -875,14 +875,14 @@ fn every_header_board_maps_to_its_controller() {
 #[test]
 fn construction_validates_header() {
     let rom = nop_rom();
-    let (header, _) = GameBoy::from_rom(rom).unwrap();
+    let (header, _) = GameBoyState::from_rom(rom).unwrap();
     assert_eq!(header.cart_type, CartridgeType::RomOnly { battery: false });
 }
 
 #[test]
 fn construction_rejects_bad_header() {
     // Truncated ROM — header parser rejects.
-    match GameBoy::from_rom(vec![0u8; 100]) {
+    match GameBoyState::from_rom(vec![0u8; 100]) {
         Ok(_) => panic!("expected header error"),
         Err(format_nintendo_game_boy_cartridge::HeaderError::TooShort { .. }) => {}
         Err(other) => panic!("unexpected error: {other}"),
@@ -1245,7 +1245,7 @@ fn mooneye_dmg_acceptance_suite_passes() {
             BootProfile::DmgAbc
         };
         let rom = std::fs::read(rom_path).unwrap();
-        let Ok((_, mut gb)) = GameBoy::from_rom_with_boot_profile(rom, profile) else {
+        let Ok((_, mut gb)) = GameBoyState::from_rom_with_boot_profile(rom, profile) else {
             fails.push((name, "load-error".to_string()));
             continue;
         };
@@ -1295,7 +1295,7 @@ fn dmg_acid2_renders_reference() {
         panic!("set EMU198X_GB_DMG_ACID2 to dmg-acid2.gb");
     };
     let rom = std::fs::read(path).unwrap();
-    let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+    let (_, mut gb) = GameBoyState::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
     // Run ~60 frames so the test sets up and renders the final screen.
     for _ in 0..1_100_000u32 {
         gb.step_m_cycle();
@@ -1321,7 +1321,7 @@ fn dmg_acid2_renders_reference() {
 /// (signature `DE B0 61` at `$A001-3`; `$A000` = `0x80` running, else result;
 /// `0` = pass). Returns `None` on timeout.
 fn run_blargg_a000(rom: Vec<u8>, budget: u32) -> Option<u8> {
-    let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+    let (_, mut gb) = GameBoyState::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
     for _ in 0..budget {
         gb.step_m_cycle();
         if gb.bus_read(0xA001) == 0xDE && gb.bus_read(0xA002) == 0xB0 && gb.bus_read(0xA003) == 0x61
@@ -1374,7 +1374,7 @@ fn blargg_dmg_sound_suite_passes() {
 /// Run to the `LD B,B` (opcode `0x40`) software breakpoint that every
 /// Mealybug ROM hits when the frame is rendered. Returns false on budget.
 #[cfg(test)]
-fn run_to_ld_b_b(gb: &mut GameBoy, max_instructions: u32) -> bool {
+fn run_to_ld_b_b(gb: &mut GameBoyState, max_instructions: u32) -> bool {
     for _ in 0..max_instructions {
         gb.step_instruction();
         if gb.cpu().opcode == 0x40 {
@@ -1434,7 +1434,8 @@ fn diagnostic_mealybug_dmg() {
         }
         total += 1;
         let rom = std::fs::read(rom_path).unwrap();
-        let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+        let (_, mut gb) =
+            GameBoyState::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
         let hit = run_to_ld_b_b(&mut gb, 4_000_000);
         let expected = decode_mealybug_dmg_ref(&reference);
         let fb = gb.framebuffer().to_vec();
@@ -1601,7 +1602,8 @@ fn mealybug_dmg_ppu_gate() {
     let mut mismatches = Vec::new();
     for &(stem, reference, expected_diff) in BASELINE {
         let rom = std::fs::read(dir.join(format!("{stem}.gb"))).unwrap();
-        let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
+        let (_, mut gb) =
+            GameBoyState::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
         assert!(
             run_to_ld_b_b(&mut gb, 4_000_000),
             "{stem}: never reached LD B,B"
@@ -1637,7 +1639,7 @@ fn oam_dma_bus_conflict_is_bus_aware() {
     // #318: while an OAM DMA runs the CPU can only access the bus the DMA is
     // *not* using; a conflicting access returns the in-flight DMA byte. HRAM
     // stays accessible on either bus.
-    use common_nintendo_game_boy::MemoryBus;
+    use crate::MemoryBus;
     let mut gb = boot_machine(nop_rom());
     gb.wram[0x100] = 0x11; // $C100 — external bus
     gb.vram[0x000] = 0x22; // $8000 — video bus

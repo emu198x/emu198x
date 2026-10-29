@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::GameBoy;
+use crate::GameBoyState;
 
 /// Size of the CGB boot ROM: `$0000-$00FF` and `$0200-$08FF`, with the
 /// cartridge header showing through at `$0100-$01FF`.
@@ -128,7 +128,7 @@ impl CgbState {
     }
 }
 
-impl GameBoy {
+impl GameBoyState {
     /// Reads a CGB register, or `None` for an address that is not one.
     pub(crate) fn read_cgb_io(&self, addr: u16) -> Option<u8> {
         let cgb = self.cgb.as_ref()?;
@@ -299,10 +299,10 @@ impl GameBoy {
                 self.ppu.tick(&self.vram, &self.oam);
             }
             if self.ppu.consume_vblank_irq() {
-                self.if_reg |= crate::IF_VBLANK;
+                self.if_reg |= super::IF_VBLANK;
             }
             if self.ppu.consume_stat_irq() {
-                self.if_reg |= crate::IF_STAT;
+                self.if_reg |= super::IF_STAT;
             }
         }
         if self.joypad.any_selected_pressed() {

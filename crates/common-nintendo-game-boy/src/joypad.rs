@@ -20,8 +20,8 @@
 //!
 //! Pressing any button while the joypad interrupt source is enabled
 //! latches the joypad interrupt (`IF` bit 4) on the falling edge of
-//! the input nibble. The matrix exposes [`JoypadMatrix::edge`] so
-//! the machine layer can detect the edge for IRQ generation.
+//! the input nibble. The machine layer compares successive
+//! [`JoypadMatrix::read_p1`] values to detect that edge for IRQ generation.
 
 use serde::{Deserialize, Serialize};
 
