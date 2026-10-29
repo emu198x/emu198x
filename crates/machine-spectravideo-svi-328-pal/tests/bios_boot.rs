@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-spectravideo-svi-328 \
+//! cargo test --release -p machine-spectravideo-svi-328-pal \
 //!     --test bios_boot -- --ignored --nocapture
 //! ```
 //!
@@ -19,7 +19,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_spectravideo_svi_328::{Svi328, SviRegion};
+use machine_spectravideo_svi_328_pal::Svi328;
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_SVI_328_BIOS") {
@@ -45,7 +45,7 @@ fn bios_boots_to_initial_screen() {
     let bios = fs::read(&path).expect("read BIOS");
     assert_eq!(bios.len(), 0x8000, "BIOS must be exactly 32 KB");
 
-    let mut sys = Svi328::new(bios, SviRegion::Ntsc);
+    let mut sys = Svi328::new(bios);
     for _ in 0..900 {
         sys.run_frame();
     }

@@ -587,6 +587,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-spectravideo-svi-328"
+version = "0.45.1"
+dependencies = [
+ "emu198x-gi-ay-3-8912",
+ "emu198x-intel-8255",
+ "emu198x-ti-tms9918",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2122,7 +2135,6 @@ dependencies = [
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-ui",
- "machine-spectravideo-svi-328",
  "png",
  "runtime-spectravideo-svi-328",
  "serde_json",
@@ -4164,16 +4176,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-spectravideo-svi-328"
+name = "machine-spectravideo-svi-328-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-gi-ay-3-8912",
- "emu198x-intel-8255",
- "emu198x-ti-tms9918",
- "emu198x-z80-cadence",
+ "common-spectravideo-svi-328",
  "emu198x-zilog-z80",
- "postcard",
- "serde",
+]
+
+[[package]]
+name = "machine-spectravideo-svi-328-pal"
+version = "0.45.1"
+dependencies = [
+ "common-spectravideo-svi-328",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -5780,11 +5795,13 @@ dependencies = [
 name = "runtime-spectravideo-svi-328"
 version = "0.45.1"
 dependencies = [
+ "common-spectravideo-svi-328",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-zilog-z80",
  "format198x-spectravideo-svi-cas",
- "machine-spectravideo-svi-328",
+ "machine-spectravideo-svi-328-ntsc",
+ "machine-spectravideo-svi-328-pal",
  "postcard",
  "serde",
  "serde_json",

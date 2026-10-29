@@ -1,6 +1,6 @@
 [package]
-name = "machine-spectravideo-svi-328"
-description = "Spectravideo SVI-328 machine wiring — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
+name = "common-spectravideo-svi-328"
+description = "Shared SVI-328 wiring bound to a concrete board at compile time"
 version.workspace = true
 publish = false
 edition.workspace = true

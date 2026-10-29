@@ -272,3 +272,23 @@ mod sord_tests {
         }
     }
 }
+
+#[cfg(all(test, feature = "spectravideo-svi-328"))]
+mod svi_tests {
+    #[test]
+    fn separate_svi_boards_keep_the_existing_family_and_profile_routes() {
+        let entries: Vec<_> = super::catalogue()
+            .into_iter()
+            .filter(|v| v["family"] == "spectravideo-svi-328")
+            .collect();
+        assert_eq!(entries.len(), 2);
+        for id in ["spectravideo-svi-328-ntsc", "spectravideo-svi-328-pal"] {
+            let entry = entries
+                .iter()
+                .find(|v| v["id"] == id)
+                .expect("existing variant");
+            assert_eq!(entry["profileId"], id);
+            assert_eq!(entry["machineId"], id);
+        }
+    }
+}

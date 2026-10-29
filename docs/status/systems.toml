@@ -251,8 +251,17 @@ crate = "emu198x-sord-m5"
 label = "system:sord-m5"
 milestone = "Sord M5 100%"
 
+# The issue label/milestone cover the family backlog, not board qualification.
 [[system]]
-machine_id = "spectravideo-svi-328"
+machine_id = "spectravideo-svi-328-ntsc"
+machine_crate = "machine-spectravideo-svi-328-ntsc"
+crate = "emu198x-spectravideo-svi-328"
+label = "system:svi-328"
+milestone = "SVI-328 100%"
+
+[[system]]
+machine_id = "spectravideo-svi-328-pal"
+machine_crate = "machine-spectravideo-svi-328-pal"
 crate = "emu198x-spectravideo-svi-328"
 label = "system:svi-328"
 milestone = "SVI-328 100%"

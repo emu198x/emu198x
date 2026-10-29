@@ -1,7 +1,7 @@
 //! Family-owned query surface for the SVI-328 runtime.
 
+use crate::machine::SviMachine as Svi328;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_spectravideo_svi_328::Svi328;
 use serde_json::json;
 
 use crate::runtime::Svi328Runtime;

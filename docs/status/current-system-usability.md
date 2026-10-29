@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 38 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 39 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -50,7 +50,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `snk-neo-geo` | `emu198x-snk-neo-geo` | 6 | 8 | [system:neo-geo](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aneo-geo) | [Neo Geo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Neo+Geo+100%25%22) |
 | `sord-m5-ntsc` | `emu198x-sord-m5` | 1 | 8 | [system:sord-m5](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asord-m5) | [Sord M5 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Sord+M5+100%25%22) |
 | `sord-m5-pal` | `emu198x-sord-m5` | 1 | 8 | [system:sord-m5](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asord-m5) | [Sord M5 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Sord+M5+100%25%22) |
-| `spectravideo-svi-328` | `emu198x-spectravideo-svi-328` | 3 | 5 | [system:svi-328](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asvi-328) | [SVI-328 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SVI-328+100%25%22) |
+| `spectravideo-svi-328-ntsc` | `emu198x-spectravideo-svi-328` | 1 | 8 | [system:svi-328](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asvi-328) | [SVI-328 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SVI-328+100%25%22) |
+| `spectravideo-svi-328-pal` | `emu198x-spectravideo-svi-328` | 1 | 8 | [system:svi-328](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asvi-328) | [SVI-328 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SVI-328+100%25%22) |
 | `tandy-coco` ⚠️ | `emu198x-dragon` | 3 | 5 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
 | `tatung-einstein` | `emu198x-tatung-einstein` | 3 | 5 | [system:einstein](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aeinstein) | [Tatung Einstein 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Tatung+Einstein+100%25%22) |
 
