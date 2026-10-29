@@ -78,4 +78,4 @@ This decision explicitly rejected the originally-planned dynamic dispatch approa
 ## Related
 
 - [SpectrumDriver decision](spectrum-driver.md) — where `tick_peripherals` is hooked into the run loop.
-- [No Bus trait](no-bus-trait.md) — the CPU↔machine boundary uses signals, not a trait; this peripheral decision handles the *machine↔device* boundary with a different choice.
+- [CPU bus interfaces](cpu-bus-interface.md) — hardware signals and timing govern the CPU↔machine boundary; interface shape is free. This peripheral decision handles the *machine↔device* boundary.

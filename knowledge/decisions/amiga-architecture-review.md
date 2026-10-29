@@ -44,7 +44,7 @@ the full Amiga family (OCS / ECS / AGA / CDTV / CD32 / future).
 
 ## What this is
 
-A targeted review of the Amiga implementation against the load-bearing decisions already in place ([CPU bus interface](cpu-bus-interface.md), [No Bus trait](no-bus-trait.md), [ULA-drives model](ula-drives-model.md), [System-specific run loops](system-specific-run-loops.md), [Amiga port plan](amiga-port-plan.md)). The Amiga is the first system in the roadmap that exercises the architecture under realistic stress: multi-master bus arbitration, DMA-driven I/O, six chips collaborating per CCK. This review names the friction points that have produced repeated bugs during the Kickstart-boot push, and proposes scoped fixes for each — without disturbing the spine.
+A targeted review of the Amiga implementation against the load-bearing decisions already in place ([CPU bus interface](cpu-bus-interface.md), [Original bus-interface decision (ban retired)](no-bus-trait.md), [ULA-drives model](ula-drives-model.md), [System-specific run loops](system-specific-run-loops.md), [Amiga port plan](amiga-port-plan.md)). The Amiga is the first system in the roadmap that exercises the architecture under realistic stress: multi-master bus arbitration, DMA-driven I/O, six chips collaborating per CCK. This review names the friction points that have produced repeated bugs during the Kickstart-boot push, and proposes scoped fixes for each — without disturbing the spine.
 
 The spine stays. The seams need work.
 
@@ -53,7 +53,7 @@ The spine stays. The seams need work.
 These decisions are load-bearing and have proven themselves on the Spectrum, NES, and C64. Nothing in this review revisits them:
 
 - Master oscillator drives the loop (`tick_cck` for Amiga, equivalent for each system).
-- Pin-level CPU bus interface for every CPU. No Bus trait, ever.
+- Accurate CPU bus signals and timing; the interface-shape ban was retired on 2026-10-28 ([current decision](cpu-bus-interface.md)).
 - Chip-as-trait/struct-with-pins. One implementation per variant.
 - Manufacturer-chipname crate naming.
 - Per-system run loops; no universal tick pattern.
@@ -181,5 +181,5 @@ In order of leverage for unblocking the Amiga and protecting future systems:
 
 - [Amiga port plan](amiga-port-plan.md) — the plan that produced the current baseline
 - [CPU bus interface](cpu-bus-interface.md) — the load-bearing decision this review preserves
-- [No Bus trait](no-bus-trait.md) — the rule the seam fixes uphold
+- [Original bus-interface decision (ban retired)](no-bus-trait.md) — historical interface choice; current accuracy requirements remain
 - [System-specific run loops](system-specific-run-loops.md) — the pattern the seam fixes inherit
