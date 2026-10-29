@@ -1,0 +1,16 @@
+{
+  "source_revision": "94564bea324f87b8895bf0c3738bcb2551d6c953",
+  "firmware": "Original synthetic Z80 guest; capture source is runtime-coleco-colecovision/examples/board_baseline.rs",
+  "files": {
+    "coleco-colecovision-ntsc.after.state": "d5fae2d090ca548a69ad8410df1b95f03b7e769e9d7d3b6839097ad032ee2b88",
+    "coleco-colecovision-ntsc.audio": "1125148b10942dabac6876df617fe7b485cfb9a9f3c7ab45834e2aebdc76c38f",
+    "coleco-colecovision-ntsc.pixels": "53c348a0b5e9ba07facdbef12431cde16b95646a71f0202bc424b8881fac2eaf",
+    "coleco-colecovision-ntsc.state": "e06ed4b12fe1b39c7670b12f77bc5a7cef15a6bf6b64fe2629c483d654b4498f",
+    "coleco-colecovision-ntsc.times.json": "4c661e04996ce160fcb1a1cec55218e5fc306a73b2591871e7ec269023e96ad5",
+    "coleco-colecovision-pal.after.state": "bcf9317ff7f377f52b4e731e2ddcac7ea426912a13bb32a55483c0eed29bb903",
+    "coleco-colecovision-pal.audio": "3bccd6dc36734f81c5a9fdd2617e6ca9a544587f75bebaa6a49e686c30d99e3d",
+    "coleco-colecovision-pal.pixels": "c3195be8c48f71bed604420e7c8a2dfd92073bcffaf13a1ebd85773f0ea1d289",
+    "coleco-colecovision-pal.state": "6ddcc729e6e5dad231f36d672154018a3f2d91d3edd6c239e729be3fd69b2bd6",
+    "coleco-colecovision-pal.times.json": "e0dee74fa396bc79a3c5044ae5b1887e14afc57ba25fb7d2cfc7cd44e2f333e7"
+  }
+}
