@@ -1,0 +1,16 @@
+{
+  "source_revision": "94564bea324f87b8895bf0c3738bcb2551d6c953",
+  "firmware": "Original synthetic high-RAM guest; see runtime-spectravideo-svi-328/examples/board_baseline.rs",
+  "files": {
+    "spectravideo-svi-328-ntsc.after.state": "c08371ceb4ed753eaa7755ab2f7c689d66da58c5c344a5d66892288fa10c07ec",
+    "spectravideo-svi-328-ntsc.audio": "ac4d3fcf9554214015d21e6198b2aed645b5775c6828d8504f11b67859969e93",
+    "spectravideo-svi-328-ntsc.pixels": "53c348a0b5e9ba07facdbef12431cde16b95646a71f0202bc424b8881fac2eaf",
+    "spectravideo-svi-328-ntsc.state": "2ffc4f76dcb397843944c1f4922f4abb6f19ce6fe709c0142bb5e4e33296c14f",
+    "spectravideo-svi-328-ntsc.times.json": "100a1cec036a7bc257cefed476916bf9edcf0c435d208ede5a6af66748993c79",
+    "spectravideo-svi-328-pal.after.state": "cdf81930520991502e1eeb0ca17944888abffc5f73b9f9a9c0d5bb9ce0e14549",
+    "spectravideo-svi-328-pal.audio": "20e3107f8ed6413fecd9e7e1498d5d8840fcba9c5879eccdb374072ba63fc6c9",
+    "spectravideo-svi-328-pal.pixels": "c3195be8c48f71bed604420e7c8a2dfd92073bcffaf13a1ebd85773f0ea1d289",
+    "spectravideo-svi-328-pal.state": "e031e596369113469c4f9b963847843bc2d386182d34dc86c1da5935865b1355",
+    "spectravideo-svi-328-pal.times.json": "44b6e6eca0cac032c5a6955352a23db328aea918fe6758998bd3d644ffc50a36"
+  }
+}
