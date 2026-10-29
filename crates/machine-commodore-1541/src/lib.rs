@@ -2505,6 +2505,83 @@ mod tests {
         assert_eq!(machine.engine.gcr_head_offset(), 0);
     }
 
+    #[test]
+    fn checking_unused_drive_does_not_rewind_the_spindle() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine =
+            Drive1541::new(Drive1541Config { dos_rom: &rom }).expect("valid scaffold ROM");
+        machine
+            .load_d64_bytes(&synthetic_d64())
+            .expect("valid disk");
+        machine.engine.set_head_position(2);
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.engine.set_gcr_head_offset(1234);
+        let mut baseline = machine.clone();
+        // DOS scans both logical drive states when updating the activity LED.
+        // That RAM bookkeeping cannot move the spindle in the physical drive.
+        machine.poke(0x007F, 1);
+        for _ in 0..100 {
+            machine.refresh_drive_mechanics();
+            machine.finish_cycle_rotation();
+            baseline.refresh_drive_mechanics();
+            baseline.finish_cycle_rotation();
+        }
+        assert_eq!(
+            machine.engine.gcr_head_offset(),
+            baseline.engine.gcr_head_offset()
+        );
+        assert_ne!(baseline.engine.gcr_head_offset(), 1234, "motor must rotate");
+    }
+
+    #[test]
+    fn deselected_head_keeps_rotating_without_writing_the_surface() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        let mut machine =
+            Drive1541::new(Drive1541Config { dos_rom: &rom }).expect("valid scaffold ROM");
+        machine
+            .load_d64_bytes_writable(&synthetic_d64(), true)
+            .expect("valid disk");
+        machine.engine.set_head_position(2);
+        machine.poke(0x1C02, 0x7F);
+        machine.poke(0x1C00, 0x04);
+        machine.poke(0x1C0C, 0xC2);
+        machine.engine.set_gcr_head_offset(1234);
+        machine.engine.set_write_shift(0);
+        machine.engine.set_gcr_write_value(0);
+        let original = machine
+            .engine
+            .surface()
+            .track_bytes(2, 0)
+            .expect("track")
+            .to_vec();
+        let mut selected = machine.clone();
+        machine.poke(0x007F, 1);
+        for _ in 0..16 {
+            machine.rotate_one_track_bit();
+            selected.rotate_one_track_bit();
+        }
+        assert_eq!(
+            machine.engine.gcr_head_offset(),
+            selected.engine.gcr_head_offset()
+        );
+        assert_eq!(
+            machine.engine.surface().track_bytes(2, 0),
+            Some(original.as_slice())
+        );
+        assert_ne!(
+            selected.engine.surface().track_bytes(2, 0),
+            Some(original.as_slice()),
+            "selected control must actually write"
+        );
+        let restored =
+            Drive1541::from_snapshot(machine.snapshot_state()).expect("snapshot restores");
+        assert_eq!(
+            restored.engine.gcr_head_offset(),
+            machine.engine.gcr_head_offset()
+        );
+    }
+
     // ----- selected_internal_drive_present: track selection blocked -----
 
     #[test]

@@ -156,7 +156,8 @@ pub struct RotationContext {
     pub writable: bool,
     /// VIA2 CA2: byte-ready is enabled, so an assembled byte pulses the line.
     pub byte_ready_active: bool,
-    /// The internal mechanism is selected (else no surface is under the head).
+    /// The head's read/write lines are selected. Deselecting them does not stop
+    /// the motor or rewind the physical surface.
     pub present: bool,
     /// Physical side under the head (`0` on the 1541; `0`/`1` on the 1571).
     pub side: u8,
@@ -420,8 +421,8 @@ impl GcrRotationEngine {
 
     /// Applies a VIA2 Port B write to the drive mechanism: steps the head by the
     /// stepper phase delta, updates the motor and density, and resets the read
-    /// assembly on a motor edge. `present`/`side` gate the head-offset
-    /// normalisation to the surface currently under the head.
+    /// assembly on a motor edge. Logical selection does not change the physical
+    /// track used to normalize spindle position.
     pub fn apply_mechanics(&mut self, port_b: u8, present: bool, side: u8) {
         let was_motor_on = self.motor_on;
         let new_stepper_position = port_b & 0x03;
@@ -462,10 +463,10 @@ impl GcrRotationEngine {
         self.stepper_phase = new_stepper_position;
     }
 
-    /// Wraps the head bit-offset into the current track, or zeroes it when no
-    /// track is under the head.
-    pub fn normalize_head_offset(&mut self, present: bool, side: u8) {
-        let total_bits = self.current_track_bit_len(present, side);
+    /// Wraps the spindle position into its physical track. Logical drive
+    /// selection gates the read/write lines, never the rotating disk's phase.
+    pub fn normalize_head_offset(&mut self, _present: bool, side: u8) {
+        let total_bits = self.spindle_track_bit_len(side);
         if total_bits == 0 {
             self.gcr_head_offset = 0;
         } else {
@@ -557,7 +558,7 @@ impl GcrRotationEngine {
     }
 
     fn rotate_bit(&mut self, ctx: RotationContext) {
-        let total_bits = self.current_track_bit_len(ctx.present, ctx.side);
+        let total_bits = self.spindle_track_bit_len(ctx.side);
         if total_bits == 0 {
             return;
         }
@@ -607,9 +608,9 @@ impl GcrRotationEngine {
     /// first, then shifts left. After eight bits a byte has been written, so the
     /// serialiser reloads from the `gcr_write_value` port latch and byte-ready
     /// pulses to make the ROM's write loop feed the next byte. Writes are
-    /// dropped on a protected/absent disk (`ctx.writable`).
+    /// dropped when the head is deselected or the disk is protected/absent.
     fn write_bit(&mut self, ctx: RotationContext) {
-        if ctx.writable {
+        if ctx.present && ctx.writable {
             let bit = (self.write_shift >> 7) & 0x01;
             let offset = self.gcr_head_offset;
             let head = self.head_position;
@@ -665,6 +666,10 @@ impl GcrRotationEngine {
         let byte_index = bit_offset / 8;
         let bit_index = 7 - (bit_offset & 0x07);
         u8::from(track[byte_index] & (1 << bit_index) != 0)
+    }
+
+    fn spindle_track_bit_len(&self, side: u8) -> usize {
+        self.current_track_bit_len(true, side)
     }
 
     fn current_track_bit_len(&self, present: bool, side: u8) -> usize {
