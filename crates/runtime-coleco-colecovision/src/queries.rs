@@ -1,7 +1,7 @@
 //! Family-owned query surface for the ColecoVision runtime.
 
+use crate::machine::CvMachine as ColecoVision;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_coleco_colecovision::ColecoVision;
 use serde_json::json;
 
 use crate::runtime::CvRuntime;

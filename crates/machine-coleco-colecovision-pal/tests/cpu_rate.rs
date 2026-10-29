@@ -20,7 +20,7 @@
 //! else can be.
 
 use emu198x_zilog_z80::Z80Stepper;
-use machine_coleco_colecovision::{ColecoVision, CvRegion};
+use machine_coleco_colecovision_pal::ColecoVision;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -29,7 +29,7 @@ const NOP_TSTATES: u64 = 4;
 fn a_nop_costs_four_tstates() {
     // 8 KB of `NOP` in place of the BIOS, no cartridge; the Z80 starts at
     // `$0000`.
-    let mut cv = ColecoVision::new(vec![0x00u8; 8 * 1024], Vec::new(), CvRegion::Ntsc);
+    let mut cv = ColecoVision::new(vec![0x00u8; 8 * 1024], Vec::new());
 
     // Clear the reset sequence so the measurement covers steady-state `NOP`s
     // rather than whatever the first instruction happens to be.

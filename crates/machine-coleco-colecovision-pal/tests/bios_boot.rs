@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-coleco-colecovision \
+//! cargo test --release -p machine-coleco-colecovision-pal \
 //!     --test bios_boot -- --ignored --nocapture
 //! ```
 //!
@@ -19,7 +19,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_coleco_colecovision::{ColecoVision, CvRegion};
+use machine_coleco_colecovision_pal::ColecoVision;
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(path) = env::var("EMU198X_COLECOVISION_BIOS") {
@@ -45,7 +45,7 @@ fn bios_boots_to_title_screen() {
     let bios = fs::read(&path).expect("read BIOS");
     assert_eq!(bios.len(), 8192, "BIOS must be exactly 8 KB");
 
-    let mut cv = ColecoVision::new(bios, vec![], CvRegion::Ntsc);
+    let mut cv = ColecoVision::new(bios, vec![]);
     for _ in 0..200 {
         cv.run_frame();
     }

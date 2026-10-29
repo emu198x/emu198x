@@ -1,4 +1,4 @@
-//! ColecoVision machine wiring.
+//! Shared ColecoVision wiring, statically bound by each concrete board.
 //!
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6: no Bus trait, no callback into the CPU). The donor at
@@ -13,7 +13,7 @@
 //! # Hardware
 //!
 //! - **CPU:** Z80A @ 3.579545 MHz (NTSC)
-//! - **VDP:** TMS9918A (16 KB VRAM)
+//! - **VDP:** TMS9918-family register model (16 KB VRAM)
 //! - **PSG:** SN76489AN
 //! - **RAM:** 1 KB at `$6000-$63FF`, mirrored through `$7FFF`
 //! - **BIOS:** 8 KB ROM at `$0000-$1FFF` (required)
@@ -49,9 +49,10 @@
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
-use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+pub use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 use emu198x_z80_cadence::Z80Machine;
-use emu198x_zilog_z80::{BusOp, Z80};
+use emu198x_zilog_z80::BusOp;
+pub use emu198x_zilog_z80::Z80;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -70,12 +71,15 @@ const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
 const VDP_DOT_PHASE_DENOMINATOR: u32 = 4;
 
 /// CPU T-states per scanline (342 VDP dots × 2 / 3).
+#[cfg(test)]
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 
 /// CPU T-states per NTSC frame (228 × 262 lines).
+#[cfg(test)]
 const NTSC_CPU_CYCLES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * 262;
 
 /// CPU T-states per PAL frame (228 × 313 lines).
+#[cfg(test)]
 const PAL_CPU_CYCLES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * 313;
 
 /// ColecoVision region.
@@ -177,7 +181,7 @@ impl CvController {
 /// PSG, BIOS, cart ROM, and RAM all carry live state. `io_trace` is a host-side
 /// debug buffer, not machine state, so it is skipped and defaults on restore.
 #[derive(Serialize, Deserialize)]
-pub struct ColecoVision {
+pub struct CvState {
     cpu: Z80,
     vdp: Tms9918,
     psg: Sn76489,
@@ -212,48 +216,89 @@ pub struct ColecoVision {
     io_trace: Option<Vec<IoEvent>>,
 }
 
-impl ColecoVision {
+/// Fixed wiring supplied by a concrete machine crate; no model switch runs here.
+pub trait Board {
+    const REGION: CvRegion;
+    const VDP_REGION: VdpRegion;
+    const PSG_CLOCK_HZ: u32;
+    const TSTATES_PER_FRAME: u64;
+    const FRAMEBUFFER_HEIGHT: u32;
+}
+/// Shared wiring engine, statically bound to one board.
+pub struct CvCore<B: Board> {
+    state: CvState,
+    board: std::marker::PhantomData<B>,
+}
+impl CvState {
+    #[must_use]
+    pub fn region(&self) -> CvRegion {
+        self.region
+    }
+}
+impl<B: Board> CvCore<B> {
+    /// Validate an existing state without reinitialising any chip.
+    pub fn from_state(state: CvState) -> Result<Self, &'static str> {
+        if state.region != B::REGION
+            || state.cpu_cycles_per_frame != B::TSTATES_PER_FRAME
+            || state.vdp.framebuffer_height() != B::FRAMEBUFFER_HEIGHT
+        {
+            return Err("snapshot video/region does not match this ColecoVision board");
+        }
+        Ok(Self {
+            state,
+            board: std::marker::PhantomData,
+        })
+    }
+}
+impl<B: Board> Serialize for CvCore<B> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.state.serialize(serializer)
+    }
+}
+impl<'de, B: Board> Deserialize<'de> for CvCore<B> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_state(CvState::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<B: Board> CvCore<B> {
     /// Original cartridge image retained by the live machine.
     #[must_use]
     pub fn cartridge_rom(&self) -> &[u8] {
-        &self.cart_rom
+        &self.state.cart_rom
     }
 
     /// Original firmware image retained by the live machine.
     #[must_use]
     pub fn firmware_rom(&self) -> &[u8] {
-        &self.bios
+        &self.state.bios
     }
 
     /// Create a new ColecoVision with the given BIOS and cartridge ROM.
     #[must_use]
-    pub fn new(bios: Vec<u8>, cart_rom: Vec<u8>, region: CvRegion) -> Self {
-        let vdp_region = match region {
-            CvRegion::Ntsc => VdpRegion::Ntsc,
-            CvRegion::Pal => VdpRegion::Pal,
-        };
-        let cpu_cycles_per_frame = match region {
-            CvRegion::Ntsc => NTSC_CPU_CYCLES_PER_FRAME,
-            CvRegion::Pal => PAL_CPU_CYCLES_PER_FRAME,
-        };
-        Self {
+    pub fn new(bios: Vec<u8>, cart_rom: Vec<u8>) -> Self {
+        let state = CvState {
             cpu: Z80::new(),
-            vdp: Tms9918::new(vdp_region),
-            psg: Sn76489::new(3_579_545, NoiseLfsr::Tms15),
+            vdp: Tms9918::new(B::VDP_REGION),
+            psg: Sn76489::new(B::PSG_CLOCK_HZ, NoiseLfsr::Tms15),
             bios,
             cart_rom,
             ram: [0; 1024],
             controller1: CvController::default(),
             controller2: CvController::default(),
             joystick_mode: false,
-            region,
+            region: B::REGION,
             cpu_cycles: 0,
             cadence_hc: 0,
-            cpu_cycles_per_frame,
+            cpu_cycles_per_frame: B::TSTATES_PER_FRAME,
             vdp_phase: 0,
             frame_count: 0,
             native_frame_ready: false,
             io_trace: None,
+        };
+        Self {
+            state,
+            board: std::marker::PhantomData,
         }
     }
 
@@ -261,24 +306,26 @@ impl ColecoVision {
     /// Stop on the video chip's next raster wrap, not a rounded CPU budget.
     /// The two-field safety budget reports false rather than inventing a frame.
     pub fn run_native_frame(&mut self) -> (u64, bool) {
-        let start = self.cpu_cycles;
-        self.native_frame_ready = false;
-        while !self.native_frame_ready && self.cpu_cycles - start < 2 * self.cpu_cycles_per_frame {
+        let start = self.state.cpu_cycles;
+        self.state.native_frame_ready = false;
+        while !self.state.native_frame_ready
+            && self.state.cpu_cycles - start < 2 * self.state.cpu_cycles_per_frame
+        {
             self.tick_cpu_cycle();
         }
-        if self.native_frame_ready {
-            self.frame_count += 1;
+        if self.state.native_frame_ready {
+            self.state.frame_count += 1;
         }
-        (self.cpu_cycles - start, self.native_frame_ready)
+        (self.state.cpu_cycles - start, self.state.native_frame_ready)
     }
 
     pub fn run_frame(&mut self) -> u64 {
-        let target = self.cpu_cycles + self.cpu_cycles_per_frame;
-        while self.cpu_cycles < target {
+        let target = self.state.cpu_cycles + self.state.cpu_cycles_per_frame;
+        while self.state.cpu_cycles < target {
             self.tick_cpu_cycle();
         }
-        self.frame_count += 1;
-        self.cpu_cycles_per_frame
+        self.state.frame_count += 1;
+        self.state.cpu_cycles_per_frame
     }
 
     /// Advance one Z80 T-state and the chips it drives. The cadence — two
@@ -292,19 +339,19 @@ impl ColecoVision {
 
     /// Inspect the Z80's bus request and route memory / I/O.
     fn handle_bus(&mut self) {
-        match self.cpu.bus_request() {
+        match self.state.cpu.bus_request() {
             Some(BusOp::MemRead) => {
-                self.cpu.data_in = self.mem_read(self.cpu.addr);
+                self.state.cpu.data_in = self.mem_read(self.state.cpu.addr);
             }
             Some(BusOp::MemWrite) => {
-                self.mem_write(self.cpu.addr, self.cpu.data);
+                self.mem_write(self.state.cpu.addr, self.state.cpu.data);
             }
             Some(BusOp::IoRead) => {
-                let io_port = (self.cpu.addr & 0xFF) as u8;
-                let io_pc = self.cpu.regs.pc;
-                let io_val = self.io_read(self.cpu.addr);
-                self.cpu.data_in = io_val;
-                if let Some(trace) = &mut self.io_trace {
+                let io_port = (self.state.cpu.addr & 0xFF) as u8;
+                let io_pc = self.state.cpu.regs.pc;
+                let io_val = self.io_read(self.state.cpu.addr);
+                self.state.cpu.data_in = io_val;
+                if let Some(trace) = &mut self.state.io_trace {
                     trace.push(IoEvent {
                         pc: io_pc,
                         port: io_port,
@@ -314,21 +361,21 @@ impl ColecoVision {
                 }
             }
             Some(BusOp::IoWrite) => {
-                if let Some(trace) = &mut self.io_trace {
+                if let Some(trace) = &mut self.state.io_trace {
                     trace.push(IoEvent {
-                        pc: self.cpu.regs.pc,
-                        port: (self.cpu.addr & 0xFF) as u8,
-                        value: self.cpu.data,
+                        pc: self.state.cpu.regs.pc,
+                        port: (self.state.cpu.addr & 0xFF) as u8,
+                        value: self.state.cpu.data,
                         write: true,
                     });
                 }
-                self.io_write(self.cpu.addr, self.cpu.data);
+                self.io_write(self.state.cpu.addr, self.state.cpu.data);
             }
             Some(BusOp::IntAck) => {
                 // ColecoVision uses IM 1 — the BIOS sets IM 1 during
                 // init and the VDP INT does not drive a vector; the
                 // Z80 fetches `RST 38h` via the floating bus.
-                self.cpu.data_in = 0xFF;
+                self.state.cpu.data_in = 0xFF;
             }
             None => {}
         }
@@ -338,18 +385,18 @@ impl ColecoVision {
         match addr {
             0x0000..=0x1FFF => {
                 let idx = addr as usize;
-                if idx < self.bios.len() {
-                    self.bios[idx]
+                if idx < self.state.bios.len() {
+                    self.state.bios[idx]
                 } else {
                     0xFF
                 }
             }
             0x2000..=0x5FFF => 0xFF,
-            0x6000..=0x7FFF => self.ram[(addr & 0x03FF) as usize],
+            0x6000..=0x7FFF => self.state.ram[(addr & 0x03FF) as usize],
             0x8000..=0xFFFF => {
                 let idx = (addr - 0x8000) as usize;
-                if idx < self.cart_rom.len() {
-                    self.cart_rom[idx]
+                if idx < self.state.cart_rom.len() {
+                    self.state.cart_rom[idx]
                 } else {
                     0xFF
                 }
@@ -359,7 +406,7 @@ impl ColecoVision {
 
     fn mem_write(&mut self, addr: u16, data: u8) {
         if (0x6000..=0x7FFF).contains(&addr) {
-            self.ram[(addr & 0x03FF) as usize] = data;
+            self.state.ram[(addr & 0x03FF) as usize] = data;
         }
     }
 
@@ -367,22 +414,22 @@ impl ColecoVision {
         let p = port as u8;
         match p {
             // VDP data read (even ports in $A0-$BF).
-            0xA0..=0xBF if p & 1 == 0 => self.vdp.read_data(),
+            0xA0..=0xBF if p & 1 == 0 => self.state.vdp.read_data(),
             // VDP status read (odd ports in $A0-$BF).
-            0xA0..=0xBF => self.vdp.read_status(),
+            0xA0..=0xBF => self.state.vdp.read_status(),
             // Controllers in $E0-$FF — bit 1 of port selects controller.
             0xE0..=0xFF if p & 0x02 == 0 => {
-                if self.joystick_mode {
-                    self.controller1.read_joystick()
+                if self.state.joystick_mode {
+                    self.state.controller1.read_joystick()
                 } else {
-                    self.controller1.read_keypad()
+                    self.state.controller1.read_keypad()
                 }
             }
             0xE0..=0xFF => {
-                if self.joystick_mode {
-                    self.controller2.read_joystick()
+                if self.state.joystick_mode {
+                    self.state.controller2.read_joystick()
                 } else {
-                    self.controller2.read_keypad()
+                    self.state.controller2.read_keypad()
                 }
             }
             _ => 0xFF,
@@ -392,11 +439,11 @@ impl ColecoVision {
     fn io_write(&mut self, port: u16, data: u8) {
         let p = port as u8;
         match p {
-            0x80..=0x9F => self.joystick_mode = false,
-            0xA0..=0xBF if p & 1 == 0 => self.vdp.write_data(data),
-            0xA0..=0xBF => self.vdp.write_control(data),
-            0xC0..=0xDF => self.joystick_mode = true,
-            0xE0..=0xFF => self.psg.write(data),
+            0x80..=0x9F => self.state.joystick_mode = false,
+            0xA0..=0xBF if p & 1 == 0 => self.state.vdp.write_data(data),
+            0xA0..=0xBF => self.state.vdp.write_control(data),
+            0xC0..=0xDF => self.state.joystick_mode = true,
+            0xE0..=0xFF => self.state.psg.write(data),
             _ => {}
         }
     }
@@ -405,67 +452,67 @@ impl ColecoVision {
     /// TV-visible border.
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
-        self.vdp.framebuffer()
+        self.state.vdp.framebuffer()
     }
 
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
-        self.vdp.framebuffer_width()
+        self.state.vdp.framebuffer_width()
     }
 
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        self.vdp.framebuffer_height()
+        self.state.vdp.framebuffer_height()
     }
 
     /// Take the accumulated mono PSG audio buffer (f32, 48 kHz).
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
-        self.psg.take_buffer()
+        self.state.psg.take_buffer()
     }
 
     /// Mutable access to controller 1.
     pub fn controller1_mut(&mut self) -> &mut CvController {
-        &mut self.controller1
+        &mut self.state.controller1
     }
 
     /// Mutable access to controller 2.
     pub fn controller2_mut(&mut self) -> &mut CvController {
-        &mut self.controller2
+        &mut self.state.controller2
     }
 
     /// CPU reference.
     #[must_use]
     pub fn cpu(&self) -> &Z80 {
-        &self.cpu
+        &self.state.cpu
     }
 
     /// CPU mutable reference.
     pub fn cpu_mut(&mut self) -> &mut Z80 {
-        &mut self.cpu
+        &mut self.state.cpu
     }
 
     /// VDP reference.
     #[must_use]
     pub fn vdp(&self) -> &Tms9918 {
-        &self.vdp
+        &self.state.vdp
     }
 
     /// Region.
     #[must_use]
     pub fn region(&self) -> CvRegion {
-        self.region
+        self.state.region
     }
 
     /// Total CPU cycles executed since power-on.
     #[must_use]
     pub fn cpu_cycles(&self) -> u64 {
-        self.cpu_cycles
+        self.state.cpu_cycles
     }
 
     /// Frame count since power-on.
     #[must_use]
     pub fn frame_count(&self) -> u64 {
-        self.frame_count
+        self.state.frame_count
     }
 
     /// Observe one byte on the Z80 bus without side effects (BIOS
@@ -477,13 +524,13 @@ impl ColecoVision {
     }
 }
 
-impl Z80Machine for ColecoVision {
+impl<B: Board> Z80Machine for CvCore<B> {
     fn hc(&self) -> u64 {
-        self.cadence_hc
+        self.state.cadence_hc
     }
 
     fn hc_mut(&mut self) -> &mut u64 {
-        &mut self.cadence_hc
+        &mut self.state.cadence_hc
     }
 
     // Per RULES.md rule 6 we drive the Z80 by inspecting its pins.
@@ -492,213 +539,39 @@ impl Z80Machine for ColecoVision {
         // rather than after. The Z80 samples `/INT` at an instruction
         // boundary during its own tick, so setting the line afterwards
         // hands it the VDP's state from the previous half-cycle.
-        self.cpu.irq = self.vdp.interrupt;
+        self.state.cpu.irq = self.state.vdp.interrupt;
     }
 
     fn tick_cpu_and_bus(&mut self) {
-        self.cpu.tick();
+        self.state.cpu.tick();
         self.handle_bus();
     }
 
     fn tick_chips_halfcycle(&mut self) {
         // VDP advances by 3/2 dots per T-state — phase counter, accumulated
         // per half-cycle.
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.native_frame_ready |= self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        self.state.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.state.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.state.native_frame_ready |= self.state.vdp.tick();
+            self.state.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
         }
     }
 
     fn tick_chips(&mut self) {
         // PSG advances one CPU clock (internal ÷ 16 divider).
-        self.psg.tick();
+        self.state.psg.tick();
 
-        self.cpu_cycles += 1;
+        self.state.cpu_cycles += 1;
     }
 }
 
-impl emu198x_zilog_z80::Z80Stepper for ColecoVision {
+impl<B: Board> emu198x_zilog_z80::Z80Stepper for CvCore<B> {
     fn z80_instructions_retired(&self) -> u64 {
-        self.cpu.instructions_retired()
+        self.state.cpu.instructions_retired()
     }
 
     fn step_tick(&mut self) {
         self.tick_cpu_cycle();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
-        for region in [CvRegion::Ntsc, CvRegion::Pal] {
-            let mut machine = ColecoVision::new(empty_bios(), vec![], region);
-            let line = |m: &ColecoVision| m.vdp.scanline();
-            for _ in 0..37 {
-                machine.tick_cpu_cycle();
-            }
-            for _ in 0..4 {
-                let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
-                let mut direct: ColecoVision =
-                    postcard::from_bytes(&bytes).expect("restore control");
-                let start = direct.cpu_cycles;
-                loop {
-                    let before = line(&direct);
-                    direct.tick_cpu_cycle();
-                    assert!(direct.cpu_cycles - start < 200_000, "control must wrap");
-                    if line(&direct) < before {
-                        break;
-                    }
-                }
-                let (ticks, completed) = machine.run_native_frame();
-                assert!(completed);
-                assert_eq!(
-                    ticks,
-                    direct.cpu_cycles - start,
-                    "elapsed time must match the chip event"
-                );
-                assert_eq!(
-                    line(&machine),
-                    0,
-                    "raster must wrap, not merely consume a nominal budget"
-                );
-                assert_eq!(machine.cpu_cycles, direct.cpu_cycles);
-                // A debugger can leave us partway through the next field.
-                for _ in 0..53 {
-                    machine.tick_cpu_cycle();
-                }
-            }
-        }
-    }
-
-    fn empty_bios() -> Vec<u8> {
-        // 8 KB of NOPs followed by a JR to itself at $0008 — gives the
-        // CPU something legal to execute so the smoke tests don't crash
-        // on stray opcodes even though we don't have a real BIOS.
-        let mut bios = vec![0u8; 8192];
-        // JR -2 at $0008 ($18 $FE) — infinite tight loop.
-        bios[0x0008] = 0x18;
-        bios[0x0009] = 0xFE;
-        bios
-    }
-
-    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP + SN76489
-    /// PSG + RAM), not cold-boot from the BIOS/cart. Serialise, advance (so the
-    /// state differs), then deserialise the first snapshot and confirm
-    /// re-serialising it is byte-identical — every stateful field across all
-    /// three chips round-trips, including the VDP's 16 KB VRAM.
-    #[test]
-    fn snapshot_round_trips_live_state() {
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        cv.run_frame();
-        cv.poke(0x6100, 0xA5); // a work-RAM byte to carry across the snapshot
-        cv.run_frame();
-        let s1 = postcard::to_allocvec(&cv).expect("encode snapshot");
-
-        cv.run_frame(); // advance past the snapshot point
-        let s2 = postcard::to_allocvec(&cv).expect("encode again");
-        assert_ne!(s1, s2, "running a frame should change the serialised state");
-
-        let restored: ColecoVision = postcard::from_bytes(&s1).expect("decode snapshot");
-        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
-        assert_eq!(
-            s1, s3,
-            "restore should reproduce the snapshot state exactly"
-        );
-    }
-
-    #[test]
-    fn ntsc_frame_returns_expected_cpu_cycles() {
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        let cycles = cv.run_frame();
-        assert_eq!(cycles, NTSC_CPU_CYCLES_PER_FRAME);
-        assert_eq!(cv.frame_count(), 1);
-    }
-
-    #[test]
-    fn pal_frame_returns_expected_cpu_cycles() {
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Pal);
-        let cycles = cv.run_frame();
-        assert_eq!(cycles, PAL_CPU_CYCLES_PER_FRAME);
-    }
-
-    #[test]
-    fn vdp_runs_at_three_dots_per_two_tstates() {
-        // 3:2 phase, not the donor's 3:1: 4 T-states add 12 phase units,
-        // each dot consumes 2 → 6 dots, 0 remainder (well within one
-        // 342-dot line, so the scanline shouldn't advance yet).
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        let start = cv.vdp.scanline();
-        for _ in 0..4 {
-            cv.tick_cpu_cycle();
-        }
-        assert_eq!(cv.vdp_phase, 0);
-        assert_eq!(cv.vdp.scanline(), start);
-    }
-
-    #[test]
-    fn one_frame_of_tstates_is_exactly_one_vdp_frame() {
-        // 228×262 T-states × 3/2 = 342×262 dots = one full NTSC frame,
-        // so the VDP scanline returns to where it started. Under the old
-        // 3:1 model the VDP would have run ~1.5 frames in this budget.
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        let start = cv.vdp.scanline();
-        for _ in 0..NTSC_CPU_CYCLES_PER_FRAME {
-            cv.tick_cpu_cycle();
-        }
-        assert_eq!(cv.vdp.scanline(), start);
-        assert_eq!(cv.vdp_phase, 0);
-    }
-
-    #[test]
-    fn many_frames_complete_without_panic() {
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        for _ in 0..60 {
-            cv.run_frame();
-        }
-        assert_eq!(cv.frame_count(), 60);
-    }
-
-    #[test]
-    fn vdp_drives_cpu_irq_at_vblank() {
-        // Run a frame and check the VDP has set its interrupt flag at
-        // some point during the frame. Final IRQ state depends on
-        // whether the CPU has acknowledged it via IM 1 RST 38h.
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        cv.run_frame();
-        // After at least one full frame the VDP has crossed VBlank.
-        // We can't trivially assert irq == true at frame end because
-        // the BIOS-less CPU runs IM 0 and never acknowledges, leaving
-        // the line pending — but the interrupt FLAG on the VDP should
-        // be set during the frame. Test scaffolding for the real
-        // assertion when a BIOS is wired in.
-        assert!(cv.cpu_cycles() >= NTSC_CPU_CYCLES_PER_FRAME);
-    }
-
-    #[test]
-    fn joystick_mode_toggle_via_io() {
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        assert!(!cv.joystick_mode);
-        cv.io_write(0xC0, 0xFF);
-        assert!(cv.joystick_mode);
-        cv.io_write(0x80, 0xFF);
-        assert!(!cv.joystick_mode);
-    }
-
-    #[test]
-    fn keypad_read_routes_to_correct_controller() {
-        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
-        cv.controller1.keypad = Some(KeypadKey::K5);
-        cv.controller2.keypad = Some(KeypadKey::K7);
-        // bit 1 = 0 → controller 1.
-        let c1 = cv.io_read(0xE0);
-        // bit 1 = 1 → controller 2.
-        let c2 = cv.io_read(0xE2);
-        assert_eq!(c1 & 0x0F, KeypadKey::K5.encode());
-        assert_eq!(c2 & 0x0F, KeypadKey::K7.encode());
     }
 }
 
@@ -715,7 +588,7 @@ pub struct IoEvent {
     pub write: bool,
 }
 
-impl ColecoVision {
+impl<B: Board> CvCore<B> {
     /// Write one byte through the bus (RAM accepts it; ROM ignores it).
     pub fn poke(&mut self, addr: u16, value: u8) {
         self.mem_write(addr, value);
@@ -723,11 +596,14 @@ impl ColecoVision {
 
     /// Start (or restart) the I/O port-access trace.
     pub fn start_io_trace(&mut self) {
-        self.io_trace = Some(Vec::new());
+        self.state.io_trace = Some(Vec::new());
     }
 
     /// Stop tracing and return the captured I/O events.
     pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
-        self.io_trace.take().unwrap_or_default()
+        self.state.io_trace.take().unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests;

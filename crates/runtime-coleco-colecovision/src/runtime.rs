@@ -1,11 +1,11 @@
 //! Runtime wrapper for ColecoVision.
 
+use crate::machine::CvMachine as ColecoVision;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_coleco_colecovision::{ColecoVision, CvRegion};
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
@@ -158,11 +158,7 @@ impl CvRuntime {
             return;
         };
         let cart = self.cart_bytes.clone().unwrap_or_default();
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => CvRegion::Pal,
-            _ => CvRegion::Ntsc,
-        };
-        let machine = ColecoVision::new(bios, cart, region);
+        let machine = ColecoVision::new(self.model, bios, cart);
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
