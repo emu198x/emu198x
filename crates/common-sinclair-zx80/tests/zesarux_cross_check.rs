@@ -175,7 +175,7 @@ fn the_text_area_matches_zesarux() {
     );
 
     let ours = golden("zx80-boot.png");
-    let our_y = machine_sinclair_zx80::TelevisionStandard::FiftyHz.text_top();
+    let our_y = common_sinclair_zx80::TelevisionStandard::FiftyHz.text_top();
     let shifted = |x: u32, y: u32| ours(x, our_y + y);
     let diffs = scanline_diff(&shifted, &theirs, (ZESARUX_X, ZESARUX_Y), 0..TEXT_H);
 

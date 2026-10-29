@@ -52,7 +52,7 @@
 
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_WIDTH, Zx80};
+use common_sinclair_zx80::{FB_WIDTH, Zx80State};
 
 /// Ink.
 const INK: u32 = 0xFF00_0000;
@@ -64,8 +64,8 @@ fn firmware(name: &str) -> Vec<u8> {
     std::fs::read(path).expect("firmware image")
 }
 
-fn booted(name: &str) -> Zx80 {
-    let mut machine = Zx80::new(firmware(name), 16 * 1024).expect("synthetic ROM should init");
+fn booted(name: &str) -> Zx80State {
+    let mut machine = Zx80State::new(firmware(name), 16 * 1024).expect("synthetic ROM should init");
     for _ in 0..20 {
         machine.run_frame();
     }
@@ -181,7 +181,7 @@ fn a_software_moved_picture_stays_whole() {
     let top_row = |border_lines: u8| -> usize {
         let mut rom = base.clone();
         rom[operand] = border_lines;
-        let mut machine = Zx80::new(rom, 16 * 1024).expect("synthetic ROM should init");
+        let mut machine = Zx80State::new(rom, 16 * 1024).expect("synthetic ROM should init");
         for _ in 0..20 {
             machine.run_frame();
         }

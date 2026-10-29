@@ -1,0 +1,12 @@
+[package]
+name = "machine-sinclair-zx80-usa"
+description = "Fixed sinclair-zx80-usa physical board"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-sinclair-zx80 = {path="../common-sinclair-zx80",version="0.45.1"}
+[lints]
+workspace = true

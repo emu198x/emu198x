@@ -1,11 +1,11 @@
 //! Runtime wrapper for the Sinclair ZX80.
 
+use crate::machine::Zx80Machine as Zx80;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
     PixelFormat, ResetKind, RunResult, StopReason,
 };
-use machine_sinclair_zx80::Zx80;
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
@@ -205,15 +205,13 @@ impl Zx80Runtime {
             self.machine = None;
             return Ok(());
         };
-        let mut machine =
-            Zx80::new(rom, self.ram_bytes).map_err(|reason| MachineError::InvalidFirmware {
+        let machine = Zx80::new(rom, self.ram_bytes, self.model).map_err(|reason| {
+            MachineError::InvalidFirmware {
                 id: ROM_FIRMWARE_ID.to_owned(),
                 reason,
-            })?;
-        // The board strap is the whole of the region difference: the ROM reads
-        // D6 and pads a shorter field for 60 Hz. Set it before the height is
-        // read, because the window is sized from it (#1133).
-        machine.set_television_standard(self.model.television_standard());
+            }
+        })?;
+        // The concrete owner fixes D11 before framebuffer sizing.
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -375,7 +373,7 @@ impl MachineCore for Zx80Runtime {
                     slot: image.slot.as_ref().to_owned(),
                     reason: error.to_string(),
                 })?;
-            self.tape = Some(machine_sinclair_zx80::tape::pulses(&parsed));
+            self.tape = Some(common_sinclair_zx80::tape::pulses(&parsed));
         }
         Ok(())
     }

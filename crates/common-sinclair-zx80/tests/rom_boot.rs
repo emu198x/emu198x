@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_WIDTH, Zx80};
+use common_sinclair_zx80::{FB_WIDTH, Zx80State};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX80_ROM") {
@@ -38,7 +38,7 @@ fn rom_path() -> Option<PathBuf> {
 /// caught #1116: this test was `#[ignore]`d, so it went on asserting a row
 /// the picture had left. The expectation now derives from the ROM's own
 /// layout rather than from wherever the model happens to draw — see
-/// [`machine_sinclair_zx80::video`]'s `FIRST_VISIBLE_LINE`.
+/// [`common_sinclair_zx80::video`]'s `FIRST_VISIBLE_LINE`.
 /// Not `#[ignore]`d: it skips when no ROM is staged, which is what #295 asks
 /// for and what `golden_frame.rs` already does. Ignoring it is what stopped
 /// it running on the machines that *do* have the ROM.
@@ -52,7 +52,7 @@ fn rom_boots_to_its_power_on_screen() {
     let rom = fs::read(&path).expect("read ROM");
     assert_eq!(rom.len(), 0x1000, "ROM must be exactly a 4 KB ZX80");
 
-    let mut sys = Zx80::new(rom, 16384).expect("init");
+    let mut sys = Zx80State::new(rom, 16384).expect("init");
     for _ in 0..200 {
         sys.run_frame();
     }
@@ -130,7 +130,7 @@ fn the_field_is_310_lines() {
         );
     };
     let rom = fs::read(&path).expect("read ROM");
-    let mut sys = Zx80::new(rom, 16384).expect("init");
+    let mut sys = Zx80State::new(rom, 16384).expect("init");
     for _ in 0..200 {
         sys.run_frame();
     }

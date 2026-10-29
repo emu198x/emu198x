@@ -161,6 +161,8 @@ members = [
     "crates/machine-jupiter-ace",
     "crates/machine-memotech-mtx",
     "crates/machine-sinclair-zx80",
+    "crates/common-sinclair-zx80",
+    "crates/machine-sinclair-zx80-usa",
     "crates/machine-sinclair-zx81",
     "crates/common-coleco-colecovision",
     "crates/machine-coleco-colecovision-ntsc",

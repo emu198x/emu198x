@@ -429,6 +429,15 @@ milestone = "Spectrum 100%"
 
 [[system]]
 machine_id = "sinclair-zx80"
+machine_crate = "machine-sinclair-zx80"
+crate = "emu198x-sinclair-zx80"
+label = "system:zx80"
+milestone = "ZX80 100%"
+
+# Shared family backlog; qualification belongs to the concrete board.
+[[system]]
+machine_id = "sinclair-zx80-usa"
+machine_crate = "machine-sinclair-zx80-usa"
 crate = "emu198x-sinclair-zx80"
 label = "system:zx80"
 milestone = "ZX80 100%"

@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+common-sinclair-zx80 = {path="../common-sinclair-zx80",version="0.45.1"}
+machine-sinclair-zx80-usa = {path="../machine-sinclair-zx80-usa",version="0.45.1"}
 format198x-sinclair-zx80-o = "0.1.0"
 emu198x-shell = { workspace = true }
 machine-sinclair-zx80 = { path = "../machine-sinclair-zx80", version = "0.45.0" }
