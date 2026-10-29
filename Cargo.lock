@@ -443,6 +443,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-acorn-bbc-micro"
+version = "0.45.1"
+dependencies = [
+ "common-acorn-cassette",
+ "emu198x-mos-6502",
+ "emu198x-mos-via-6522",
+ "emu198x-motorola-6845",
+ "emu198x-ti-sn76489",
+ "emu198x-western-digital-wd1770",
+ "format-acorn-uef",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-acorn-cassette"
 version = "0.45.1"
 dependencies = [
@@ -945,7 +961,6 @@ dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
- "machine-acorn-bbc-micro",
  "png",
  "runtime-acorn-bbc-micro",
  "serde_json",
@@ -3531,19 +3546,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-acorn-bbc-master-128"
+version = "0.45.1"
+dependencies = [
+ "common-acorn-bbc-micro",
+]
+
+[[package]]
 name = "machine-acorn-bbc-micro"
 version = "0.45.1"
 dependencies = [
+ "common-acorn-bbc-micro",
  "common-acorn-cassette",
- "emu198x-mos-6502",
- "emu198x-mos-via-6522",
- "emu198x-motorola-6845",
- "emu198x-ti-sn76489",
- "emu198x-western-digital-wd1770",
  "format-acorn-uef",
- "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-acorn-bbc-micro-b-plus"
+version = "0.45.1"
+dependencies = [
+ "common-acorn-bbc-micro",
 ]
 
 [[package]]
@@ -5330,11 +5352,14 @@ dependencies = [
 name = "runtime-acorn-bbc-micro"
 version = "0.45.1"
 dependencies = [
+ "common-acorn-bbc-micro",
  "common-acorn-cassette",
  "emu198x-mos-6502",
  "emu198x-shell",
  "format-acorn-uef",
+ "machine-acorn-bbc-master-128",
  "machine-acorn-bbc-micro",
+ "machine-acorn-bbc-micro-b-plus",
  "postcard",
  "serde",
  "serde_json",

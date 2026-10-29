@@ -1,0 +1,14 @@
+[package]
+name = "machine-acorn-bbc-master-128"
+description = "Concrete BBC Master128 motherboard"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-acorn-bbc-micro = { path = "../common-acorn-bbc-micro", version = "0.45.0" }
+
+[lints]
+workspace = true

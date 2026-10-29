@@ -1,12 +1,12 @@
 //! Runtime wrapper for the BBC Micro.
 
+use crate::machine::BbcMachine as BbcMicro;
 use common_acorn_cassette::TapePulse;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
     PixelFormat, ResetKind, RunResult, StopReason,
 };
-use machine_acorn_bbc_micro::BbcMicro;
 
 use crate::input::apply_input_event;
 use crate::profiles::{DISK_SLOTS, Model, profile_for};
@@ -194,11 +194,7 @@ impl BbcMicroRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = match self.model {
-            Model::BbcModelB => BbcMicro::new(mos),
-            Model::BbcBPlus => BbcMicro::new_b_plus(mos),
-            Model::Master128 => BbcMicro::new_master_128(mos),
-        };
+        let mut machine = BbcMicro::new(self.model, mos);
         if !self.teletext_font.is_empty() {
             machine.set_teletext_font(self.teletext_font.clone());
         }
