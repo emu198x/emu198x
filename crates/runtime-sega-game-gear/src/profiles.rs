@@ -5,7 +5,7 @@ use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
     ProfileId, Region, WritebackPolicy, known_capability,
 };
-use runtime_sega_master_system_class::{SmsModel, SmsVariant};
+use runtime_sega_master_system_class::{SmsHardware, SmsModel, SmsVariant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
@@ -126,6 +126,9 @@ pub fn with_cartridge(model: Model, cart_rom: Vec<u8>) -> SmsRuntime {
 }
 
 impl SmsModel for Model {
+    fn hardware(self) -> SmsHardware {
+        SmsHardware::GameGear
+    }
     const VARIANT_IDS: &'static [&'static str] = &Self::VARIANT_IDS;
     fn from_variant_id(id: &str) -> Option<Self> {
         Self::from_variant_id(id)

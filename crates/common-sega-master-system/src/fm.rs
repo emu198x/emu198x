@@ -206,7 +206,7 @@ mod tests {
         assert!(fm.ym.take_samples().len() < 64);
         assert!(!fm.buffer.is_empty(), "the resampler still produced output");
     }
-    use crate::{Sms, SmsVariant};
+    use crate::{SmsState as Sms, SmsVariant};
 
     /// Where the program stores what `$F2` read back.
     const DETECT: u16 = 0xC000;

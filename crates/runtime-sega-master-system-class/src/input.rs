@@ -9,8 +9,8 @@
 //! per-instance cache lives on `SmsRuntime` and is folded onto the
 //! machine via `apply_input_event`.
 
+use crate::Sms;
 use emu198x_shell::{InputEvent, aim_to_pixels};
-use machine_sega_master_system::Sms;
 
 /// Per-runtime cache: active-low controller bytes (0xFF = neutral).
 #[derive(Clone, Copy, Debug)]
@@ -111,14 +111,14 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{ControllerCache, apply_input_event};
+    use crate::Sms;
     use emu198x_shell::{InputEvent, aim_from_pixels};
-    use machine_sega_master_system::{Sms, SmsVariant};
 
     fn machine() -> Sms {
         let mut cart = vec![0u8; 0x10000];
         cart[0x0008] = 0x18; // JR -2
         cart[0x0009] = 0xFE;
-        Sms::new(cart, SmsVariant::SmsNtsc)
+        Sms::new(cart, crate::SmsHardware::MasterSystemNtsc)
     }
 
     /// Aim at a framebuffer pixel, the way the harness does.

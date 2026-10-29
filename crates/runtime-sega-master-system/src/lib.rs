@@ -1,11 +1,8 @@
 //! Sega Master System machine profiles and runtime constructors.
 //!
-//! One machine, two models: NTSC and PAL. The Game Gear used to live here
-//! too, which made it invisible to every crate-derived view of the
-//! portfolio and left this the only crate in the workspace building a
-//! `MachineId` from a variable rather than a literal (#998). It now ships
-//! from `runtime-sega-game-gear`, and the runtime the two share lives in
-//! `runtime-sega-master-system-class`.
+//! Concrete Master System and Mark III boards retain one family catalogue.
+//! The Game Gear has its own catalogue and runner; both use the common
+//! runtime class, which owns dispatch among their fixed machine crates.
 
 mod profiles;
 

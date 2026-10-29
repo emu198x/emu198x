@@ -3,18 +3,18 @@
 //! The Master System and the Game Gear are separate machines that happen to
 //! run the same wrapper: same silicon, same snapshot envelope, same query
 //! surface. This crate holds that shared half so each machine can own its
-//! own runtime crate with a single `machine_id` (#998).
+//! own profile catalogue and runner.
 //!
 //! Each system supplies its model catalogue. The class owns the generic runtime
 //! and all trait implementations, so the per-system crates need only implement
 //! `SmsModel` and publish a concrete runtime alias.
 
+use crate::{FmUnit, Sms, SmsVariant};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_sega_master_system::{FmUnit, Sms, SmsVariant};
 
 use crate::input::{ControllerCache, apply_input_event};
 use crate::snapshot;
@@ -30,6 +30,7 @@ pub trait SmsModel: Copy + 'static {
     fn model_id(self) -> &'static str;
     fn profile(self) -> MachineProfile;
     fn variant(self) -> SmsVariant;
+    fn hardware(self) -> crate::SmsHardware;
     fn frame_ticks(self) -> u64;
 }
 
@@ -143,6 +144,11 @@ impl<M: SmsModel> SmsRuntime<M> {
         self.model.variant()
     }
 
+    /// The concrete physical board selected by this catalogue.
+    pub fn hardware(&self) -> crate::SmsHardware {
+        self.model.hardware()
+    }
+
     /// The model id recorded in snapshots.
     #[must_use]
     pub fn model_id(&self) -> &'static str {
@@ -184,7 +190,7 @@ impl<M: SmsModel> SmsRuntime<M> {
             self.machine = None;
             return;
         };
-        let mut machine = Sms::new(rom, self.variant());
+        let mut machine = Sms::new(rom, self.model.hardware());
         if let Some(unit) = self.fm_unit {
             machine.set_fm_unit(unit);
         }

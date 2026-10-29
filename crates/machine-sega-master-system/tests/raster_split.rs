@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 
-use machine_sega_master_system::{Sms, SmsVariant};
+use machine_sega_master_system::Sms;
 
 const GREEN: u32 = 0xFF00_FF00;
 const RED: u32 = 0xFFFF_0000;
@@ -63,7 +63,7 @@ fn cart_with_r10(reload: u8) -> Vec<u8> {
 /// Run past the first frame, which is still executing the setup, and read a
 /// settled one.
 fn frame_with_r10(reload: u8) -> Sms {
-    let mut machine = Sms::new(cart_with_r10(reload), SmsVariant::SmsNtsc);
+    let mut machine = Sms::new(cart_with_r10(reload));
     for _ in 0..3 {
         machine.run_frame();
     }

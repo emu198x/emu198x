@@ -6,8 +6,9 @@
 //! shape: a borrowing envelope for encode (no clone), an owning envelope for
 //! decode.
 
+use crate::Sms;
+use common_sega_master_system::SmsState;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_sega_master_system::Sms;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::{SmsModel, SmsRuntime};
@@ -38,7 +39,7 @@ struct SmsRuntimeSnapshotV9 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Sms>,
+    machine: Option<SmsState>,
 }
 
 pub(crate) fn encode<M: SmsModel>(runtime: &SmsRuntime<M>) -> Result<Vec<u8>, MachineError> {
@@ -81,11 +82,15 @@ pub(crate) fn decode<M: SmsModel>(
             ),
         });
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
+    let mut machine = snapshot
+        .machine
+        .map(|state| Sms::from_state(runtime.hardware(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     if let Some(machine) = &mut machine {
         machine.cpu_mut().rehydrate_walker_sequence();
     }
+    runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())
 }
@@ -108,6 +113,9 @@ mod tests {
     #[derive(Clone, Copy)]
     struct TestModel;
     impl SmsModel for TestModel {
+        fn hardware(self) -> crate::SmsHardware {
+            crate::SmsHardware::MasterSystemNtsc
+        }
         const VARIANT_IDS: &'static [&'static str] = &["test-sega-class-ntsc"];
         fn from_variant_id(id: &str) -> Option<Self> {
             (id == Self::VARIANT_IDS[0]).then_some(Self)

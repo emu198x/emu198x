@@ -19,7 +19,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sega_master_system::{Sms, SmsVariant};
+use machine_sega_master_system::Sms;
 
 fn first_sms_cart(dir: &PathBuf) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;
@@ -59,7 +59,7 @@ fn cart_boots_to_title_screen() {
         );
     };
     let cart = fs::read(&path).expect("read cart");
-    let mut sys = Sms::new(cart, SmsVariant::SmsNtsc);
+    let mut sys = Sms::new(cart);
     for _ in 0..600 {
         sys.run_frame();
     }

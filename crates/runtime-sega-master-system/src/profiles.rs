@@ -5,7 +5,7 @@ use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
     ProfileId, Region, WritebackPolicy, known_capability,
 };
-use runtime_sega_master_system_class::{SmsModel, SmsVariant};
+use runtime_sega_master_system_class::{SmsHardware, SmsModel, SmsVariant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
@@ -192,7 +192,7 @@ impl Model {
             // The Master System II's 315-5246 is the chip the later export
             // Master System already carries. What the board removed — the
             // card slot, the expansion port and the reset button — are not
-            // modelled on any Master System here, so the two share a machine.
+            // modelled on any Master System here, so their fixed board owners share the same execution wiring.
             Self::Sms2Ntsc => SmsVariant::SmsNtsc,
             Self::Sms2Pal => SmsVariant::SmsPal,
             Self::MarkIii => SmsVariant::MarkIII,
@@ -228,7 +228,16 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("sega-master-system"),
+        machine_id: match model {
+            Model::SmsNtsc => MachineId::from("sega-master-system"),
+            Model::SmsPal => MachineId::from("sega-master-system-pal"),
+            Model::SmsJapanNtsc => MachineId::from("sega-master-system-japan"),
+            Model::Sms1Ntsc => MachineId::from("sega-master-system-1-ntsc"),
+            Model::Sms1Pal => MachineId::from("sega-master-system-1-pal"),
+            Model::Sms2Ntsc => MachineId::from("sega-master-system-2-ntsc"),
+            Model::Sms2Pal => MachineId::from("sega-master-system-2-pal"),
+            Model::MarkIii => MachineId::from("sega-mark-iii"),
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -268,6 +277,18 @@ pub fn with_cartridge(model: Model, cart_rom: Vec<u8>) -> SmsRuntime {
 }
 
 impl SmsModel for Model {
+    fn hardware(self) -> SmsHardware {
+        match self {
+            Self::SmsNtsc => SmsHardware::MasterSystemNtsc,
+            Self::SmsPal => SmsHardware::MasterSystemPal,
+            Self::SmsJapanNtsc => SmsHardware::MasterSystemJapan,
+            Self::Sms1Ntsc => SmsHardware::MasterSystem1Ntsc,
+            Self::Sms1Pal => SmsHardware::MasterSystem1Pal,
+            Self::Sms2Ntsc => SmsHardware::MasterSystem2Ntsc,
+            Self::Sms2Pal => SmsHardware::MasterSystem2Pal,
+            Self::MarkIii => SmsHardware::MarkIII,
+        }
+    }
     const VARIANT_IDS: &'static [&'static str] = &Self::VARIANT_IDS;
     fn from_variant_id(id: &str) -> Option<Self> {
         Self::from_variant_id(id)
@@ -420,14 +441,21 @@ mod tests {
         }
     }
 
-    /// The whole point of #998: one crate, one machine, and its id written
-    /// as a literal where a scan of the workspace can see it. A named
-    /// constant would read better and defeat the scan just as thoroughly as
-    /// the variable this crate was split to remove.
+    /// Physical identities stay separate while profile IDs remain stable.
     #[test]
-    fn every_profile_declares_the_same_single_machine() {
-        for profile in profiles() {
-            assert_eq!(profile.machine_id.as_str(), "sega-master-system");
+    fn every_profile_declares_its_physical_board() {
+        let expected = [
+            "sega-master-system",
+            "sega-master-system-japan",
+            "sega-master-system-pal",
+            "sega-master-system-1-ntsc",
+            "sega-master-system-1-pal",
+            "sega-master-system-2-ntsc",
+            "sega-master-system-2-pal",
+            "sega-mark-iii",
+        ];
+        for (profile, id) in profiles().iter().zip(expected) {
+            assert_eq!(profile.machine_id.as_str(), id);
         }
     }
 }
