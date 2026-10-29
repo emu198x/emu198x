@@ -342,26 +342,29 @@ fn build_with_queries<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + '
         web: WebMachine::new_with_query_provider(runtime, queries),
     }))
 }
-/// Builds `variant` only when its profile names `machine`. One runtime can
-/// host two machines (the MSX1 and the MSX2), and each fleet family is one
-/// machine, so a family refuses the other machine's models.
+/// Build a named MSX board only in the browser artifact for its generation.
 #[cfg(any(feature = "msx", feature = "msx2"))]
-fn build_machine<R: FamilyRuntime + 'static>(
-    machine: &str,
+fn build_msx(
+    msx2: bool,
     variant: &str,
     firmware: &FirmwareSet<'_>,
 ) -> Result<Box<dyn Host>, String> {
-    R::model_from_id(variant)
-        .filter(|model| R::profile_for(*model).machine_id.as_str() == machine)
-        .ok_or_else(|| format!("unknown variant: {variant}"))?;
-    build::<R>(variant, firmware)
+    let model = runtime_msx::Model::from_variant_id(variant)
+        .filter(|m| m.is_msx2() == msx2)
+        .ok_or_else(|| format!("unknown or retired MSX variant: {variant}"))?;
+    build::<runtime_msx::MsxRuntime>(model.variant_id(), firmware)
 }
-/// The catalogue entries of `R` whose profile names `machine`.
+/// Named boards for one existing browser generation route.
 #[cfg(any(feature = "msx", feature = "msx2"))]
-fn machine_profiles<R: FamilyRuntime>(family: &str, machine: &str) -> Vec<Value> {
-    profiles::<R>(family)
+fn msx_profiles(family: &str, msx2: bool) -> Vec<Value> {
+    profiles::<runtime_msx::MsxRuntime>(family)
         .into_iter()
-        .filter(|entry| entry["machineId"] == machine)
+        .filter(|entry| {
+            entry["id"]
+                .as_str()
+                .and_then(runtime_msx::Model::from_variant_id)
+                .is_some_and(|m| m.is_msx2() == msx2)
+        })
         .collect()
 }
 fn profiles<R: FamilyRuntime>(family: &str) -> Vec<Value> {
@@ -869,5 +872,56 @@ mod st_pointer_tests {
         let before = machine.guest_pointer().expect("booted");
         run(&mut machine, 10);
         assert_eq!(machine.guest_pointer().expect("booted"), before);
+    }
+}
+
+#[cfg(all(test, feature = "msx", feature = "msx2"))]
+mod msx_board_catalogue_tests {
+    use super::*;
+
+    #[test]
+    fn generation_routes_expose_only_their_named_boards() {
+        for (family, expected) in [
+            (
+                "msx",
+                &[
+                    "sony-hb-10p",
+                    "toshiba-hx-10",
+                    "mitsubishi-ml-f80",
+                    "yamaha-cx5m",
+                    "mitsubishi-ml-fx1",
+                    "sony-hb-10",
+                ][..],
+            ),
+            (
+                "msx2",
+                &["philips-vg-8235", "sony-hb-f1", "panasonic-fs-a1"][..],
+            ),
+        ] {
+            let entries: Vec<_> = catalogue()
+                .into_iter()
+                .filter(|e| e["family"] == family)
+                .collect();
+            let ids: Vec<_> = entries
+                .iter()
+                .map(|e| e["id"].as_str().expect("profile ID"))
+                .collect();
+            assert_eq!(ids, expected);
+            for id in expected {
+                Fleet::new(family, id).expect("named profile is selectable");
+            }
+        }
+        for id in [
+            "microsoft-msx1-ntsc",
+            "microsoft-msx1-pal",
+            "microsoft-msx2-ntsc",
+            "microsoft-msx2-pal",
+        ] {
+            for family in ["msx", "msx2"] {
+                assert!(Fleet::new(family, id).is_err());
+            }
+        }
+        assert!(Fleet::new("msx", "sony-hb-f1").is_err());
+        assert!(Fleet::new("msx2", "sony-hb-10p").is_err());
     }
 }

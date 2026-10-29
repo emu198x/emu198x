@@ -420,7 +420,7 @@ jobs:
           # The MSX boots C-BIOS: a clean-room BSD-licensed MSX BIOS, not
           # Microsoft's. Real firmware cold-starting, which is a stronger
           # claim than the synthetic image its sibling test uses.
-          cargo test -p machine-msx --test cbios_boot -- --ignored
+          cargo test -p common-msx --test cbios_boot -- --ignored
           # The C64 boots Open ROMs: a clean-room GPL BASIC and KERNAL,
           # not Commodore's. Same standing as C-BIOS — the machine's own
           # ROMs cannot be distributed, and this one needs no permission.

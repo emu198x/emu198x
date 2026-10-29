@@ -1,12 +1,7 @@
 //! MSX1 and MSX2 home computer machine wiring.
 //!
-//! Fresh-write against the workspace pin-driven bus pattern (RULES.md
-//! rule 6). The donor at `Emu198x-Oldest/crates/machine-msx` used the
-//! deprecated `emu_core::Bus` callback and could not port directly;
-//! this file uses it as a system spec — slot system, PPI-driven
-//! keyboard matrix, I/O port map, MegaROM mapper variants — but the
-//! wiring is written against [`emu198x_zilog_z80::Z80`]'s public pin fields
-//! and `bus_request()` collapse.
+//! Shared original slot, video, PPI, sound and Z80 wiring. Concrete named
+//! board owners fix construction without changing the version-10 state.
 //!
 //! # The MSX standard
 //!
@@ -71,19 +66,19 @@
 //! row select; reading PPI port B returns the column data for the
 //! selected row. Standard MSX layout (row 0 = digits 0-7, row 1 =
 //! 8/9/punctuation/letters, etc.). Host pokes the matrix via
-//! [`Msx::press_key`] / [`Msx::release_key`].
+//! [`MsxState::press_key`] / [`MsxState::release_key`].
 //!
 //! # Clock model
 //!
 //! Adopts the SG-1000's correct 3:2 VDP-dot-to-CPU-T-state phase
 //! counter (CPU 3.579545 MHz, VDP dot 5.369 MHz). One iteration of
-//! [`Msx::run_frame`] corresponds to one Z80 T-state; per iteration
+//! [`MsxState::run_frame`] corresponds to one Z80 T-state; per iteration
 //! the phase counter advances by 3 and yields one VDP dot whenever
 //! it reaches 2. PSG ticks every other T-state (clock ÷ 2).
 //!
 //! # MSX2
 //!
-//! [`Msx::msx2`] builds the 1985 standard's machine. Against an MSX1 it
+//! [`MsxState::msx2`] builds the 1985 standard's machine. Against an MSX1 it
 //! adds:
 //!
 //! - **VDP:** a Yamaha V9938 with 128 KB of VRAM in place of the TMS9918,
@@ -110,17 +105,17 @@
 //!
 //! MSX-MUSIC (a YM2413 on ports `$7C`/`$7D`), the FM-PAC cartridge and the
 //! SCC cartridges are described in the `sound` module. Their output is mixed
-//! with the PSG's by [`Msx::end_audio_frame`].
+//! with the PSG's by [`MsxState::end_audio_frame`].
 
-use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
-use emu198x_intel_8255::Ppi8255;
+pub use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
+pub use emu198x_intel_8255::Ppi8255;
 pub use emu198x_konami_scc::Scc;
 pub use emu198x_ricoh_rp5c01::{DateTime, Rp5c01};
-use emu198x_ti_tms9918::{Tms9918, VdpRegion};
+pub use emu198x_ti_tms9918::{Tms9918, VdpRegion};
 pub use emu198x_yamaha_v9938::{Mode as V9938Mode, V9938};
 pub use emu198x_yamaha_ym2413::Ym2413;
 use emu198x_z80_cadence::Z80Machine;
-use emu198x_zilog_z80::{BusOp, Z80};
+pub use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
 mod sound;
@@ -541,7 +536,7 @@ pub struct IoEvent {
 /// host-side debug buffers, not machine state, so they are skipped and
 /// default on restore.
 #[derive(Serialize, Deserialize)]
-pub struct Msx {
+pub struct MsxState {
     cpu: Z80,
     video: Video,
     psg: Ay3_8912,
@@ -599,10 +594,10 @@ pub struct Msx {
     expansion: ExpansionMixer,
 }
 
-impl Msx {
+impl MsxState {
     /// Create a new MSX1 with the given BIOS ROM. Both cart slots
-    /// start empty; insert with [`Msx::insert_cart1`] /
-    /// [`Msx::insert_cart2`].
+    /// start empty; insert with [`MsxState::insert_cart1`] /
+    /// [`MsxState::insert_cart2`].
     #[must_use]
     pub fn new(bios_rom: Vec<u8>, region: MsxRegion) -> Self {
         Self::with_layout(bios_rom, region, MsxLayout::default())
@@ -1347,7 +1342,7 @@ impl Msx {
     }
 }
 
-impl Z80Machine for Msx {
+impl Z80Machine for MsxState {
     fn hc(&self) -> u64 {
         self.cadence_hc
     }
@@ -1434,7 +1429,7 @@ impl Z80Machine for Msx {
     }
 }
 
-impl emu198x_zilog_z80::Z80Stepper for Msx {
+impl emu198x_zilog_z80::Z80Stepper for MsxState {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }
@@ -1453,7 +1448,7 @@ mod tests {
 
     #[test]
     fn ppi_output_controls_follow_direction_bsr_and_mode_reset() {
-        let mut machine = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        let mut machine = MsxState::new(trap_bios(), MsxRegion::Ntsc);
         assert!(!machine.caps_led_on() && !machine.cassette_motor_on());
         assert!(!machine.cassette_output() && !machine.key_click_output());
         machine.io_write(0xAB, 0x82);
@@ -1517,7 +1512,7 @@ mod tests {
         half.io_write(0xAB, 0x0F);
         half.advance_halfcycles(2);
         let bytes = postcard::to_allocvec(&half).expect("mid-sample state");
-        let mut restored: Msx = postcard::from_bytes(&bytes).expect("restore");
+        let mut restored: MsxState = postcard::from_bytes(&bytes).expect("restore");
         restored.cpu_mut().rehydrate_walker_sequence();
         for machine in [&mut half, &mut restored] {
             machine.io_write(0xAB, 0x0E);
@@ -1570,7 +1565,7 @@ mod tests {
     fn native_frame_stops_at_the_chip_wrap_after_partial_stepping() {
         for region in [MsxRegion::Ntsc, MsxRegion::Pal] {
             let mut machine = booted(region);
-            let line = |m: &Msx| match &m.video {
+            let line = |m: &MsxState| match &m.video {
                 Video::Tms9918(vdp) => vdp.scanline(),
                 _ => panic!("MSX1 fixture"),
             };
@@ -1579,7 +1574,7 @@ mod tests {
             }
             for _ in 0..4 {
                 let bytes = postcard::to_allocvec(&machine).expect("encode partial state");
-                let mut direct: Msx = postcard::from_bytes(&bytes).expect("restore control");
+                let mut direct: MsxState = postcard::from_bytes(&bytes).expect("restore control");
                 let start = direct.cpu_tstates;
                 loop {
                     let before = line(&direct);
@@ -1613,8 +1608,8 @@ mod tests {
     /// An MSX whose 8255 has the mode the BIOS sets at reset: port A
     /// (slot select) out, port B (keyboard) in, port C out. The trap BIOS
     /// never runs that code.
-    fn booted(region: MsxRegion) -> Msx {
-        let mut sys = Msx::new(trap_bios(), region);
+    fn booted(region: MsxRegion) -> MsxState {
+        let mut sys = MsxState::new(trap_bios(), region);
         sys.ppi.write(3, 0x82);
         sys
     }
@@ -1630,7 +1625,7 @@ mod tests {
     }
 
     /// The VG 8020-20's layout: RAM in subslot 2 of an expanded slot 3.
-    fn expanded_slot_3() -> Msx {
+    fn expanded_slot_3() -> MsxState {
         let layout = MsxLayout {
             ram: vec![RamRegion {
                 slot: SlotAddress::expanded(3, 2),
@@ -1640,7 +1635,7 @@ mod tests {
             expanded: [false, false, false, true],
             ..MsxLayout::default()
         };
-        let mut sys = Msx::with_layout(trap_bios(), MsxRegion::Ntsc, layout);
+        let mut sys = MsxState::with_layout(trap_bios(), MsxRegion::Ntsc, layout);
         sys.ppi.write(3, 0x82);
         sys
     }
@@ -1689,7 +1684,7 @@ mod tests {
             }],
             ..MsxLayout::default()
         };
-        let mut sys = Msx::with_layout(trap_bios(), MsxRegion::Ntsc, layout);
+        let mut sys = MsxState::with_layout(trap_bios(), MsxRegion::Ntsc, layout);
         sys.ppi.write(3, 0x82);
         sys.ppi.write(0, 0); // every page in slot 0
         sys.poke(0x0009, 0x00);
@@ -1719,7 +1714,7 @@ mod tests {
         let s2 = postcard::to_allocvec(&sys).expect("encode again");
         assert_ne!(s1, s2, "running a frame should change the serialised state");
 
-        let restored: Msx = postcard::from_bytes(&s1).expect("decode snapshot");
+        let restored: MsxState = postcard::from_bytes(&s1).expect("decode snapshot");
         let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
         assert_eq!(
             s1, s3,
@@ -1929,11 +1924,11 @@ mod tests {
         }
     }
 
-    fn msx2() -> Msx {
+    fn msx2() -> MsxState {
         let mut sub_rom = vec![0u8; 0x4000];
         sub_rom[0] = b'C';
         sub_rom[1] = b'D';
-        let mut sys = Msx::msx2(trap_bios(), sub_rom, MsxRegion::Pal, msx2_layout());
+        let mut sys = MsxState::msx2(trap_bios(), sub_rom, MsxRegion::Pal, msx2_layout());
         sys.ppi.write(3, 0x82);
         sys
     }
@@ -2000,7 +1995,7 @@ mod tests {
             expanded: [false, false, false, true],
             ..MsxLayout::default()
         };
-        let mut sys = Msx::msx2(trap_bios(), vec![0; 0x4000], MsxRegion::Ntsc, layout);
+        let mut sys = MsxState::msx2(trap_bios(), vec![0; 0x4000], MsxRegion::Ntsc, layout);
         sys.ppi.write(3, 0x82);
         sys.io_write(0xFC, 2);
         assert_eq!(sys.io_read(0xFC), 0xFF);
@@ -2052,7 +2047,7 @@ mod tests {
     fn a_long_bios_maps_its_logo_rom_at_8000() {
         let mut bios = trap_bios();
         bios.resize(0xC000, 0x77);
-        let mut sys = Msx::msx2(bios, vec![0; 0x4000], MsxRegion::Ntsc, msx2_layout());
+        let mut sys = MsxState::msx2(bios, vec![0; 0x4000], MsxRegion::Ntsc, msx2_layout());
         sys.ppi.write(3, 0x82);
         sys.ppi.write(0, 0);
         assert_eq!(sys.peek(0x8000), 0x77);
@@ -2065,9 +2060,12 @@ mod tests {
         sys.io_write(0xFD, 6);
         sys.run_frame();
         let bytes = postcard::to_allocvec(&sys).expect("encode");
-        let restored: Msx = postcard::from_bytes(&bytes).expect("decode");
+        let restored: MsxState = postcard::from_bytes(&bytes).expect("decode");
         assert_eq!(restored.mapper_registers(), Some([0, 6, 0, 0]));
         assert_eq!(postcard::to_allocvec(&restored).expect("re-encode"), bytes);
         assert_eq!(restored.vdp_scanline(), sys.vdp_scanline());
     }
 }
+
+mod board;
+pub use board::{MsxBoard, MsxCore, MsxHardware};

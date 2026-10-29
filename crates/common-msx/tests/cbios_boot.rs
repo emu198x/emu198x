@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use machine_msx::{Msx, MsxLayout, MsxRegion, RamRegion, SlotAddress};
+use common_msx::{MsxLayout, MsxRegion, MsxState as Msx, RamRegion, SlotAddress};
 
 /// TMS9918 entry 4 — the blue C-BIOS boots to.
 const MSX_BLUE: u32 = 0xFF54_55ED;

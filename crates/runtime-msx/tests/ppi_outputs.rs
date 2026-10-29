@@ -37,7 +37,7 @@ fn guest() -> Vec<u8> {
 }
 #[test]
 fn guest_ppi_controls_reach_queries_and_the_host_audio_packet() {
-    let mut runtime = MsxRuntime::new(Model::Msx1Ntsc, guest()).expect("synthetic BIOS");
+    let mut runtime = MsxRuntime::new(Model::SonyHb10p, guest()).expect("synthetic BIOS");
     let mut audio = Audio::default();
     runtime
         .run_frame(&mut HostIo {

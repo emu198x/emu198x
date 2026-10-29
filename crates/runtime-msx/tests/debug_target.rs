@@ -34,7 +34,7 @@ fn z80_disasm_is_wired() {
     let mut rom = vec![0u8; 32 * 1024];
     rom[0] = 0x3E;
     rom[1] = 0x42;
-    let runtime = MsxRuntime::new(Model::Msx1Ntsc, rom).expect("32 KiB BIOS builds the machine");
+    let runtime = MsxRuntime::new(Model::SonyHb10p, rom).expect("32 KiB BIOS builds the machine");
 
     let dbg = runtime
         .debug_target()
@@ -58,7 +58,7 @@ fn debug_surface_works_on_z80() {
         panic!("MSX BIOS not found at ~/.emu198x/roms/microsoft-msx/msx.rom");
     };
     let first = bios[0];
-    let mut runtime = MsxRuntime::new(Model::Msx1Ntsc, bios).expect("build runtime");
+    let mut runtime = MsxRuntime::new(Model::SonyHb10p, bios).expect("build runtime");
 
     // Inspection (immutable).
     {

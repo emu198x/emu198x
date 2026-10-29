@@ -1,6 +1,6 @@
 [package]
-name = "machine-msx"
-description = "MSX1 and MSX2 home computer machine wiring — Z80 + TMS9918A or V9938 + AY-3-8910 + 8255 PPI, with the MSX2 memory mapper and RP5C01 clock"
+name = "common-msx"
+description = "Shared MSX slot, video, sound, PPI and Z80 wiring for concrete board owners"
 version.workspace = true
 publish = false
 edition.workspace = true

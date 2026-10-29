@@ -559,6 +559,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-msx"
+version = "0.45.1"
+dependencies = [
+ "emu198x-gi-ay-3-8912",
+ "emu198x-intel-8255",
+ "emu198x-konami-scc",
+ "emu198x-ricoh-rp5c01",
+ "emu198x-test-skip",
+ "emu198x-ti-tms9918",
+ "emu198x-yamaha-v9938",
+ "emu198x-yamaha-ym2413",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+
+]
+
+[[package]]
 name = "common-nintendo-game-boy"
 version = "0.45.1"
 dependencies = [
@@ -1752,7 +1771,6 @@ dependencies = [
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-ui",
- "machine-msx",
  "png",
  "runtime-msx",
  "serde_json",
@@ -3971,21 +3989,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-msx"
+name = "machine-mitsubishi-ml-f80"
 version = "0.45.1"
 dependencies = [
- "emu198x-gi-ay-3-8912",
- "emu198x-intel-8255",
- "emu198x-konami-scc",
- "emu198x-ricoh-rp5c01",
+ "common-msx",
  "emu198x-test-skip",
- "emu198x-ti-tms9918",
- "emu198x-yamaha-v9938",
- "emu198x-yamaha-ym2413",
- "emu198x-z80-cadence",
  "emu198x-zilog-z80",
- "postcard",
- "serde",
+]
+
+[[package]]
+name = "machine-mitsubishi-ml-fx1"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -4073,6 +4091,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-panasonic-fs-a1"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
 name = "machine-pentagon-128"
 version = "0.45.1"
 dependencies = [
@@ -4086,6 +4113,15 @@ dependencies = [
  "format-sinclair-zx-spectrum-z80",
  "png",
  "serde",
+]
+
+[[package]]
+name = "machine-philips-vg-8235-00"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -4336,6 +4372,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-sony-hb-10"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sony-hb-10p"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sony-hb-f1"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
 name = "machine-sord-m5-ntsc"
 version = "0.45.1"
 dependencies = [
@@ -4434,6 +4497,24 @@ dependencies = [
  "png",
  "serde",
  "serde-big-array",
+]
+
+[[package]]
+name = "machine-toshiba-hx-10"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-yamaha-cx5m"
+version = "0.45.1"
+dependencies = [
+ "common-msx",
+ "emu198x-test-skip",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -5776,11 +5857,20 @@ dependencies = [
 name = "runtime-msx"
 version = "0.45.1"
 dependencies = [
+ "common-msx",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ti-tms9918",
  "emu198x-zilog-z80",
- "machine-msx",
+ "machine-mitsubishi-ml-f80",
+ "machine-mitsubishi-ml-fx1",
+ "machine-panasonic-fs-a1",
+ "machine-philips-vg-8235-00",
+ "machine-sony-hb-10",
+ "machine-sony-hb-10p",
+ "machine-sony-hb-f1",
+ "machine-toshiba-hx-10",
+ "machine-yamaha-cx5m",
  "postcard",
  "serde",
  "serde_json",

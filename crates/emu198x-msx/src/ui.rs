@@ -219,6 +219,7 @@ mod tests {
         std::fs::write(dir.join("msx.rom"), vec![0x76; 32768]).expect("BIOS");
         std::fs::write(dir.join("cart.rom"), vec![0x5a; 32768]).expect("cart");
         let app = Msx {
+            model: Model::SonyHb10,
             firmware: FirmwareOverrides {
                 dir: Some(dir.clone()),
                 ..FirmwareOverrides::none()
@@ -227,13 +228,12 @@ mod tests {
             cart2: Some(dir.join("cart.rom")),
             mapper: runtime_msx::MapperType::KonamiScc,
             mapper2: runtime_msx::MapperType::Ascii16,
-            ..Msx::default()
         };
         let runtime = app.build_ui_runtime().expect("window runtime");
         let mut system = app.ui_system();
         assert_eq!(system.variants().len(), Model::ALL.len());
         let mut replacement =
-            build_replacement(&runtime, Model::Msx1Pal, &app.firmware).expect("PAL");
+            build_replacement(&runtime, Model::SonyHb10p, &app.firmware).expect("PAL");
         assert_eq!(system.frame_ticks(&replacement), 228 * 313);
         assert_eq!(
             system.frame_duration(&replacement),
@@ -251,7 +251,7 @@ mod tests {
             runtime_msx::MapperType::Ascii16
         );
         assert!(system.switch_variant(&mut replacement, "unknown").is_err());
-        assert_eq!(replacement.model(), Model::Msx1Pal);
+        assert_eq!(replacement.model(), Model::SonyHb10p);
         std::fs::remove_dir_all(dir).expect("cleanup");
     }
 

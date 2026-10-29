@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use machine_msx::{Msx, MsxRegion};
+use common_msx::{MsxRegion, MsxState as Msx};
 
 /// TMS9918 palette entry 15. The power-on backdrop is entry 0, which is
 /// transparent, so white cannot appear unless the firmware ran.

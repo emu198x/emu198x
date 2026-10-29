@@ -10,7 +10,7 @@ use emu198x_shell::SessionQueryProvider;
 use runtime_msx::{Model, MsxRuntime, MsxSessionQueryProvider};
 
 fn loaded() -> MsxRuntime {
-    MsxRuntime::new(Model::Msx1Ntsc, vec![0u8; 32 * 1024]).expect("32 KiB BIOS builds the machine")
+    MsxRuntime::new(Model::SonyHb10p, vec![0u8; 32 * 1024]).expect("32 KiB BIOS builds the machine")
 }
 
 fn resolve(rt: &MsxRuntime, path: &str) -> serde_json::Value {

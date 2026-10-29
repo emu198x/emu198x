@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 
-use machine_msx::{MemoryMapper, Msx, MsxLayout, MsxRegion, SlotAddress, V9938Mode};
+use common_msx::{MemoryMapper, MsxLayout, MsxRegion, MsxState as Msx, SlotAddress, V9938Mode};
 
 fn roms() -> Option<PathBuf> {
     let root = std::env::var_os("EMU198X_ROMS_ROOT")

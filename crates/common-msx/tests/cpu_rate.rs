@@ -19,8 +19,8 @@
 //! `NOP` is right the clock division is right, and if it is wrong nothing
 //! else can be.
 
+use common_msx::{MsxRegion, MsxState as Msx};
 use emu198x_zilog_z80::Z80Stepper;
-use machine_msx::{Msx, MsxRegion};
 
 /// Zilog `NOP`: four CPU T-states plus the standard MSX M1 wait state.
 const MSX_NOP_TSTATES: u64 = 5;

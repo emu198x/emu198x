@@ -8,7 +8,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-msx \
+//! cargo test --release -p common-msx \
 //!     --test bios_boot -- --ignored --nocapture
 //! ```
 //!
@@ -21,7 +21,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_msx::{Msx, MsxRegion};
+use common_msx::{MsxRegion, MsxState as Msx};
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(path) = env::var("EMU198X_MSX_BIOS") {

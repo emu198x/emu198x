@@ -1,10 +1,10 @@
 //! Original v10 models and complete continued frame/audio output.
+use common_msx::MapperType;
 use emu198x_shell::{
     AudioPacket, AudioSink, CapturedFrame, FramePacket, FrameSink, HostIo, MachineCore,
     MachineError, NullTraceSink,
 };
 use emu198x_zilog_z80::Z80Stepper;
-use machine_msx::MapperType;
 use runtime_msx::{Model, MsxRuntime};
 use std::{error::Error, path::Path};
 #[derive(Default)]

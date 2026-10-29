@@ -1,7 +1,7 @@
 //! Family-owned query surface for the MSX1 runtime.
 
+use crate::machine::MsxMachine as Msx;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_msx::Msx;
 use serde_json::json;
 
 use crate::runtime::MsxRuntime;

@@ -192,17 +192,66 @@ crate = "emu198x-memotech-mtx"
 label = "system:mtx"
 milestone = "Memotech MTX 100%"
 
+# Shared issue labels/milestones cover family backlogs, not board qualification.
 [[system]]
-machine_id = "microsoft-msx1"
+machine_id = "sony-hb-10p"
+machine_crate = "machine-sony-hb-10p"
 crate = "emu198x-msx"
 label = "system:msx"
 milestone = "MSX 100%"
 
-# The MSX2 runs in the MSX1's runtime and ships from the same crate, as the
-# C128 does from the C64's, but it is a machine of its own: V9938, SUB-ROM,
-# clock and memory mapper.
 [[system]]
-machine_id = "microsoft-msx2"
+machine_id = "toshiba-hx-10"
+machine_crate = "machine-toshiba-hx-10"
+crate = "emu198x-msx"
+label = "system:msx"
+milestone = "MSX 100%"
+
+[[system]]
+machine_id = "mitsubishi-ml-f80"
+machine_crate = "machine-mitsubishi-ml-f80"
+crate = "emu198x-msx"
+label = "system:msx"
+milestone = "MSX 100%"
+
+[[system]]
+machine_id = "yamaha-cx5m"
+machine_crate = "machine-yamaha-cx5m"
+crate = "emu198x-msx"
+label = "system:msx"
+milestone = "MSX 100%"
+
+[[system]]
+machine_id = "mitsubishi-ml-fx1"
+machine_crate = "machine-mitsubishi-ml-fx1"
+crate = "emu198x-msx"
+label = "system:msx"
+milestone = "MSX 100%"
+
+[[system]]
+machine_id = "sony-hb-10"
+machine_crate = "machine-sony-hb-10"
+crate = "emu198x-msx"
+label = "system:msx"
+milestone = "MSX 100%"
+
+[[system]]
+machine_id = "philips-vg-8235-00"
+machine_crate = "machine-philips-vg-8235-00"
+crate = "emu198x-msx"
+label = "system:msx2"
+milestone = "MSX2 100%"
+
+[[system]]
+machine_id = "sony-hb-f1"
+machine_crate = "machine-sony-hb-f1"
+crate = "emu198x-msx"
+label = "system:msx2"
+milestone = "MSX2 100%"
+
+[[system]]
+machine_id = "panasonic-fs-a1"
+machine_crate = "machine-panasonic-fs-a1"
 crate = "emu198x-msx"
 label = "system:msx2"
 milestone = "MSX2 100%"

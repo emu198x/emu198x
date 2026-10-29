@@ -31,8 +31,8 @@
 //! events) remain wired to the keyboard matrix (row 8) — they are a
 //! separate input path from the joystick directions.
 
+use crate::machine::MsxMachine as Msx;
 use emu198x_shell::InputEvent;
-use machine_msx::Msx;
 
 /// Host-side mirror of one MSX joystick port: four directions plus the
 /// trigger-A button, re-applied via [`Msx::set_joystick`] on every event.
@@ -224,7 +224,7 @@ mod tests {
     }
 
     fn make_msx() -> Msx {
-        Msx::new(trap_bios(), machine_msx::MsxRegion::Ntsc)
+        Msx::try_new(crate::Model::SonyHb10p, trap_bios(), None).expect("named keyboard board")
     }
 
     fn key(name: &str, pressed: bool) -> InputEvent {
