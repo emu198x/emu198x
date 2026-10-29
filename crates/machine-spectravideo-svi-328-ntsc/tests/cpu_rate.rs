@@ -20,7 +20,7 @@
 //! else can be.
 
 use emu198x_zilog_z80::Z80Stepper;
-use machine_spectravideo_svi_328::{Svi328, SviRegion};
+use machine_spectravideo_svi_328_ntsc::Svi328;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -28,7 +28,7 @@ const NOP_TSTATES: u64 = 4;
 #[test]
 fn a_nop_costs_four_tstates() {
     // 32 KB of `NOP` in place of the BIOS; the Z80 starts at `$0000`.
-    let mut svi = Svi328::new(vec![0x00u8; 32 * 1024], SviRegion::Pal);
+    let mut svi = Svi328::new(vec![0x00u8; 32 * 1024]);
 
     // Clear the reset sequence so the measurement covers steady-state `NOP`s
     // rather than whatever the first instruction happens to be.

@@ -1,12 +1,12 @@
 //! Runtime wrapper for the Spectravideo SVI-328.
 
+use crate::machine::SviMachine as Svi328;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
 use emu198x_ti_tms9918::VdpRegion;
-use machine_spectravideo_svi_328::{Svi328, SviRegion};
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
@@ -225,11 +225,7 @@ impl Svi328Runtime {
             self.machine = None;
             return;
         };
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => SviRegion::Pal,
-            _ => SviRegion::Ntsc,
-        };
-        let mut machine = Svi328::new(bios, region);
+        let mut machine = Svi328::new(self.model, bios);
         if let Some(rom) = self.cart_bytes.clone() {
             machine.insert_cart(rom);
         }

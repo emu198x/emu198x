@@ -85,14 +85,14 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("spectravideo-svi-328"),
+        machine_id: match model { Model::Svi328Ntsc => MachineId::from("spectravideo-svi-328-ntsc"), Model::Svi328Pal => MachineId::from("spectravideo-svi-328-pal") },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
         release_year: 1983,
         summary:
-            "Spectravideo SVI-328 — Z80A + 32 KB BASIC ROM, 64 KB RAM, TMS9918 VDP, AY-3-8910 PSG."
+            "Spectravideo SVI-328 — Z80A + 32 KB BASIC ROM, 64 KB RAM, TMS9918-family video, AY-3-8910 PSG."
                 .into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
         firmware: vec![FirmwareRequirement::new(
