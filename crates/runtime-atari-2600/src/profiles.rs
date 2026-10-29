@@ -91,7 +91,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         release_year: 1977,
         summary: "Atari 2600 / VCS — 6507 + TIA + 6532 RIOT, 128 bytes RAM, cartridge boot (NROM / banking variants).".into(),
-        clock: ClockDesc::new("colour-clock", ClockRate::from_hz(3_579_545)),
+        clock: ClockDesc::new(
+            "colour-clock",
+            ClockRate::from_hz(u64::from(match model {
+                Model::Vcs2600Ntsc => emu198x_atari_tia::TiaRegion::Ntsc,
+                Model::Vcs2600Pal => emu198x_atari_tia::TiaRegion::Pal,
+            }.crystal_hz())),
+        ),
         firmware: vec![],
         media_slots: vec![MediaSlot::new(
             "cartridge-1",
@@ -120,6 +126,18 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), profiles.len());
+    }
+
+    #[test]
+    fn profile_colour_clock_matches_the_regional_tia() {
+        for (model, tia) in [
+            (Model::Vcs2600Ntsc, emu198x_atari_tia::TiaRegion::Ntsc),
+            (Model::Vcs2600Pal, emu198x_atari_tia::TiaRegion::Pal),
+        ] {
+            let profile = profile_for(model);
+            assert_eq!(profile.clock.rate.numerator_hz, u64::from(tia.crystal_hz()));
+            assert_eq!(profile.clock.rate.denominator_hz, 1);
+        }
     }
 
     #[test]
