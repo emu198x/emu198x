@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_atari_2600::{Atari2600, Atari2600Region};
+use common_atari_2600::{Atari2600Region, Atari2600State};
 
 fn first_cart(dir: &PathBuf) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;
@@ -45,7 +45,7 @@ fn cart_boots_to_playfield() {
     };
     let rom = fs::read(&path).expect("read cart");
 
-    let mut sys = Atari2600::new(rom, Atari2600Region::Ntsc).expect("init");
+    let mut sys = Atari2600State::new(rom, Atari2600Region::Ntsc).expect("init");
     sys.set_joystick_input(0xFF);
     sys.set_switch_input(0xFF);
     for _ in 0..200 {

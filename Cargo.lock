@@ -466,6 +466,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-atari-2600"
+version = "0.45.1"
+dependencies = [
+ "emu198x-atari-tia",
+ "emu198x-mos-6502",
+ "emu198x-mos-riot-6532",
+ "emu198x-test-skip",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-coleco-colecovision"
 version = "0.45.1"
 dependencies = [
@@ -574,7 +587,6 @@ dependencies = [
  "emu198x-zilog-z80",
  "postcard",
  "serde",
-
 ]
 
 [[package]]
@@ -3659,13 +3671,14 @@ dependencies = [
 name = "machine-atari-2600"
 version = "0.45.1"
 dependencies = [
- "emu198x-atari-tia",
- "emu198x-mos-6502",
- "emu198x-mos-riot-6532",
- "emu198x-test-skip",
- "postcard",
- "serde",
- "serde-big-array",
+ "common-atari-2600",
+]
+
+[[package]]
+name = "machine-atari-2600-pal"
+version = "0.45.1"
+dependencies = [
+ "common-atari-2600",
 ]
 
 [[package]]
@@ -5633,9 +5646,11 @@ dependencies = [
 name = "runtime-atari-2600"
 version = "0.45.1"
 dependencies = [
+ "common-atari-2600",
  "emu198x-atari-tia",
  "emu198x-shell",
  "machine-atari-2600",
+ "machine-atari-2600-pal",
  "postcard",
  "serde",
  "serde_json",

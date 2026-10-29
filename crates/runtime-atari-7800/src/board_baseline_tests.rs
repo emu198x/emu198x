@@ -59,7 +59,9 @@ fn continued(r: &mut Atari7800Runtime) -> Result<Output, Box<dyn Error>> {
         assert!(
             frame
                 .pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|p| p != &frame.pixels[..4]),
             "guest-drawn content"
         );

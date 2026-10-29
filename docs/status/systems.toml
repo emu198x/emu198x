@@ -64,6 +64,15 @@ milestone = "Amstrad CPC 100%"
 
 [[system]]
 machine_id = "atari-2600"
+machine_crate = "machine-atari-2600"
+crate = "emu198x-atari-2600"
+label = "system:atari-2600"
+milestone = "Atari 2600 100%"
+
+# Shared family backlog; board qualification comes from its machine crate.
+[[system]]
+machine_id = "atari-2600-pal"
+machine_crate = "machine-atari-2600-pal"
 crate = "emu198x-atari-2600"
 label = "system:atari-2600"
 milestone = "Atari 2600 100%"

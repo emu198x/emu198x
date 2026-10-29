@@ -1,0 +1,12 @@
+[package]
+name = "machine-atari-2600-pal"
+description = "Fixed Atari 2600 Pal board"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-atari-2600 = { path = "../common-atari-2600", version = "0.45.1" }
+[lints]
+workspace = true

@@ -1,7 +1,7 @@
 //! Family-owned query surface for the Atari 2600 runtime.
 
+use crate::machine::Atari2600Machine as Atari2600;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_atari_2600::Atari2600;
 use serde_json::json;
 
 use crate::runtime::Atari2600Runtime;

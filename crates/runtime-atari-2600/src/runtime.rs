@@ -4,12 +4,13 @@
 //! PAL) and pushes it at its native rate; the host resamples to the output
 //! device rate.
 
+use crate::machine::Atari2600Machine as Atari2600;
+use common_atari_2600::Atari2600Region;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_atari_2600::{Atari2600, Atari2600Region};
 
 use crate::input::{ControllerCache, apply_input_event};
 use crate::profiles::{Model, profile_for};
