@@ -1,5 +1,6 @@
 //! Family-owned dispatch for the two statically wired SVI-328 boards.
 use crate::profiles::Model;
+use common_spectravideo_svi_328::CassetteMedia;
 use common_spectravideo_svi_328::{AyWriteRecord, IoEvent, SviRegion, SviState, Tms9918, Z80};
 use emu198x_zilog_z80::Z80Stepper;
 use machine_spectravideo_svi_328_ntsc::Svi328 as Ntsc;
@@ -19,6 +20,19 @@ macro_rules! dispatch {
     };
 }
 impl SviMachine {
+    pub fn firmware_rom(&self) -> &[u8] {
+        dispatch!(self,m=>m.firmware_rom())
+    }
+    pub fn cartridge_rom(&self) -> &[u8] {
+        dispatch!(self,m=>m.cartridge_rom())
+    }
+    pub fn cassette_media(&self) -> Option<CassetteMedia> {
+        dispatch!(self,m=>m.cassette_media())
+    }
+    pub fn insert_cassette_media(&mut self, media: &CassetteMedia) {
+        dispatch!(self,m=>m.insert_cassette_media(media));
+    }
+
     pub(crate) fn new(model: Model, rom: Vec<u8>) -> Self {
         match model {
             Model::Svi328Ntsc => Self::Ntsc(Ntsc::new(rom)),

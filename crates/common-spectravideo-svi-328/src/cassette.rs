@@ -17,6 +17,25 @@ struct WaveSpan {
     samples: u32,
 }
 
+/// Immutable waveform carried by a cassette, independent of live transport state.
+///
+/// Version-7 saves already contain these spans. Recovering them does not require
+/// reconstructing CAS bytes or changing the serialized transport layout.
+#[derive(Clone)]
+pub struct CassetteMedia {
+    spans: Vec<WaveSpan>,
+}
+
+impl CassetteMedia {
+    /// Encode decoded CAS blocks for a stopped deck.
+    #[must_use]
+    pub fn from_blocks(blocks: &[Vec<u8>]) -> Self {
+        Self {
+            spans: encode_waveform(blocks),
+        }
+    }
+}
+
 /// Read-only cassette deck driven by PPI port C motor control.
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct Cassette {
@@ -28,6 +47,17 @@ pub(crate) struct Cassette {
 }
 
 impl Cassette {
+    pub(crate) fn media(&self) -> Option<CassetteMedia> {
+        self.is_present().then(|| CassetteMedia {
+            spans: self.spans.clone(),
+        })
+    }
+
+    pub(crate) fn insert_media(&mut self, media: &CassetteMedia) {
+        self.spans.clone_from(&media.spans);
+        self.rewind();
+    }
+
     pub(crate) fn insert(&mut self, blocks: &[Vec<u8>]) {
         self.spans = encode_waveform(blocks);
         self.rewind();
@@ -126,6 +156,39 @@ fn push_span(spans: &mut Vec<WaveSpan>, high: bool, samples: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovered_image_matches_fresh_insert_without_touching_live_transport() {
+        let blocks = [vec![0x42, 0x80, 0x7F]];
+        let mut original = Cassette::default();
+        original.insert(&blocks);
+        let cold = postcard::to_allocvec(&original).expect("fresh transport");
+        original.set_motor(true);
+        for _ in 0..34_567 {
+            original.tick_tstate();
+        }
+        let active = postcard::to_allocvec(&original).expect("active transport");
+        assert_ne!(active, cold);
+        let recovered = original.media().expect("loaded image");
+        assert_eq!(
+            postcard::to_allocvec(&original).expect("unmodified transport"),
+            active
+        );
+        for image in [CassetteMedia::from_blocks(&blocks), recovered] {
+            let mut deck = Cassette::default();
+            deck.insert_media(&image);
+            assert!(!deck.motor_running);
+            assert_eq!(postcard::to_allocvec(&deck).expect("rewound image"), cold);
+            for _ in 0..34_567 {
+                deck.tick_tstate();
+            }
+            assert_eq!(
+                postcard::to_allocvec(&deck).expect("stopped transport"),
+                cold
+            );
+        }
+        assert!(Cassette::default().media().is_none());
+    }
 
     #[test]
     fn inserted_tape_is_stopped_and_low_after_initial_silence() {

@@ -1,6 +1,7 @@
 //! Runtime wrapper for the Spectravideo SVI-328.
 
 use crate::machine::SviMachine as Svi328;
+use common_spectravideo_svi_328::CassetteMedia;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
@@ -58,7 +59,7 @@ pub struct Svi328Runtime {
     machine: Option<Svi328>,
     bios_bytes: Option<Vec<u8>>,
     cart_bytes: Option<Vec<u8>>,
-    cassette_blocks: Option<Vec<Vec<u8>>>,
+    cassette_media: Option<CassetteMedia>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     controller_cache: crate::input::ControllerCache,
@@ -84,7 +85,7 @@ impl Svi328Runtime {
             machine: None,
             bios_bytes: None,
             cart_bytes: None,
-            cassette_blocks: None,
+            cassette_media: None,
             time: MachineTime::default(),
             rgba_framebuffer: vec![
                 0;
@@ -176,11 +177,11 @@ impl Svi328Runtime {
                 reason: reason.to_string(),
             }
         })?;
-        let blocks = image.into_blocks();
+        let media = CassetteMedia::from_blocks(&image.into_blocks());
         if let Some(machine) = self.machine.as_mut() {
-            machine.insert_cassette(&blocks);
+            machine.insert_cassette_media(&media);
         }
-        self.cassette_blocks = Some(blocks);
+        self.cassette_media = Some(media);
         Ok(())
     }
 
@@ -216,6 +217,14 @@ impl Svi328Runtime {
     /// framebuffer from its live state. Replaces the cold-boot rebuild on the
     /// restore path so the resumed machine keeps its CPU/VDP/PSG/PPI/RAM state.
     pub(crate) fn set_machine(&mut self, machine: Option<Svi328>) {
+        // Restore is authoritative for reset inputs, including their absence.
+        // Capturing the waveform leaves its live motor/cursor/phase untouched.
+        self.bios_bytes = machine.as_ref().map(|m| m.firmware_rom().to_vec());
+        self.cart_bytes = machine.as_ref().and_then(|m| {
+            let bytes = m.cartridge_rom();
+            (!bytes.is_empty()).then(|| bytes.to_vec())
+        });
+        self.cassette_media = machine.as_ref().and_then(Svi328::cassette_media);
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
@@ -229,8 +238,8 @@ impl Svi328Runtime {
         if let Some(rom) = self.cart_bytes.clone() {
             machine.insert_cart(rom);
         }
-        if let Some(blocks) = &self.cassette_blocks {
-            machine.insert_cassette(blocks);
+        if let Some(media) = &self.cassette_media {
+            machine.insert_cassette_media(media);
         }
         self.machine = Some(machine);
         self.update_rgba_framebuffer();

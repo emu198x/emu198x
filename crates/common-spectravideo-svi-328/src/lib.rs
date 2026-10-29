@@ -66,6 +66,7 @@
 mod cassette;
 
 use cassette::Cassette;
+pub use cassette::CassetteMedia;
 pub use emu198x_gi_ay_3_8912::AyWriteRecord;
 use emu198x_gi_ay_3_8912::{Ay3_8912, AyWriteWatch};
 use emu198x_intel_8255::Ppi8255;
@@ -241,6 +242,29 @@ impl<B: Board> SviCore<B> {
             state,
             board: std::marker::PhantomData,
         }
+    }
+
+    /// Original system ROM retained by the live machine.
+    #[must_use]
+    pub fn firmware_rom(&self) -> &[u8] {
+        &self.state.rom
+    }
+
+    /// Original cartridge ROM retained by the live machine.
+    #[must_use]
+    pub fn cartridge_rom(&self) -> &[u8] {
+        &self.state.cart_rom
+    }
+
+    /// Capture immutable tape media without changing the live transport.
+    #[must_use]
+    pub fn cassette_media(&self) -> Option<CassetteMedia> {
+        self.state.cassette.media()
+    }
+
+    /// Put recovered tape media in a rewound, stopped deck.
+    pub fn insert_cassette_media(&mut self, media: &CassetteMedia) {
+        self.state.cassette.insert_media(media);
     }
 
     /// Insert a cartridge ROM. PSG R15 controls whether it is visible;
