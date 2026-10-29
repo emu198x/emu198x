@@ -5,12 +5,13 @@
 //! `set_roms` / `from_firmware`. Each frame it drains the VIC's three-tone +
 //! noise audio and pumps it into the host audio sink.
 
+use crate::machine::Vic20Machine as Vic20;
+use common_commodore_vic_20::{Vic20Model, Vic20RamExpansion};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
 use crate::input::apply_input_event;
 use crate::profiles::{
@@ -370,7 +371,7 @@ impl Vic20Runtime {
         self.update_rgba_framebuffer();
     }
 
-    fn machine_model(&self) -> Vic20Model {
+    pub(crate) fn machine_model(&self) -> Vic20Model {
         match self.model {
             Model::Vic20Pal => Vic20Model::Pal,
             Model::Vic20Ntsc => Vic20Model::Ntsc,
@@ -381,7 +382,7 @@ impl Vic20Runtime {
         let Some(machine) = self.machine.as_ref() else {
             return;
         };
-        let machine = machine.cold_boot(self.machine_model(), self.ram_expansion);
+        let machine = machine.cold_boot(self.ram_expansion);
         self.set_machine(Some(machine));
     }
 

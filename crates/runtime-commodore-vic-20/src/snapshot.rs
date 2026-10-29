@@ -6,8 +6,8 @@
 //! SG-1000 shape: a borrowing envelope for encode (no clone), an owning
 //! envelope for decode.
 
+use crate::machine::Vic20Machine as Vic20;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_commodore_vic_20::Vic20;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Vic20Runtime;
@@ -81,6 +81,15 @@ pub(crate) fn decode(runtime: &mut Vic20Runtime, bytes: &[u8]) -> Result<(), Mac
             ),
         });
     }
+    if snapshot
+        .machine
+        .as_ref()
+        .is_some_and(|m| m.model() != runtime.machine_model())
+    {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot board does not match runtime profile".to_owned(),
+        });
+    }
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_cartridge_image(snapshot.cartridge_image);
     runtime.set_machine(snapshot.machine);
@@ -134,8 +143,9 @@ mod tests {
 
     #[test]
     fn restore_preserves_timer2_load_underflow_and_countdown_in_both_vias() {
+        use crate::machine::Vic20Machine as Vic20;
+        use common_commodore_vic_20::{Vic20Model, Vic20RamExpansion};
         use emu198x_shell::MachineCore;
-        use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
         for (model, machine_model) in [
             (Model::Vic20Pal, Vic20Model::Pal),
@@ -187,6 +197,41 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+    #[test]
+    fn mismatched_envelope_and_board_reject_without_mutating_receiver() {
+        use crate::machine::Vic20Machine;
+        use common_commodore_vic_20::Vic20RamExpansion;
+        use emu198x_shell::MachineCore;
+        for (source_model, target_model, board) in [
+            (Model::Vic20Ntsc, Model::Vic20Pal, crate::Vic20Model::Ntsc),
+            (Model::Vic20Pal, Model::Vic20Ntsc, crate::Vic20Model::Pal),
+        ] {
+            let machine = Vic20Machine::new(
+                vec![0xEA; 8192],
+                vec![0; 8192],
+                vec![0; 4096],
+                board,
+                Vic20RamExpansion::EXP_3K,
+            );
+            let mut receiver =
+                Vic20Runtime::new(target_model, vec![0xA5; 8192], vec![0; 8192], vec![0; 4096])
+                    .expect("occupied receiver");
+            let before = receiver.snapshot().expect("before");
+            for model_id in [source_model.model_id(), target_model.model_id()] {
+                let bytes = postcard::to_allocvec(&Vic20RuntimeSnapshotRefV2 {
+                    version: super::SNAPSHOT_VERSION,
+                    time: 12345,
+                    model_id,
+                    machine: Some(&machine),
+                    cartridge_image: Some(&[0x5A; 8192]),
+                })
+                .expect("forged envelope");
+                let error = decode(&mut receiver, &bytes).expect_err("wrong board");
+                assert!(matches!(error, MachineError::InvalidSnapshot { .. }));
+                assert_eq!(receiver.snapshot().expect("unchanged"), before);
             }
         }
     }

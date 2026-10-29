@@ -1,5 +1,5 @@
 [package]
-name = "machine-commodore-vic-20"
+name = "common-commodore-vic-20"
 description = "Commodore VIC-20 (1981) — 6502 + MOS VIC-I (6560/6561) + character/screen RAM"
 version.workspace = true
 publish = false
@@ -16,11 +16,7 @@ serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
-png = { workspace = true }
 postcard = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
 
 [lints]
 workspace = true

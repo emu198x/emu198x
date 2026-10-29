@@ -125,7 +125,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("commodore-vic-20"),
+        machine_id: match model { Model::Vic20Ntsc => MachineId::from("commodore-vic-20-ntsc"), Model::Vic20Pal => MachineId::from("commodore-vic-20-pal") },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -198,5 +198,28 @@ mod tests {
                 .iter()
                 .any(|slot| slot.id == "program-1" && slot.kind == MediaKind::Program)
         );
+    }
+    #[test]
+    fn regional_boards_have_distinct_ids_without_changing_profile_aliases() {
+        for (model, id, aliases) in [
+            (
+                Model::Vic20Ntsc,
+                "commodore-vic-20-ntsc",
+                ["ntsc", "vic20-ntsc"],
+            ),
+            (
+                Model::Vic20Pal,
+                "commodore-vic-20-pal",
+                ["pal", "vic20-pal"],
+            ),
+        ] {
+            let profile = profile_for(model);
+            assert_eq!(profile.machine_id, MachineId::from(id));
+            assert_eq!(profile.profile_id, ProfileId::from(id));
+            assert_eq!(Model::from_variant_id(id), Some(model));
+            for alias in aliases {
+                assert_eq!(Model::from_variant_id(alias), Some(model));
+            }
+        }
     }
 }

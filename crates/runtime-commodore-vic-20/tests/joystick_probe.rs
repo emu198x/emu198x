@@ -11,7 +11,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
+use common_commodore_vic_20::{Vic20Model, Vic20RamExpansion};
+use runtime_commodore_vic_20::Vic20Machine as Vic20;
 
 fn rom(var: &str, default_name: &str, len: usize) -> Vec<u8> {
     let path = env::var(var).map(PathBuf::from).unwrap_or_else(|_| {

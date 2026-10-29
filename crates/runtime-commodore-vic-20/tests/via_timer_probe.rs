@@ -12,7 +12,8 @@
 //!
 //! The KERNAL here is built by the test, so it needs no fixture.
 
-use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
+use common_commodore_vic_20::{Vic20Model, Vic20RamExpansion};
+use runtime_commodore_vic_20::Vic20Machine as Vic20;
 
 /// Native xvic 3.10 gives identical PAL/NTSC bytes for this synthetic KERNAL.
 /// It compares both timers at W+105 and IFR reads at W+4/6/8/10 for N=0..7.
