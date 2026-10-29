@@ -1,6 +1,6 @@
 [package]
 name = "machine-dragon-32"
-description = "Dragon 32/64 machine substrate: MC6809, RAM/ROM map, PIA, SAM, keyboard, and VDG text capture"
+description = "Fixed Dragon32 Pal board"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -8,17 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format198x-dragon-data-dragon-disk = "0.1.1"
-emu198x-mos-acia-6551 = "0.1.0"
-emu198x-motorola-6809 = "0.1.0"
-emu198x-motorola-pia-6821 = "0.1.0"
-emu198x-motorola-sam-6883 = "0.1.0"
-emu198x-motorola-vdg-6847 = "0.1.0"
-serde = { workspace = true }
+common-dragon = { path = "../common-dragon", version = "0.45.0" }
 
 [dev-dependencies]
+emu198x-motorola-vdg-6847 = "0.1.0"
 postcard = { workspace = true }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

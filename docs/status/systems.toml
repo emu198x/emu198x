@@ -147,13 +147,30 @@ milestone = "VIC-20 100%"
 
 [[system]]
 machine_id = "dragon"
+machine_crate = "machine-dragon-32"
 crate = "emu198x-dragon"
 label = "system:dragon"
 milestone = "Dragon 32 100%"
 
 [[system]]
-machine_id = "tandy-coco"
+machine_id = "dragon-64"
+machine_crate = "machine-dragon-64"
 crate = "emu198x-dragon"
+label = "system:dragon-64"
+milestone = "Dragon 64 100%"
+
+[[system]]
+machine_id = "tandy-coco"
+machine_crate = "machine-tandy-coco-1"
+crate = "emu198x-dragon"
+label = "system:coco"
+milestone = "CoCo 100%"
+
+[[system]]
+machine_id = "tandy-coco-2"
+machine_crate = "machine-tandy-coco-2"
+crate = "emu198x-dragon"
+# The family backlog applies to both CoCo boards, not a qualification claim.
 label = "system:coco"
 milestone = "CoCo 100%"
 

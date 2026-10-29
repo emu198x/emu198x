@@ -1,0 +1,18 @@
+[package]
+name = "machine-tandy-coco-1"
+description = "Fixed CoCo1 Ntsc board"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-dragon = { path = "../common-dragon", version = "0.45.0" }
+
+[dev-dependencies]
+emu198x-motorola-vdg-6847 = "0.1.0"
+postcard = { workspace = true }
+
+[lints]
+workspace = true

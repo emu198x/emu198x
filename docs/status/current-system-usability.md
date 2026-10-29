@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 55 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 57 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -34,7 +34,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `commodore-pet` | `emu198x-commodore-pet` | 3 | 5 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |
 | `commodore-vic-20-ntsc` | `emu198x-commodore-vic-20` | 1 | 9 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |
 | `commodore-vic-20-pal` | `emu198x-commodore-vic-20` | 1 | 9 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |
-| `dragon` ⚠️ | `emu198x-dragon` | 3 | 5 | [system:dragon](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Adragon) | [Dragon 32 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Dragon+32+100%25%22) |
+| `dragon` | `emu198x-dragon` | 1 | 8 | [system:dragon](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Adragon) | [Dragon 32 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Dragon+32+100%25%22) |
+| `dragon-64` | `emu198x-dragon` | 1 | 8 | [system:dragon-64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Adragon-64) | [Dragon 64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Dragon+64+100%25%22) |
 | `jupiter-ace` | `emu198x-jupiter-ace` | 3 | 5 | [system:jupiter-ace](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ajupiter-ace) | [Jupiter Ace 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Jupiter+Ace+100%25%22) |
 | `mattel-aquarius` | `emu198x-mattel-aquarius` | 3 | 5 | [system:aquarius](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aaquarius) | [Aquarius 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Aquarius+100%25%22) |
 | `memotech-mtx` | `emu198x-memotech-mtx` | 3 | 5 | [system:mtx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amtx) | [Memotech MTX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Memotech+MTX+100%25%22) |
@@ -68,7 +69,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `sord-m5-pal` | `emu198x-sord-m5` | 1 | 8 | [system:sord-m5](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asord-m5) | [Sord M5 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Sord+M5+100%25%22) |
 | `spectravideo-svi-328-ntsc` | `emu198x-spectravideo-svi-328` | 1 | 8 | [system:svi-328](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asvi-328) | [SVI-328 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SVI-328+100%25%22) |
 | `spectravideo-svi-328-pal` | `emu198x-spectravideo-svi-328` | 1 | 8 | [system:svi-328](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asvi-328) | [SVI-328 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SVI-328+100%25%22) |
-| `tandy-coco` ⚠️ | `emu198x-dragon` | 3 | 5 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
+| `tandy-coco` | `emu198x-dragon` | 1 | 8 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
+| `tandy-coco-2` | `emu198x-dragon` | 1 | 8 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
 | `tatung-einstein` | `emu198x-tatung-einstein` | 3 | 5 | [system:einstein](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aeinstein) | [Tatung Einstein 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Tatung+Einstein+100%25%22) |
 
 ⚠️ Shares a shipping crate without an explicit concrete board owner, so neither one's evidence can be told from the other's.

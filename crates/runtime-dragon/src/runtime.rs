@@ -1,7 +1,13 @@
 //! Runtime wrapper for the Dragon family.
 
+use crate::machine::DragonMachine as Dragon32;
 use std::borrow::Cow;
 
+use common_dragon::{
+    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
+    DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis, DragonKey,
+    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
+};
 use emu198x_motorola_vdg_6847::{
     VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH,
 };
@@ -17,11 +23,6 @@ use format198x_dragon_data_dragon_disk::{DragonDiskImage, parse_vdk};
 use format198x_dragon_data_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
     parse_dragon_pak, parse_pcdragon_snapshot,
-};
-use machine_dragon_32::{
-    DRAGON_AUDIO_SAMPLE_RATE, DRAGON_JOYSTICK_CENTER, DRAGON_JOYSTICK_MAX, DRAGON_JOYSTICK_MIN,
-    Dragon32, DragonCartridgeKind, DragonHardwareModel, DragonJoystickAxis, DragonKey,
-    DragonSnapshotPeripherals, DragonSnapshotRegisters, MatrixKey, ROM_SIZE,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -196,7 +197,7 @@ struct DragonRuntimeSnapshotV1 {
     model: Model,
     firmware_rom: Vec<u8>,
     dragon64_mode_rom: Option<Vec<u8>>,
-    machine: Dragon32,
+    machine: common_dragon::DragonState,
     joystick: DragonJoystickInputState,
     time: MachineTime,
     #[serde(with = "crate::media_serde::tape")]
@@ -204,7 +205,30 @@ struct DragonRuntimeSnapshotV1 {
     tape_bytes: Vec<u8>,
     #[serde(with = "crate::media_serde::cartridge")]
     cartridge: Option<DragonPakImage>,
-    #[serde(with = "machine_dragon_32::disk_serde::option")]
+    #[serde(with = "common_dragon::disk_serde::option")]
+    disk: Option<DragonDiskImage>,
+    #[serde(with = "crate::media_serde::program")]
+    program: Option<DragonBinImage>,
+    #[serde(with = "crate::media_serde::snapshot")]
+    snapshot: Option<PcDragonSnapshot>,
+}
+
+#[derive(Serialize)]
+struct DragonRuntimeSnapshotRefV1<'a> {
+    version: u32,
+    profile_id: String,
+    model: Model,
+    firmware_rom: Vec<u8>,
+    dragon64_mode_rom: Option<Vec<u8>>,
+    machine: &'a Dragon32,
+    joystick: DragonJoystickInputState,
+    time: MachineTime,
+    #[serde(with = "crate::media_serde::tape")]
+    tape: Option<CasImage>,
+    tape_bytes: Vec<u8>,
+    #[serde(with = "crate::media_serde::cartridge")]
+    cartridge: Option<DragonPakImage>,
+    #[serde(with = "common_dragon::disk_serde::option")]
     disk: Option<DragonDiskImage>,
     #[serde(with = "crate::media_serde::program")]
     program: Option<DragonBinImage>,
@@ -388,13 +412,13 @@ impl DragonRuntime {
     }
 
     fn encode_snapshot(&self) -> Result<Vec<u8>, MachineError> {
-        postcard::to_allocvec(&DragonRuntimeSnapshotV1 {
+        postcard::to_allocvec(&DragonRuntimeSnapshotRefV1 {
             version: SNAPSHOT_VERSION,
             profile_id: self.profile.profile_id.as_str().to_owned(),
             model: self.model,
             firmware_rom: self.firmware_rom.to_vec(),
             dragon64_mode_rom: self.dragon64_mode_rom.map(|rom| rom.to_vec()),
-            machine: self.machine.clone(),
+            machine: &self.machine,
             joystick: self.joystick.clone(),
             time: self.time,
             tape: self.tape.clone(),
@@ -454,11 +478,20 @@ impl DragonRuntime {
             })
             .transpose()?;
 
+        if snapshot.model != self.model
+            || snapshot.profile_id != profile_for(snapshot.model).profile_id.as_str()
+        {
+            return Err(MachineError::InvalidSnapshot {
+                reason: "snapshot profile and physical model disagree".into(),
+            });
+        }
+        let machine = Dragon32::from_state(snapshot.model, snapshot.machine)
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
         self.profile = profile_for(snapshot.model);
         self.model = snapshot.model;
         self.firmware_rom = firmware_rom;
         self.dragon64_mode_rom = dragon64_mode_rom;
-        self.machine = snapshot.machine;
+        self.machine = machine;
         self.joystick = snapshot.joystick;
         self.time = snapshot.time;
         self.tape = snapshot.tape;
@@ -871,18 +904,7 @@ fn machine_for_model(
     rom: &[u8; ROM_SIZE],
     dragon64_mode_rom: Option<&[u8; ROM_SIZE]>,
 ) -> Dragon32 {
-    let hardware = match model {
-        Model::Dragon32Pal => DragonHardwareModel::Dragon32,
-        Model::Dragon64Pal => DragonHardwareModel::Dragon64Compat,
-        Model::CoCo1Ntsc => DragonHardwareModel::CoCo,
-        Model::CoCo2Ntsc => DragonHardwareModel::CoCo64k,
-    };
-    let mut machine = Dragon32::new_with_keyboard_and_model(
-        rom,
-        machine_dragon_32::DragonKeyboard::new(),
-        hardware,
-    )
-    .with_video_standard(model.video_standard());
+    let mut machine = Dragon32::new(model, rom);
     if let Some(rom) = dragon64_mode_rom {
         machine.install_dragon64_mode_rom(rom);
     }
@@ -1061,7 +1083,7 @@ impl DragonRuntime {
             samples: &self.audio_buffer,
         })?;
 
-        let stop_reason = if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
+        let stop_reason = if report.stop_reason == common_dragon::StopReason::CpuHalted {
             StopReason::Halted
         } else if one_frame && !completed {
             StopReason::NoFrame
@@ -1534,7 +1556,7 @@ impl DragonRuntime {
         for _ in 0..PROGRAM_BOOT_FRAME_BUDGET {
             let report = self.machine.run_cycles(self.model.frame_ticks(), 0);
             self.time = self.time.saturating_add(report.cycles);
-            if report.stop_reason == machine_dragon_32::StopReason::CpuHalted {
+            if report.stop_reason == common_dragon::StopReason::CpuHalted {
                 return Err(MachineError::InvalidMedia {
                     slot: slot.to_owned(),
                     reason: "Dragon BASIC halted before direct program load".to_owned(),
@@ -2370,3 +2392,7 @@ mod tests {
 #[cfg(test)]
 #[path = "board_baseline_tests.rs"]
 mod board_baseline_tests;
+
+#[cfg(test)]
+#[path = "coco_boot_tests.rs"]
+mod coco_boot_tests;
