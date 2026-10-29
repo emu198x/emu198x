@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use machine_coleco_colecovision::{ColecoVision, CvRegion};
+use machine_coleco_colecovision_pal::ColecoVision;
 
 /// TMS9918 palette entry 15. The power-on backdrop is entry 0, which is
 /// transparent, so white cannot appear unless the firmware ran.
@@ -28,7 +28,7 @@ fn firmware() -> PathBuf {
 }
 
 fn booted(rom: Vec<u8>) -> ColecoVision {
-    let mut machine = ColecoVision::new(rom, Vec::new(), CvRegion::Ntsc);
+    let mut machine = ColecoVision::new(rom, Vec::new());
     for _ in 0..5 {
         machine.run_frame();
     }
