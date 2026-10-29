@@ -15,7 +15,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_2600::{Atari2600, Atari2600Region};
+use common_atari_2600::{Atari2600Region, Atari2600State};
 
 /// NTSC palette entry `$0E`, selected by writing `$1C` to `COLUBK`.
 const EXPECTED: u32 = 0xFFD4_D478;
@@ -25,8 +25,8 @@ fn cart() -> PathBuf {
         .join("../../test-data/atari/synthetic-cart/atari-2600.a26")
 }
 
-fn booted(rom: Vec<u8>) -> Atari2600 {
-    let mut machine = Atari2600::new(rom, Atari2600Region::Ntsc)
+fn booted(rom: Vec<u8>) -> Atari2600State {
+    let mut machine = Atari2600State::new(rom, Atari2600Region::Ntsc)
         .expect("the synthetic cartridge should load as a 4 KB image");
     for _ in 0..5 {
         machine.run_frame();
@@ -35,7 +35,7 @@ fn booted(rom: Vec<u8>) -> Atari2600 {
 }
 
 /// The single colour filling the visible window, if it is uniform.
-fn visible_colour(machine: &Atari2600) -> Option<u32> {
+fn visible_colour(machine: &Atari2600State) -> Option<u32> {
     let stride = machine.framebuffer_width() as usize;
     let left = machine.hblank_clocks() as usize;
     let width = machine.visible_framebuffer_width() as usize;

@@ -84,7 +84,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("atari-2600"),
+        machine_id: match model {Model::Vcs2600Ntsc=>MachineId::from("atari-2600"),Model::Vcs2600Pal=>MachineId::from("atari-2600-pal")},
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,

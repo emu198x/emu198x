@@ -10,7 +10,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_atari_2600::{Atari2600, Atari2600Region};
+use common_atari_2600::{Atari2600Region, Atari2600State};
 
 fn cart_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_SUPERCHARGER_CART") {
@@ -36,7 +36,7 @@ fn phaser_patrol_fast_loads_and_renders() {
     let rom = fs::read(&path).expect("read cart");
     assert_eq!(rom.len() % 8448, 0, "Supercharger image is 8448 × N");
 
-    let mut sys = Atari2600::new(rom, Atari2600Region::Ntsc).expect("init");
+    let mut sys = Atari2600State::new(rom, Atari2600Region::Ntsc).expect("init");
     sys.set_joystick_input(0xFF);
     sys.set_switch_input(0xFF);
     // The dummy BIOS fast-loads on the first frames; give the title a moment.

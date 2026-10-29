@@ -146,6 +146,8 @@ members = [
     "crates/machine-acorn-atom",
     "crates/machine-amstrad-cpc",
     "crates/machine-atari-2600",
+    "crates/common-atari-2600",
+    "crates/machine-atari-2600-pal",
     "crates/machine-atari-5200",
     "crates/machine-atari-7800",
     "crates/machine-atari-800xl",

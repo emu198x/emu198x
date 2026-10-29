@@ -1,22 +1,12 @@
 [package]
 name = "machine-atari-2600"
-description = "Atari 2600 (VCS) machine wiring — 6507 + TIA + RIOT-6532"
+description = "Fixed Atari 2600 Ntsc board"
 version.workspace = true
 publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
 [dependencies]
-emu198x-atari-tia = { path = "../emu198x-atari-tia", version = "0.1.0" }
-emu198x-mos-6502 = "0.6.1"
-emu198x-mos-riot-6532 = "0.1.0"
-serde = { workspace = true }
-serde-big-array = { workspace = true }
-
-[dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
-postcard = { workspace = true }
-
+common-atari-2600 = { path = "../common-atari-2600", version = "0.45.1" }
 [lints]
 workspace = true

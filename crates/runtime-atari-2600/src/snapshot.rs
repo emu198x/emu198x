@@ -5,8 +5,8 @@
 //! the cart ROM. A borrowing envelope for encode (no clone), an owning envelope
 //! for decode.
 
+use crate::machine::Atari2600Machine as Atari2600;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_atari_2600::Atari2600;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Atari2600Runtime;
@@ -28,7 +28,7 @@ struct Atari2600RuntimeSnapshotV2 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Atari2600>,
+    machine: Option<common_atari_2600::Atari2600State>,
 }
 
 pub(crate) fn encode(runtime: &Atari2600Runtime) -> Result<Vec<u8>, MachineError> {
@@ -62,8 +62,13 @@ pub(crate) fn decode(runtime: &mut Atari2600Runtime, bytes: &[u8]) -> Result<(),
             ),
         });
     }
+    let machine = snapshot
+        .machine
+        .map(|state| Atari2600::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_machine(snapshot.machine);
+    runtime.set_machine(machine);
     Ok(())
 }
 
@@ -95,6 +100,34 @@ mod tests {
                 );
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod board_identity_tests {
+    use super::*;
+    use crate::profiles::Model;
+    #[test]
+    fn foreign_payload_under_matching_header_is_rejected_atomically() {
+        let rom =
+            include_bytes!("../../../test-data/synthetic-cartridges/atari-2600-logo.bin").to_vec();
+        for (selected, foreign) in [
+            (Model::Vcs2600Ntsc, Model::Vcs2600Pal),
+            (Model::Vcs2600Pal, Model::Vcs2600Ntsc),
+        ] {
+            let mut receiver = Atari2600Runtime::new(selected, rom.clone()).expect("receiver");
+            let before = receiver.snapshot().expect("before");
+            let donor = Atari2600Runtime::new(foreign, rom.clone()).expect("donor");
+            let forged = postcard::to_allocvec(&Atari2600RuntimeSnapshotRefV2 {
+                version: SNAPSHOT_VERSION,
+                time: 12345,
+                model_id: selected.model_id(),
+                machine: donor.machine(),
+            })
+            .expect("envelope");
+            assert!(receiver.restore(&forged).is_err());
+            assert_eq!(receiver.snapshot().expect("after"), before);
         }
     }
 }

@@ -19,8 +19,8 @@
 //! the right jack (port 2) INPT2/INPT3. The signed host axis scales to the
 //! 8-bit pot position the TIA times against (0 charges fastest).
 
+use crate::machine::Atari2600Machine as Atari2600;
 use emu198x_shell::InputEvent;
-use machine_atari_2600::Atari2600;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ControllerCache {
@@ -265,7 +265,8 @@ mod tests {
         ControllerCache, DRIVE_GRAY, InputEvent, apply_input_event, axis_to_pot8, booster_button,
         drive_rotation, is_fire, is_genesis_c, joystick_bit, keypad_cell, paddle_index,
     };
-    use machine_atari_2600::{Atari2600, Atari2600Region};
+    use crate::machine::Atari2600Machine as Atari2600;
+    use common_atari_2600::Atari2600Region;
     use std::borrow::Cow;
 
     fn trap_machine() -> Atari2600 {

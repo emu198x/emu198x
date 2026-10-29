@@ -70,7 +70,7 @@ pub enum BankingScheme {
     /// Starpath Supercharger (AR): a RAM-load tape peripheral, not a bankswitch
     /// cart. The `.a26` image is `8448 × N` decoded tape loads; a dummy BIOS
     /// fast-loads each into 6 KB of RAM behind a paging control register. The
-    /// AR state and load logic live in [`crate::supercharger`]; this scheme just
+    /// AR state and load logic live in `supercharger`; this scheme just
     /// marks the cart as AR and delegates.
     Supercharger,
 }

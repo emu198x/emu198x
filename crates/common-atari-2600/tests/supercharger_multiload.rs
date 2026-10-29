@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use machine_atari_2600::{Atari2600, Atari2600Region};
+use common_atari_2600::{Atari2600Region, Atari2600State};
 
 /// Build one AR load slot (`8448` bytes). The program is placed so that, under
 /// the power-on bank configuration (config 0: low slot = RAM bank 2, high slot =
@@ -71,7 +71,7 @@ fn dominant_colour(fb: &[u32]) -> u32 {
 }
 
 fn run_dominant(rom: Vec<u8>) -> u32 {
-    let mut sys = Atari2600::new(rom, Atari2600Region::Ntsc).expect("init");
+    let mut sys = Atari2600State::new(rom, Atari2600Region::Ntsc).expect("init");
     sys.set_joystick_input(0xFF);
     sys.set_switch_input(0xFF);
     for _ in 0..30 {
