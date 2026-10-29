@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
+use machine_commodore_vic_20_ntsc::{Vic20, Vic20RamExpansion};
 
 fn rom(env: &str, default_name: &str) -> Option<Vec<u8>> {
     if let Ok(p) = env::var(env) {
@@ -21,7 +21,7 @@ fn rom(env: &str, default_name: &str) -> Option<Vec<u8>> {
 #[test]
 #[ignore = "FIXTURE: needs VIC-20 ROM set — run with --ignored"]
 fn rom_set_boots_without_panic() {
-    let kernal = rom("EMU198X_VIC20_KERNAL", "kernal.rom");
+    let kernal = rom("EMU198X_VIC20_KERNAL", "kernal-ntsc.rom");
     let basic = rom("EMU198X_VIC20_BASIC", "basic.rom");
     let char_rom = rom("EMU198X_VIC20_CHAR", "char.rom");
 
@@ -32,13 +32,7 @@ fn rom_set_boots_without_panic() {
         );
     };
 
-    let mut sys = Vic20::new(
-        kernal,
-        basic,
-        char_rom,
-        Vic20Model::Pal,
-        Vic20RamExpansion::NONE,
-    );
+    let mut sys = Vic20::new(kernal, basic, char_rom, Vic20RamExpansion::NONE);
     for _ in 0..200 {
         sys.run_frame();
     }

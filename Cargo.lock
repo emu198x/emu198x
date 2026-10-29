@@ -515,6 +515,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-vic-20"
+version = "0.45.1"
+dependencies = [
+ "emu198x-mos-6502",
+ "emu198x-mos-via-6522",
+ "emu198x-mos-vic-i",
+ "format198x-commodore-vic-20-crt",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-nintendo-game-boy"
 version = "0.45.1"
 dependencies = [
@@ -1309,7 +1322,6 @@ dependencies = [
  "emu198x-mos-vic-i",
  "emu198x-shell",
  "emu198x-ui",
- "machine-commodore-vic-20",
  "png",
  "runtime-commodore-vic-20",
  "serde_json",
@@ -3833,20 +3845,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-commodore-vic-20"
+name = "machine-commodore-vic-20-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-mos-6502",
- "emu198x-mos-via-6522",
- "emu198x-mos-vic-i",
- "emu198x-test-skip",
- "format198x-commodore-vic-20-crt",
- "png",
- "postcard",
- "serde",
- "serde-big-array",
- "serde_json",
- "sha2",
+ "common-commodore-vic-20",
+]
+
+[[package]]
+name = "machine-commodore-vic-20-pal"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-vic-20",
 ]
 
 [[package]]
@@ -5512,13 +5521,18 @@ dependencies = [
 name = "runtime-commodore-vic-20"
 version = "0.45.1"
 dependencies = [
+ "common-commodore-vic-20",
  "emu198x-esp-at-modem",
  "emu198x-mos-vic-i",
  "emu198x-shell",
- "machine-commodore-vic-20",
+ "emu198x-test-skip",
+ "machine-commodore-vic-20-ntsc",
+ "machine-commodore-vic-20-pal",
+ "png",
  "postcard",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

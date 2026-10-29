@@ -8,8 +8,9 @@
 //! `Key` events) stay mapped to the VIC-20's cursor keys — a separate input
 //! path from the joystick directions.
 
+use crate::machine::Vic20Machine as Vic20;
+use common_commodore_vic_20::Vic20Key;
 use emu198x_shell::InputEvent;
-use machine_commodore_vic_20::{Vic20, Vic20Key};
 
 /// Host-side mirror of the single control-port joystick: four directions plus
 /// the fire button, re-applied via [`Vic20::set_joystick`] on every event.
@@ -151,7 +152,7 @@ pub(crate) fn knows_key_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use machine_commodore_vic_20::Vic20Model;
+    use common_commodore_vic_20::Vic20Model;
     use std::borrow::Cow;
 
     fn make_vic20() -> Vic20 {
@@ -161,7 +162,7 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x1000],
             Vic20Model::Ntsc,
-            machine_commodore_vic_20::Vic20RamExpansion::NONE,
+            common_commodore_vic_20::Vic20RamExpansion::NONE,
         )
     }
 

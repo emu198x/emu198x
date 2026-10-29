@@ -117,7 +117,15 @@ label = "system:pet"
 milestone = "PET 100%"
 
 [[system]]
-machine_id = "commodore-vic-20"
+machine_id = "commodore-vic-20-ntsc"
+machine_crate = "machine-commodore-vic-20-ntsc"
+crate = "emu198x-commodore-vic-20"
+label = "system:vic-20"
+milestone = "VIC-20 100%"
+
+[[system]]
+machine_id = "commodore-vic-20-pal"
+machine_crate = "machine-commodore-vic-20-pal"
 crate = "emu198x-commodore-vic-20"
 label = "system:vic-20"
 milestone = "VIC-20 100%"

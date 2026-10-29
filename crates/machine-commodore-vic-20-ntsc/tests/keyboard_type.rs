@@ -10,7 +10,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_vic_20::{Vic20, Vic20Key, Vic20Model, Vic20RamExpansion};
+use machine_commodore_vic_20_ntsc::{Vic20, Vic20Key, Vic20RamExpansion};
 
 fn rom(name: &str) -> Option<Vec<u8>> {
     if let Ok(dir) = env::var("EMU198X_VIC20_ROMS") {
@@ -60,20 +60,14 @@ fn screen_text(sys: &Vic20) -> String {
 #[ignore = "FIXTURE: needs VIC-20 KERNAL/BASIC/char ROMs — run with --ignored"]
 fn types_a_basic_line_and_prints_the_result() {
     let (Some(kernal), Some(basic), Some(charrom)) =
-        (rom("kernal.rom"), rom("basic.rom"), rom("char.rom"))
+        (rom("kernal-ntsc.rom"), rom("basic.rom"), rom("char.rom"))
     else {
         panic!(
             "VIC-20 ROMs not found — set EMU198X_VIC20_ROMS or place \
              kernal.rom/basic.rom/char.rom at ~/.emu198x/roms/commodore-vic-20/"
         );
     };
-    let mut sys = Vic20::new(
-        kernal,
-        basic,
-        charrom,
-        Vic20Model::Pal,
-        Vic20RamExpansion::NONE,
-    );
+    let mut sys = Vic20::new(kernal, basic, charrom, Vic20RamExpansion::NONE);
 
     // Boot to the READY prompt.
     for _ in 0..120 {

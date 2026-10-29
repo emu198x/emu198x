@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 40 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 41 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -30,7 +30,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `commodore-c128` ⚠️ | `emu198x-c64` | 13 | 6 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
 | `commodore-c64` ⚠️ | `emu198x-c64` | 13 | 6 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
 | `commodore-pet` | `emu198x-commodore-pet` | 3 | 5 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |
-| `commodore-vic-20` | `emu198x-commodore-vic-20` | 3 | 6 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |
+| `commodore-vic-20-ntsc` | `emu198x-commodore-vic-20` | 1 | 9 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |
+| `commodore-vic-20-pal` | `emu198x-commodore-vic-20` | 1 | 9 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |
 | `dragon` ⚠️ | `emu198x-dragon` | 3 | 5 | [system:dragon](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Adragon) | [Dragon 32 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Dragon+32+100%25%22) |
 | `jupiter-ace` | `emu198x-jupiter-ace` | 3 | 5 | [system:jupiter-ace](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ajupiter-ace) | [Jupiter Ace 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Jupiter+Ace+100%25%22) |
 | `mattel-aquarius` | `emu198x-mattel-aquarius` | 3 | 5 | [system:aquarius](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aaquarius) | [Aquarius 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Aquarius+100%25%22) |

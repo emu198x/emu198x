@@ -1,8 +1,8 @@
+use common_commodore_vic_20::{Vic20Key, Vic20RamExpansion};
 use emu198x_shell::{
     AudioPacket, AudioSink, HostIo, MachineCore, MachineError, NullFrameSink, NullTraceSink,
 };
 use emu198x_shell::{MediaImage, MediaKind, MediaSet};
-use machine_commodore_vic_20::{Vic20Key, Vic20RamExpansion};
 use runtime_commodore_vic_20::{Model, Vic20Runtime};
 use std::{error::Error, path::PathBuf};
 #[derive(Default)]

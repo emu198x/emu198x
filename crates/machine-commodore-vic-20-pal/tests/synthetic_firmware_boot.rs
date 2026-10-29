@@ -19,7 +19,7 @@
 
 use std::path::PathBuf;
 
-use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
+use machine_commodore_vic_20_pal::{Vic20, Vic20RamExpansion};
 
 /// What `$900F = $2A` renders: screen colour 2 and border colour 2. The
 /// power-on framebuffer is black, so this cannot appear unless the firmware
@@ -38,13 +38,7 @@ fn synthetic_firmware_runs_and_floods_the_display() {
     let basic = std::fs::read(firmware("commodore-vic-20-basic.rom")).expect("basic image");
     let chargen = std::fs::read(firmware("commodore-vic-20-chargen.rom")).expect("chargen image");
 
-    let mut machine = Vic20::new(
-        kernal,
-        basic,
-        chargen,
-        Vic20Model::Pal,
-        Vic20RamExpansion::NONE,
-    );
+    let mut machine = Vic20::new(kernal, basic, chargen, Vic20RamExpansion::NONE);
     for _ in 0..10 {
         machine.run_frame();
     }
@@ -79,13 +73,7 @@ fn the_control_image_renders_no_red_at_all() {
     let basic = std::fs::read(firmware("commodore-vic-20-basic.rom")).expect("basic image");
     let chargen = std::fs::read(firmware("commodore-vic-20-chargen.rom")).expect("chargen image");
 
-    let mut machine = Vic20::new(
-        kernal,
-        basic,
-        chargen,
-        Vic20Model::Pal,
-        Vic20RamExpansion::NONE,
-    );
+    let mut machine = Vic20::new(kernal, basic, chargen, Vic20RamExpansion::NONE);
     for _ in 0..10 {
         machine.run_frame();
     }

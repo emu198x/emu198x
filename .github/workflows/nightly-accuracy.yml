@@ -820,8 +820,11 @@ jobs:
         env:
           EMU198X_STRICT_FIXTURES: "1"
         run: |
-          cargo test --release -p machine-commodore-vic-20 \
-            --test vici_vice_survey -- --include-ignored --nocapture
+          # The two DIAGNOSTIC exporters need explicit output paths and are
+          # manual tools. Run every survey assertion and comparator control.
+          cargo test --release -p runtime-commodore-vic-20 \
+            --test vici_vice_survey -- --include-ignored \
+            --skip dump_a_survey_case --skip survey_timing_measurements --nocapture
 
   # The game catalogue: every entry in crates/emu198x-catalogue/manifest/
   # boots its title and compares a frame hash and an audio hash, and the

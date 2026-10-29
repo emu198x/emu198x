@@ -17,8 +17,9 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use common_commodore_vic_20::{Vic20Model, Vic20RamExpansion};
 use emu198x_mos_vic_i::{VIC_PALETTE, window_first_line, window_first_pixel};
-use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
+use runtime_commodore_vic_20::Vic20Machine as Vic20;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 

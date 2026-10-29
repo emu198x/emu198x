@@ -1,7 +1,7 @@
 //! Family-owned query surface for the VIC-20 runtime.
 
+use crate::machine::Vic20Machine as Vic20;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_commodore_vic_20::Vic20;
 use serde_json::json;
 
 use crate::runtime::Vic20Runtime;

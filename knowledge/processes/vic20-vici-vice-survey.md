@@ -95,7 +95,7 @@ any difference. Two runs on 2026-10-07 produced identical bytes.
 ## Running the survey
 
 ```sh
-cargo test -p machine-commodore-vic-20 --test vici_vice_survey -- --include-ignored --nocapture
+cargo test -p runtime-commodore-vic-20 --test vici_vice_survey -- --include-ignored --nocapture
 ```
 
 `vic_i_matches_the_vice_survey` runs every case (in parallel), prints a table
@@ -117,7 +117,7 @@ and a difference image, disagreements in magenta, for one case:
 
 ```sh
 VIC20_SURVEY_CASE=raster-border VIC20_SURVEY_OUT=/tmp \
-  cargo test -p machine-commodore-vic-20 --test vici_vice_survey -- --ignored dump_a_survey_case
+  cargo test -p runtime-commodore-vic-20 --test vici_vice_survey -- --ignored dump_a_survey_case
 ```
 
 ## The cases
