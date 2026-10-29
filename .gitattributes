@@ -5,3 +5,6 @@
 /test-data/dragon/board-split-v2/*.state binary
 /test-data/dragon/board-split-v2/*.frames binary
 /test-data/dragon/board-split-v2/*.audio binary
+/test-data/dragon/board-split-v2/control.rom binary
+/test-data/synthetic-firmware/dragon-32.rom binary
+/test-data/synthetic-firmware/dragon-32-control.rom binary

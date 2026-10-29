@@ -404,7 +404,7 @@ def acorn_bbc_micro() -> bytes:
 
 
 def dragon_32() -> bytes:
-    """Dragon 32, 16 KiB ROM at `$C000`, MC6809.
+    """Dragon 32, 16 KiB ROM at `$8000`, MC6809.
 
     Two things about this machine cost several attempts, and both are
     recorded here because neither is guessable from the outside.
@@ -431,14 +431,14 @@ def dragon_32() -> bytes:
     ])
     rom = bytearray(b"\xFF" * 0x4000)
     rom[:len(code)] = code
-    rom[0x3FFE:0x4000] = bytes([0xC0, 0x00])   # 6809 reset vector is at $FFFE
+    rom[0x3FFE:0x4000] = bytes([0x80, 0x00])   # 6809 reset vector is at $FFFE
     return bytes(rom)
 
 
 def dragon_32_control() -> bytes:
     rom = bytearray(b"\xFF" * 0x4000)
     rom[:4] = bytes([0x1A, 0x50, 0x20, 0xFE])
-    rom[0x3FFE:0x4000] = bytes([0xC0, 0x00])
+    rom[0x3FFE:0x4000] = bytes([0x80, 0x00])
     return bytes(rom)
 
 

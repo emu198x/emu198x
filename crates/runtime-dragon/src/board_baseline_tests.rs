@@ -47,7 +47,7 @@ fn continued(r: &mut DragonRuntime) -> Output {
 fn prepared(model: Model, native: bool) -> DragonRuntime {
     let rom = std::fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test-data/synthetic-firmware/dragon-32-control.rom"),
+            .join("../../test-data/dragon/board-split-v2/control.rom"),
     )
     .expect("own firmware");
     let mut r = DragonRuntime::new(model, &rom).expect("own ROM");
@@ -207,4 +207,53 @@ fn original_version_2_boards_continue_identically() {
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/dragon/board-split-v2"),
         false,
     );
+}
+
+fn original(id: &str) -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../test-data/dragon/board-split-v2/{id}.state")),
+    )
+    .expect("original save")
+}
+#[test]
+fn wrong_profile_embedded_board_and_video_reject_atomically() {
+    for target in Model::ALL {
+        let initial = original(target.variant_id());
+        let mut r = DragonRuntime::blank(target);
+        r.restore(&initial).expect("occupied receiver");
+        for source in Model::ALL.into_iter().filter(|&m| m != target) {
+            let bytes = original(source.variant_id());
+            assert!(r.restore(&bytes).is_err());
+            assert_eq!(r.snapshot().expect("unchanged"), initial);
+            let mut forged: DragonRuntimeSnapshotV1 =
+                postcard::from_bytes(&bytes).expect("owning envelope");
+            forged.profile_id = profile_for(target).profile_id.as_str().to_owned();
+            assert!(
+                r.restore(&postcard::to_allocvec(&forged).expect("forged model"))
+                    .is_err()
+            );
+            assert_eq!(r.snapshot().expect("unchanged"), initial);
+            forged.model = target;
+            assert!(
+                r.restore(&postcard::to_allocvec(&forged).expect("forged board"))
+                    .is_err()
+            );
+            assert_eq!(r.snapshot().expect("unchanged"), initial);
+        }
+        let mut wrong_video: DragonRuntimeSnapshotV1 =
+            postcard::from_bytes(&initial).expect("owning envelope");
+        wrong_video.machine = wrong_video
+            .machine
+            .with_video_standard(if target.is_coco() {
+                common_dragon::VideoStandard::Pal
+            } else {
+                common_dragon::VideoStandard::Ntsc
+            });
+        assert!(
+            r.restore(&postcard::to_allocvec(&wrong_video).expect("wrong video"))
+                .is_err()
+        );
+        assert_eq!(r.snapshot().expect("unchanged"), initial);
+    }
 }

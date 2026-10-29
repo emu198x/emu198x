@@ -544,6 +544,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-dragon"
+version = "0.45.1"
+dependencies = [
+ "emu198x-mos-acia-6551",
+ "emu198x-motorola-6809",
+ "emu198x-motorola-pia-6821",
+ "emu198x-motorola-sam-6883",
+ "emu198x-motorola-vdg-6847",
+ "format198x-dragon-data-dragon-disk",
+ "postcard",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "common-nintendo-game-boy"
 version = "0.45.1"
 dependencies = [
@@ -3906,15 +3921,18 @@ dependencies = [
 name = "machine-dragon-32"
 version = "0.45.1"
 dependencies = [
- "emu198x-mos-acia-6551",
- "emu198x-motorola-6809",
- "emu198x-motorola-pia-6821",
- "emu198x-motorola-sam-6883",
+ "common-dragon",
  "emu198x-motorola-vdg-6847",
- "format198x-dragon-data-dragon-disk",
  "postcard",
- "serde",
- "serde_json",
+]
+
+[[package]]
+name = "machine-dragon-64"
+version = "0.45.1"
+dependencies = [
+ "common-dragon",
+ "emu198x-motorola-vdg-6847",
+ "postcard",
 ]
 
 [[package]]
@@ -4351,6 +4369,24 @@ version = "0.45.1"
 dependencies = [
  "common-spectravideo-svi-328",
  "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-tandy-coco-1"
+version = "0.45.1"
+dependencies = [
+ "common-dragon",
+ "emu198x-motorola-vdg-6847",
+ "postcard",
+]
+
+[[package]]
+name = "machine-tandy-coco-2"
+version = "0.45.1"
+dependencies = [
+ "common-dragon",
+ "emu198x-motorola-vdg-6847",
+ "postcard",
 ]
 
 [[package]]
@@ -5680,6 +5716,7 @@ dependencies = [
 name = "runtime-dragon"
 version = "0.45.1"
 dependencies = [
+ "common-dragon",
  "emu198x-motorola-vdg-6847",
  "emu198x-shell",
  "emu198x-test-skip",
@@ -5688,6 +5725,9 @@ dependencies = [
  "format198x-dragon-data-dragon-disk",
  "format198x-dragon-data-dragon-pak",
  "machine-dragon-32",
+ "machine-dragon-64",
+ "machine-tandy-coco-1",
+ "machine-tandy-coco-2",
  "png",
  "postcard",
  "serde",
