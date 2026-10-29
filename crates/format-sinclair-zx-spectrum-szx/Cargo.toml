@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 format198x-sinclair-zx-spectrum-szx = "0.1.0"
-format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.45.0" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.46.0" }
 
 [dev-dependencies]
 flate2 = { workspace = true }

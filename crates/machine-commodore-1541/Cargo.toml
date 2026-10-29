@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.45.0" }
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
-common-commodore-iec-drive = { path = "../common-commodore-iec-drive", version = "0.45.0" }
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.46.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.46.0" }
+common-commodore-iec-drive = { path = "../common-commodore-iec-drive", version = "0.46.0" }
 format198x-commodore-c64-d64 = "0.1.0"
 format198x-commodore-c64-g64 = "0.1.0"
 emu198x-mos-6502 = "0.6.1"
@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 # The white-box rotation tests reach into the shared engine's state.
-common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.45.0", features = [
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.46.0", features = [
     "test-support",
 ] }
 

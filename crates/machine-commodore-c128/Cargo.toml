@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-c64 = { path = "../common-commodore-c64", version = "0.45.0" }
+common-commodore-c64 = { path = "../common-commodore-c64", version = "0.46.0" }
 emu198x-mos-6502 = "0.6.1"
 emu198x-mos-sid-6581 = { path = "../emu198x-mos-sid-6581", version = "0.9.0" }
 emu198x-zilog-z80 = "0.8.0"
-machine-commodore-c64 = { path = "../machine-commodore-c64", version = "0.45.0" }
+machine-commodore-c64 = { path = "../machine-commodore-c64", version = "0.46.0" }
 emu198x-mos-cia-6526 = "0.1.0"
 emu198x-mos-vic-ii = "0.1.0"
 serde = { workspace = true }

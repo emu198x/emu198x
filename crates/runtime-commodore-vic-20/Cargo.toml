@@ -10,10 +10,10 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-mos-vic-i = "0.1.0"
-emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.45.0" }
-common-commodore-vic-20 = { path = "../common-commodore-vic-20", version = "0.45.0" }
-machine-commodore-vic-20-ntsc = { path = "../machine-commodore-vic-20-ntsc", version = "0.45.0" }
-machine-commodore-vic-20-pal = { path = "../machine-commodore-vic-20-pal", version = "0.45.0" }
+emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.46.0" }
+common-commodore-vic-20 = { path = "../common-commodore-vic-20", version = "0.46.0" }
+machine-commodore-vic-20-ntsc = { path = "../machine-commodore-vic-20-ntsc", version = "0.46.0" }
+machine-commodore-vic-20-pal = { path = "../machine-commodore-vic-20-pal", version = "0.46.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

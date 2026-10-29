@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-atari-maria = { path = "../emu198x-atari-maria", version = "0.1.0" }
-machine-atari-7800 = { path = "../machine-atari-7800", version = "0.45.0" }
+machine-atari-7800 = { path = "../machine-atari-7800", version = "0.46.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

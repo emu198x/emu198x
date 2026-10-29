@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.45.0" }
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.46.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.46.0" }
 emu198x-mos-6502 = "0.6.1"
 emu198x-mos-via-6522 = "0.1.0"
 

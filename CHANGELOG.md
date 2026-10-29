@@ -4,6 +4,34 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.46.0] - 2026-10-29
+
+
+### Added
+
+- Run standard GxROM mapper 66 cartridges
+- Execute optional monochrome Game Boy boot firmware
+- **Breaking** — Select named MSX boards instead of generic presets. The four generic MSX1/MSX2 PAL/NTSC presets, their aliases and --region selection are retired. Select a named manufacturer board with --model. Generic saves are rejected without inferring a physical machine; the nine existing manufacturer profiles and their v10 saves remain compatible.
+
+
+### Fixed
+
+- Reject unsafe Einstein disk images before mounting
+- Import C64 startup programs before serving MCP requests
+- Load CoCo firmware from its catalogue chip dumps
+- Preserve shifted operators in Dragon and CoCo commands
+- Stop advertising unimplemented SC-3000 hardware
+- Reject invalid ColecoVision cartridges before replacing the mount
+- Diagnose missing BBC teletext fonts in headless reports
+- Map reversed Neo Geo P1 dumps before booting
+- Present browser pixels sharply at the runtime aspect
+- Load Einstein disks through the checked published DSK codec
+- Stop native frame requests at actual video boundaries
+- Expose and sound the live MSX PPI outputs
+- Keep restored cartridge images available after reset
+- Reject unmapped cartridge data before replacing live media
+- Preserve SVI media when resetting a restored machine
+
 ## [0.45.1] - 2026-10-27
 
 

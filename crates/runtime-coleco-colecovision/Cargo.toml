@@ -10,9 +10,9 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-ti-tms9918 = "0.1.0"
-common-coleco-colecovision = { path = "../common-coleco-colecovision", version = "0.45.0" }
-machine-coleco-colecovision-ntsc = { path = "../machine-coleco-colecovision-ntsc", version = "0.45.0" }
-machine-coleco-colecovision-pal = { path = "../machine-coleco-colecovision-pal", version = "0.45.0" }
+common-coleco-colecovision = { path = "../common-coleco-colecovision", version = "0.46.0" }
+machine-coleco-colecovision-ntsc = { path = "../machine-coleco-colecovision-ntsc", version = "0.46.0" }
+machine-coleco-colecovision-pal = { path = "../machine-coleco-colecovision-pal", version = "0.46.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

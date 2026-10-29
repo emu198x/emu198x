@@ -12,7 +12,7 @@ emu198x-wdc-65c816 = "0.1.0"
 emu198x-sony-spc700 = { path = "../emu198x-sony-spc700", version = "0.1.0" }
 emu198x-sony-s-dsp = { path = "../emu198x-sony-s-dsp", version = "0.1.0" }
 emu198x-nintendo-s-ppu = { path = "../emu198x-nintendo-s-ppu", version = "0.1.0" }
-format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.45.0" }
+format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.46.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
