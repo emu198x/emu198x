@@ -12,3 +12,11 @@
 /test-data/msx/board-split-v10/*.state binary
 /test-data/msx/board-split-v10/*.frames binary
 /test-data/msx/board-split-v10/*.audio binary
+
+# Original Atari board state and native-output continuations.
+/test-data/atari-2600/board-split-v2/*.state binary
+/test-data/atari-2600/board-split-v2/*.frames binary
+/test-data/atari-2600/board-split-v2/*.audio binary
+/test-data/atari-7800/board-split-v6/*.state binary
+/test-data/atari-7800/board-split-v6/*.frames binary
+/test-data/atari-7800/board-split-v6/*.audio binary
