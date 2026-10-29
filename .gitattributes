@@ -1,2 +1,7 @@
 # Producer receipts compare checkout lock bytes with the committed Git blob.
 /Cargo.lock text eol=lf
+
+# Frozen postcard state is binary even when its opening ROM bytes have no NUL.
+/test-data/dragon/board-split-v2/*.state binary
+/test-data/dragon/board-split-v2/*.frames binary
+/test-data/dragon/board-split-v2/*.audio binary
