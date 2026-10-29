@@ -59,9 +59,9 @@ from a local immutable cartridge copy. MAME's `hash/gamegear.xml` identifies
 it as 262144 bytes, CRC32 `3e31cb8c`, SHA-1
 `8923295c96b2e05da0a83a827fd709b033fc7332`. The identified local dump's
 SHA-256 is `dd605c17c8d24b2db9928beff6d8294fd84184b31c2fa92760ae691db84fd569`.
-The test checks the complete file's size, catalogue CRC32 and stable FNV-1a
-fingerprint before execution. These are reproducibility checks, not a
-security boundary. No new hashing dependency is required.
+The test checks the complete file's size and SHA-256 identity before execution,
+then hashes every output pixel at the checkpoints below. It uses the existing
+workspace `sha2` 0.11 as an explicitly approved test-only dependency.
 
 Before fixing the expectations, the original raw engine and new concrete
 owner were run side by side through 1800 frames; all sampled pixels agreed.

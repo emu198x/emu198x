@@ -4092,6 +4092,7 @@ dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
  "emu198x-zilog-z80",
+ "sha2",
 ]
 
 [[package]]
