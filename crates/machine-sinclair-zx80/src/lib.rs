@@ -372,6 +372,12 @@ impl Zx80 {
         self.video.text_top()
     }
 
+    /// Fitted RAM size, for validating a legacy save against the selected configuration.
+    #[must_use]
+    pub fn ram_bytes(&self) -> usize {
+        self.ram.len()
+    }
+
     /// The board's television-standard strap.
     #[must_use]
     pub fn television_standard(&self) -> TelevisionStandard {

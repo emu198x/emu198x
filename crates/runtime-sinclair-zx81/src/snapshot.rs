@@ -70,6 +70,21 @@ pub(crate) fn decode(runtime: &mut Zx81Runtime, bytes: &[u8]) -> Result<(), Mach
             ),
         });
     }
+    if let Some(machine) = &snapshot.machine
+        && (machine.television_standard() != runtime.model().television_standard()
+            || machine.ram_bytes() != runtime.ram_bytes())
+    {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!(
+                "snapshot hardware (TV {:?}, {} bytes RAM) does not match selected profile {} (TV {:?}, {} bytes RAM); select the matching profile and RAM configuration before loading",
+                machine.television_standard(),
+                machine.ram_bytes(),
+                runtime.model().profile_id(),
+                runtime.model().television_standard(),
+                runtime.ram_bytes()
+            ),
+        });
+    }
     runtime.set_time(MachineTime::new(snapshot.time));
     let mut machine = snapshot.machine;
     if let Some(machine) = &mut machine {
