@@ -6,8 +6,8 @@
 //! Game Boy shape: a borrowing envelope for encode (no clone), an owning
 //! envelope for decode.
 
+use crate::machine::SviMachine as Svi328;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_spectravideo_svi_328::Svi328;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Svi328Runtime;
@@ -78,6 +78,17 @@ pub(crate) fn decode(runtime: &mut Svi328Runtime, bytes: &[u8]) -> Result<(), Ma
                 snapshot.model_id,
                 runtime.model().model_id()
             ),
+        });
+    }
+    if snapshot.machine.as_ref().is_some_and(|m| {
+        m.region()
+            != match runtime.model() {
+                crate::profiles::Model::Svi328Ntsc => common_spectravideo_svi_328::SviRegion::Ntsc,
+                crate::profiles::Model::Svi328Pal => common_spectravideo_svi_328::SviRegion::Pal,
+            }
+    }) {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot board does not match its runtime profile".into(),
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));

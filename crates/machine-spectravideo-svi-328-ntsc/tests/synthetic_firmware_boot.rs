@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use machine_spectravideo_svi_328::{Svi328, SviRegion};
+use machine_spectravideo_svi_328_ntsc::Svi328;
 
 /// TMS9918 palette entry 15. The power-on backdrop is entry 0, which is
 /// transparent, so white cannot appear unless the firmware ran.
@@ -28,7 +28,7 @@ fn firmware() -> PathBuf {
 }
 
 fn booted(rom: Vec<u8>) -> Svi328 {
-    let mut machine = Svi328::new(rom, SviRegion::Ntsc);
+    let mut machine = Svi328::new(rom);
     for _ in 0..5 {
         machine.run_frame();
     }

@@ -17,8 +17,8 @@
 //! One [`ControllerCache`] mirror per port re-applies the whole state via
 //! [`Svi328::set_joystick`] on each event.
 
+use crate::machine::SviMachine as Svi328;
 use emu198x_shell::InputEvent;
-use machine_spectravideo_svi_328::Svi328;
 
 /// Host-side mirror of one SVI control port: four directions plus the fire
 /// button, re-applied via [`Svi328::set_joystick`] on every event.
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn event_presses_and_releases_matrix() {
         let rom = vec![0u8; 32 * 1024];
-        let mut machine = Svi328::new(rom, machine_spectravideo_svi_328::SviRegion::Pal);
+        let mut machine = Svi328::new(crate::profiles::Model::Svi328Pal, rom);
         let mut cache = ControllerCache::default();
         apply_input_event(
             &mut machine,
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn button_events_drive_both_joystick_ports() {
         let rom = vec![0u8; 32 * 1024];
-        let mut machine = Svi328::new(rom, machine_spectravideo_svi_328::SviRegion::Pal);
+        let mut machine = Svi328::new(crate::profiles::Model::Svi328Pal, rom);
         let mut cache = ControllerCache::default();
 
         // Player 1 left → PSG port A low-nibble bit 2; player 2 right →
