@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 39 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 40 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -24,7 +24,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `atari-7800` | `emu198x-atari-7800` | 4 | 7 | [system:atari-7800](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-7800) | [Atari 7800 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+7800+100%25%22) |
 | `atari-800xl` | `emu198x-atari-800xl` | 4 | 8 | [system:atari-800xl](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-800xl) | [Atari 800XL 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+800XL+100%25%22) |
 | `atari-st` | `emu198x-atari-st` | 7 | 7 | [system:atari-st](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-st) | [Atari ST 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+ST+100%25%22) |
-| `coleco-colecovision` | `emu198x-colecovision` | 3 | 5 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
+| `coleco-colecovision-ntsc` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
+| `coleco-colecovision-pal` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
 | `commodore-amiga` | `emu198x-amiga` | 23 | 7 | [system:amiga](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aamiga) | [Amiga 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amiga+100%25%22) |
 | `commodore-c128` ⚠️ | `emu198x-c64` | 13 | 6 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
 | `commodore-c64` ⚠️ | `emu198x-c64` | 13 | 6 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |

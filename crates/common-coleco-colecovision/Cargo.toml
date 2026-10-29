@@ -1,6 +1,6 @@
 [package]
-name = "machine-coleco-colecovision"
-description = "ColecoVision machine wiring — Z80 + TMS9918A + SN76489AN"
+name = "common-coleco-colecovision"
+description = "Shared ColecoVision wiring bound to a concrete board at compile time"
 version.workspace = true
 publish = false
 edition.workspace = true

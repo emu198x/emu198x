@@ -6,8 +6,8 @@
 //! shape: a borrowing envelope for encode (no clone), an owning envelope for
 //! decode.
 
+use crate::machine::CvMachine as ColecoVision;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_coleco_colecovision::ColecoVision;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::CvRuntime;
@@ -76,6 +76,17 @@ pub(crate) fn decode(runtime: &mut CvRuntime, bytes: &[u8]) -> Result<(), Machin
                 snapshot.model_id,
                 runtime.model().model_id()
             ),
+        });
+    }
+    if snapshot.machine.as_ref().is_some_and(|m| {
+        m.region()
+            != match runtime.model() {
+                crate::profiles::Model::CvNtsc => common_coleco_colecovision::CvRegion::Ntsc,
+                crate::profiles::Model::CvPal => common_coleco_colecovision::CvRegion::Pal,
+            }
+    }) {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot board does not match its runtime profile".into(),
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));

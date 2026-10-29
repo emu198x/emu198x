@@ -273,6 +273,26 @@ mod sord_tests {
     }
 }
 
+#[cfg(all(test, feature = "coleco-colecovision"))]
+mod coleco_tests {
+    #[test]
+    fn separate_coleco_boards_keep_the_existing_family_and_profile_routes() {
+        let entries: Vec<_> = super::catalogue()
+            .into_iter()
+            .filter(|v| v["family"] == "coleco-colecovision")
+            .collect();
+        assert_eq!(entries.len(), 2);
+        for id in ["coleco-colecovision-ntsc", "coleco-colecovision-pal"] {
+            let entry = entries
+                .iter()
+                .find(|v| v["id"] == id)
+                .expect("existing variant");
+            assert_eq!(entry["profileId"], id);
+            assert_eq!(entry["machineId"], id);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "spectravideo-svi-328"))]
 mod svi_tests {
     #[test]

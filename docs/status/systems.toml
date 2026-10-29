@@ -77,8 +77,17 @@ crate = "emu198x-atari-st"
 label = "system:atari-st"
 milestone = "Atari ST 100%"
 
+# The issue label/milestone cover the family backlog, not board qualification.
 [[system]]
-machine_id = "coleco-colecovision"
+machine_id = "coleco-colecovision-ntsc"
+machine_crate = "machine-coleco-colecovision-ntsc"
+crate = "emu198x-colecovision"
+label = "system:colecovision"
+milestone = "ColecoVision 100%"
+
+[[system]]
+machine_id = "coleco-colecovision-pal"
+machine_crate = "machine-coleco-colecovision-pal"
 crate = "emu198x-colecovision"
 label = "system:colecovision"
 milestone = "ColecoVision 100%"

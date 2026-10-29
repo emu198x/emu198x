@@ -93,13 +93,13 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("coleco-colecovision"),
+        machine_id: match model { Model::CvNtsc => MachineId::from("coleco-colecovision-ntsc"), Model::CvPal => MachineId::from("coleco-colecovision-pal") },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
         release_year: 1982,
-        summary: "ColecoVision — Z80A + TMS9918A + SN76489, 1 KB RAM, BIOS-driven boot, cartridge ROM support.".into(),
+        summary: "ColecoVision — Z80A + TMS9918-family video + SN76489, 1 KB RAM, BIOS-driven boot, cartridge ROM support.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
         firmware: vec![FirmwareRequirement::new(
             BIOS_FIRMWARE_ID,

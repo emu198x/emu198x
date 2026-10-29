@@ -6,8 +6,9 @@
 //! determines which control. `Key` events with arrow / digit names
 //! map to controller 1 as the keyboard-as-pad convention.
 
+use crate::machine::CvMachine as ColecoVision;
+use common_coleco_colecovision::{CvController, KeypadKey};
 use emu198x_shell::InputEvent;
-use machine_coleco_colecovision::{ColecoVision, CvController, KeypadKey};
 
 /// Apply one host input event to the ColecoVision.
 pub(crate) fn apply_input_event(machine: &mut ColecoVision, event: &InputEvent) {

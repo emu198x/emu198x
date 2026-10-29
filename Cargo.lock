@@ -450,6 +450,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-coleco-colecovision"
+version = "0.45.1"
+dependencies = [
+ "emu198x-ti-sn76489",
+ "emu198x-ti-tms9918",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-commodore-amiga"
 version = "0.45.1"
 dependencies = [
@@ -1192,7 +1205,6 @@ dependencies = [
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-ui",
- "machine-coleco-colecovision",
  "png",
  "runtime-coleco-colecovision",
  "serde_json",
@@ -3632,16 +3644,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-coleco-colecovision"
+name = "machine-coleco-colecovision-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-ti-sn76489",
- "emu198x-ti-tms9918",
- "emu198x-z80-cadence",
+ "common-coleco-colecovision",
  "emu198x-zilog-z80",
- "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-coleco-colecovision-pal"
+version = "0.45.1"
+dependencies = [
+ "common-coleco-colecovision",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -5414,10 +5429,12 @@ dependencies = [
 name = "runtime-coleco-colecovision"
 version = "0.45.1"
 dependencies = [
+ "common-coleco-colecovision",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-zilog-z80",
- "machine-coleco-colecovision",
+ "machine-coleco-colecovision-ntsc",
+ "machine-coleco-colecovision-pal",
  "postcard",
  "serde",
  "serde_json",
