@@ -17,7 +17,7 @@
 //! is right, and if it is wrong nothing else can be.
 
 use emu198x_zilog_z80::Z80Stepper;
-use machine_sega_master_system::{Sms, SmsVariant};
+use machine_sega_master_system::Sms;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -26,7 +26,7 @@ const NOP_TSTATES: u64 = 4;
 fn a_nop_costs_four_tstates() {
     // 32 KB of `NOP`; the Z80 starts executing at `$0000`.
     let rom = vec![0x00u8; 32 * 1024];
-    let mut sms = Sms::new(rom, SmsVariant::SmsNtsc);
+    let mut sms = Sms::new(rom);
 
     // Clear the reset sequence so the measurement covers steady-state
     // `NOP`s rather than whatever the first instruction happens to be.

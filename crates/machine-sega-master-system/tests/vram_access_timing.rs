@@ -13,7 +13,7 @@
 //! waits for line 10 of the active display, and writes 64 bytes from `$0000`
 //! with a fixed number of T-states between `OUT`s.
 
-use machine_sega_master_system::{Sms, SmsVariant};
+use machine_sega_master_system::Sms;
 
 const WRITES: usize = 64;
 
@@ -54,7 +54,7 @@ fn cartridge(r1: u8, pad_nops: usize) -> Vec<u8> {
 /// Run the cartridge and count the writes that reached VRAM before the first
 /// one that did not.
 fn intact_writes(r1: u8, pad_nops: usize) -> usize {
-    let mut machine = Sms::new(cartridge(r1, pad_nops), SmsVariant::SmsNtsc);
+    let mut machine = Sms::new(cartridge(r1, pad_nops));
     for _ in 0..3 {
         machine.run_frame();
     }

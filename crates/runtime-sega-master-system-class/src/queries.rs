@@ -1,7 +1,7 @@
 //! Query surface shared by every machine in the Master System class.
 
+use crate::Sms;
 use emu198x_shell::{MachineCore, QueryError, QueryResult, SessionQueryProvider};
-use machine_sega_master_system::Sms;
 use serde_json::json;
 
 use crate::runtime::{SmsModel, SmsRuntime};

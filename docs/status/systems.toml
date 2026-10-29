@@ -257,13 +257,71 @@ milestone = "Oric 100%"
 # 2026-08-18. Machine-to-crate is now 1:1 across the workspace.
 [[system]]
 machine_id = "sega-game-gear"
+machine_crate = "machine-sega-game-gear"
 crate = "emu198x-sega-game-gear"
 label = "system:game-gear"
 milestone = "Game Gear 100%"
 
 [[system]]
 machine_id = "sega-master-system"
+machine_crate = "machine-sega-master-system"
 crate = "emu198x-sega-master-system"
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-master-system-pal"
+machine_crate = "machine-sega-master-system-pal"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-master-system-japan"
+machine_crate = "machine-sega-master-system-japan"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-master-system-1-ntsc"
+machine_crate = "machine-sega-master-system-1-ntsc"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-master-system-1-pal"
+machine_crate = "machine-sega-master-system-1-pal"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-master-system-2-ntsc"
+machine_crate = "machine-sega-master-system-2-ntsc"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-master-system-2-pal"
+machine_crate = "machine-sega-master-system-2-pal"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-mark-iii"
+machine_crate = "machine-sega-mark-iii"
+crate = "emu198x-sega-master-system"
+# Family backlog applies to this board; this is not a board qualification.
 label = "system:master-system"
 milestone = "Master System 100%"
 

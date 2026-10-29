@@ -560,6 +560,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sega-master-system"
+version = "0.45.1"
+dependencies = [
+ "emu198x-sega-315-5124",
+ "emu198x-ti-sn76489",
+ "emu198x-yamaha-ym2413",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-sinclair-zx-spectrum"
 version = "0.45.1"
 dependencies = [
@@ -4072,17 +4086,84 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-sega-game-gear"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sega-mark-iii"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
 name = "machine-sega-master-system"
 version = "0.45.1"
 dependencies = [
+ "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-ti-sn76489",
- "emu198x-yamaha-ym2413",
- "emu198x-z80-cadence",
  "emu198x-zilog-z80",
- "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-sega-master-system-1-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sega-master-system-1-pal"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sega-master-system-2-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sega-master-system-2-pal"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sega-master-system-japan"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "machine-sega-master-system-pal"
+version = "0.45.1"
+dependencies = [
+ "common-sega-master-system",
+ "emu198x-sega-315-5124",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -5751,10 +5832,19 @@ dependencies = [
 name = "runtime-sega-master-system-class"
 version = "0.45.1"
 dependencies = [
+ "common-sega-master-system",
  "emu198x-sega-315-5124",
  "emu198x-shell",
  "emu198x-zilog-z80",
+ "machine-sega-game-gear",
+ "machine-sega-mark-iii",
  "machine-sega-master-system",
+ "machine-sega-master-system-1-ntsc",
+ "machine-sega-master-system-1-pal",
+ "machine-sega-master-system-2-ntsc",
+ "machine-sega-master-system-2-pal",
+ "machine-sega-master-system-japan",
+ "machine-sega-master-system-pal",
  "postcard",
  "serde",
  "serde_json",

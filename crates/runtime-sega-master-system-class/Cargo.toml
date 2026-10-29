@@ -8,9 +8,18 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+common-sega-master-system = { path = "../common-sega-master-system", version = "0.45.0" }
 emu198x-sega-315-5124 = { path = "../emu198x-sega-315-5124", version = "0.1.0" }
 emu198x-shell = { workspace = true }
 machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.45.0" }
+machine-sega-master-system-pal = { path = "../machine-sega-master-system-pal", version = "0.45.0" }
+machine-sega-master-system-japan = { path = "../machine-sega-master-system-japan", version = "0.45.0" }
+machine-sega-master-system-1-ntsc = { path = "../machine-sega-master-system-1-ntsc", version = "0.45.0" }
+machine-sega-master-system-1-pal = { path = "../machine-sega-master-system-1-pal", version = "0.45.0" }
+machine-sega-master-system-2-ntsc = { path = "../machine-sega-master-system-2-ntsc", version = "0.45.0" }
+machine-sega-master-system-2-pal = { path = "../machine-sega-master-system-2-pal", version = "0.45.0" }
+machine-sega-mark-iii = { path = "../machine-sega-mark-iii", version = "0.45.0" }
+machine-sega-game-gear = { path = "../machine-sega-game-gear", version = "0.45.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

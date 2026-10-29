@@ -51,3 +51,26 @@ construction and restoration against these files.
 - `sega-master-system-pal.audio`: SHA-256 `56812e0358ed4b494849883b0f466e1fa6cd74800ac5826ef6565cae9a7b12e5`
 - `sega-master-system-pal.frames`: SHA-256 `54e6e7aefe20a5f344cfec36389139ae98946017b86286dfe8a009c32943a668`
 - `sega-master-system-pal.state`: SHA-256 `77c0cf5f38efa1f8db8f5cf5708fa9f293ecc19916345a995b1d7d754402e399`
+
+## External Game Gear check
+
+`machine-sega-game-gear/tests/sonic_boot.rs` uses Sonic the Hedgehog Rev 0
+from a local immutable cartridge copy. MAME's `hash/gamegear.xml` identifies
+it as 262144 bytes, CRC32 `3e31cb8c`, SHA-1
+`8923295c96b2e05da0a83a827fd709b033fc7332`. The identified local dump's
+SHA-256 is `dd605c17c8d24b2db9928beff6d8294fd84184b31c2fa92760ae691db84fd569`.
+The test checks the complete file's size, catalogue CRC32 and stable FNV-1a
+fingerprint before execution. These are reproducibility checks, not a
+security boundary. No new hashing dependency is required.
+
+Before fixing the expectations, the original raw engine and new concrete
+owner were run side by side through 1800 frames; all sampled pixels agreed.
+The title at frame 600 and attract map at frame 1200 were inspected and their
+entire 160×144 ARGB32 little-endian output was hashed. SHA-256 identities:
+
+- Frame 600: `db8c9f067ade6129c8694c14b225d1da89648012f9dcdc252437015f88bc734b`
+- Frame 1200: `b0eab2e156a7a6fab54d17fece4ebbd5c62077ba3b0812036640b96609399a1a`
+
+The public CI test is explicitly fixture-dependent; a missing cartridge does
+not establish commercial-game compatibility. Stereo #149/#220 and SMS
+compatibility mode #1932 remain separate accuracy work.

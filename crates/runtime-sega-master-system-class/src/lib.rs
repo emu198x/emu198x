@@ -4,7 +4,7 @@
 //! `machine_id`s, labels, milestones and release artifacts — built from the
 //! same silicon and driven by the same runtime wrapper. This crate holds
 //! the half they share so that each machine can own a runtime crate
-//! declaring exactly one `machine_id` (#998).
+//! declaring the physical boards it serves.
 //!
 //! What belongs here: anything identical across the class — the
 //! `MachineCore` implementation, the query surface, the snapshot envelope,
@@ -16,10 +16,12 @@
 //! `knowledge/decisions/within-family-layering.md`.
 
 mod input;
+mod machine;
 mod queries;
 mod runtime;
 mod snapshot;
 
-pub use machine_sega_master_system::{FmUnit, Sms, SmsVariant};
+pub use common_sega_master_system::{FmUnit, SmsHardware, SmsVariant};
+pub use machine::Sms;
 pub use queries::SmsSessionQueryProvider;
 pub use runtime::{SmsModel, SmsRuntime};

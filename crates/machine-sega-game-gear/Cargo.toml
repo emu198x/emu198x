@@ -1,0 +1,18 @@
+[package]
+name = "machine-sega-game-gear"
+description = "Fixed Sega GameGear board"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-sega-master-system = { path = "../common-sega-master-system", version = "0.45.0" }
+
+[dev-dependencies]
+emu198x-zilog-z80 = "0.8.0"
+emu198x-sega-315-5124 = { path = "../emu198x-sega-315-5124", version = "0.1.0" }
+
+[lints]
+workspace = true
