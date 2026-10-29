@@ -59,7 +59,7 @@
 
 use std::path::PathBuf;
 
-use machine_sinclair_zx81::{Zx81, Zx81Key};
+use common_sinclair_zx81::{Zx81Key, Zx81State};
 
 /// Ink.
 const INK: u32 = 0xFF00_0000;
@@ -71,8 +71,8 @@ fn firmware(name: &str) -> Vec<u8> {
     std::fs::read(path).expect("firmware image")
 }
 
-fn booted(name: &str) -> Zx81 {
-    let mut machine = Zx81::new(firmware(name), 16 * 1024).expect("synthetic ROM should init");
+fn booted(name: &str) -> Zx81State {
+    let mut machine = Zx81State::new(firmware(name), 16 * 1024).expect("synthetic ROM should init");
     for _ in 0..20 {
         machine.run_frame();
     }
@@ -123,7 +123,7 @@ fn the_control_image_renders_no_display_file() {
 }
 
 /// Which eight-line character bands are solid.
-fn lit_bands(machine: &Zx81) -> Vec<usize> {
+fn lit_bands(machine: &Zx81State) -> Vec<usize> {
     let frame = machine.framebuffer();
     let width = machine.framebuffer_width() as usize;
     (0..24)
@@ -140,7 +140,7 @@ fn lit_bands(machine: &Zx81) -> Vec<usize> {
 /// Run the keyboard image with `keys` held, and report which bands light.
 fn bands_with(keys: &[Zx81Key]) -> Vec<usize> {
     let mut machine =
-        Zx81::new(firmware("sinclair-zx81-keyboard.rom"), 16 * 1024).expect("synthetic ROM");
+        Zx81State::new(firmware("sinclair-zx81-keyboard.rom"), 16 * 1024).expect("synthetic ROM");
     for key in keys {
         machine.press_key(*key);
     }

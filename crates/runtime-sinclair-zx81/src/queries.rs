@@ -1,7 +1,7 @@
 //! Family-owned query surface for the ZX81 runtime.
 
+use crate::machine::Zx81Machine as Zx81;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_sinclair_zx81::Zx81;
 use serde_json::json;
 
 use crate::runtime::Zx81Runtime;

@@ -6,16 +6,16 @@ struct EnvelopeRef<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
-    machine: Option<&'a Zx81>,
+    machine: Option<&'a Zx81State>,
 }
 #[derive(Deserialize)]
 struct Envelope {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Zx81>,
+    machine: Option<Zx81State>,
 }
-fn snapshot(machine: &Zx81) -> Vec<u8> {
+fn snapshot(machine: &Zx81State) -> Vec<u8> {
     postcard::to_allocvec(&EnvelopeRef {
         version: 5,
         time: machine.master_clock(),
@@ -24,7 +24,7 @@ fn snapshot(machine: &Zx81) -> Vec<u8> {
     })
     .expect("legacy envelope")
 }
-fn continued(machine: &mut Zx81) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+fn continued(machine: &mut Zx81State) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let mut frames = Vec::new();
     let mut audio = Vec::new();
     for _ in 0..3 {
@@ -50,9 +50,9 @@ fn continued(machine: &mut Zx81) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         postcard::to_allocvec(&audio).expect("audio"),
     )
 }
-fn prepared(ram: usize, standard: TelevisionStandard) -> Zx81 {
+fn prepared(ram: usize, standard: TelevisionStandard) -> Zx81State {
     let rom = include_bytes!("../../../test-data/synthetic-firmware/sinclair-zx81.rom").to_vec();
-    let mut m = Zx81::new(rom, ram).expect("synthetic firmware");
+    let mut m = Zx81State::new(rom, ram).expect("synthetic firmware");
     m.set_television_standard(standard);
     for _ in 0..20 {
         m.run_frame();

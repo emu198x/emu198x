@@ -41,7 +41,7 @@ pub const FB_WIDTH: u32 = 384;
 
 /// Scan lines a set displays, which is the whole of this figure: it is the
 /// receiver's window, not a remainder of the machine's own 310-line field.
-/// Where the window sits is [`FIRST_VISIBLE_LINE`].
+/// Where the window sits is `FIRST_VISIBLE_LINE`.
 ///
 /// **It follows the board.** This was a plain `const` at 288 for every ZX81,
 /// so a 60 Hz machine painted into a PAL-sized buffer while its runtime
@@ -50,7 +50,7 @@ pub const FB_WIDTH: u32 = 384;
 /// drift trigger in as many words. That was #1119.
 ///
 /// The geometry lives here rather than beside the enum because everything it
-/// is derived from — [`TEXT_LINES`], the pad — is here.
+/// is derived from — `TEXT_LINES`, the pad — is here.
 impl TelevisionStandard {
     /// Lines the region's set displays: a PAL field shows 288, an NTSC one 240.
     #[must_use]
@@ -74,7 +74,7 @@ impl TelevisionStandard {
 /// The ROM decides when a field ends, and Sinclair's emits 310 lines — the
 /// SLOW frame measures 64,163 T-states, which at 207 a line is 310.0. This
 /// bounds firmware that never syncs, and is not a figure to derive geometry
-/// from; see [`FIRST_VISIBLE_LINE`].
+/// from; see `FIRST_VISIBLE_LINE`.
 const LINES_PER_FRAME: u32 = 312;
 
 /// T-states in a line at 3.25 MHz — the ULA divides its 6.5 MHz dot clock by

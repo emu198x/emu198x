@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx81::{TelevisionStandard, Zx81, Zx81Key};
+use common_sinclair_zx81::{TelevisionStandard, Zx81Key, Zx81State};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX81_ROM") {
@@ -44,7 +44,7 @@ fn rom_boots_to_its_power_on_screen() {
     let rom = fs::read(&path).expect("read ROM");
     assert_eq!(rom.len(), 0x2000, "ROM must be exactly an 8 KB ZX81");
 
-    let mut sys = Zx81::new(rom, 16384).expect("init");
+    let mut sys = Zx81State::new(rom, 16384).expect("init");
     for _ in 0..200 {
         sys.run_frame();
     }
@@ -78,7 +78,7 @@ fn rom_boots_to_its_power_on_screen() {
 /// not the display in any case — since #1032 the picture is whatever the CPU
 /// put on the bus, so reading it back off the screen is the only honest way
 /// to ask what is on it.
-fn read_row(sys: &Zx81, row: usize) -> String {
+fn read_row(sys: &Zx81State, row: usize) -> String {
     let fb = sys.framebuffer();
     let width = sys.framebuffer_width() as usize;
     let i = u16::from(sys.cpu().regs.i);
@@ -183,7 +183,7 @@ fn every_letter_types_its_keyword() {
     ];
 
     for (key, keyword) in expected {
-        let mut sys = Zx81::new(rom.clone(), 16384).expect("init");
+        let mut sys = Zx81State::new(rom.clone(), 16384).expect("init");
         for _ in 0..400 {
             sys.run_frame();
         }
@@ -239,7 +239,7 @@ fn zx81_margin_follows_bit_6() {
     let rom = fs::read(&path).expect("read ROM");
 
     let settled = |standard, ear| {
-        let mut machine = Zx81::new(rom.clone(), 16384).expect("machine");
+        let mut machine = Zx81State::new(rom.clone(), 16384).expect("machine");
         machine.set_television_standard(standard);
         machine.set_ear_input(ear);
         for _ in 0..250 {
@@ -280,7 +280,7 @@ fn the_frame_budget_never_exceeds_a_real_frame() {
     let rom = fs::read(&path).expect("read ROM");
 
     for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
-        let mut machine = Zx81::new(rom.clone(), 16384).expect("machine");
+        let mut machine = Zx81State::new(rom.clone(), 16384).expect("machine");
         machine.set_television_standard(standard);
 
         let budget = u64::from(standard.slow_mode_frame_tstates());
@@ -318,7 +318,7 @@ fn the_field_is_310_lines() {
         );
     };
     let rom = fs::read(&path).expect("read ROM");
-    let mut sys = Zx81::new(rom, 16384).expect("init");
+    let mut sys = Zx81State::new(rom, 16384).expect("init");
     for _ in 0..400 {
         sys.run_frame();
     }
@@ -360,7 +360,7 @@ fn the_field_is_303_drawn_lines() {
         );
     };
     let rom = fs::read(&path).expect("read ROM");
-    let mut sys = Zx81::new(rom, 16384).expect("init");
+    let mut sys = Zx81State::new(rom, 16384).expect("init");
     for _ in 0..400 {
         sys.run_frame();
     }

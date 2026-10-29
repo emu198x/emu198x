@@ -5,8 +5,8 @@
 //! from the ROM. Mirrors the SG-1000 / Jupiter Ace shape: a borrowing envelope
 //! for encode (no clone), an owning envelope for decode.
 
+use crate::machine::Zx81Machine as Zx81;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_sinclair_zx81::Zx81;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Zx81Runtime;
@@ -30,7 +30,7 @@ struct Zx81RuntimeSnapshotV4 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Zx81>,
+    machine: Option<common_sinclair_zx81::Zx81State>,
 }
 
 pub(crate) fn encode(runtime: &Zx81Runtime) -> Result<Vec<u8>, MachineError> {
@@ -85,8 +85,12 @@ pub(crate) fn decode(runtime: &mut Zx81Runtime, bytes: &[u8]) -> Result<(), Mach
             ),
         });
     }
+    let mut machine = snapshot
+        .machine
+        .map(|state| Zx81::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
     if let Some(machine) = &mut machine {
         machine.cpu_mut().rehydrate_walker_sequence();
     }

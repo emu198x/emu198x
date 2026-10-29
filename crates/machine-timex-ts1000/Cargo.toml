@@ -1,0 +1,12 @@
+[package]
+name = "machine-timex-ts1000"
+description = "Fixed timex-ts1000 physical board"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-sinclair-zx81 = {path="../common-sinclair-zx81",version="0.45.1"}
+[lints]
+workspace = true

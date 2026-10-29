@@ -6,7 +6,7 @@
 //! that pin — line sync while a picture is being generated, and the `SAVE`
 //! waveform when the ROM is driving the software sync instead.
 
-use machine_sinclair_zx81::{Zx81, Zx81Key};
+use common_sinclair_zx81::{Zx81Key, Zx81State};
 use std::{env, fs};
 
 /// Transitions in a run of samples: what makes a tone a tone.
@@ -32,7 +32,7 @@ fn a_frame_produces_a_frames_worth_of_samples() {
     let Some(rom) = rom() else {
         emu198x_test_skip::skip!("no ZX81 ROM");
     };
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..200 {
         machine.run_frame();
     }
@@ -80,7 +80,7 @@ fn the_display_buzzes_at_the_sync_duty_cycle() {
     let Some(rom) = rom() else {
         emu198x_test_skip::skip!("no ZX81 ROM");
     };
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..200 {
         machine.run_frame();
     }
@@ -128,11 +128,11 @@ fn saving_puts_the_tape_signal_on_the_same_pin() {
     let Some(rom) = rom() else {
         emu198x_test_skip::skip!("no ZX81 ROM");
     };
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..400 {
         machine.run_frame();
     }
-    let tap = |m: &mut Zx81, k: Zx81Key| {
+    let tap = |m: &mut Zx81State, k: Zx81Key| {
         m.press_key(k);
         for _ in 0..25 {
             m.run_frame();
@@ -142,7 +142,7 @@ fn saving_puts_the_tape_signal_on_the_same_pin() {
             m.run_frame();
         }
     };
-    let shifted = |m: &mut Zx81, k: Zx81Key| {
+    let shifted = |m: &mut Zx81State, k: Zx81Key| {
         m.press_key(Zx81Key::Shift);
         m.press_key(k);
         for _ in 0..25 {

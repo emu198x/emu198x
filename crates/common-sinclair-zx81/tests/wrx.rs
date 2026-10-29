@@ -33,13 +33,13 @@
 //! Developed against *Starfight* (2001, Martin Korth) — the author of the
 //! specification above, which makes it a fair exercise of it.
 
+use common_sinclair_zx81::{Zx81Key, Zx81State};
 use format198x_sinclair_zx81_p::Zx81Image;
-use machine_sinclair_zx81::{Zx81, Zx81Key};
 use std::{collections::BTreeSet, env, fs};
 
 const INK: u32 = 0xFF00_0000;
 
-fn tap(m: &mut Zx81, k: Zx81Key) {
+fn tap(m: &mut Zx81State, k: Zx81Key) {
     m.press_key(k);
     for _ in 0..25 {
         m.run_frame();
@@ -50,7 +50,7 @@ fn tap(m: &mut Zx81, k: Zx81Key) {
     }
 }
 
-fn shifted(m: &mut Zx81, k: Zx81Key) {
+fn shifted(m: &mut Zx81State, k: Zx81Key) {
     m.press_key(Zx81Key::Shift);
     m.press_key(k);
     for _ in 0..25 {
@@ -79,9 +79,9 @@ fn a_wrx_program_drives_the_bitmap_path() {
     };
     let raw = fs::read(&image_path).expect("read the WRX .p");
     let image = Zx81Image::parse(&raw).expect("a valid .p");
-    let pulses = machine_sinclair_zx81::tape::pulses(&image, &[0x26]);
+    let pulses = common_sinclair_zx81::tape::pulses(&image, &[0x26]);
 
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
+    let mut machine = Zx81State::new(rom, 16384).expect("machine");
     for _ in 0..400 {
         machine.run_frame();
     }
