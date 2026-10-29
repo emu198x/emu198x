@@ -5741,6 +5741,8 @@ dependencies = [
  "emu198x-shell",
  "emu198x-zilog-z80",
  "machine-sega-master-system",
+ "postcard",
+ "runtime-sega-game-gear",
  "runtime-sega-master-system-class",
  "serde_json",
 ]

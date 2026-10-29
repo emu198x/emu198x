@@ -13,6 +13,8 @@ machine-sega-master-system = { path = "../machine-sega-master-system", version =
 runtime-sega-master-system-class = { path = "../runtime-sega-master-system-class", version = "0.45.0" }
 
 [dev-dependencies]
+postcard = { workspace = true }
+runtime-sega-game-gear = { path = "../runtime-sega-game-gear", version = "0.45.0" }
 emu198x-sega-315-5124 = { path = "../emu198x-sega-315-5124", version = "0.1.0" }
 serde_json = { workspace = true }
 emu198x-zilog-z80 = "0.8.0"
