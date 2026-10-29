@@ -37,7 +37,12 @@ fn every_msx1_model_boots_cbios_to_its_screen() {
     }
     let rom = std::fs::read(&path).expect("C-BIOS should read");
 
-    for model in Model::ALL.into_iter().filter(|model| !model.is_msx2()) {
+    let models: Vec<_> = Model::ALL
+        .into_iter()
+        .filter(|model| !model.is_msx2())
+        .collect();
+    assert_eq!(models.len(), 6, "all six named MSX1 boards must run");
+    for model in models {
         let mut runtime = MsxRuntime::new(model, rom.clone()).expect("a 32 KB BIOS");
         runtime
             .run_until(
@@ -82,7 +87,12 @@ fn every_msx2_model_boots_cbios_to_its_screen() {
         emu198x_test_skip::skip!("C-BIOS MSX2 not staged in {}", dir.display());
     };
 
-    for model in Model::ALL.into_iter().filter(|model| model.is_msx2()) {
+    let models: Vec<_> = Model::ALL
+        .into_iter()
+        .filter(|model| model.is_msx2())
+        .collect();
+    assert_eq!(models.len(), 3, "all three named MSX2 boards must run");
+    for model in models {
         let bios = match model.region() {
             emu198x_shell::Region::Pal => pal.clone(),
             _ => ntsc.clone(),

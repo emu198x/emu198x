@@ -5,7 +5,7 @@
 //! MSX-MUSIC is a YM2413 (OPLL) written through I/O ports `$7C` (register
 //! address) and `$7D` (data), with a 16 KB ROM, the FM-BIOS, at
 //! `$4000-$7FFF` in some slot. Machines that have it built in carry it in a
-//! slot of their own; [`Msx::install_msx_music`](crate::Msx::install_msx_music)
+//! slot of their own; [`MsxState::install_msx_music`](crate::MsxState::install_msx_music)
 //! fits it.
 //!
 //! The FM-PAC (Panasonic SW-M004) is the cartridge form. Its 64 KB ROM shows

@@ -189,15 +189,7 @@ fn observe<R: FamilyRuntime>() -> Vec<Result<Observation, String>> {
     observe_where::<R>(|_| true)
 }
 
-/// Observes only the variants whose profile names `machine`, for a runtime
-/// that hosts more than one machine (the MSX1 and the MSX2).
-fn observe_machine<R: FamilyRuntime>(machine: &str) -> Vec<Result<Observation, String>> {
-    observe_where::<R>(|id| {
-        R::model_from_id(id)
-            .is_some_and(|model| R::profile_for(model).machine_id.as_str() == machine)
-    })
-}
-
+/// Observe a non-empty selection of profiles from a shared family runtime.
 fn observe_where<R: FamilyRuntime>(
     include: impl Fn(&str) -> bool,
 ) -> Vec<Result<Observation, String>> {
@@ -299,11 +291,15 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
         ),
         (
             "msx",
-            observe_machine::<runtime_msx::MsxRuntime>("microsoft-msx1"),
+            observe_where::<runtime_msx::MsxRuntime>(|id| {
+                runtime_msx::Model::from_variant_id(id).is_some_and(|m| !m.is_msx2())
+            }),
         ),
         (
             "msx2",
-            observe_machine::<runtime_msx::MsxRuntime>("microsoft-msx2"),
+            observe_where::<runtime_msx::MsxRuntime>(|id| {
+                runtime_msx::Model::from_variant_id(id).is_some_and(|m| m.is_msx2())
+            }),
         ),
         (
             "nintendo-game-boy",

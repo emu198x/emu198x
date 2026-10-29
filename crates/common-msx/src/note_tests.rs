@@ -14,15 +14,15 @@ fn bios() -> Vec<u8> {
 
 /// An NTSC MSX1 with its PPI set as the BIOS sets it and page 2 in
 /// cartridge slot 1.
-fn machine() -> Msx {
-    let mut sys = Msx::new(bios(), MsxRegion::Ntsc);
+fn machine() -> MsxState {
+    let mut sys = MsxState::new(bios(), MsxRegion::Ntsc);
     sys.ppi.write(3, 0x82);
     sys.ppi.write(0, 0b0001_0100); // pages 1 and 2 -> slot 1
     sys
 }
 
 /// Let the chips run, as a program's delay loop would.
-fn wait(sys: &mut Msx, tstates: u32) {
+fn wait(sys: &mut MsxState, tstates: u32) {
     for _ in 0..tstates {
         sys.tick_tstate();
     }
@@ -30,7 +30,7 @@ fn wait(sys: &mut Msx, tstates: u32) {
 
 /// Write a YM2413 register through ports `$7C`/`$7D`, leaving the waits the
 /// chip needs after each write.
-fn opll(sys: &mut Msx, register: u8, value: u8) {
+fn opll(sys: &mut MsxState, register: u8, value: u8) {
     sys.io_write(0x7C, register);
     wait(sys, 12);
     sys.io_write(0x7D, value);
@@ -39,7 +39,7 @@ fn opll(sys: &mut Msx, register: u8, value: u8) {
 
 /// A sine-like user instrument and a 440 Hz note on channel 0: F-number
 /// 290 in block 4, `290 × (3,579,545 / 72) / 2^15` Hz.
-fn play_a440(sys: &mut Msx) {
+fn play_a440(sys: &mut MsxState) {
     // Modulator silenced (TL 63), so the carrier sounds alone.
     for (register, value) in [
         (0x00, 0x21),
@@ -59,7 +59,7 @@ fn play_a440(sys: &mut Msx) {
 }
 
 /// Run `frames` frames, collecting the audio the host would receive.
-fn record(sys: &mut Msx, frames: u32) -> Vec<f32> {
+fn record(sys: &mut MsxState, frames: u32) -> Vec<f32> {
     let mut audio = Vec::new();
     let mut out = vec![0.0; 1024];
     for _ in 0..frames {
@@ -195,7 +195,7 @@ fn the_fm_pac_keeps_pac_data_in_sram() {
 }
 
 /// A square wave: 16 samples high, 16 low.
-fn load_square(sys: &mut Msx, base: u16, channel: u16) {
+fn load_square(sys: &mut MsxState, base: u16, channel: u16) {
     for i in 0..32 {
         sys.poke(base + channel * 32 + i, if i < 16 { 0x7F } else { 0x80 });
     }
@@ -332,7 +332,7 @@ fn a_snapshot_carries_the_sound_chips() {
     play_a440(&mut sys);
     sys.run_frame();
     let bytes = postcard::to_allocvec(&sys).expect("encode");
-    let restored: Msx = postcard::from_bytes(&bytes).expect("decode");
+    let restored: MsxState = postcard::from_bytes(&bytes).expect("decode");
     assert_eq!(postcard::to_allocvec(&restored).expect("re-encode"), bytes);
     // The YM2413s' own sample logs are dropped every frame, so the state
     // does not grow as the machine runs.

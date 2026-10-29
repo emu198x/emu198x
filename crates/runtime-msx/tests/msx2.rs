@@ -89,14 +89,14 @@ fn an_msx2_snapshot_restores_its_sub_rom() {
 
 #[test]
 fn the_v9938_framebuffer_has_half_width_pixels() {
-    let runtime = msx2(Model::Msx2Ntsc);
+    let runtime = msx2(Model::SonyHbF1);
     let machine = runtime.machine().expect("a machine");
     assert_eq!(machine.framebuffer_width(), 560);
     let msx2_aspect = runtime
         .display()
         .expect("a television")
         .pixel_aspect_ratio(560, 240);
-    let msx1 = MsxRuntime::new(Model::Msx1Ntsc, bios()).expect("MSX1");
+    let msx1 = MsxRuntime::new(Model::SonyHb10, bios()).expect("MSX1");
     let msx1_aspect = msx1
         .display()
         .expect("a television")
@@ -109,7 +109,7 @@ fn the_v9938_framebuffer_has_half_width_pixels() {
 
 #[test]
 fn queries_name_the_chip_and_the_msx2_parts() {
-    let mut runtime = msx2(Model::Msx2Pal);
+    let mut runtime = msx2(Model::PhilipsVg8235);
     run(&mut runtime, 1);
     let provider = MsxSessionQueryProvider;
     let query = |path: &str| {
@@ -125,7 +125,7 @@ fn queries_name_the_chip_and_the_msx2_parts() {
     assert_eq!(query("rtc"), "1980-01-01 00:00:00");
     assert_eq!(query("vdp.framebuffer_width"), 556);
 
-    let msx1 = MsxRuntime::new(Model::Msx1Pal, bios()).expect("MSX1");
+    let msx1 = MsxRuntime::new(Model::SonyHb10p, bios()).expect("MSX1");
     let value = provider
         .query(&msx1, "vdp")
         .expect("answers")

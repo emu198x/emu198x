@@ -65,10 +65,10 @@ pub(super) fn create(
         #[cfg(feature = "memotech-mtx")]
         "memotech-mtx" => build::<runtime_memotech_mtx::MtxRuntime>(variant, firmware),
         #[cfg(feature = "msx")]
-        "msx" => build_machine::<runtime_msx::MsxRuntime>("microsoft-msx1", variant, firmware),
+        "msx" => build_msx(false, variant, firmware),
         #[cfg(feature = "msx2")]
         // The MSX2 shares the MSX runtime; this family is its models only.
-        "msx2" => build_machine::<runtime_msx::MsxRuntime>("microsoft-msx2", variant, firmware),
+        "msx2" => build_msx(true, variant, firmware),
         #[cfg(feature = "nintendo-game-boy")]
         "nintendo-game-boy" => {
             build::<runtime_nintendo_game_boy::GameBoyRuntime>(variant, firmware)
@@ -187,15 +187,9 @@ pub(super) fn catalogue() -> Vec<Value> {
     #[cfg(feature = "memotech-mtx")]
     result.extend(profiles::<runtime_memotech_mtx::MtxRuntime>("memotech-mtx"));
     #[cfg(feature = "msx")]
-    result.extend(machine_profiles::<runtime_msx::MsxRuntime>(
-        "msx",
-        "microsoft-msx1",
-    ));
+    result.extend(msx_profiles("msx", false));
     #[cfg(feature = "msx2")]
-    result.extend(machine_profiles::<runtime_msx::MsxRuntime>(
-        "msx2",
-        "microsoft-msx2",
-    ));
+    result.extend(msx_profiles("msx2", true));
     #[cfg(feature = "nintendo-game-boy")]
     result.extend(profiles::<runtime_nintendo_game_boy::GameBoyRuntime>(
         "nintendo-game-boy",

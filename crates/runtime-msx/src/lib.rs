@@ -1,6 +1,6 @@
 //! MSX family metadata and runtime surface: MSX1 and MSX2.
 //!
-//! Wraps `machine_msx::Msx` behind the `MachineCore` trait so the
+//! Wraps named board owners behind the `MachineCore` trait so the
 //! shared `emu198x-shell` runner (HeadlessSession, MCP server,
 //! script runner) can drive it the same way it drives Spectrum,
 //! Amiga, or NES.
@@ -11,12 +11,14 @@
 //! finish bootstrapping.
 
 mod input;
+mod machine;
+pub use machine::MsxMachine;
 mod profiles;
 mod queries;
 mod runtime;
 mod snapshot;
 
-pub use machine_msx::{MapperType, MsxRegion};
+pub use common_msx::{MapperType, MsxRegion};
 pub use profiles::{BIOS_FIRMWARE_ID, Model, SUB_ROM_FIRMWARE_ID, profile_for, profiles};
 pub use queries::MsxSessionQueryProvider;
 pub use runtime::MsxRuntime;

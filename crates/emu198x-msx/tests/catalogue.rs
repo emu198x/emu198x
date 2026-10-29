@@ -138,11 +138,14 @@ fn firmware_pins_and_directory_conventions_work() {
 }
 
 #[test]
-fn scripts_switch_both_regions_with_both_cartridges_and_reset() {
+fn scripts_switch_named_regional_boards_with_both_cartridges_and_reset() {
     let fixture = Fixture::new();
-    // The synthetic BIOS assumes the default slot layout, which the two
-    // regional presets share.
-    for model in [runtime_msx::Model::Msx1Ntsc, runtime_msx::Model::Msx1Pal] {
+    // Both named Sony boards have the same cartridge slots; page-3 RAM
+    // is selected from their individual topology below.
+    for model in [runtime_msx::Model::SonyHb10, runtime_msx::Model::SonyHb10p] {
+        let mut bios = std::fs::read(fixture.0.join("msx.rom")).expect("own BIOS");
+        bios[5] = (bios[5] & 0x3F) | (model.layout().ram[0].slot.primary << 6);
+        std::fs::write(fixture.0.join("msx.rom"), bios).expect("model-matched own BIOS");
         let report = output(
             fixture
                 .script(json!([
@@ -265,12 +268,27 @@ fn mcp_switch_retains_in_memory_media_and_failed_firmware_keeps_live_state() {
     use std::io::{BufRead, BufReader};
     let fixture = Fixture::new();
     let bios = fixture.0.join("msx.rom");
+    let pal_bios = fixture.0.join("hb-10p_basic-bios1.rom");
+    let ntsc_bios = fixture.0.join("hb-10_basic-bios1.rom");
+    let mut bytes = std::fs::read(&bios).expect("own BIOS");
+    std::fs::write(&pal_bios, &bytes).expect("PAL BIOS");
+    bytes[5] = 0x24;
+    std::fs::write(&ntsc_bios, &bytes).expect("NTSC BIOS");
     let cart1 = fixture.0.join("game.rom");
     let cart2 = fixture.0.join("other.rom");
     let mut child = fixture
         .command()
-        .env("EMU198X_MSX_BIOS", &bios)
-        .args(["--mcp", "--mapper", "konami-scc", "--mapper2", "ascii16"])
+        .env_remove("EMU198X_MSX_BIOS")
+        .env("EMU198X_MSX_ROM_DIR", &fixture.0)
+        .args([
+            "--model",
+            "sony-hb-10",
+            "--mcp",
+            "--mapper",
+            "konami-scc",
+            "--mapper2",
+            "ascii16",
+        ])
         .arg("--cart")
         .arg(&cart1)
         .arg("--cart2")
@@ -294,13 +312,14 @@ fn mcp_switch_retains_in_memory_media_and_failed_firmware_keeps_live_state() {
     assert_eq!(tool_body(&before)["bytes"], json!([0x5a, 0x42]));
     std::fs::remove_file(cart1).expect("remove slot 1 source");
     std::fs::remove_file(cart2).expect("remove slot 2 source");
-    let switched = call("set_machine", json!({"machine":"microsoft-msx1-pal"}));
-    assert_eq!(tool_body(&switched)["profile_id"], "microsoft-msx1-pal");
+    let switched = call("set_machine", json!({"machine":"sony-hb-10p"}));
+    assert_eq!(tool_body(&switched)["profile_id"], "sony-hb-10p");
     call("run_frames", json!({"frames":1}));
     let after = call("memory_read", json!({"addr":49152,"len":2}));
     assert_eq!(tool_body(&after)["bytes"], json!([0x5a, 0x42]));
-    std::fs::remove_file(bios).expect("remove firmware");
-    let failed = call("set_machine", json!({"machine":"microsoft-msx1-ntsc"}));
+    std::fs::remove_file(bios).expect("remove fallback firmware");
+    std::fs::remove_file(ntsc_bios).expect("remove target firmware");
+    let failed = call("set_machine", json!({"machine":"sony-hb-10"}));
     assert_eq!(failed["result"]["isError"], true);
     let retained = call("memory_read", json!({"addr":49152,"len":2}));
     assert_eq!(tool_body(&retained)["bytes"], json!([0x5a, 0x42]));

@@ -3,6 +3,10 @@
 Captured from the original machine/runtime at `055162c6c`, before extracting
 board owners. All thirteen existing profiles are included; the four generic
 MSX1/MSX2 regional configurations are not identified as manufacturer boards.
+The nine manufacturer profiles replay these original continuations. The four
+generic states are retained as rejection cases: their selection IDs and aliases
+are retired, and restoring them must not infer a physical board.
+
 The recipe is `runtime-msx/examples/board_baseline.rs`. Every ROM, SUB-ROM
 and cartridge in these states is project-owned synthetic data.
 

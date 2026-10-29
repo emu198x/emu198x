@@ -14,7 +14,7 @@ fn mapped_rom(addresses: &[u16]) -> Vec<u8> {
 #[test]
 fn standard_media_path_detects_megarom_mapper() {
     let mut runtime =
-        MsxRuntime::new(Model::Msx1Ntsc, vec![0; 32 * 1024]).expect("runtime should construct");
+        MsxRuntime::new(Model::SonyHb10p, vec![0; 32 * 1024]).expect("runtime should construct");
     let rom = mapped_rom(&[0x5000, 0x9000, 0xb000]);
     let mut media = MediaSet::new();
     media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
@@ -29,7 +29,7 @@ fn standard_media_path_detects_megarom_mapper() {
 #[test]
 fn explicit_mapper_selection_remains_an_override() {
     let mut runtime =
-        MsxRuntime::new(Model::Msx1Ntsc, vec![0; 32 * 1024]).expect("runtime should construct");
+        MsxRuntime::new(Model::SonyHb10p, vec![0; 32 * 1024]).expect("runtime should construct");
     let rom = mapped_rom(&[0x5000, 0x9000, 0xb000]);
 
     runtime.insert_cartridge1(rom, MapperType::Ascii16);

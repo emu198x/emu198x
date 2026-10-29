@@ -6,8 +6,8 @@
 //! SVI-328 / SG-1000 / Game Boy shape: a borrowing envelope for encode (no
 //! clone), an owning envelope for decode.
 
+use crate::machine::MsxMachine as Msx;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_msx::Msx;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::MsxRuntime;
@@ -47,7 +47,7 @@ struct MsxRuntimeSnapshotV5 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Msx>,
+    machine: Option<common_msx::MsxState>,
 }
 
 pub(crate) fn encode(runtime: &MsxRuntime) -> Result<Vec<u8>, MachineError> {
@@ -78,6 +78,14 @@ pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), Machi
             reason: format!("decode failed: {reason}"),
         })?;
     debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    if crate::Model::is_retired_id(&snapshot.model_id) {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!(
+                "generic MSX preset {} was retired; no physical board is inferred from its save",
+                snapshot.model_id
+            ),
+        });
+    }
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -87,11 +95,15 @@ pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), Machi
             ),
         });
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
+    let mut machine = snapshot
+        .machine
+        .map(|state| Msx::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     if let Some(machine) = &mut machine {
         machine.cpu_mut().rehydrate_walker_sequence();
     }
+    runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())
 }
@@ -105,7 +117,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_future_version_before_payload_decode() {
-        let mut runtime = MsxRuntime::blank(Model::Msx1Ntsc);
+        let mut runtime = MsxRuntime::blank(Model::SonyHb10p);
         let future_version = SNAPSHOT_VERSION + 1;
         let bytes = postcard::to_allocvec(&future_version).expect("future version should encode");
 
@@ -124,7 +136,7 @@ mod tests {
     /// Version 2 cannot preserve the accepted Z80 interrupt sequence identity.
     #[test]
     fn decode_rejects_version_2_before_payload_decode() {
-        let mut runtime = MsxRuntime::blank(Model::Msx1Ntsc);
+        let mut runtime = MsxRuntime::blank(Model::SonyHb10p);
         let bytes = postcard::to_allocvec(&2_u16).expect("legacy version should encode");
 
         let err = decode(&mut runtime, &bytes).expect_err("version 2 should reject");
@@ -139,9 +151,8 @@ mod tests {
         }
     }
 
-    /// The envelope names the model, never the machine, so giving the MSX2
-    /// its own machine id (`microsoft-msx2`) left MSX2 snapshots loadable
-    /// without a version bump.
+    /// The retained named profile in the envelope is independent of its
+    /// physical machine ID, so changing ownership needs no version bump.
     #[test]
     fn msx2_snapshots_are_keyed_by_model_not_machine() {
         let saved = MsxRuntime::blank(Model::PhilipsVg8235);
@@ -150,7 +161,7 @@ mod tests {
         let mut same_model = MsxRuntime::blank(Model::PhilipsVg8235);
         decode(&mut same_model, &bytes).expect("same model should restore");
 
-        let mut other_model = MsxRuntime::blank(Model::Msx2Pal);
+        let mut other_model = MsxRuntime::blank(Model::SonyHbF1);
         let err = decode(&mut other_model, &bytes).expect_err("another model should reject");
         assert!(
             matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("philips-vg-8235")),

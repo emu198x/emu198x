@@ -1,11 +1,12 @@
 //! Runtime wrapper for the MSX1 and MSX2 machines.
 
+use crate::machine::MsxMachine as Msx;
+use common_msx::{MapperType, detect_mapper};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_msx::{MapperType, Msx, MsxRegion, detect_mapper};
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, SUB_ROM_FIRMWARE_ID, profile_for};
@@ -15,7 +16,7 @@ use emu198x_shell::display::Display;
 const BIOS_SIZE: usize = 32 * 1024;
 const SUB_ROM_SIZE: usize = 16 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
-/// PSG buffer size — matches `machine-msx`'s internal allocation.
+/// PSG buffer size — matches `common-msx`'s internal allocation.
 const AUDIO_SAMPLES_PER_FRAME: usize = 1024;
 
 /// MSX runtime. The machine cannot construct without a 32 KB BIOS, and an
@@ -274,19 +275,17 @@ impl MsxRuntime {
             self.machine = None;
             return;
         };
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => MsxRegion::Pal,
-            _ => MsxRegion::Ntsc,
-        };
-        let mut machine = if self.model.is_msx2() {
-            let Some(sub_rom) = self.sub_rom_bytes.clone() else {
+        let sub = if self.model.is_msx2() {
+            let Some(sub) = self.sub_rom_bytes.clone() else {
                 self.machine = None;
                 return;
             };
-            Msx::msx2(bios, sub_rom, region, self.model.layout())
+            Some(sub)
         } else {
-            Msx::with_layout(bios, region, self.model.layout())
+            None
         };
+        let mut machine = Msx::try_new(self.model, bios, sub)
+            .expect("named board and required SUB-ROM presence were checked");
         if let Some(rom) = self.cart1_bytes.clone() {
             machine.insert_cart1(rom, self.cart1_mapper);
         }

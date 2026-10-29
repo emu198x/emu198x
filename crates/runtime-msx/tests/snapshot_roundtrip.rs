@@ -11,7 +11,7 @@ use emu198x_shell::{
 };
 use runtime_msx::{Model, MsxRuntime};
 
-const MODEL: Model = Model::Msx1Ntsc;
+const MODEL: Model = Model::SonyHb10p;
 const WARMUP: u64 = 50_000;
 const LOCKSTEP: u64 = 100_000;
 

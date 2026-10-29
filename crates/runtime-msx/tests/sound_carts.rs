@@ -28,7 +28,7 @@ fn bios() -> Vec<u8> {
 
 #[test]
 fn the_media_path_detects_an_fm_pac() {
-    let mut runtime = MsxRuntime::new(Model::Msx2Pal, bios()).expect("runtime");
+    let mut runtime = MsxRuntime::new(Model::PhilipsVg8235, bios()).expect("runtime");
     runtime.set_sub_rom(vec![0; 16 * 1024]).expect("sub-rom");
     let mut rom = vec![0; 0x10000];
     rom[0x18..0x20].copy_from_slice(b"PAC2OPLL");
@@ -69,12 +69,12 @@ fn scc_bios() -> Vec<u8> {
 
 #[test]
 fn an_scc_note_reaches_the_host() {
-    let mut runtime = MsxRuntime::new(Model::Msx1Ntsc, scc_bios()).expect("runtime");
+    let mut runtime = MsxRuntime::new(Model::SonyHb10, scc_bios()).expect("runtime");
     runtime.insert_cartridge1(vec![0; 128 * 1024], MapperType::KonamiScc);
     let mut audio = Recorder::default();
     runtime
         .run_until(
-            MachineTime::new(Model::Msx1Ntsc.frame_ticks() * 60),
+            MachineTime::new(Model::SonyHb10.frame_ticks() * 60),
             &mut HostIo {
                 input_events: &[],
                 frame_sink: &mut NullFrameSink,
