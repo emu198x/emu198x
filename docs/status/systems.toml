@@ -85,6 +85,15 @@ milestone = "Atari 5200 100%"
 
 [[system]]
 machine_id = "atari-7800"
+machine_crate = "machine-atari-7800"
+crate = "emu198x-atari-7800"
+label = "system:atari-7800"
+milestone = "Atari 7800 100%"
+
+# Shared family backlog; board qualification comes from its machine crate.
+[[system]]
+machine_id = "atari-7800-pal"
+machine_crate = "machine-atari-7800-pal"
 crate = "emu198x-atari-7800"
 label = "system:atari-7800"
 milestone = "Atari 7800 100%"

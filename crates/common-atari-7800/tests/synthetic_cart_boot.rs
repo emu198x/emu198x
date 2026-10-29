@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_7800::{Atari7800, Atari7800Region};
+use common_atari_7800::{Atari7800Region, Atari7800State};
 
 /// NTSC palette entry `$0E`, selected by writing `$1C` to `BACKGRND`.
 const EXPECTED: u32 = 0xFFD4_D478;
@@ -24,8 +24,8 @@ fn cart() -> PathBuf {
         .join("../../test-data/atari/synthetic-cart/atari-7800.a78")
 }
 
-fn booted(rom: Vec<u8>) -> Atari7800 {
-    let mut machine = Atari7800::new(rom, Atari7800Region::Ntsc)
+fn booted(rom: Vec<u8>) -> Atari7800State {
+    let mut machine = Atari7800State::new(rom, Atari7800Region::Ntsc)
         .expect("the synthetic cartridge should load as a 16 KB image");
     for _ in 0..5 {
         machine.run_frame();
@@ -33,7 +33,7 @@ fn booted(rom: Vec<u8>) -> Atari7800 {
     machine
 }
 
-fn has_expected_background(machine: &Atari7800) -> bool {
+fn has_expected_background(machine: &Atari7800State) -> bool {
     let region = emu198x_atari_maria::MariaRegion::Ntsc;
     let width = region.framebuffer_width() as usize;
     let left = region.border_left() as usize;

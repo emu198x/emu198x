@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 65 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 66 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -24,7 +24,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `atari-2600` | `emu198x-atari-2600` | 1 | 9 | [system:atari-2600](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-2600) | [Atari 2600 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+2600+100%25%22) |
 | `atari-2600-pal` | `emu198x-atari-2600` | 1 | 9 | [system:atari-2600](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-2600) | [Atari 2600 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+2600+100%25%22) |
 | `atari-5200` | `emu198x-atari-5200` | 3 | 8 | [system:atari-5200](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-5200) | [Atari 5200 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+5200+100%25%22) |
-| `atari-7800` | `emu198x-atari-7800` | 4 | 7 | [system:atari-7800](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-7800) | [Atari 7800 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+7800+100%25%22) |
+| `atari-7800` | `emu198x-atari-7800` | 1 | 11 | [system:atari-7800](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-7800) | [Atari 7800 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+7800+100%25%22) |
+| `atari-7800-pal` | `emu198x-atari-7800` | 1 | 11 | [system:atari-7800](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-7800) | [Atari 7800 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+7800+100%25%22) |
 | `atari-800xl` | `emu198x-atari-800xl` | 4 | 8 | [system:atari-800xl](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-800xl) | [Atari 800XL 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+800XL+100%25%22) |
 | `atari-st` | `emu198x-atari-st` | 7 | 7 | [system:atari-st](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-st) | [Atari ST 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+ST+100%25%22) |
 | `coleco-colecovision-ntsc` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |

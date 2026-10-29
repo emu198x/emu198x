@@ -5,8 +5,8 @@
 //! envelope that cold-booted from the cart ROM. A borrowing envelope for encode
 //! (no clone), an owning envelope for decode.
 
+use crate::machine::Atari7800Machine as Atari7800;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_atari_7800::Atari7800;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Atari7800Runtime;
@@ -36,7 +36,7 @@ struct Atari7800RuntimeSnapshotV2 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Atari7800>,
+    machine: Option<common_atari_7800::Atari7800State>,
 }
 
 pub(crate) fn encode(runtime: &Atari7800Runtime) -> Result<Vec<u8>, MachineError> {
@@ -76,8 +76,13 @@ pub(crate) fn decode(runtime: &mut Atari7800Runtime, bytes: &[u8]) -> Result<(),
             ),
         });
     }
+    let machine = snapshot
+        .machine
+        .map(|state| Atari7800::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_machine(snapshot.machine);
+    runtime.set_machine(machine);
     Ok(())
 }
 
@@ -119,6 +124,34 @@ mod tests {
                 );
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod board_identity_tests {
+    use super::*;
+    use crate::profiles::Model;
+    #[test]
+    fn foreign_payload_under_matching_header_is_rejected_atomically() {
+        let rom =
+            include_bytes!("../../../test-data/synthetic-cartridges/atari-7800-logo.bin").to_vec();
+        for (selected, foreign) in [
+            (Model::A7800Ntsc, Model::A7800Pal),
+            (Model::A7800Pal, Model::A7800Ntsc),
+        ] {
+            let mut receiver = Atari7800Runtime::new(selected, rom.clone()).expect("receiver");
+            let before = receiver.snapshot().expect("before");
+            let donor = Atari7800Runtime::new(foreign, rom.clone()).expect("donor");
+            let forged = postcard::to_allocvec(&Atari7800RuntimeSnapshotRefV2 {
+                version: SNAPSHOT_VERSION,
+                time: 12345,
+                model_id: selected.model_id(),
+                machine: donor.machine(),
+            })
+            .expect("envelope");
+            assert!(receiver.restore(&forged).is_err());
+            assert_eq!(receiver.snapshot().expect("after"), before);
         }
     }
 }

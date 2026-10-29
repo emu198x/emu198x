@@ -35,7 +35,7 @@ fn requested_interrupts_reach_pixels() {
                 ];
                 rom[0x100..0x100 + handler.len()].copy_from_slice(&handler);
                 rom[0x7ffa..].copy_from_slice(&[0, 0x81, 0, 0x80, 0, 0x80]);
-                let mut sys = Atari7800::new(rom, region).expect("raster guest");
+                let mut sys = Atari7800State::new(rom, region).expect("raster guest");
                 sys.ram_zp[2] = 0x42;
                 for (index, entry) in sys.ram_main[..0x400]
                     .as_chunks_mut::<3>()

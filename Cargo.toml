@@ -150,6 +150,8 @@ members = [
     "crates/machine-atari-2600-pal",
     "crates/machine-atari-5200",
     "crates/machine-atari-7800",
+    "crates/common-atari-7800",
+    "crates/machine-atari-7800-pal",
     "crates/machine-atari-800xl",
     "crates/machine-atari-st",
     "crates/machine-commodore-pet",
