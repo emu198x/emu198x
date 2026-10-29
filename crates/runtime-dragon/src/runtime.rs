@@ -2366,3 +2366,7 @@ mod tests {
         bytes
     }
 }
+
+#[cfg(test)]
+#[path = "board_baseline_tests.rs"]
+mod board_baseline_tests;
