@@ -5,7 +5,8 @@
 //! `~/.emu198x/roms/acorn-bbc-micro/` as `bplus-os.rom`, `basic.rom` and
 //! `dfs-2.26.rom`, or name them with EMU198X_BBC_BPLUS_OS, EMU198X_BBC_BASIC
 //! and EMU198X_BBC_DFS. (MAME's `bpos2.ic71` holds the OS and BASIC together;
-//! its two 16 KB halves are the first two files, in that order.)
+//! its lower 16 KB is BASIC (`basic.rom`) and its upper 16 KB is the OS
+//! (`bplus-os.rom`), as mapped by MAME's `bbcbp.cpp`.)
 //!
 //! ```text
 //! cargo test --release -p machine-acorn-bbc-micro-b-plus --test bplus_disc -- --ignored
