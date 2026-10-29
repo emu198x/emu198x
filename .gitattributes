@@ -20,3 +20,11 @@
 /test-data/atari-7800/board-split-v6/*.state binary
 /test-data/atari-7800/board-split-v6/*.frames binary
 /test-data/atari-7800/board-split-v6/*.audio binary
+
+# Original ZX board states and complete output.
+/test-data/zx80/board-split-v4/*.state binary
+/test-data/zx80/board-split-v4/*.frames binary
+/test-data/zx80/board-split-v4/*.audio binary
+/test-data/zx81/board-split-v5/*.state binary
+/test-data/zx81/board-split-v5/*.frames binary
+/test-data/zx81/board-split-v5/*.audio binary
