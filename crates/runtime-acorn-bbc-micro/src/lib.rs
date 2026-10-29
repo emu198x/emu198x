@@ -1,6 +1,8 @@
 //! Acorn BBC Micro family metadata and runtime surface.
 
 mod input;
+mod machine;
+pub use machine::BbcMachine;
 mod profiles;
 mod queries;
 mod runtime;

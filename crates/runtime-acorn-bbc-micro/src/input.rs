@@ -8,8 +8,8 @@
 //! from [`InputEvent::Button`] on the matching port; the **X/Y axes** are read
 //! through the μPD7002 ADC (`InputEvent::Axis`, a separate path).
 
+use crate::machine::BbcMachine as BbcMicro;
 use emu198x_shell::{InputEvent, KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING};
-use machine_acorn_bbc_micro::BbcMicro;
 
 pub(crate) fn apply_input_event(machine: &mut BbcMicro, event: &InputEvent) {
     match event {
@@ -167,7 +167,7 @@ mod tests {
     fn make_bbc() -> BbcMicro {
         // A zero MOS ROM is enough: these tests drive input directly and never
         // run the CPU.
-        BbcMicro::new(vec![0u8; 0x4000])
+        BbcMicro::new(crate::Model::BbcModelB, vec![0u8; 0x4000])
     }
 
     fn axis(port: u8, name: &str, value: i16) -> InputEvent {

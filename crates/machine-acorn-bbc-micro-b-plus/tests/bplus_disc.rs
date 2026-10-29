@@ -1,48 +1,42 @@
-//! The real Master 128 MOS 3.20 boots, and its DFS reads a disc through the
-//! WD1770.
+//! The real BBC B+ OS and Acorn 1770 DFS read a disc through the WD1770.
 //!
 //! Gated `#[ignore]` because the ROMs are copyrighted and not in the tree.
-//! Name the directory holding MOS 3.20's ROMs with EMU198X_MASTER_ROM_DIR:
-//! `mos.rom`, then `dfs.rom`, `viewsht.rom`, `edit.rom`, `basic4.rom`,
-//! `adfs.rom`, `view.rom` and `terminal.rom` for banks 9 to 15, as b2 ships
-//! them in `etc/roms/M128/3.20`.
+//! Place the B+'s 16 KB OS 2.00, BASIC 2 and Acorn DFS 2.26 in
+//! `~/.emu198x/roms/acorn-bbc-micro/` as `bplus-os.rom`, `basic.rom` and
+//! `dfs-2.26.rom`, or name them with EMU198X_BBC_BPLUS_OS, EMU198X_BBC_BASIC
+//! and EMU198X_BBC_DFS. (MAME's `bpos2.ic71` holds the OS and BASIC together;
+//! its two 16 KB halves are the first two files, in that order.)
 //!
 //! ```text
-//! EMU198X_MASTER_ROM_DIR=... cargo test --release -p machine-acorn-bbc-micro --test master_disc -- --ignored
+//! cargo test --release -p machine-acorn-bbc-micro-b-plus --test bplus_disc -- --ignored
 //! ```
 //!
-//! The CMOS clock powers up configured for BASIC and the DFS in MODE 7, so
-//! the test reads the screen at `&7C00` as the B+ test does.
+//! The disc is built here, so no image is needed: a DFS catalogue in sectors 0
+//! and 1 of track 0 and one text file. `*CAT` proves the DFS read the
+//! catalogue, and `*TYPE HELLO` that it found and read the file. Every byte
+//! crosses the 1770 by NMI, so a passing test is the controller, its interrupt
+//! wiring and the drive latch agreeing with the DFS.
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_acorn_bbc_micro::BbcMicro;
+use machine_acorn_bbc_micro_b_plus::BbcMicro;
 
-/// The MOS 3.20 ROM set, bank by bank.
-const BANKS: [(usize, &str); 7] = [
-    (9, "dfs.rom"),
-    (10, "viewsht.rom"),
-    (11, "edit.rom"),
-    (12, "basic4.rom"),
-    (13, "adfs.rom"),
-    (14, "view.rom"),
-    (15, "terminal.rom"),
-];
-
-fn master() -> BbcMicro {
-    let dir = env::var("EMU198X_MASTER_ROM_DIR")
-        .map(PathBuf::from)
-        .expect("set EMU198X_MASTER_ROM_DIR to the MOS 3.20 ROM directory");
-    let read = |name: &str| fs::read(dir.join(name)).unwrap_or_else(|err| panic!("{name}: {err}"));
-    let mut sys = BbcMicro::new_master_128(read("mos.rom"));
-    for (bank, name) in BANKS {
-        sys.insert_rom(bank, read(name));
-    }
-    sys
+fn rom(env_var: &str, file: &str) -> Option<Vec<u8>> {
+    let path = env::var(env_var).map(PathBuf::from).ok().or_else(|| {
+        let home = env::var("HOME").ok()?;
+        Some(
+            PathBuf::from(home)
+                .join(".emu198x/roms/acorn-bbc-micro")
+                .join(file),
+        )
+    })?;
+    fs::read(path).ok()
 }
 
+/// A 40-track single-sided DFS disc titled `EMU198X` holding `$.HELLO`, a
+/// text file that reads `DISC OK`.
 fn hello_ssd() -> Vec<u8> {
     let mut image = vec![0u8; 40 * 10 * 256];
     let contents = b"DISC OK\r";
@@ -140,31 +134,35 @@ fn run_until(sys: &mut BbcMicro, frames: usize, needle: &str) -> bool {
 }
 
 #[test]
-#[ignore = "FIXTURE: needs the Master 128 MOS 3.20 ROM set — run with --ignored"]
-fn the_master_boots_to_basic() {
-    let mut sys = master();
-    assert!(
-        run_until(&mut sys, 300, "BASIC"),
-        "the Master never reached BASIC: {}",
-        mode7_text(&sys)
-    );
-    assert!(
-        mode7_text(&sys).contains("Acorn MOS"),
-        "the MOS announced itself: {}",
-        mode7_text(&sys)
-    );
-}
-
-#[test]
-#[ignore = "FIXTURE: needs the Master 128 MOS 3.20 ROM set — run with --ignored"]
-fn the_master_dfs_catalogues_and_types_a_file_from_disc() {
-    let mut sys = master();
+#[ignore = "FIXTURE: needs the B+ OS 2.00, BASIC and Acorn DFS 2.26 ROMs — run with --ignored"]
+fn the_b_plus_dfs_catalogues_and_types_a_file_from_disc() {
+    let (Some(os), Some(basic), Some(dfs)) = (
+        rom("EMU198X_BBC_BPLUS_OS", "bplus-os.rom"),
+        rom("EMU198X_BBC_BASIC", "basic.rom"),
+        rom("EMU198X_BBC_DFS", "dfs-2.26.rom"),
+    ) else {
+        panic!(
+            "needs bplus-os.rom, basic.rom and dfs-2.26.rom in \
+             ~/.emu198x/roms/acorn-bbc-micro/, or EMU198X_BBC_BPLUS_OS, \
+             EMU198X_BBC_BASIC and EMU198X_BBC_DFS"
+        );
+    };
+    let mut sys = BbcMicro::new(os);
+    sys.insert_rom(15, basic);
+    sys.insert_rom(14, dfs);
     sys.insert_disk(0, BbcMicro::dfs_disk(&hello_ssd(), 1, false));
+
     assert!(
         run_until(&mut sys, 300, "BASIC"),
-        "the Master never reached BASIC: {}",
+        "the B+ never reached BASIC: {}",
         mode7_text(&sys)
     );
+    assert!(
+        mode7_text(&sys).contains("Acorn 1770 DFS"),
+        "the DFS announced itself: {}",
+        mode7_text(&sys)
+    );
+
     type_command(&mut sys, "*CAT\r");
     assert!(
         run_until(&mut sys, 300, "HELLO"),
@@ -172,6 +170,7 @@ fn the_master_dfs_catalogues_and_types_a_file_from_disc() {
         mode7_text(&sys)
     );
     assert!(mode7_text(&sys).contains("EMU198X"), "*CAT shows the title");
+
     type_command(&mut sys, "*TYPE HELLO\r");
     assert!(
         run_until(&mut sys, 300, "DISC OK"),

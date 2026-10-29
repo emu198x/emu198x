@@ -31,9 +31,24 @@ milestone = "Acorn Atom 100%"
 
 [[system]]
 machine_id = "acorn-bbc-micro"
+machine_crate = "machine-acorn-bbc-micro"
 crate = "emu198x-acorn-bbc-micro"
 label = "system:bbc-micro"
 milestone = "BBC Micro 100%"
+
+[[system]]
+machine_id = "acorn-bbc-micro-b-plus"
+machine_crate = "machine-acorn-bbc-micro-b-plus"
+crate = "emu198x-acorn-bbc-micro"
+label = "system:bbc-b-plus"
+milestone = "BBC B+ 100%"
+
+[[system]]
+machine_id = "acorn-bbc-master-128"
+machine_crate = "machine-acorn-bbc-master-128"
+crate = "emu198x-acorn-bbc-micro"
+label = "system:bbc-master-128"
+milestone = "BBC Master 128 100%"
 
 [[system]]
 machine_id = "acorn-electron"

@@ -6,8 +6,8 @@
 //! MOS + sideways ROMs. A borrowing envelope for encode (no clone), an owning
 //! envelope for decode.
 
+use crate::machine::BbcMachine as BbcMicro;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_acorn_bbc_micro::BbcMicro;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::BbcMicroRuntime;
@@ -80,6 +80,20 @@ pub(crate) fn decode(runtime: &mut BbcMicroRuntime, bytes: &[u8]) -> Result<(), 
                 snapshot.model_id,
                 runtime.model().model_id()
             ),
+        });
+    }
+    let expected = match runtime.model() {
+        crate::Model::BbcModelB => common_acorn_bbc_micro::BbcModel::ModelB,
+        crate::Model::BbcBPlus => common_acorn_bbc_micro::BbcModel::ModelBPlus,
+        crate::Model::Master128 => common_acorn_bbc_micro::BbcModel::Master128,
+    };
+    if snapshot
+        .machine
+        .as_ref()
+        .is_some_and(|m| m.model() != expected)
+    {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot board does not match runtime profile".to_owned(),
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));

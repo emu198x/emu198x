@@ -2,7 +2,7 @@
 //! snapshot.
 //!
 //! Blank firmware is enough here; the real MOS 3.20 booting and reading a
-//! disc is `machine-acorn-bbc-micro`'s `master_disc` test.
+//! disc is `machine-acorn-bbc-master-128`'s `master_disc` test.
 
 use emu198x_mos_6502::Variant;
 use emu198x_shell::{

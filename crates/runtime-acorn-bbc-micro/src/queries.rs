@@ -1,7 +1,7 @@
 //! Family-owned query surface for the BBC Micro runtime.
 
+use crate::machine::BbcMachine as BbcMicro;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_acorn_bbc_micro::BbcMicro;
 use serde_json::json;
 
 use crate::runtime::BbcMicroRuntime;

@@ -264,7 +264,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
         ));
     }
     MachineProfile {
-        machine_id: MachineId::from("acorn-bbc-micro"),
+        machine_id: match model {
+            Model::BbcModelB => MachineId::from("acorn-bbc-micro"),
+            Model::BbcBPlus => MachineId::from("acorn-bbc-micro-b-plus"),
+            Model::Master128 => MachineId::from("acorn-bbc-master-128"),
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -334,5 +338,26 @@ mod tests {
         assert_eq!(p.firmware.len(), 3);
         assert!(!p.firmware[0].optional);
         assert!(p.firmware[1..].iter().all(|image| image.optional));
+    }
+    #[test]
+    fn distinct_boards_keep_their_existing_profile_ids() {
+        for (model, machine, id) in [
+            (Model::BbcModelB, "acorn-bbc-micro", "acorn-bbc-micro-b"),
+            (
+                Model::BbcBPlus,
+                "acorn-bbc-micro-b-plus",
+                "acorn-bbc-micro-b-plus",
+            ),
+            (
+                Model::Master128,
+                "acorn-bbc-master-128",
+                "acorn-bbc-master-128",
+            ),
+        ] {
+            let p = profile_for(model);
+            assert_eq!(p.machine_id, MachineId::from(machine));
+            assert_eq!(p.profile_id, ProfileId::from(id));
+            assert_eq!(Model::from_variant_id(id), Some(model));
+        }
     }
 }

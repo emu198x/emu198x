@@ -1,6 +1,6 @@
 [package]
 name = "machine-acorn-bbc-micro"
-description = "BBC Micro Model B machine wiring — 6502 + 6845 CRTC + Video ULA + 2x VIA + SN76489"
+description = "Concrete BBC ModelB motherboard"
 version.workspace = true
 publish = false
 edition.workspace = true
@@ -8,18 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.45.0" }
-emu198x-mos-6502 = "0.6.1"
-emu198x-mos-via-6522 = "0.1.0"
-emu198x-motorola-6845 = "0.1.0"
-emu198x-ti-sn76489 = "0.1.0"
-emu198x-western-digital-wd1770 = "0.1.0"
-serde = { workspace = true }
-serde-big-array = { workspace = true }
+common-acorn-bbc-micro = { path = "../common-acorn-bbc-micro", version = "0.45.0" }
 
 [dev-dependencies]
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.45.0" }
 format-acorn-uef = { path = "../format-acorn-uef", version = "0.45.0" }
-postcard = { workspace = true }
 
 [lints]
 workspace = true

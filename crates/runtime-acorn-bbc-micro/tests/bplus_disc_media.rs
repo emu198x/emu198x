@@ -1,7 +1,7 @@
 //! The B+ runtime: its firmware, its disc slots, and a disc's life in them.
 //!
 //! Blank firmware is enough here; the real OS and DFS reading a disc is
-//! `machine-acorn-bbc-micro`'s `bplus_disc` test.
+//! `machine-acorn-bbc-micro-b-plus`'s `bplus_disc` test.
 
 use emu198x_shell::{
     FamilyRuntime, FirmwareImage, FirmwareSet, HostIo, MachineCore, MachineError, MachineTime,

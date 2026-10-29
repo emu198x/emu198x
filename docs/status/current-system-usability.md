@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 41 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 43 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -16,7 +16,9 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | Machine | Ships from | Own crates | Shared crates | Issues | Milestone |
 |---|---|---|---|---|---|
 | `acorn-atom` | `emu198x-acorn-atom` | 3 | 7 | [system:atom](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatom) | [Acorn Atom 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Acorn+Atom+100%25%22) |
-| `acorn-bbc-micro` | `emu198x-acorn-bbc-micro` | 3 | 7 | [system:bbc-micro](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Abbc-micro) | [BBC Micro 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22BBC+Micro+100%25%22) |
+| `acorn-bbc-master-128` | `emu198x-acorn-bbc-micro` | 1 | 10 | [system:bbc-master-128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Abbc-master-128) | [BBC Master 128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22BBC+Master+128+100%25%22) |
+| `acorn-bbc-micro` | `emu198x-acorn-bbc-micro` | 1 | 10 | [system:bbc-micro](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Abbc-micro) | [BBC Micro 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22BBC+Micro+100%25%22) |
+| `acorn-bbc-micro-b-plus` | `emu198x-acorn-bbc-micro` | 1 | 10 | [system:bbc-b-plus](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Abbc-b-plus) | [BBC B+ 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22BBC+B++100%25%22) |
 | `acorn-electron` | `emu198x-acorn-electron` | 4 | 7 | [system:electron](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aelectron) | [Acorn Electron 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Acorn+Electron+100%25%22) |
 | `amstrad-cpc` | `emu198x-amstrad-cpc` | 5 | 8 | [system:cpc](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acpc) | [Amstrad CPC 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amstrad+CPC+100%25%22) |
 | `atari-2600` | `emu198x-atari-2600` | 3 | 6 | [system:atari-2600](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-2600) | [Atari 2600 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+2600+100%25%22) |
