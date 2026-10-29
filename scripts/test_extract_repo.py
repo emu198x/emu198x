@@ -123,6 +123,22 @@ class RewriteManifest(unittest.TestCase):
             rewrite('[package]\nname = "a"\nversion = "0.1.0"\npublish = false\n', moving={"a"})
 
 
+class GeneratedGuidance(unittest.TestCase):
+    def test_extracted_guidance_requires_accuracy_without_banning_bus_shapes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp)
+            extract_repo.skeleton(
+                {"name": "test-extracted-cpu", "summary": "CPU fixture"},
+                target,
+                ["test-cpu"],
+                set(),
+            )
+            guidance = (target / "AGENTS.md").read_text()
+        self.assertNotRegex(guidance, r"(?i)no (?:bus trait|bus callback|method-call)")
+        self.assertIn("cycle-accurate", guidance)
+        self.assertIn("hardware signals and timing", guidance)
+
+
 class RepositoryList(unittest.TestCase):
     """Every listed crate must be able to move today."""
 

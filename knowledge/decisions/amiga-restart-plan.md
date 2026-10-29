@@ -844,4 +844,4 @@ than chasing it through layers of pre-existing behavior.
 - `knowledge/processes/golden-image-capture.md` — how to capture new
   reference frames if needed.
 - `RULES.md` — the hard constraints (master oscillator drives loop,
-  ULA/CPU half-cycle, no catch-up, no Bus trait).
+  ULA/CPU half-cycle, no catch-up, accurate bus signals and timing).

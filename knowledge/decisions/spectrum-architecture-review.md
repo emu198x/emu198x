@@ -5,7 +5,7 @@
 
 ## What this is
 
-A targeted review of the Spectrum implementation against the load-bearing decisions already in place ([ULA-drives model](ula-drives-model.md), [No Bus trait](no-bus-trait.md), [Half-cycle signals](half-cycle-signals.md), [CPU bus interface](cpu-bus-interface.md), [SpectrumDriver](spectrum-driver.md), [Within-family layering](within-family-layering.md), [Runtime internal shape](runtime-internal-shape.md)). The Spectrum is the October-public deliverable per [`october-catalogue.md`](october-catalogue.md), and the 101-entry catalogue has been catching everything it's structurally able to catch. This review names **five seams** that the catalogue *cannot* catch by construction: silently-locked-in wrong behaviour, lost host input, volatile state that doesn't survive snapshot restore, oracle integrity, and standing boot-invariant assertions.
+A targeted review of the Spectrum implementation against the load-bearing decisions already in place ([ULA-drives model](ula-drives-model.md), [Original bus-interface decision (ban retired)](no-bus-trait.md), [Half-cycle signals](half-cycle-signals.md), [CPU bus interface](cpu-bus-interface.md), [SpectrumDriver](spectrum-driver.md), [Within-family layering](within-family-layering.md), [Runtime internal shape](runtime-internal-shape.md)). The Spectrum is the October-public deliverable per [`october-catalogue.md`](october-catalogue.md), and the 101-entry catalogue has been catching everything it's structurally able to catch. This review names **five seams** that the catalogue *cannot* catch by construction: silently-locked-in wrong behaviour, lost host input, volatile state that doesn't survive snapshot restore, oracle integrity, and standing boot-invariant assertions.
 
 The spine stays. The seams need work.
 
@@ -20,7 +20,7 @@ These decisions are load-bearing, validated by Z80 100% Tom Harte, ZEXDOC/ZEXALL
   ULA/Z80 edges per configured CPU divisor. This preserves the divide-by-four
   cadence and models divide-by-five machines without a 25-percent overclock.
   `hc` remains the only time counter.
-- **Pin-level CPU bus interface, no Bus trait.** `Z80::bus_request` in `crates/zilog-z80/src/z80.rs:355` returns `BusOp` from observing `mreq`/`iorq`/`rd`/`wr` edges. The machine layer dispatches via a 6-arm match (`common-sinclair-zx-spectrum-48k-class/src/core.rs:351-372`).
+- **Existing pin-level CPU bus interface.** `Z80::bus_request` in `crates/zilog-z80/src/z80.rs:355` returns `BusOp` from observing `mreq`/`iorq`/`rd`/`wr` edges. The machine layer dispatches via a 6-arm match (`common-sinclair-zx-spectrum-48k-class/src/core.rs:351-372`).
 - **Half-cycle signal granularity.** Z80 `Phase` carries
   `T1Rise`/`T1Fall` for every M-cycle. Contention decisions happen between
   scheduled CPU edges; odd master divisors may place unequal numbers of
@@ -339,7 +339,7 @@ With those harness fixes the probe output is clean: `1982 Sinclair Research Ltd`
 
 **Sinclair Interface 2 keyboard-matrix routing landed 2026-05-20.** Two harness fixes in `crates/runtime-sinclair-zx-spectrum/src/input.rs`: `apply_input_event` now matches `InputEvent::Button { port: 1 | 2, … }` and `InputEvent::Axis { port: 1 | 2, … }`, routing each through new `if2_button_to_key` and `if2_axis_key_pair` helpers that translate to `SpectrumKey` per Grussu's table (port 1 = keys 6/7/8/9/0; port 2 = keys 1/2/3/4/5; *Spectrumpedia Volume 1* p. 140). The routing is uniform across the family — every Spectrum has a keyboard matrix, so IF2 events work on 48K (with a real Interface 2 cartridge) and the +2/+2A/+2B/+3 (with the built-in side ports) by the same code path. Catches Kempston-vs-IF2 cross-talk: IF2 events on port 1/2 must not flip `kempston.attached`, and port-0 events on the +3 must not bleed into the keyboard matrix. Tested by boot-invariant waypoints `if2_port1_fire_closes_keyboard_zero_on_plus3` and `if2_port2_fire_closes_keyboard_five_on_48k` plus six unit tests in `input::tests`. Full decision in [`spectrum-joystick-architecture.md`](spectrum-joystick-architecture.md).
 
-The catalogue runs **101 entries SNAP-PASS in 94 min** at `frame_routing_version = 3`. Seams 1, 2, 3, 4, 5 are second-line-of-defence against regressions the catalogue cannot catch by construction — silently-locked-in wrong behaviour (Seam 4), lost host input (Seam 2), volatile state that doesn't survive snapshot restore (Seam 3), oracle integrity (Seam 4), and standing boot-invariant assertions (Seam 5). The spine — ULA-drives, no-Bus-trait, half-cycle signals, within-family layering — is unchanged.
+The catalogue runs **101 entries SNAP-PASS in 94 min** at `frame_routing_version = 3`. Seams 1, 2, 3, 4, 5 are second-line-of-defence against regressions the catalogue cannot catch by construction — silently-locked-in wrong behaviour (Seam 4), lost host input (Seam 2), volatile state that doesn't survive snapshot restore (Seam 3), oracle integrity (Seam 4), and standing boot-invariant assertions (Seam 5). The spine — ULA-drives, hardware bus behaviour, half-cycle signals, within-family layering — is unchanged.
 
 ## Non-goals
 

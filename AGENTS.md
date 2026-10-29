@@ -6,7 +6,7 @@ Multi-platform retro emulator (Rust workspace). Flagship repo of the local `Emu1
 
 ## Binding constraints
 
-Read **[RULES.md](RULES.md)** before writing any code. It holds the binding constraints — clock model, CPU model, no-Bus-trait rule, session-start anchors, drift triggers. `RULES.md` is the entry point for this project; this file is a pointer.
+Read **[RULES.md](RULES.md)** before writing any code. It holds the binding constraints — clock model, CPU model, hardware signal/timing accuracy, session-start anchors, drift triggers. `RULES.md` is the entry point for this project; this file is a pointer.
 
 ## Hardware reference layering
 

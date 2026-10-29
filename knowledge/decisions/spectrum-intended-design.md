@@ -44,13 +44,13 @@ pins hold, its internal state does not advance, and the ULA carries on.
 
 ## The bus
 
-**Chips expose pins. The machine reads them. There is no bus callback.**
+**The existing Spectrum path exposes pins for the machine to observe.**
 
 The Z80 has public `addr`, `data`, `mreq`, `iorq`, `rd`, `wr`, `m1`, `rfsh`.
-The ULA is handed them each step and inspects them exactly as it would inspect
-wires. A `Bus` trait or a `read(addr)` callback cannot express what this needs
-to: several chips observing the same wires simultaneously, one of them
-deciding whether the CPU advances at all.
+The ULA inspects their held values each step, including when deciding whether
+the CPU advances. These timing and observation semantics must survive an
+interface change. The former blanket ban on traits and callbacks is retired;
+[the current bus-interface decision](cpu-bus-interface.md) governs API choices.
 
 **Pins persist between ticks.** A pin set during one CPU step stays driven
 until the CPU steps again. So when the ULA reads pins that the CPU set on its

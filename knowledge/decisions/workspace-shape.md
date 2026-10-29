@@ -123,9 +123,11 @@ published versions, never `git` + `rev` pins.
   crosses between those families.
 - **Every move:** no machine's test suite or accuracy corpus result changes.
 
-The cores separate cleanly because of [RULES.md](../../RULES.md) rules 5 and
-6: pin fields, no Bus trait. Those rules stay authoritative here, and each
-extracted repository links them as binding.
+Extracted cores must preserve the hardware signals and timing required by
+[RULES.md](../../RULES.md). The former interface-shape ban was retired on
+2026-10-28: traits and callbacks are allowed when they preserve that behaviour.
+Generated repository guidance links the [current bus-interface decision](cpu-bus-interface.md);
+existing repositories adopt it when next touched, without a sweep.
 
 ## What this is
 

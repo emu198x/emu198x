@@ -7,7 +7,7 @@ accuracy first, breadth second, polish third.
 ## Before you start
 
 Read [`RULES.md`](RULES.md). It holds the binding constraints — clock model,
-CPU bus interface, no-Bus-trait rule, ULA pattern — that any new chip or
+CPU timing and bus behaviour, ULA pattern — that any new chip or
 machine work has to honour.
 
 Skim [`knowledge/decisions/`](knowledge/decisions/). The 44 records explain

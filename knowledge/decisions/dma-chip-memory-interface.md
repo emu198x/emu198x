@@ -14,13 +14,14 @@ pub trait AnticMemory {
 
 The machine implements it on a small view struct that borrows its live fields, and passes it into the chip's per-line or per-cycle entry point. Because the view borrows fields rather than `&self`, the chip can be borrowed mutably alongside it.
 
-## This is not the interface RULES.md rule 6 forbids
+## Hardware behaviour, independent of interface shape
 
-Rule 6 says: *no Bus trait, no bus callback, no method-call-style memory access, ever, for any CPU.* That reads as a fleet-wide ban on any memory trait, and this decision exists because that reading is wrong.
-
-The rule is about how a **CPU** presents itself. Its rationale — set out in [cpu-bus-interface.md](cpu-bus-interface.md) — is that other chips must be able to watch the CPU's address, data and control pins *continuously*, on the same master clock, to do their jobs: ULA contention, VIC-II bad lines, Agnus arbitration. A callback hides that state between calls, so the pins have to be public fields.
-
-A DMA chip is the other side of that relationship. It is not the thing being watched; it is driving the address bus for its own fetch, and nothing needs to observe the read half-way through. `mos-vic-ii` has read its memory through `VicMemory` since it was written, for exactly this reason.
+The former CPU interface-shape ban was retired on 2026-10-28; see
+[cpu-bus-interface.md](cpu-bus-interface.md). It no longer forbids traits or
+callbacks for either CPUs or DMA chips. This decision's narrow memory view
+remains useful because it reads the live mapping at the fetch point and
+avoids a duplicated memory image. Its correctness depends on those semantics,
+not on being an exception to a ban.
 
 ## Why not a snapshot
 

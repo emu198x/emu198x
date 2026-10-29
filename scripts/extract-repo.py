@@ -350,17 +350,15 @@ and is published so machines and siblings take it from crates.io.
 ## Binding rules
 
 Emu198x's [RULES.md](https://github.com/emu198x/emu198x/blob/main/RULES.md)
-rules 5 and 6 bind here, as they did in-tree:
+requires cycle-accurate CPUs at their evidence-backed native granularity,
+and accurate hardware signals and timing. Preserve bus ownership, contention,
+DMA, interrupt ordering, held signal values and access side effects.
 
-- **Rule 5:** a CPU ticks at its evidence-backed native granularity, always
-  cycle-accurate, never instruction-accurate.
-- **Rule 6:** no Bus trait, no bus callback, no method-call memory access.
-  Bus state is public pin fields, and the machine inspects them between ticks.
-  See [cpu-bus-interface.md](https://github.com/emu198x/emu198x/blob/main/knowledge/decisions/cpu-bus-interface.md).
-
-Those rules are what let this crate live apart from the machines that use it.
-A change that would need a machine's help to stay correct belongs back in the
-argument, not in this repository.
+Bus traits, callbacks, read/write methods and public pin fields are permitted
+when they preserve that behaviour. The blanket interface-shape ban was retired
+on 2026-10-28; see the
+[current bus-interface decision](https://github.com/emu198x/emu198x/blob/main/knowledge/decisions/cpu-bus-interface.md).
+An interface shape alone neither proves accuracy nor justifies a rewrite.
 
 ## Working here
 
