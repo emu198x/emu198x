@@ -34,3 +34,16 @@ snapshot. Both original live execution and restored execution must match.
 - `dragon64.audio`: SHA-256 `454598ef03e9ef2cd102ff9003262092e9fd5710e407ce8c2db03f2d0a1e79ba`
 - `dragon64.frames`: SHA-256 `75e832f59aaff779c1e46e8ed5c8682538df71fec8a2d293bf07221a9d49d2a9`
 - `dragon64.state`: SHA-256 `85d8d6b0204f49699fd96f5c37fa8fc370e337062f84fe1ae9c71be8a4a972fe`
+
+`control.rom` freezes the original synthetic input, including its obsolete
+reset vector. The recipe loads its own guest through the existing program
+loader before executing, so it does not fetch that vector. Current board
+boot tests use the corrected `$8000` vector in the shared synthetic firmware.
+
+- `control.rom`: SHA-256 `6ed1b1d1007c23d4d3d7e45d1669d9f9945c15c024138a8cc0242598342af293`
+
+The legacy captures retain mounted VDK state even in the CoCo envelopes:
+the old loader accepted that undeclared slot. This is save-compatibility
+coverage, not a claim that a CoCo has DragonDOS hardware. CoCo profiles still
+offer only their existing tape/cartridge surfaces; proper CoCo disk-controller
+hardware is separate work. No new disk capability is introduced by the split.

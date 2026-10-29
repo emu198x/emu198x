@@ -8,12 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+common-dragon = { path = "../common-dragon", version = "0.45.0" }
 emu198x-shell = { workspace = true }
 format198x-dragon-data-dragon-bin = "0.1.0"
 format198x-dragon-data-dragon-cas = "0.1.0"
 format198x-dragon-data-dragon-disk = "0.1.1"
 format198x-dragon-data-dragon-pak = "0.1.0"
 machine-dragon-32 = { path = "../machine-dragon-32", version = "0.45.0" }
+machine-dragon-64 = { path = "../machine-dragon-64", version = "0.45.0" }
+machine-tandy-coco-1 = { path = "../machine-tandy-coco-1", version = "0.45.0" }
+machine-tandy-coco-2 = { path = "../machine-tandy-coco-2", version = "0.45.0" }
 emu198x-motorola-vdg-6847 = "0.1.0"
 postcard = { workspace = true }
 serde = { workspace = true }

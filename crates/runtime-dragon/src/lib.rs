@@ -5,7 +5,9 @@
 //! `emu198x-shell` `MachineCore` trait. It runs bounded MC6809 cycles and emits
 //! the current MC6847 framebuffer as RGBA8888.
 
+mod machine;
 mod media_serde;
+pub use machine::DragonMachine;
 mod profiles;
 mod runtime;
 

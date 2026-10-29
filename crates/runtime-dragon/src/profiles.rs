@@ -37,11 +37,11 @@ impl Model {
 
     /// The board's television standard.
     #[must_use]
-    pub const fn video_standard(self) -> machine_dragon_32::VideoStandard {
+    pub const fn video_standard(self) -> common_dragon::VideoStandard {
         if self.is_coco() {
-            machine_dragon_32::VideoStandard::Ntsc
+            common_dragon::VideoStandard::Ntsc
         } else {
-            machine_dragon_32::VideoStandard::Pal
+            common_dragon::VideoStandard::Pal
         }
     }
 
@@ -162,7 +162,11 @@ pub const COCO_EXTENDED_BASIC_ROM_ID: &str = "coco-extended-basic-rom";
 /// binaries are Dragon formats, so those slots are not offered.
 fn coco_profile(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("tandy-coco"),
+        machine_id: match model {
+            Model::CoCo1Ntsc => MachineId::from("tandy-coco"),
+            Model::CoCo2Ntsc => MachineId::from("tandy-coco-2"),
+            _ => unreachable!("CoCo profile only"),
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Dragon,
@@ -290,7 +294,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ]),
         },
         Model::Dragon64Pal => MachineProfile {
-            machine_id: MachineId::from("dragon"),
+            machine_id: MachineId::from("dragon-64"),
             profile_id: ProfileId::from(model.profile_id()),
             display_name: model.display_name().into(),
             family: Family::Dragon,
@@ -409,7 +413,14 @@ mod tests {
     fn coco_profiles_are_ntsc_with_color_basic_and_optional_extended_basic() {
         for model in [Model::CoCo1Ntsc, Model::CoCo2Ntsc] {
             let profile = profile_for(model);
-            assert_eq!(profile.machine_id.as_str(), "tandy-coco");
+            assert_eq!(
+                profile.machine_id.as_str(),
+                if model == Model::CoCo1Ntsc {
+                    "tandy-coco"
+                } else {
+                    "tandy-coco-2"
+                }
+            );
             assert_eq!(profile.family, Family::Dragon);
             assert_eq!(profile.region, Region::Ntsc);
             assert_eq!(profile.firmware.len(), 2);
@@ -418,7 +429,7 @@ mod tests {
             assert_eq!(profile.firmware[1].id.as_ref(), COCO_EXTENDED_BASIC_ROM_ID);
             assert!(profile.firmware[1].optional);
             assert_eq!(profile.media_slots.len(), 2);
-            assert_eq!(model.frame_ticks(), machine_dragon_32::NTSC_FRAME_CYCLES);
+            assert_eq!(model.frame_ticks(), common_dragon::NTSC_FRAME_CYCLES);
             assert_eq!(model.native_frame_ticks(), 894_886 / 60);
             assert_eq!(Model::from_variant_id(model.variant_id()), Some(model));
             assert_eq!(Model::from_variant_id(model.profile_id()), Some(model));
