@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-machine-jupiter-ace = { path = "../machine-jupiter-ace", version = "0.45.0" }
+machine-jupiter-ace = { path = "../machine-jupiter-ace", version = "0.46.0" }
 format198x-jupiter-ace-ace = "0.1.0"
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }

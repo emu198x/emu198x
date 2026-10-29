@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-bbc-micro = { path = "../common-acorn-bbc-micro", version = "0.45.0" }
+common-acorn-bbc-micro = { path = "../common-acorn-bbc-micro", version = "0.46.0" }
 
 [dev-dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.45.0" }
-format-acorn-uef = { path = "../format-acorn-uef", version = "0.45.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.46.0" }
+format-acorn-uef = { path = "../format-acorn-uef", version = "0.46.0" }
 
 [lints]
 workspace = true

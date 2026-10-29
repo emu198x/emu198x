@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-nintendo-nes-cartridge = { path = "../nintendo-nes-cartridge", version = "0.45.0" }
+nintendo-nes-cartridge = { path = "../nintendo-nes-cartridge", version = "0.46.0" }
 emu198x-mos-6502 = "0.6.1"
 emu198x-ricoh-apu-2a03 = { path = "../emu198x-ricoh-apu-2a03", version = "0.6.0" }
 emu198x-ricoh-ppu-2c02 = { path = "../emu198x-ricoh-ppu-2c02", version = "0.1.0" }
@@ -16,7 +16,7 @@ serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
-format-nintendo-famicom-fds = { path = "../format-nintendo-famicom-fds", version = "0.45.0" }
+format-nintendo-famicom-fds = { path = "../format-nintendo-famicom-fds", version = "0.46.0" }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 [lints]

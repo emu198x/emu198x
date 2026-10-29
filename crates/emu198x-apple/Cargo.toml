@@ -22,7 +22,7 @@ sega-master-system = ["emu198x-fleet-web/sega-master-system"]
 sinclair-zx-spectrum = ["emu198x-fleet-web/sinclair-zx-spectrum"]
 
 [dependencies]
-emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.45.0", default-features = false }
+emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.46.0", default-features = false }
 # The command catalogue every host builds its menus from (emu198x_commands).
 emu198x-shell = { workspace = true }
 

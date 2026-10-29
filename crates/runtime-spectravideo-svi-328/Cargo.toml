@@ -10,9 +10,9 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 format198x-spectravideo-svi-cas = "0.1.0"
-common-spectravideo-svi-328 = { path = "../common-spectravideo-svi-328", version = "0.45.0" }
-machine-spectravideo-svi-328-ntsc = { path = "../machine-spectravideo-svi-328-ntsc", version = "0.45.0" }
-machine-spectravideo-svi-328-pal = { path = "../machine-spectravideo-svi-328-pal", version = "0.45.0" }
+common-spectravideo-svi-328 = { path = "../common-spectravideo-svi-328", version = "0.46.0" }
+machine-spectravideo-svi-328-ntsc = { path = "../machine-spectravideo-svi-328-ntsc", version = "0.46.0" }
+machine-spectravideo-svi-328-pal = { path = "../machine-spectravideo-svi-328-pal", version = "0.46.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

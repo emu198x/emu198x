@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-dragon = { path = "../common-dragon", version = "0.45.0" }
+common-dragon = { path = "../common-dragon", version = "0.46.0" }
 
 [dev-dependencies]
 emu198x-motorola-vdg-6847 = "0.1.0"

@@ -7,7 +7,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 [dependencies]
-common-spectravideo-svi-328 = { path = "../common-spectravideo-svi-328", version = "0.45.0" }
+common-spectravideo-svi-328 = { path = "../common-spectravideo-svi-328", version = "0.46.0" }
 [dev-dependencies]
 emu198x-zilog-z80 = "0.8.0"
 [lints]

@@ -10,16 +10,16 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-ti-tms9918 = "0.1.0"
-common-msx = { path = "../common-msx", version = "0.45.0" }
-machine-sony-hb-10p = { path = "../machine-sony-hb-10p", version = "0.45.0" }
-machine-toshiba-hx-10 = { path = "../machine-toshiba-hx-10", version = "0.45.0" }
-machine-mitsubishi-ml-f80 = { path = "../machine-mitsubishi-ml-f80", version = "0.45.0" }
-machine-yamaha-cx5m = { path = "../machine-yamaha-cx5m", version = "0.45.0" }
-machine-mitsubishi-ml-fx1 = { path = "../machine-mitsubishi-ml-fx1", version = "0.45.0" }
-machine-sony-hb-10 = { path = "../machine-sony-hb-10", version = "0.45.0" }
-machine-philips-vg-8235-00 = { path = "../machine-philips-vg-8235-00", version = "0.45.0" }
-machine-sony-hb-f1 = { path = "../machine-sony-hb-f1", version = "0.45.0" }
-machine-panasonic-fs-a1 = { path = "../machine-panasonic-fs-a1", version = "0.45.0" }
+common-msx = { path = "../common-msx", version = "0.46.0" }
+machine-sony-hb-10p = { path = "../machine-sony-hb-10p", version = "0.46.0" }
+machine-toshiba-hx-10 = { path = "../machine-toshiba-hx-10", version = "0.46.0" }
+machine-mitsubishi-ml-f80 = { path = "../machine-mitsubishi-ml-f80", version = "0.46.0" }
+machine-yamaha-cx5m = { path = "../machine-yamaha-cx5m", version = "0.46.0" }
+machine-mitsubishi-ml-fx1 = { path = "../machine-mitsubishi-ml-fx1", version = "0.46.0" }
+machine-sony-hb-10 = { path = "../machine-sony-hb-10", version = "0.46.0" }
+machine-philips-vg-8235-00 = { path = "../machine-philips-vg-8235-00", version = "0.46.0" }
+machine-sony-hb-f1 = { path = "../machine-sony-hb-f1", version = "0.46.0" }
+machine-panasonic-fs-a1 = { path = "../machine-panasonic-fs-a1", version = "0.46.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

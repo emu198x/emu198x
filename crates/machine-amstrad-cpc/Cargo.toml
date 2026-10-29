@@ -19,10 +19,10 @@ serde = { workspace = true }
 emu198x-zilog-z80 = "0.8.0"
 
 [dev-dependencies]
-format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.45.0" }
+format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.46.0" }
 # SHAKER ships as a DSK; the harness reads its AMSDOS catalogue directly
 # rather than waiting on an FDC (#951).
-format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.45.0" }
+format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.46.0" }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 [lints]
