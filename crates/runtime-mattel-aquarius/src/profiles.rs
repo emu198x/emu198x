@@ -5,15 +5,18 @@ use emu198x_shell::{
     MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Model {
     /// Mattel Aquarius (NTSC).
+    #[default]
     Aquarius,
+    /// PAL Aquarius regional board.
+    AquariusPal,
 }
 
 impl Model {
-    pub const ALL: [Self; 1] = [Self::Aquarius];
-    pub const VARIANT_IDS: [&'static str; 1] = ["mattel-aquarius"];
+    pub const ALL: [Self; 2] = [Self::Aquarius, Self::AquariusPal];
+    pub const VARIANT_IDS: [&'static str; 2] = ["mattel-aquarius", "mattel-aquarius-pal"];
 
     #[must_use]
     pub const fn variant_id(self) -> &'static str {
@@ -36,8 +39,11 @@ impl Model {
     }
 
     #[must_use]
-    pub const fn machine_region(self) -> machine_mattel_aquarius::AquariusRegion {
-        machine_mattel_aquarius::AquariusRegion::Ntsc
+    pub const fn machine_region(self) -> common_mattel_aquarius::AquariusRegion {
+        match self {
+            Self::Aquarius => common_mattel_aquarius::AquariusRegion::Ntsc,
+            Self::AquariusPal => common_mattel_aquarius::AquariusRegion::Pal,
+        }
     }
 
     #[must_use]
@@ -49,6 +55,7 @@ impl Model {
     pub const fn model_id(self) -> &'static str {
         match self {
             Self::Aquarius => "mattel-aquarius",
+            Self::AquariusPal => "mattel-aquarius-pal",
         }
     }
 
@@ -59,15 +66,19 @@ impl Model {
 
     #[must_use]
     pub const fn display_name(self) -> &'static str {
-        "Mattel Aquarius"
+        match self {
+            Self::Aquarius => "Mattel Aquarius",
+            Self::AquariusPal => "Aquarius (PAL)",
+        }
     }
 
     #[must_use]
-    /// The runtime builds the Mattel US machine, which is NTSC (see
-    /// `rebuild_machine`); the profile said PAL until 2026-09-07 while
-    /// every host budget assumed PAL too, so one budgeted frame ran two.
+    /// Television standard of the selected fixed board.
     pub const fn region(self) -> Region {
-        Region::Ntsc
+        match self {
+            Self::Aquarius => Region::Ntsc,
+            Self::AquariusPal => Region::Pal,
+        }
     }
 }
 
@@ -83,7 +94,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("mattel-aquarius"),
+        machine_id: MachineId::from(model.model_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,

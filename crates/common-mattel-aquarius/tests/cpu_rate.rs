@@ -19,8 +19,8 @@
 //! `NOP` is right the clock division is right, and if it is wrong nothing
 //! else can be.
 
+use common_mattel_aquarius::{AquariusRegion, AquariusState};
 use emu198x_zilog_z80::Z80Stepper;
-use machine_mattel_aquarius::{Aquarius, AquariusRegion};
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -28,7 +28,7 @@ const NOP_TSTATES: u64 = 4;
 #[test]
 fn a_nop_costs_four_tstates() {
     // 8 KB of `NOP` in place of the BIOS, no expansion RAM, no cartridge.
-    let mut aquarius = Aquarius::new(vec![0x00u8; 8 * 1024], 0, AquariusRegion::Ntsc);
+    let mut aquarius = AquariusState::new(vec![0x00u8; 8 * 1024], 0, AquariusRegion::Ntsc);
 
     // Clear the reset sequence so the measurement covers steady-state `NOP`s
     // rather than whatever the first instruction happens to be.

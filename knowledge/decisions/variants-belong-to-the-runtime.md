@@ -195,8 +195,10 @@ preserves existing installs without claiming that a generic file identifies a
 firmware version. Per-file environment choices and explicit pins take precedence.
 Switching builds a fresh target and ejects tape; reset and failed switches retain it.
 
-Aquarius has one existing NTSC catalogue entry with required BIOS and character
-ROMs. RAM expansion remains an independent launch setting, capped by the runtime
+Aquarius retains `mattel-aquarius` as its NTSC catalogue entry and adds
+`mattel-aquarius-pal` for the fixed PAL board (2026-10-30 continuation of #2144).
+Both require BIOS and character ROMs and select their own machine owners over
+`common-mattel-aquarius`, preserving the original version-4 payload layout. RAM expansion remains an independent launch setting, capped by the runtime
 at the existing 16 KiB limit. Both normal and MCP launch apply it; parsed cartridge
 loading is shared with the window and script paths. Reports describe live state.
 Neither migration changes emulated hardware timing or ROM validation policy.

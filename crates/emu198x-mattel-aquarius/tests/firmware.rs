@@ -137,7 +137,7 @@ fn explicit_partial_sets_and_invalid_images_never_fall_back_to_blank() {
 }
 
 #[test]
-fn mcp_loads_both_roms_without_advertising_a_redundant_switch() {
+fn mcp_loads_both_roms_without_advertising_live_switching() {
     let fixture = Fixture::new();
     let mut child = fixture
         .conventional("--mcp")
@@ -284,5 +284,37 @@ fn cartridge_and_capped_expansion_reach_scripts_and_mcp_and_survive_reset() {
         fixture
             .conventional("--mcp")
             .args(["--cart", "missing.rom"]),
+    );
+}
+
+#[test]
+fn pal_launch_selects_pal_hardware_in_scripts_and_mcp() {
+    let fixture = Fixture::new();
+    let out = fixture
+        .conventional("--headless")
+        .args(["--model", "mattel-aquarius-pal", "--frames", "1"])
+        .output()
+        .expect("PAL launch");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let report: Value = serde_json::from_slice(&out.stdout).expect("report");
+    assert_eq!(
+        report["time"],
+        runtime_mattel_aquarius::Model::AquariusPal.frame_ticks()
+    );
+    assert_eq!(report["frames_run"], 1);
+    let replies = mcp(
+        &fixture,
+        &["--model", "mattel-aquarius-pal"],
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"path":"session.profile.profile_id"}}}),
+        ],
+    );
+    assert_eq!(
+        tool_body(&replies[0])["result"]["value"],
+        "mattel-aquarius-pal"
     );
 }

@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-mattel-aquarius \
+//! cargo test --release -p common-mattel-aquarius \
 //!     --test bios_boot -- --ignored --nocapture
 //! ```
 //!
@@ -19,7 +19,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_mattel_aquarius::{Aquarius, AquariusRegion, FB_HEIGHT, FB_WIDTH};
+use common_mattel_aquarius::{AquariusRegion, AquariusState, FB_HEIGHT, FB_WIDTH};
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_AQUARIUS_BIOS") {
@@ -38,7 +38,7 @@ fn bios_path() -> Option<PathBuf> {
 fn bios_boots_to_initial_screen() {
     let Some(path) = bios_path() else {
         panic!(
-            "Aquarius BIOS not found — set EMU198X_AQUARIUS_BIOS or place aquarius.rom \
+            "AquariusState BIOS not found — set EMU198X_AQUARIUS_BIOS or place aquarius.rom \
              at ~/.emu198x/roms/mattel-aquarius/"
         );
     };
@@ -51,7 +51,7 @@ fn bios_boots_to_initial_screen() {
     // keep the best frame, so the assertion tests "the boot renders a
     // title screen" rather than the phase of that blink cycle. (A fixed
     // 200th-frame sample passed before only by luck of the old timing.)
-    let mut sys = Aquarius::new(bios, 0, AquariusRegion::Ntsc);
+    let mut sys = AquariusState::new(bios, 0, AquariusRegion::Ntsc);
     let (mut best_colours, mut best_non_zero) = (0usize, 0usize);
     for _ in 0..400 {
         sys.run_frame();

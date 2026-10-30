@@ -1,7 +1,7 @@
 //! Family-owned query surface for the Aquarius runtime.
 
+use crate::machine::Aquarius;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_mattel_aquarius::Aquarius;
 use serde_json::json;
 
 use crate::runtime::AquariusRuntime;

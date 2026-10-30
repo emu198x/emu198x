@@ -15,7 +15,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-mattel-aquarius \
+//! cargo test --release -p common-mattel-aquarius \
 //!     --test boot_beep -- --ignored --nocapture
 //! ```
 
@@ -23,7 +23,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_mattel_aquarius::{Aquarius, AquariusRegion};
+use common_mattel_aquarius::{AquariusRegion, AquariusState};
 
 /// First match wins: the env var, then the shared local ROM directory.
 fn rom_path(var: &str, name: &str) -> Option<PathBuf> {
@@ -45,11 +45,11 @@ fn rom_path(var: &str, name: &str) -> Option<PathBuf> {
 fn the_bios_boot_beep_is_audible() {
     let Some(path) = rom_path("EMU198X_AQUARIUS_BIOS", "aquarius.rom") else {
         panic!(
-            "Aquarius BIOS not found — set EMU198X_AQUARIUS_BIOS or place aquarius.rom \
+            "AquariusState BIOS not found — set EMU198X_AQUARIUS_BIOS or place aquarius.rom \
              at ~/.emu198x/roms/mattel-aquarius/"
         );
     };
-    let mut sys = Aquarius::new(fs::read(&path).expect("read BIOS"), 0, AquariusRegion::Ntsc);
+    let mut sys = AquariusState::new(fs::read(&path).expect("read BIOS"), 0, AquariusRegion::Ntsc);
     if let Some(chars) = rom_path("EMU198X_AQUARIUS_CHAR", "aquarius-char.rom") {
         sys.set_char_rom(fs::read(chars).expect("read char ROM"));
     }
