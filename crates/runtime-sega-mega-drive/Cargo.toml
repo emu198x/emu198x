@@ -9,7 +9,10 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-machine-sega-mega-drive = { path = "../machine-sega-mega-drive", version = "0.45.0" }
+common-sega-mega-drive = { path = "../common-sega-mega-drive", version = "0.45.0" }
+machine-sega-mega-drive-japan = {path="../machine-sega-mega-drive-japan",version="0.45.0"}
+machine-sega-genesis = {path="../machine-sega-genesis",version="0.45.0"}
+machine-sega-mega-drive-europe = {path="../machine-sega-mega-drive-europe",version="0.45.0"}
 motorola-68000 = { path = "../motorola-68000", version = "0.45.0" }
 postcard = { workspace = true }
 serde = { workspace = true }

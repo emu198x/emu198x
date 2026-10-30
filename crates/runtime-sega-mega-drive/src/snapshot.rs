@@ -5,8 +5,9 @@
 //! Master System's shape: a borrowing envelope for encode (no clone), an
 //! owning envelope for decode.
 
+use crate::machine::MegaDrive;
+use common_sega_mega_drive::MegaDriveState;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_sega_mega_drive::MegaDrive;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::MegaDriveRuntime;
@@ -31,7 +32,7 @@ struct MegaDriveSnapshotV1 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<MegaDrive>,
+    machine: Option<MegaDriveState>,
 }
 
 pub(crate) fn encode(runtime: &MegaDriveRuntime) -> Result<Vec<u8>, MachineError> {
@@ -71,11 +72,15 @@ pub(crate) fn decode(runtime: &mut MegaDriveRuntime, bytes: &[u8]) -> Result<(),
             ),
         });
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
+    let mut machine = snapshot
+        .machine
+        .map(|state| MegaDrive::from_state(state, runtime.model()))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     if let Some(machine) = &mut machine {
         machine.finish_restore();
     }
+    runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())
 }

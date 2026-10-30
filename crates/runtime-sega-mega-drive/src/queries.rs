@@ -1,7 +1,7 @@
 //! Query surface for the Mega Drive.
 
+use crate::MegaDrive;
 use emu198x_shell::{MachineCore, QueryError, QueryResult, SessionQueryProvider};
-use machine_sega_mega_drive::MegaDrive;
 use serde_json::json;
 
 use crate::runtime::MegaDriveRuntime;
@@ -48,24 +48,24 @@ impl SessionQueryProvider<MegaDriveRuntime> for MegaDriveSessionQueryProvider {
             "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
             "machine.region" => json!(format!("{:?}", machine.profile().region)),
             "machine.variant" => json!(machine.model().variant_id()),
-            "machine.frame_count" => json!(machine.machine().map_or(0, |m| m.vdp.frames())),
+            "machine.frame_count" => json!(machine.machine().map_or(0, |m| m.vdp().frames())),
             "machine.mclk" => json!(loaded(machine, path)?.mclk()),
             // The 68000's PC is two words ahead of the instruction it is
             // running (the prefetch); this is the instruction itself.
-            "cpu.pc" => json!(loaded(machine, path)?.cpu.instr_start_pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().instr_start_pc),
 
             // VDP — grouped snapshot + leaves.
             "vdp" => {
                 let m = loaded(machine, path)?;
                 json!({
-                    "vcounter": m.vdp.vcounter(),
-                    "hslot": m.vdp.hslot(),
+                    "vcounter": m.vdp().vcounter(),
+                    "hslot": m.vdp().hslot(),
                     "frame_width": m.frame_width(),
                     "frame_height": m.frame_height(),
                 })
             }
-            "vdp.vcounter" => json!(loaded(machine, path)?.vdp.vcounter()),
-            "vdp.hslot" => json!(loaded(machine, path)?.vdp.hslot()),
+            "vdp.vcounter" => json!(loaded(machine, path)?.vdp().vcounter()),
+            "vdp.hslot" => json!(loaded(machine, path)?.vdp().hslot()),
             "vdp.frame_width" => json!(loaded(machine, path)?.frame_width()),
             "vdp.frame_height" => json!(loaded(machine, path)?.frame_height()),
 
@@ -73,12 +73,12 @@ impl SessionQueryProvider<MegaDriveRuntime> for MegaDriveSessionQueryProvider {
             "z80" => {
                 let m = loaded(machine, path)?;
                 json!({
-                    "pc": m.z80.regs.pc,
+                    "pc": m.z80().regs.pc,
                     "in_reset": m.z80_in_reset(),
                     "bus_acknowledged": m.z80_bus_acknowledged(),
                 })
             }
-            "z80.pc" => json!(loaded(machine, path)?.z80.regs.pc),
+            "z80.pc" => json!(loaded(machine, path)?.z80().regs.pc),
             "z80.in_reset" => json!(loaded(machine, path)?.z80_in_reset()),
             "z80.bus_acknowledged" => json!(loaded(machine, path)?.z80_bus_acknowledged()),
 

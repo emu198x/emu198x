@@ -2,7 +2,7 @@
 //!
 //! A 68000 at the master clock divided by 7, a Z80 at the master clock
 //! divided by 15, the 315-5313 VDP, a YM2612 and the SN76489 PSG inside the
-//! VDP, wired the way the console wires them. One call to [`MegaDrive::tick`]
+//! VDP, wired the way the console wires them. One call to [`MegaDriveState::tick`]
 //! is one master clock (53.693175 MHz NTSC, 53.203424 MHz PAL), and every
 //! chip is stepped from it.
 //!
@@ -46,7 +46,7 @@
 //!
 //! # Sound
 //!
-//! [`MegaDrive::take_audio`] mixes the two sound chips into 48 kHz stereo.
+//! [`MegaDriveState::take_audio`] mixes the two sound chips into 48 kHz stereo.
 //! The YM2612 makes one sample per 144 of its clocks, which is the master
 //! clock over 1008: about 53.27 kHz on NTSC. A box filter brings that to
 //! 48 kHz, in the way the PSG's own resampler does. The PSG is mono and goes
@@ -54,7 +54,7 @@
 //!
 //! # Master System mode
 //!
-//! [`MegaDrive::new_power_base`] puts a Master System cartridge in through
+//! [`MegaDriveState::new_power_base`] puts a Master System cartridge in through
 //! a Power Base Converter: the 68000 and YM2612 stay idle, and the Z80 runs
 //! the cartridge with the VDP in Mode 4. See [`power_base`].
 //!
@@ -73,12 +73,13 @@
 pub mod io;
 pub mod power_base;
 
-use emu198x_sega_315_5313::Vdp;
+pub use emu198x_sega_315_5313::Vdp;
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_yamaha_ym2612::{Variant, Ym2612};
+use emu198x_zilog_z80::BusOp;
+pub use emu198x_zilog_z80::Z80;
 use emu198x_zilog_z80::z80::{IntAckPhase, IoPhase, M1Phase, MemPhase, NmiAckPhase, Phase};
-use emu198x_zilog_z80::{BusOp, Z80};
-use motorola_68000::Cpu68000;
+pub use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
 use serde::{Deserialize, Serialize};
@@ -96,9 +97,9 @@ pub const MCLKS_PER_LINE: u64 = 3420;
 pub const NTSC_LINES: u64 = 262;
 /// Lines per PAL frame.
 pub const PAL_LINES: u64 = 313;
-/// Pixels from one row of [`MegaDrive::framebuffer`] to the next.
+/// Pixels from one row of [`MegaDriveState::framebuffer`] to the next.
 pub const FRAME_STRIDE: usize = emu198x_sega_315_5313::render::LINE_WIDTH;
-/// The rate [`MegaDrive::take_audio`] delivers.
+/// The rate [`MegaDriveState::take_audio`] delivers.
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// Master clocks per YM2612 sample: 7 per YM clock, 144 YM clocks a sample.
 const MCLKS_PER_YM_SAMPLE: u64 = 7 * 144;
@@ -147,7 +148,7 @@ impl Region {
 
 /// A Mega Drive with a cartridge in.
 #[derive(Serialize, Deserialize)]
-pub struct MegaDrive {
+pub struct MegaDriveState {
     pub cpu: Cpu68000,
     pub z80: Z80,
     pub vdp: Vdp,
@@ -190,7 +191,7 @@ pub struct MegaDrive {
     power_base: Option<PowerBase>,
 }
 
-impl MegaDrive {
+impl MegaDriveState {
     /// A console of `region`'s with `rom` in the slot, powered on. The ROM
     /// is the cartridge's bytes in the order the 68000 reads them.
     #[must_use]
@@ -875,3 +876,6 @@ impl MegaDrive {
 mod power_base_tests;
 #[cfg(test)]
 mod tests;
+
+mod board;
+pub use board::{MegaDriveBoard, MegaDriveCore};

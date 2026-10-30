@@ -1,12 +1,12 @@
 //! Sega Mega Drive / Genesis profile catalogue.
 
 use crate::MegaDriveRuntime;
+use common_sega_mega_drive::{
+    MCLKS_PER_LINE, NTSC_LINES, NTSC_MASTER_HZ, PAL_LINES, PAL_MASTER_HZ,
+};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
     ProfileId, Region, WritebackPolicy, known_capability,
-};
-use machine_sega_mega_drive::{
-    MCLKS_PER_LINE, NTSC_LINES, NTSC_MASTER_HZ, PAL_LINES, PAL_MASTER_HZ,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -81,11 +81,11 @@ impl Model {
 
     /// The region the console's version register reports.
     #[must_use]
-    pub const fn machine_region(self) -> machine_sega_mega_drive::Region {
+    pub const fn machine_region(self) -> common_sega_mega_drive::Region {
         match self {
-            Self::MegaDriveJapan => machine_sega_mega_drive::Region::Japan,
-            Self::Genesis => machine_sega_mega_drive::Region::Americas,
-            Self::MegaDriveEurope => machine_sega_mega_drive::Region::Europe,
+            Self::MegaDriveJapan => common_sega_mega_drive::Region::Japan,
+            Self::Genesis => common_sega_mega_drive::Region::Americas,
+            Self::MegaDriveEurope => common_sega_mega_drive::Region::Europe,
         }
     }
 
@@ -146,7 +146,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("sega-mega-drive"),
+        machine_id: MachineId::from(model.model_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -221,9 +221,9 @@ mod tests {
     /// One crate, one machine, its id a literal a scan of the workspace can
     /// see (#998).
     #[test]
-    fn every_profile_declares_the_same_single_machine() {
-        for profile in profiles() {
-            assert_eq!(profile.machine_id.as_str(), "sega-mega-drive");
+    fn each_profile_declares_its_physical_machine() {
+        for (model, profile) in Model::ALL.into_iter().zip(profiles()) {
+            assert_eq!(profile.machine_id.as_str(), model.model_id());
         }
     }
 }

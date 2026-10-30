@@ -1,0 +1,5 @@
+[
+  { "action": "run_frames", "frames": 3 },
+  { "action": "query", "path": "session.profile.machine_id" },
+  { "action": "memory_read", "addr": 16711696, "len": 2 }
+]

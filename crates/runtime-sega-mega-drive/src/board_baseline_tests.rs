@@ -75,10 +75,10 @@ pub(super) fn specimen(model: Model, pbc: bool) -> MegaDriveRuntime {
         frame(&mut r);
     }
     let m = r.machine_mut().expect("machine");
-    m.ports[0].device = crate::Device::SixButton;
-    m.ports[0].write_control(0x40);
+    m.ports_mut()[0].device = crate::Device::SixButton;
+    m.ports_mut()[0].write_control(0x40);
     for value in [0x40, 0, 0x40, 0] {
-        m.ports[0].write_data(value);
+        m.ports_mut()[0].write_data(value);
     }
     m.set_buttons(
         0,

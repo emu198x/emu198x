@@ -86,13 +86,13 @@ fn cart(program: &Asm, vint: Option<&Asm>, data: &[u16]) -> Vec<u8> {
     rom
 }
 
-fn frames(md: &mut MegaDrive, n: usize) {
+fn frames(md: &mut MegaDriveState, n: usize) {
     for _ in 0..n {
         md.run_frame();
     }
 }
 
-fn ram_word(md: &MegaDrive, at: u32) -> u16 {
+fn ram_word(md: &MegaDriveState, at: u32) -> u16 {
     let a = (at & 0xFFFF) as usize;
     u16::from(md.ram()[a]) << 8 | u16::from(md.ram()[a + 1])
 }
@@ -106,7 +106,7 @@ fn the_68000_sets_the_backdrop_through_the_vdp_ports() {
         .move_l(0xC002_0000, 0xC0_0004) // CRAM write, address 2
         .move_w(0x000E, 0xC0_0000)
         .halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     frames(&mut md, 3);
     assert_eq!(md.vdp.cram()[1], 0x000E);
     let middle = md.vdp.framebuffer()[120 * emu198x_sega_315_5313::render::LINE_WIDTH + 170];
@@ -119,7 +119,7 @@ fn v_int_runs_the_level_6_handler_once_a_frame() {
     p.move_w(0x8164, 0xC0_0004).set_sr(0x2000).halt();
     let mut handler = Asm::default();
     handler.inc_w(RAM).rte();
-    let mut md = MegaDrive::new(cart(&p, Some(&handler), &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, Some(&handler), &[]), Region::Americas);
     frames(&mut md, 6);
     let count = ram_word(&md, RAM);
     assert!((5..=6).contains(&count), "{count} V-ints in six frames");
@@ -135,7 +135,7 @@ fn the_68000_loads_and_starts_a_z80_program() {
         p.move_b(byte, 0xA0_0000 + i as u32);
     }
     p.move_w(0x0000, 0xA1_1100).move_w(0x0100, 0xA1_1200).halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     frames(&mut md, 2);
     assert!(!md.z80_in_reset());
     assert_eq!(md.z80_ram()[0x1000], 0x42, "the Z80 ran");
@@ -144,7 +144,7 @@ fn the_68000_loads_and_starts_a_z80_program() {
 #[test]
 fn busreq_stops_the_z80_at_a_cycle_boundary_and_release_resumes_it() {
     // LD HL,$1000; loop: INC (HL); JR loop
-    let mut md = MegaDrive::new(cart(Asm::default().halt(), None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(Asm::default().halt(), None, &[]), Region::Americas);
     md.z80_ram[..6].copy_from_slice(&[0x21, 0x00, 0x10, 0x34, 0x18, 0xFD]);
     md.z80_reset = false;
     for _ in 0..20_000 {
@@ -179,7 +179,7 @@ fn the_pad_reads_through_the_io_port() {
         .move_b(0x00, 0xA1_0003)
         .copy_b(0xA1_0003, RAM + 1)
         .halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     md.set_buttons(
         0,
         Buttons {
@@ -207,7 +207,7 @@ fn the_version_register_reports_the_region() {
     ] {
         let mut p = Asm::default();
         p.copy_b(0xA1_0001, RAM).halt();
-        let mut md = MegaDrive::new(cart(&p, None, &[]), region);
+        let mut md = MegaDriveState::new(cart(&p, None, &[]), region);
         frames(&mut md, 1);
         assert_eq!(md.ram()[0], expected, "{region:?}");
     }
@@ -226,7 +226,7 @@ fn a_dma_from_rom_fills_cram_while_the_68000_waits() {
         .move_l(0xC000_0080, 0xC0_0004) // CRAM write + DMA at 0
         .move_w(0x1234, RAM) // runs once the DMA has released the bus
         .halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[0x0E00, 0x00E0, 0x000E]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[0x0E00, 0x00E0, 0x000E]), Region::Americas);
     frames(&mut md, 2);
     assert_eq!(&md.vdp.cram()[..3], &[0x0E00, 0x00E0, 0x000E]);
     assert_eq!(ram_word(&md, RAM), 0x1234);
@@ -240,7 +240,7 @@ fn the_z80_reaches_the_ym2612_and_the_68000_window() {
         0x3A, 0x00, 0x84, 0x32, 0x00, 0x10, 0x3E, 0x22, 0x32, 0x00, 0x40, 0x3E, 0x08, 0x32, 0x01,
         0x40, 0x18, 0xFE,
     ];
-    let mut md = MegaDrive::new(
+    let mut md = MegaDriveState::new(
         cart(Asm::default().halt(), None, &[0xAB00]),
         Region::Americas,
     );
@@ -258,10 +258,10 @@ fn a_snapshot_resumes_in_lockstep() {
     p.move_w(0x8164, 0xC0_0004).set_sr(0x2000).halt();
     let mut handler = Asm::default();
     handler.inc_w(RAM).rte();
-    let mut md = MegaDrive::new(cart(&p, Some(&handler), &[]), Region::Europe);
+    let mut md = MegaDriveState::new(cart(&p, Some(&handler), &[]), Region::Europe);
     frames(&mut md, 2);
     let bytes = postcard::to_allocvec(&md).expect("encode");
-    let mut restored: MegaDrive = postcard::from_bytes(&bytes).expect("decode");
+    let mut restored: MegaDriveState = postcard::from_bytes(&bytes).expect("decode");
     restored.finish_restore();
     for _ in 0..200_000 {
         md.tick();
@@ -278,7 +278,7 @@ fn the_68000_runs_at_a_seventh_of_the_master_clock_less_refresh() {
     let mut p = Asm::default();
     p.inc_w(RAM);
     p.0.push(0x60F8);
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     md.run_frame();
     let start = ram_word(&md, RAM);
     md.run_frame();
@@ -304,7 +304,7 @@ fn the_z80_reaches_the_vdp_and_psg_and_the_68000_reads_the_hv_counter() {
     p.0.extend([0x33F9]); // MOVE.W (abs).L,(abs).L
     p.long(0xC0_0008).long(RAM);
     p.halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     md.z80_ram[..z80_program.len()].copy_from_slice(&z80_program);
     md.z80_reset = false;
     frames(&mut md, 1);
@@ -316,7 +316,7 @@ fn the_z80_reaches_the_vdp_and_psg_and_the_68000_reads_the_hv_counter() {
 fn the_reset_button_restarts_the_68000_and_holds_the_z80() {
     let mut p = Asm::default();
     p.inc_w(RAM).halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     frames(&mut md, 1);
     md.z80_reset = false;
     md.reset();
@@ -332,7 +332,7 @@ fn the_reset_button_restarts_the_68000_and_holds_the_z80() {
 #[test]
 fn run_frame_returns_a_frames_master_clocks() {
     for (region, lines) in [(Region::Americas, NTSC_LINES), (Region::Europe, PAL_LINES)] {
-        let mut md = MegaDrive::new(cart(Asm::default().halt(), None, &[]), region);
+        let mut md = MegaDriveState::new(cart(Asm::default().halt(), None, &[]), region);
         md.run_frame();
         assert_eq!(md.run_frame(), lines * MCLKS_PER_LINE, "{region:?}");
     }
@@ -340,7 +340,7 @@ fn run_frame_returns_a_frames_master_clocks() {
 
 #[test]
 fn the_framebuffer_passes_the_vdps_through() {
-    let mut md = MegaDrive::new(cart(Asm::default().halt(), None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(Asm::default().halt(), None, &[]), Region::Americas);
     md.run_frame();
     assert_eq!(md.frame_width() as usize, md.vdp.frame_width());
     assert_eq!(md.frame_height() as usize, md.vdp.frame_height());
@@ -355,7 +355,7 @@ fn audio_comes_out_as_48_khz_stereo_within_range() {
         .move_b(0x01, 0xC0_0011)
         .move_b(0x90, 0xC0_0011)
         .halt();
-    let mut md = MegaDrive::new(cart(&p, None, &[]), Region::Americas);
+    let mut md = MegaDriveState::new(cart(&p, None, &[]), Region::Americas);
     let mut samples = Vec::new();
     for _ in 0..60 {
         md.run_frame();
@@ -376,7 +376,7 @@ fn audio_comes_out_as_48_khz_stereo_within_range() {
 
 #[test]
 fn peek_and_poke_reach_rom_and_both_rams_without_side_effects() {
-    let mut md = MegaDrive::new(
+    let mut md = MegaDriveState::new(
         cart(Asm::default().halt(), None, &[0xABCD]),
         Region::Americas,
     );

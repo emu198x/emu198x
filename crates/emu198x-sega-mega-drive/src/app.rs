@@ -146,7 +146,7 @@ impl MachineApp for MegaDrive {
 
     fn report(&self, runtime: &MegaDriveRuntime, report: &mut Map<String, Value>) {
         let cart_loaded = runtime.machine().is_some();
-        let frame_count = runtime.machine().map_or(0, |m| m.vdp.frames());
+        let frame_count = runtime.machine().map_or(0, |m| m.vdp().frames());
         report.insert("cart_loaded".to_owned(), cart_loaded.into());
         report.insert("frames_run".to_owned(), frame_count.into());
     }

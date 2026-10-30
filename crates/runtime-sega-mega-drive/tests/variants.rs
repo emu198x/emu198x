@@ -26,7 +26,7 @@ fn every_model_round_trips_and_switches_to_its_actual_hardware() {
         assert_eq!(session.native_frame_ticks(), model.frame_ticks());
         assert_eq!(session.time(), MachineTime::default());
         let machine = session.machine().machine().expect("cartridge");
-        assert_eq!(machine.region, model.machine_region());
+        assert_eq!(machine.region(), model.machine_region());
         assert_eq!(machine.rom(), common::cartridge());
         assert_ne!(machine.peek(0xFF_1000), 0x73, "a cold boot");
         assert!(session.latest_frame().is_none());
@@ -63,12 +63,12 @@ fn a_soft_reset_keeps_ram_and_a_hard_one_clears_it() {
     let mut runtime = MegaDriveRuntime::new(Model::Genesis, common::cartridge());
     let machine = runtime.machine_mut().expect("machine");
     machine.run_frame();
-    assert_ne!(machine.cpu.regs.pc, 0x200, "the program has moved on");
+    assert_ne!(machine.cpu().regs.pc, 0x200, "the program has moved on");
     machine.poke(0xFF_2000, 0x5A);
     runtime.reset(ResetKind::Soft);
     let machine = runtime.machine().expect("machine");
     assert_eq!(machine.peek(0xFF_2000), 0x5A);
-    assert_eq!(machine.cpu.regs.pc, 0x200, "back at the vector");
+    assert_eq!(machine.cpu().regs.pc, 0x200, "back at the vector");
     runtime.reset(ResetKind::Hard);
     assert_eq!(runtime.machine().expect("machine").peek(0xFF_2000), 0);
 }
