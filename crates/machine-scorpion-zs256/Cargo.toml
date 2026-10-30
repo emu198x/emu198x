@@ -13,7 +13,7 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.45.0" }
 emu198x-gi-ay-3-8912 = "0.1.0"
 emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = "0.1.0"
-emu198x-scorpion-ula = "0.1.0"
+emu198x-scorpion-ula = "0.2.0"
 serde = { workspace = true }
 emu198x-zilog-z80 = "0.8.0"
 

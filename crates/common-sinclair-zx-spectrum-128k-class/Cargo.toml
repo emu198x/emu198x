@@ -15,7 +15,7 @@ emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = "0.1.0"
 emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = "0.1.0"
 emu198x-peripheral-sinclair-zx-spectrum-interface1 = "0.1.0"
 serde = { workspace = true }
-emu198x-sinclair-ula-7k010e = "0.1.0"
+emu198x-sinclair-ula-7k010e = "0.2.0"
 emu198x-zilog-z80 = "0.8.0"
 emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface = "0.1.0"
 

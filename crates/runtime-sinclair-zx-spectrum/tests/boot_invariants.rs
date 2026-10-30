@@ -489,17 +489,17 @@ fn the_sd_card_loads_exports_and_stays_across_a_state_load_48k() -> Result<(), B
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v16() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v17() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 16.
+    // and matches the value, so byte 0 of the snapshot bytes == 17.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 16,
-        "snapshot envelope must be at version 16 (the DivMMC); \
+        bytes[0], 17,
+        "snapshot envelope must be at version 17 (the saved ULA pipeline); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())
