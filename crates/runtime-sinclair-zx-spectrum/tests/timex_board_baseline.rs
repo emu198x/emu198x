@@ -91,6 +91,14 @@ fn root() -> PathBuf {
 }
 #[test]
 fn original_saves_keep_pixels_audio_time_and_paging_on_both_boards() {
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(check_original_saves)
+        .expect("test thread")
+        .join()
+        .expect("test result");
+}
+fn check_original_saves() {
     for model in [Model::TimexTC2068, Model::TimexTS2068] {
         for mode in [0, 6] {
             let name = format!("{}-mode{mode}", model.model_id());
@@ -100,7 +108,14 @@ fn original_saves_keep_pixels_audio_time_and_paging_on_both_boards() {
             if let Some(dir) = std::env::var_os("EMU198X_TIMEX_CAPTURE") {
                 let dir = PathBuf::from(dir);
                 std::fs::create_dir_all(&dir).expect("capture dir");
-                for (ext, bytes) in [("state", &state), ("output", &out)] {
+                let mut restored = runtime(model);
+                restored.restore(&state).expect("restore original");
+                let resumed = output(&mut restored);
+                for (ext, bytes) in [
+                    ("state", &state),
+                    ("output", &out),
+                    ("restored-output", &resumed),
+                ] {
                     use std::io::Write;
                     std::fs::OpenOptions::new()
                         .write(true)
@@ -124,10 +139,38 @@ fn original_saves_keep_pixels_audio_time_and_paging_on_both_boards() {
                 restored.snapshot().expect("reencoded") == saved,
                 "{name}: unchanged save bytes"
             );
-            assert!(
-                output(&mut restored) == expected,
-                "{name}: restored continuation"
-            );
+            let actual = output(&mut restored);
+            if actual != expected {
+                type Captured = (
+                    Vec<(u64, u32, u32, Vec<u8>, Option<Vec<u32>>, Vec<u32>)>,
+                    Vec<u8>,
+                );
+                let (a, ast): Captured = postcard::from_bytes(&actual).expect("actual");
+                let (e, est): Captured = postcard::from_bytes(&expected).expect("expected");
+                for (i, (a, e)) in a.iter().zip(&e).enumerate() {
+                    eprintln!(
+                        "{name} field {i}: differing pixels {} first {:?}",
+                        a.3.iter().zip(&e.3).filter(|(a, e)| a != e).count(),
+                        a.3.iter().zip(&e.3).position(|(a, e)| a != e)
+                    );
+                    eprintln!(
+                        "{name} field {i}: time {:?}/{:?}, pixels {}, palette {}, audio {} first {:?}",
+                        (a.0, a.1, a.2),
+                        (e.0, e.1, e.2),
+                        a.3 == e.3,
+                        a.4 == e.4,
+                        a.5 == e.5,
+                        a.5.iter().zip(&e.5).position(|(a, e)| a != e)
+                    );
+                }
+                eprintln!(
+                    "final state lengths {}/{} first {:?}",
+                    ast.len(),
+                    est.len(),
+                    ast.iter().zip(&est).position(|(a, e)| a != e)
+                );
+            }
+            assert!(actual == expected, "{name}: restored continuation (#2209)");
         }
     }
 }

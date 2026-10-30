@@ -12,3 +12,5 @@ SHA-256:
 `1b62f583e831e92443e9112839e4d3df228186a74da1f819e4b4a7531872e1c2`  `timex-ts2068-mode0.state`
 `01c4f939b080c6191745b6041af61060206d0e62b2ab6d9f8524ada41a79bd26`  `timex-ts2068-mode6.output`
 `186c846aaba5c2bf5bf9269943f82bc7ac94ba250ed206a4dcbd97371bec68ce`  `timex-ts2068-mode6.state`
+
+The restore-continuation assertion currently fails on the unmodified engine: eight pixels in the first resumed frame differ in each tested board/mode combination. See [#2209](https://github.com/emu198x/emu198x/issues/2209). These captures are pre-split evidence, not a completed split or a passing restore-fidelity claim. The reproduction uses a 16 MiB test-thread stack, matching the large-stack approach already used by Spectrum runtime tests.
