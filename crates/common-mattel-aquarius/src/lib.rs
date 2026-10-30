@@ -179,11 +179,11 @@ pub const FB_HEIGHT: u32 = (CHAR_ROWS + 2 * BORDER_CELLS) * CHAR_HEIGHT;
 
 /// Master dot clock: a single 7.15909 MHz crystal (MAME `aquarius.cpp`
 /// `7.15909_MHz_XTAL`). The Z80 and the TEA1002 derive from it.
-const DOT_CLOCK_HZ: u64 = 7_159_090;
+pub const DOT_CLOCK_HZ: u64 = 7_159_090;
 /// Z80A clock — the crystal ÷ 2 = 3.579545 MHz (MAME `maincpu` =
 /// `7.15909_MHz_XTAL / 2`). The earlier 3.5 MHz value was wrong; the
 /// runtime profile already declared 3.579545 MHz.
-const CPU_CLOCK_HZ: u64 = DOT_CLOCK_HZ / 2;
+pub const CPU_CLOCK_HZ: u64 = DOT_CLOCK_HZ / 2;
 /// Host audio output rate for the 1-bit speaker, matching the runtime's
 /// declared `AudioPacket` sample rate.
 const AUDIO_SAMPLE_RATE: u64 = 48_000;
