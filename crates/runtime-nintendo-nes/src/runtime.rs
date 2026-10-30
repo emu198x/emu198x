@@ -1,10 +1,11 @@
 //! Runtime wrapper for the fresh-workspace NES baseline.
 
+use crate::Nes;
+use common_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, InputDevices};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason,
 };
-use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, InputDevices, Nes};
 use nintendo_nes_cartridge::{Fds, Mapper, parse_ines};
 
 use crate::input::apply_input_event;
@@ -116,7 +117,7 @@ impl NesRuntime {
     pub fn disk_side_count(&self) -> usize {
         self.machine
             .as_ref()
-            .and_then(|machine| machine.mapper.disk_drive())
+            .and_then(|machine| machine.mapper().disk_drive())
             .map_or(0, |drive| drive.side_count())
     }
 
@@ -125,7 +126,7 @@ impl NesRuntime {
     pub fn inserted_disk_side(&self) -> Option<usize> {
         self.machine
             .as_ref()
-            .and_then(|machine| machine.mapper.disk_drive())
+            .and_then(|machine| machine.mapper().disk_drive())
             .and_then(|drive| drive.inserted())
     }
 
@@ -136,7 +137,7 @@ impl NesRuntime {
         if let Some(drive) = self
             .machine
             .as_mut()
-            .and_then(|machine| machine.mapper.disk_drive_mut())
+            .and_then(|machine| machine.mapper_mut().disk_drive_mut())
         {
             match side {
                 Some(side) => drive.insert(side),
@@ -151,7 +152,7 @@ impl NesRuntime {
     pub fn disk_image(&self) -> Option<Vec<u8>> {
         self.machine
             .as_ref()
-            .and_then(|machine| machine.mapper.disk_drive())
+            .and_then(|machine| machine.mapper().disk_drive())
             .map(|drive| drive.image())
     }
 
@@ -184,7 +185,7 @@ impl NesRuntime {
         if !self.has_battery {
             return None;
         }
-        let ram = self.machine.as_ref()?.mapper.save_ram();
+        let ram = self.machine.as_ref()?.mapper().save_ram();
         (!ram.is_empty()).then_some(ram)
     }
 
@@ -195,7 +196,7 @@ impl NesRuntime {
         if self.has_battery
             && let Some(machine) = self.machine.as_mut()
         {
-            machine.mapper.restore_save_ram(bytes);
+            machine.mapper_mut().restore_save_ram(bytes);
         }
         Ok(())
     }
@@ -239,7 +240,7 @@ impl NesRuntime {
     }
 
     /// Cartridge mapper id (iNES header value) when a cartridge is
-    /// loaded. Used by the query module for the `cartridge.mapper` and
+    /// loaded. Used by the query module for the `cartridge.mapper()` and
     /// `mapper.mapper_number` paths, plus the snapshot envelope.
     #[must_use]
     pub fn cartridge_mapper(&self) -> Option<u16> {
@@ -274,6 +275,15 @@ impl NesRuntime {
                 .is_some_and(|parsed| parsed.header.has_battery);
         if let Some(machine) = &machine {
             self.input_devices = machine.input_devices();
+            // A restored FDS adapter already carries its BIOS. Derive the
+            // reset cache from the bytes visible to its CPU, not host firmware.
+            if machine.mapper().disk_drive().is_some() {
+                self.fds_bios = Some(
+                    (0xe000..=0xffff)
+                        .map(|addr| machine.mapper().cpu_read(addr))
+                        .collect(),
+                );
+            }
         }
         self.machine = machine;
     }
@@ -369,7 +379,9 @@ impl NesRuntime {
                 let mut machine = Nes::new_with_region(parsed.mapper, self.model.machine_region());
                 machine.set_input_devices(self.input_devices);
                 if let Some(previous) = &self.machine {
-                    machine.mapper.restore_save_ram(previous.mapper.save_ram());
+                    machine
+                        .mapper_mut()
+                        .restore_save_ram(previous.mapper().save_ram());
                     machine.set_audio_controls(previous.audio_controls());
                 }
                 self.machine = Some(machine);
@@ -447,7 +459,9 @@ impl emu198x_shell::FamilyRuntime for NesRuntime {
         } else if let Some(bytes) = &self.cartridge_bytes {
             replacement.load_cartridge_bytes("cartridge-1", bytes)?;
             if let (Some(previous), Some(fresh)) = (&self.machine, &mut replacement.machine) {
-                fresh.mapper.restore_save_ram(previous.mapper.save_ram());
+                fresh
+                    .mapper_mut()
+                    .restore_save_ram(previous.mapper().save_ram());
                 fresh.set_audio_controls(previous.audio_controls());
             }
         }
@@ -477,7 +491,7 @@ impl NesRuntime {
 
         while self.time < target {
             let source_phase = {
-                let ppu = &self.machine.as_ref().expect("loaded machine").ppu;
+                let ppu = self.machine.as_ref().expect("loaded machine").ppu();
                 let dot = u64::from(ppu.dot());
                 // run_frame finishes at scanline zero, but may be a dot into
                 // it; power-on starts on the pre-render line. Anchor the
@@ -518,7 +532,7 @@ impl NesRuntime {
                     // Actual elapsed dots preserve the odd-field skipped dot.
                     phase_cycles: source_phase as f64 * 2.0 / 3.0,
                 },
-                codes: machine.ppu.signal_codes(),
+                codes: machine.ppu().signal_codes(),
                 levels: &crate::signal::LEVELS,
             });
             if !one_frame || completed {

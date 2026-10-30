@@ -5,8 +5,8 @@
 //! home. The provider itself is stateless (`NesSessionQueryProvider`);
 //! all the lookup logic lives here.
 
+use crate::Nes;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_nintendo_nes::Nes;
 use serde_json::{Value, json};
 
 use crate::runtime::NesRuntime;
@@ -207,7 +207,7 @@ fn chip_field(path: &str, chip: &str, snapshot: Value) -> Option<QueryResult> {
 
 /// Full 6502 register + bus snapshot (folded from the old `query_cpu`).
 fn cpu_snapshot(nes: &Nes) -> Value {
-    let r = &nes.cpu.regs;
+    let r = &nes.cpu().regs;
     json!({
         "pc": r.pc,
         "a": r.a,
@@ -225,26 +225,26 @@ fn cpu_snapshot(nes: &Nes) -> Value {
             "z": r.p & 0x02 != 0,
             "c": r.p & 0x01 != 0,
         },
-        "addr_bus": nes.cpu.addr,
-        "data_bus": nes.cpu.data,
-        "data_in": nes.cpu.data_in,
-        "rw": nes.cpu.rw,
-        "sync": nes.cpu.sync,
-        "nmi": nes.cpu.nmi,
-        "irq": nes.cpu.irq,
-        "nmi_pending": nes.cpu.pending_nmi(),
-        "nmi_prev": nes.cpu.nmi_prev(),
-        "instruction_complete": nes.cpu.instruction_complete(),
-        "instruction_cycle": nes.cpu.instruction_cycle(),
-        "total_cycles": nes.cpu.total_cycles,
-        "reset_phase": nes.cpu.reset_phase,
-        "halted": nes.cpu.halted,
+        "addr_bus": nes.cpu().addr,
+        "data_bus": nes.cpu().data,
+        "data_in": nes.cpu().data_in,
+        "rw": nes.cpu().rw,
+        "sync": nes.cpu().sync,
+        "nmi": nes.cpu().nmi,
+        "irq": nes.cpu().irq,
+        "nmi_pending": nes.cpu().pending_nmi(),
+        "nmi_prev": nes.cpu().nmi_prev(),
+        "instruction_complete": nes.cpu().instruction_complete(),
+        "instruction_cycle": nes.cpu().instruction_cycle(),
+        "total_cycles": nes.cpu().total_cycles,
+        "reset_phase": nes.cpu().reset_phase,
+        "halted": nes.cpu().halted,
     })
 }
 
 /// Full 2C02 PPU snapshot (folded from the old `query_ppu`).
 fn ppu_snapshot(nes: &Nes) -> Value {
-    let p = &nes.ppu;
+    let p = nes.ppu();
     json!({
         "scanline": p.scanline(),
         "dot": p.dot(),
@@ -279,7 +279,7 @@ fn ppu_snapshot(nes: &Nes) -> Value {
 /// own `$2002` read clears it long before a script can sample it. Counted
 /// from OAM, the question is direct (#904).
 fn sprite_snapshot(nes: &Nes) -> Value {
-    let p = &nes.ppu;
+    let p = nes.ppu();
     let oam = p.oam();
     let height = u16::from(sprite_height(p.ctrl()));
 
@@ -359,21 +359,21 @@ const MAX_SPRITES_PER_LINE: u8 = 8;
 /// the old `query_apu`).
 fn apu_snapshot(nes: &Nes) -> Value {
     json!({
-        "irq_pending": nes.apu.irq_pending(),
+        "irq_pending": nes.apu().irq_pending(),
         "dmc": {
-            "enabled": nes.apu.dmc.enabled(),
-            "irq_enabled": nes.apu.dmc.irq_enabled(),
-            "irq_flag": nes.apu.dmc.irq_flag,
-            "output_level": nes.apu.dmc.output_level,
-            "timer_period": nes.apu.dmc.timer_period,
-            "sample_address": nes.apu.dmc.sample_address,
-            "sample_length": nes.apu.dmc.sample_length,
-            "current_address": nes.apu.dmc.current_address,
-            "bytes_remaining": nes.apu.dmc.bytes_remaining,
-            "shift_register": nes.apu.dmc.shift_register,
-            "bits_remaining": nes.apu.dmc.bits_remaining,
-            "silence_flag": nes.apu.dmc.silence_flag,
-            "dma_pending": nes.apu.dmc.dma_pending,
+            "enabled": nes.apu().dmc.enabled(),
+            "irq_enabled": nes.apu().dmc.irq_enabled(),
+            "irq_flag": nes.apu().dmc.irq_flag,
+            "output_level": nes.apu().dmc.output_level,
+            "timer_period": nes.apu().dmc.timer_period,
+            "sample_address": nes.apu().dmc.sample_address,
+            "sample_length": nes.apu().dmc.sample_length,
+            "current_address": nes.apu().dmc.current_address,
+            "bytes_remaining": nes.apu().dmc.bytes_remaining,
+            "shift_register": nes.apu().dmc.shift_register,
+            "bits_remaining": nes.apu().dmc.bits_remaining,
+            "silence_flag": nes.apu().dmc.silence_flag,
+            "dma_pending": nes.apu().dmc.dma_pending,
         }
     })
 }
@@ -384,8 +384,8 @@ fn apu_snapshot(nes: &Nes) -> Value {
 fn mapper_snapshot(mapper_number: Option<u16>, nes: &Nes) -> Value {
     json!({
         "mapper_number": mapper_number,
-        "mirroring": format!("{:?}", nes.mapper.mirroring()),
-        "irq_pending": nes.mapper.irq_pending(),
+        "mirroring": format!("{:?}", nes.mapper().mirroring()),
+        "irq_pending": nes.mapper().irq_pending(),
     })
 }
 

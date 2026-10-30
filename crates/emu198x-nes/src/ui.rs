@@ -15,10 +15,10 @@ use emu198x_shell::{FamilyRuntime, FirmwareOverrides, build_replacement};
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+use common_nintendo_nes::{FB_HEIGHT, FB_WIDTH};
 use emu198x_shell::MachineError;
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
-use machine_nintendo_nes::{FB_HEIGHT, FB_WIDTH};
 use runtime_nintendo_nes::{ApuChannel, InputDevices, Model, NesRuntime};
 
 use crate::app::{Nes, resolve_battery_save_path, write_battery_save};

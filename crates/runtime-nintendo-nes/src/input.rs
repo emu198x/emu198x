@@ -28,8 +28,8 @@
 //! Matches `emu198x-nes`'s `ButtonTarget` table — South-on-gamepad =
 //! A-on-NES is the canonical "primary action" mapping.
 
+use crate::Nes;
 use emu198x_shell::{InputEvent, aim_to_pixels};
-use machine_nintendo_nes::Nes;
 
 /// Apply one host input event to the machine. `Button` events route
 /// by port (1 = controller 1, 2 = controller 2); other ports are
@@ -67,10 +67,10 @@ fn apply_named_button(machine: &mut Nes, port: u8, name: &str, pressed: bool) {
     };
     let mask = 1u8 << bit;
     let current = match port {
-        2 => machine.controller2_state,
+        2 => machine.controller2_state(),
         3 => machine.controller3_state(),
         4 => machine.controller4_state(),
-        _ => machine.controller1_state,
+        _ => machine.controller1_state(),
     };
     let next = if pressed {
         current | mask
@@ -147,16 +147,16 @@ mod tests {
     fn port_1_button_lands_on_controller_1() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(1, "a", true));
-        assert_eq!(nes.controller1_state & 1, 1);
-        assert_eq!(nes.controller2_state, 0);
+        assert_eq!(nes.controller1_state() & 1, 1);
+        assert_eq!(nes.controller2_state(), 0);
     }
 
     #[test]
     fn port_2_button_lands_on_controller_2() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(2, "start", true));
-        assert_eq!(nes.controller2_state & 0b0000_1000, 0b0000_1000);
-        assert_eq!(nes.controller1_state, 0);
+        assert_eq!(nes.controller2_state() & 0b0000_1000, 0b0000_1000);
+        assert_eq!(nes.controller1_state(), 0);
     }
 
     #[test]
@@ -164,19 +164,19 @@ mod tests {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(3, "a", true));
         apply_input_event(&mut nes, &button(4, "right", true));
-        assert_eq!(nes.controller1_state, 0);
-        assert_eq!(nes.controller2_state, 0);
+        assert_eq!(nes.controller1_state(), 0);
+        assert_eq!(nes.controller2_state(), 0);
         assert_eq!(nes.controller3_state(), 0x01);
         assert_eq!(nes.controller4_state(), 0x80);
         apply_input_event(&mut nes, &button(5, "a", true));
-        assert_eq!(nes.controller1_state, 0);
+        assert_eq!(nes.controller1_state(), 0);
     }
 
     #[test]
     fn the_zapper_takes_its_trigger_and_aim_on_port_2() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(2, "trigger", true));
-        assert_eq!(nes.controller2_state, 0, "not a pad button");
+        assert_eq!(nes.controller2_state(), 0, "not a pad button");
         let at = emu198x_shell::aim_from_pixels(100, 50, 256, 240);
         apply_input_event(&mut nes, &InputEvent::Aim { port: 2, at });
         assert_eq!(nes.zapper_aim(), Some((100, 50)));
@@ -189,7 +189,7 @@ mod tests {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(1, "south", true));
         assert_eq!(
-            nes.controller1_state & 0b0000_0001,
+            nes.controller1_state() & 0b0000_0001,
             0b0000_0001,
             "south → a"
         );
@@ -199,16 +199,20 @@ mod tests {
     fn gamepad_alias_east_maps_to_b_button() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(1, "east", true));
-        assert_eq!(nes.controller1_state & 0b0000_0010, 0b0000_0010, "east → b");
+        assert_eq!(
+            nes.controller1_state() & 0b0000_0010,
+            0b0000_0010,
+            "east → b"
+        );
     }
 
     #[test]
     fn release_clears_the_bit() {
         let mut nes = make_nes();
         apply_input_event(&mut nes, &button(1, "up", true));
-        assert_eq!(nes.controller1_state & 0b0001_0000, 0b0001_0000);
+        assert_eq!(nes.controller1_state() & 0b0001_0000, 0b0001_0000);
         apply_input_event(&mut nes, &button(1, "up", false));
-        assert_eq!(nes.controller1_state & 0b0001_0000, 0);
+        assert_eq!(nes.controller1_state() & 0b0001_0000, 0);
     }
 
     #[test]
@@ -221,7 +225,7 @@ mod tests {
                 pressed: true,
             },
         );
-        assert_eq!(nes.controller1_state & 0b0000_1000, 0b0000_1000);
-        assert_eq!(nes.controller2_state, 0);
+        assert_eq!(nes.controller1_state() & 0b0000_1000, 0b0000_1000);
+        assert_eq!(nes.controller2_state(), 0);
     }
 }
