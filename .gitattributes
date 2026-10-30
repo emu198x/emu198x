@@ -28,3 +28,8 @@
 /test-data/zx81/board-split-v5/*.state binary
 /test-data/zx81/board-split-v5/*.frames binary
 /test-data/zx81/board-split-v5/*.audio binary
+
+# Original XL/XE whole-state and native-output continuation.
+/test-data/atari-800xl/board-split-v21/*.state binary
+/test-data/atari-800xl/board-split-v21/*.frames binary
+/test-data/atari-800xl/board-split-v21/*.audio binary
