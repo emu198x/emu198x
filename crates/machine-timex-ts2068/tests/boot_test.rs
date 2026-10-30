@@ -9,8 +9,8 @@
 //! `#[ignore]`d because not every developer has the ROMs locally — the
 //! runner prints a path hint and skips when they're missing.
 
-use common_sinclair_zx_spectrum::memory::MemoryBus;
-use machine_timex_ts2068::{TimexModel, TimexTS2068};
+use common_timex_2068::MemoryBus;
+use machine_timex_ts2068::TimexTS2068;
 use std::path::PathBuf;
 
 fn rom_dir() -> Option<PathBuf> {
@@ -32,7 +32,7 @@ fn boot_to_basic_renders_screen_content() {
         emu198x_test_skip::skip!("TS2068 EXROM not found at {}", exrom.display());
     }
 
-    let mut machine = TimexTS2068::new(TimexModel::TS2068);
+    let mut machine = TimexTS2068::new();
     machine
         .memory
         .load_rom(&main_rom)

@@ -53,7 +53,8 @@ pub use runtime::{SD_CARD_SLOT, SpectrumMachine, SpectrumRuntime};
 pub use variants::{
     Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
     Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
+    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTC2068Runtime,
+    TimexTS2068Runtime,
 };
 
 mod signal;

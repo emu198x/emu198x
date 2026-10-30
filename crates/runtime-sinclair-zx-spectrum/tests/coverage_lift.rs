@@ -18,7 +18,8 @@ use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_timex_tc2048::TimexTC2048;
-use machine_timex_ts2068::{TimexModel, TimexTS2068};
+use machine_timex_ts2068::TimexTS2068;
+use runtime_sinclair_zx_spectrum::TimexTC2068Runtime;
 use runtime_sinclair_zx_spectrum::{
     Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
     SpectrumMachine, SpectrumPlus2ARuntime, SpectrumRuntimeKind, TimexTC2048Runtime,
@@ -98,18 +99,18 @@ fn timex_ts2068_constructors_cover_every_path() {
     let rom = vec![0u8; ROM16];
     let exrom = vec![0u8; ROM8];
 
-    let _ = TimexTS2068Runtime::blank(Model::TimexTS2068);
-    let _ = TimexTS2068Runtime::blank(Model::TimexTC2068);
+    let _ = TimexTS2068Runtime::blank();
+    let _ = TimexTC2068Runtime::blank();
 
-    assert!(TimexTS2068Runtime::from_rom_bytes(Model::TimexTS2068, &rom, &exrom).is_ok());
-    assert!(TimexTS2068Runtime::from_rom_bytes(Model::TimexTS2068, &rom[..10], &exrom).is_err());
-    assert!(TimexTS2068Runtime::from_rom_bytes(Model::TimexTS2068, &rom, &exrom[..10]).is_err());
+    assert!(TimexTS2068Runtime::from_rom_bytes(&rom, &exrom).is_ok());
+    assert!(TimexTS2068Runtime::from_rom_bytes(&rom[..10], &exrom).is_err());
+    assert!(TimexTS2068Runtime::from_rom_bytes(&rom, &exrom[..10]).is_err());
 
-    assert!(TimexTS2068Runtime::from_firmware(Model::TimexTS2068, &FirmwareSet::new()).is_err());
+    assert!(TimexTS2068Runtime::from_firmware(&FirmwareSet::new()).is_err());
     let mut fw = FirmwareSet::new();
     fw.push(FirmwareImage::new("timex-ts2068-rom-0", &rom));
     fw.push(FirmwareImage::new("timex-ts2068-rom-1", &exrom));
-    assert!(TimexTS2068Runtime::from_firmware(Model::TimexTS2068, &fw).is_ok());
+    assert!(TimexTS2068Runtime::from_firmware(&fw).is_ok());
 }
 
 // ── Family enum: frame_halfcycles arms, as_48k_mut, debug surface ───
@@ -133,8 +134,8 @@ fn one_kind_per_timing_group() -> Vec<SpectrumRuntimeKind> {
         SpectrumRuntimeKind::Pentagon128(Box::new(Pentagon128Runtime::blank())),
         SpectrumRuntimeKind::ScorpionZS256(Box::new(ScorpionZS256Runtime::blank())),
         SpectrumRuntimeKind::TimexTC2048(Box::new(TimexTC2048Runtime::blank())),
-        SpectrumRuntimeKind::TimexTC2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTC2068))),
-        SpectrumRuntimeKind::TimexTS2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTS2068))),
+        SpectrumRuntimeKind::TimexTC2068(Box::new(TimexTC2068Runtime::blank())),
+        SpectrumRuntimeKind::TimexTS2068(Box::new(TimexTS2068Runtime::blank())),
     ]
 }
 
@@ -307,5 +308,5 @@ fn spectrum_machine_surface_runs_for_the_exotic_clones() {
     exercise_machine_surface(&mut Pentagon128::new());
     exercise_machine_surface(&mut ScorpionZS256::new());
     exercise_machine_surface(&mut TimexTC2048::new());
-    exercise_machine_surface(&mut TimexTS2068::new(TimexModel::TS2068));
+    exercise_machine_surface(&mut TimexTS2068::new());
 }

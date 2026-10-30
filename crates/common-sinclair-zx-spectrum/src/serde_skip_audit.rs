@@ -69,6 +69,14 @@ const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
                         sequence identity and opcode.",
     },
     SerdeSkipAudit {
+        path: "crates/common-timex-2068/src/lib.rs",
+        expected: 3,
+        justification: "Two views of the host-only IoTrace buffer, in the \
+                        fixed core and its checked decoder, plus the \
+                        zero-sized board marker. Emulated video pipeline \
+                        state remains serialized by ULA 0.2.0.",
+    },
+    SerdeSkipAudit {
         path: "crates/common-sinclair-zx-spectrum-48k-class/src/core.rs",
         expected: 2,
         justification: "An `IoTrace` capture buffer. Case 1: the default is \

@@ -1,6 +1,6 @@
 # Fixed-pipeline Timex v17 baseline
 
-Captured before extracting the engine, from the fixed source candidate `f652388ad65eb924b11524e4f395b1ef5f65df91` using the committed runtime `timex_board_baseline.rs` recipe and published ULA 0.2.0 releases. Project-written firmware only. Both existing boards in modes 0 and 6, live AY sound, HOME RAM, DOCK mask, held A and exactly 137 ticks into a partial field. Complete v17 envelopes and three continued frame packets include all pixels, palettes, dimensions, timestamps, audio sample bits and final saves. Direct and restored continuation must both match from the first resumed frame. This is preservation evidence, not independent hardware accuracy or ROM boot qualification.
+Captured before extracting the engine, from the fixed source candidate `f652388ad65eb924b11524e4f395b1ef5f65df91` using the committed runtime `timex_board_baseline.rs` recipe and published ULA 0.2.0 releases. Project-written firmware only. Both existing boards in modes 0 and 6, active AY state and beeper audio, HOME RAM, DOCK mask, held A and exactly 137 ticks into a partial field. Complete v17 envelopes and three continued frame packets include all pixels, palettes, dimensions, timestamps, audio sample bits and final saves. Direct and restored continuation must both match from the first resumed frame. This is preservation evidence, not independent hardware accuracy or ROM boot qualification.
 
 SHA-256:
 
@@ -12,3 +12,5 @@ SHA-256:
 `f6073280b3d4b454865237a4ada9f932f5fd79e19a7a0f8e8a8bdeebc131bd9e`  `timex-ts2068-mode0.state`
 `d0ad87980ca94f4686201d8381f0ecdb1936645f290caacec4adccbad143f08c`  `timex-ts2068-mode6.output`
 `63b5a9ebdbdd6ef791b5a286b367e9a285686e450071a9a06ab637250a7df55c`  `timex-ts2068-mode6.state`
+
+The identity regression changes only the envelope profile while retaining the other board’s complete hardware payload. The pre-split executable accepted that TS payload under a TC label; the fixed owners reject both directions before changing state. Both correctly labelled original v17 saves were also restored and queried through the native executable. Runtime tests additionally preserve active tape, firmware and held-key release across restore/reset.

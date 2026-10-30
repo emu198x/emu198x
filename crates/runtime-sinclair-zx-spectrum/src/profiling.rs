@@ -156,7 +156,7 @@ impl ProfileMachine for machine_timex_tc2048::TimexTC2048 {
     }
 }
 
-impl ProfileMachine for machine_timex_ts2068::TimexTS2068 {
+impl<B: common_timex_2068::TimexBoard> ProfileMachine for common_timex_2068::Timex2068<B> {
     fn cpu(&self) -> &emu198x_zilog_z80::Z80 {
         &self.z80
     }
@@ -164,7 +164,7 @@ impl ProfileMachine for machine_timex_ts2068::TimexTS2068 {
         &mut self.z80
     }
     fn mapping(&self, address: u16) -> Option<ProfileMapping> {
-        use machine_timex_ts2068::memory::MemorySource;
+        use common_timex_2068::memory::MemorySource;
         let slot = (address >> 13) as u8;
         let (memory, page) = match self.memory.mapped_source(address) {
             MemorySource::HomeRam => (ProfileMemory::Ram, u16::from(slot)),

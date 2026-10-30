@@ -1,7 +1,7 @@
 //! Original pre-split v17 envelopes and complete continued output.
 use emu198x_shell::{
     AudioCapture, FamilyRuntime, FirmwareImage, FirmwareSet, HostIo, InputEvent,
-    LatestFrameCapture, MachineCore, MachineTime, NullTraceSink,
+    LatestFrameCapture, MachineCore, NullTraceSink,
 };
 use runtime_sinclair_zx_spectrum::{Model, SpectrumLiveAccess, SpectrumRuntimeKind};
 use std::path::{Path, PathBuf};
@@ -19,25 +19,18 @@ fn runtime(model: Model) -> SpectrumRuntimeKind {
     fw.push(FirmwareImage::new("timex-ts2068-rom-1", &exrom));
     SpectrumRuntimeKind::from_firmware(model, &fw).expect("synthetic firmware")
 }
-fn step(
-    r: &mut SpectrumRuntimeKind,
-    input: &[InputEvent],
-    until: Option<u64>,
-) -> (u64, u32, u32, Vec<u8>, Option<Vec<u32>>, Vec<u32>) {
+type FrameOutput = (u64, u32, u32, Vec<u8>, Option<Vec<u32>>, Vec<u32>);
+fn frame(r: &mut SpectrumRuntimeKind) -> FrameOutput {
     let mut f = LatestFrameCapture::default();
     let mut a = AudioCapture::default();
     let mut host = HostIo {
-        input_events: input,
+        input_events: &[],
         frame_sink: &mut f,
         audio_sink: &mut a,
         trace_sink: &mut NullTraceSink,
     };
-    if let Some(t) = until {
-        r.run_until(MachineTime::new(t), &mut host)
-            .expect("partial execution");
-    } else {
-        r.run_frame(&mut host).expect("native boundary");
-    }
+    r.run_frame(&mut host).expect("native boundary");
+    assert_eq!(f.frames_seen(), 1);
     let f = f.frame().expect("frame");
     (
         f.timestamp.get(),
@@ -64,7 +57,7 @@ fn specimen(model: Model, mode: u8) -> SpectrumRuntimeKind {
     r.port_write(0xf4, 0x08); // Empty DOCK at $6000, HOME code remains executable.
     r.write_byte(0x9000, 0x5a);
     for _ in 0..2 {
-        step(&mut r, &[], None);
+        frame(&mut r);
     }
     let time = r.time();
     r.run_until(
@@ -86,7 +79,7 @@ fn specimen(model: Model, mode: u8) -> SpectrumRuntimeKind {
     r
 }
 fn output(r: &mut SpectrumRuntimeKind) -> Vec<u8> {
-    let fields: Vec<_> = (0..3).map(|_| step(r, &[], None)).collect();
+    let fields: Vec<_> = (0..3).map(|_| frame(r)).collect();
     assert!(
         fields.iter().flat_map(|f| &f.5).any(|s| *s != 0),
         "live audio"

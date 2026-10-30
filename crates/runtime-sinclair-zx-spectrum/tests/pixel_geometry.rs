@@ -9,8 +9,9 @@ use emu198x_shell::MachineCore;
 use emu198x_shell::display::{active_lines, pixel_aspect_ratio};
 use emu198x_shell::machine::Region;
 use runtime_sinclair_zx_spectrum::SpectrumRuntimeKind as Kind;
+use runtime_sinclair_zx_spectrum::TimexTC2068Runtime;
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
     Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
     SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
 };
@@ -36,8 +37,8 @@ fn variant(name: &str) -> Kind {
         "Pentagon" => Kind::Pentagon128(Box::new(Pentagon128Runtime::blank())),
         "Scorpion" => Kind::ScorpionZS256(Box::new(ScorpionZS256Runtime::blank())),
         "TC2048" => Kind::TimexTC2048(Box::new(TimexTC2048Runtime::blank())),
-        "TC2068" => Kind::TimexTC2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTC2068))),
-        "TS2068" => Kind::TimexTS2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTS2068))),
+        "TC2068" => Kind::TimexTC2068(Box::new(TimexTC2068Runtime::blank())),
+        "TS2068" => Kind::TimexTS2068(Box::new(TimexTS2068Runtime::blank())),
         other => panic!("unknown variant {other}"),
     }
 }
@@ -92,8 +93,8 @@ fn no_variant_has_square_pixels() {
 /// sibling's. A regression that lost the region would show up here.
 #[test]
 fn the_ts2068_is_ntsc_and_narrower_than_its_pal_siblings() {
-    let ts = Kind::TimexTS2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTS2068)));
-    let tc = Kind::TimexTC2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTC2068)));
+    let ts = Kind::TimexTS2068(Box::new(TimexTS2068Runtime::blank()));
+    let tc = Kind::TimexTC2068(Box::new(TimexTC2068Runtime::blank()));
 
     assert_eq!(
         ts.profile().region,
