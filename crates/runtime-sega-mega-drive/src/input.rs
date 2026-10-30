@@ -8,8 +8,9 @@
 //! The four extra buttons of the six-button pad (X, Y, Z and Mode) reach
 //! the port whatever is plugged in; a three-button pad never reports them.
 
+use crate::machine::MegaDrive;
+use common_sega_mega_drive::Buttons;
 use emu198x_shell::InputEvent;
-use machine_sega_mega_drive::{Buttons, MegaDrive};
 
 /// Apply one host input event to the machine's pads. Button events name a
 /// port, 1 or 2; key events go to port 1.
@@ -26,7 +27,7 @@ pub(crate) fn apply_input_event(machine: &mut MegaDrive, event: &InputEvent) {
     let Some(index) = usize::from(port).checked_sub(1).filter(|&i| i < 2) else {
         return;
     };
-    let mut buttons = machine.ports[index].buttons;
+    let mut buttons = machine.ports()[index].buttons;
     if let Some(button) = button(&mut buttons, name) {
         *button = pressed;
         machine.set_buttons(index, buttons);
@@ -57,11 +58,12 @@ fn button<'a>(buttons: &'a mut Buttons, name: &str) -> Option<&'a mut bool> {
 #[cfg(test)]
 mod tests {
     use super::apply_input_event;
+    use crate::{MegaDrive, Model};
+    use common_sega_mega_drive::Buttons;
     use emu198x_shell::InputEvent;
-    use machine_sega_mega_drive::{Buttons, MegaDrive, Region};
 
     fn machine() -> MegaDrive {
-        MegaDrive::new(vec![0; 0x400], Region::Americas)
+        MegaDrive::new(vec![0; 0x400], Model::Genesis)
     }
 
     fn button(port: u8, name: &str, pressed: bool) -> InputEvent {
@@ -81,7 +83,7 @@ mod tests {
             apply_input_event(&mut md, &button(2, name, true));
         }
         assert_eq!(
-            md.ports[1].buttons,
+            md.ports()[1].buttons,
             Buttons {
                 up: true,
                 a: true,
@@ -95,7 +97,7 @@ mod tests {
                 ..Buttons::default()
             }
         );
-        assert_eq!(md.ports[0].buttons, Buttons::default());
+        assert_eq!(md.ports()[0].buttons, Buttons::default());
     }
 
     #[test]
@@ -104,8 +106,8 @@ mod tests {
         apply_input_event(&mut md, &button(1, "a", true));
         apply_input_event(&mut md, &button(1, "left", true));
         apply_input_event(&mut md, &button(1, "a", false));
-        assert!(md.ports[0].buttons.left);
-        assert!(!md.ports[0].buttons.a);
+        assert!(md.ports()[0].buttons.left);
+        assert!(!md.ports()[0].buttons.a);
     }
 
     #[test]
@@ -122,12 +124,12 @@ mod tests {
         apply_input_event(&mut md, &button(3, "a", true));
         apply_input_event(&mut md, &button(0, "a", true));
         assert_eq!(
-            md.ports[0].buttons,
+            md.ports()[0].buttons,
             Buttons {
                 down: true,
                 ..Buttons::default()
             }
         );
-        assert_eq!(md.ports[1].buttons, Buttons::default());
+        assert_eq!(md.ports()[1].buttons, Buttons::default());
     }
 }

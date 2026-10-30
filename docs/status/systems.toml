@@ -443,7 +443,22 @@ label = "system:master-system"
 milestone = "Master System 100%"
 
 [[system]]
-machine_id = "sega-mega-drive"
+machine_id = "sega-mega-drive-japan"
+machine_crate = "machine-sega-mega-drive-japan"
+crate = "emu198x-sega-mega-drive"
+label = "system:mega-drive"
+milestone = "Mega Drive 100%"
+
+[[system]]
+machine_id = "sega-genesis"
+machine_crate = "machine-sega-genesis"
+crate = "emu198x-sega-mega-drive"
+label = "system:mega-drive"
+milestone = "Mega Drive 100%"
+
+[[system]]
+machine_id = "sega-mega-drive-europe"
+machine_crate = "machine-sega-mega-drive-europe"
 crate = "emu198x-sega-mega-drive"
 label = "system:mega-drive"
 milestone = "Mega Drive 100%"

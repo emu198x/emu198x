@@ -18,6 +18,10 @@ Set `EMU198X_MEGA_DRIVE_CAPTURE` to a fresh directory to capture. Files are
 created exclusively. Corrupting a byte in the European native output makes
 the comparison fail; restoring the source fixture passes.
 
+`board-probe.json` is the executable-level script check: run three fields,
+query the selected physical machine ID and read the guest’s version-register
+result from RAM. It is separate from the original capture recipe.
+
 ## SHA-256
 
 - `genesis-native.output`: `2fe43747572fbc8b5268b1367d0b780dde37d963bbdf4f82017fdb1ba6351ee0`

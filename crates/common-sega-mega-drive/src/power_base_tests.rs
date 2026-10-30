@@ -64,7 +64,7 @@ fn cartridge() -> Vec<u8> {
     rom
 }
 
-fn pixel(md: &MegaDrive, x: usize, y: usize) -> u32 {
+fn pixel(md: &MegaDriveState, x: usize, y: usize) -> u32 {
     md.framebuffer()[(TOP + y) * FRAME_STRIDE + BORDER_LEFT + x]
 }
 
@@ -72,7 +72,7 @@ fn pixel(md: &MegaDrive, x: usize, y: usize) -> u32 {
 fn a_master_system_cartridge_draws_in_mode_4() {
     let rom = cartridge();
     assert!(is_master_system_image(&rom));
-    let mut md = MegaDrive::new_power_base(rom, Region::Americas);
+    let mut md = MegaDriveState::new_power_base(rom, Region::Americas);
     assert!(md.master_system_mode());
     md.run_frame();
     md.run_frame();
@@ -84,7 +84,7 @@ fn a_master_system_cartridge_draws_in_mode_4() {
 
 #[test]
 fn the_cartridge_reads_the_pad_through_port_dc() {
-    let mut md = MegaDrive::new_power_base(cartridge(), Region::Americas);
+    let mut md = MegaDriveState::new_power_base(cartridge(), Region::Americas);
     md.run_frame();
     assert_eq!(md.z80_ram()[0], 0xFF, "nothing pressed");
     md.set_buttons(
@@ -110,9 +110,9 @@ fn the_cartridge_reads_the_pad_through_port_dc() {
 
 #[test]
 fn start_is_pause_and_raises_one_nmi_a_press() {
-    let mut md = MegaDrive::new_power_base(cartridge(), Region::Europe);
+    let mut md = MegaDriveState::new_power_base(cartridge(), Region::Europe);
     md.run_frame();
-    let press = |md: &mut MegaDrive, start: bool| {
+    let press = |md: &mut MegaDriveState, start: bool| {
         md.set_buttons(
             0,
             Buttons {
@@ -132,7 +132,7 @@ fn start_is_pause_and_raises_one_nmi_a_press() {
 
 #[test]
 fn the_fm_chip_is_unreachable_and_the_psg_is_heard() {
-    let mut md = MegaDrive::new_power_base(cartridge(), Region::Americas);
+    let mut md = MegaDriveState::new_power_base(cartridge(), Region::Americas);
     md.run_frame();
     let audio = md.take_audio();
     assert!(!audio.is_empty(), "the PSG alone makes sound");

@@ -1,6 +1,6 @@
 [package]
-name = "machine-sega-mega-drive"
-description = "Sega Mega Drive / Genesis machine wiring — 68000 + Z80 + 315-5313 VDP + YM2612 + SN76489"
+name = "common-sega-mega-drive"
+description = "Shared Mega Drive regional machine wiring — 68000 + Z80 + 315-5313 VDP + YM2612 + SN76489"
 version.workspace = true
 publish = false
 edition.workspace = true

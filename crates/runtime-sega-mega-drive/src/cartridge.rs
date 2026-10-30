@@ -14,7 +14,7 @@
 //! headers, and [`normalise_master_system`] drops the 512-byte header some
 //! copiers put in front of it.
 
-use machine_sega_mega_drive::is_master_system_image;
+use common_sega_mega_drive::is_master_system_image;
 
 use crate::Model;
 

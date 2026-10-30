@@ -5,12 +5,13 @@
 //! converted to the host's RGBA after every frame. Time is counted in master
 //! clocks.
 
+use crate::machine::MegaDrive;
+use common_sega_mega_drive::{AUDIO_SAMPLE_RATE, FRAME_STRIDE};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_sega_mega_drive::{AUDIO_SAMPLE_RATE, FRAME_STRIDE, MegaDrive};
 
 use crate::Model;
 use crate::cartridge;
@@ -140,7 +141,7 @@ impl MegaDriveRuntime {
             self.machine = None;
             return;
         };
-        let region = self.model.machine_region();
+        let region = self.model;
         self.machine = Some(if self.power_base {
             MegaDrive::new_power_base(rom, region)
         } else {

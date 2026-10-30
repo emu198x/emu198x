@@ -1,0 +1,14 @@
+[package]
+name = "machine-sega-genesis"
+description = "Fixed Americas Mega Drive regional board"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-sega-mega-drive = {path="../common-sega-mega-drive",version="0.45.0"}
+[dev-dependencies]
+postcard = {workspace=true}
+[lints]
+workspace=true
