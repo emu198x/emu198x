@@ -12,3 +12,6 @@ pub use queries::NesSessionQueryProvider;
 pub use runtime::{FDS_MAPPER_NUMBER, NesRuntime};
 
 mod signal;
+
+#[cfg(test)]
+mod board_baseline_tests;
