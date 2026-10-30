@@ -350,7 +350,15 @@ label = "system:game-boy-advance"
 milestone = "Game Boy Advance CGB mode 100%"
 
 [[system]]
-machine_id = "nintendo-nes"
+machine_id = "nintendo-nes-ntsc"
+machine_crate = "machine-nintendo-nes-ntsc"
+crate = "emu198x-nes"
+label = "system:nes"
+milestone = "NES 100%"
+
+[[system]]
+machine_id = "nintendo-nes-pal"
+machine_crate = "machine-nintendo-nes-pal"
 crate = "emu198x-nes"
 label = "system:nes"
 milestone = "NES 100%"

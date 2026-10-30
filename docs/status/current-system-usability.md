@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 76 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 77 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -51,7 +51,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `nintendo-game-boy-advance` | `emu198x-game-boy` | 1 | 13 | [system:game-boy-advance](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy-advance) | [Game Boy Advance CGB mode 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+Advance+CGB+mode+100%25%22) |
 | `nintendo-game-boy-color` | `emu198x-game-boy` | 1 | 13 | [system:game-boy-color](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy-color) | [Game Boy Color 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+Color+100%25%22) |
 | `nintendo-game-boy-pocket` | `emu198x-game-boy` | 1 | 13 | [system:game-boy-pocket](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Agame-boy-pocket) | [Game Boy Pocket 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Game+Boy+Pocket+100%25%22) |
-| `nintendo-nes` | `emu198x-nes` | 8 | 6 | [system:nes](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Anes) | [NES 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22NES+100%25%22) |
+| `nintendo-nes-ntsc` | `emu198x-nes` | 1 | 14 | [system:nes](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Anes) | [NES 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22NES+100%25%22) |
+| `nintendo-nes-pal` | `emu198x-nes` | 1 | 14 | [system:nes](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Anes) | [NES 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22NES+100%25%22) |
 | `nintendo-snes` | `emu198x-snes` | 7 | 5 | [system:snes](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asnes) | [SNES 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SNES+100%25%22) |
 | `nintendo-super-game-boy` | `emu198x-game-boy` | 1 | 13 | [system:super-game-boy](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asuper-game-boy) | [Super Game Boy 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Super+Game+Boy+100%25%22) |
 | `nintendo-super-game-boy-2` | `emu198x-game-boy` | 1 | 13 | [system:super-game-boy-2](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asuper-game-boy-2) | [Super Game Boy 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Super+Game+Boy+100%25%22) |

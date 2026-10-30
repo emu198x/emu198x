@@ -109,7 +109,7 @@ fn button_input_updates_controller_state() {
         runtime
             .machine()
             .expect("cartridge loaded")
-            .controller1_state
+            .controller1_state()
             & (1 << 3),
         1 << 3
     );
@@ -430,7 +430,7 @@ fn key_events_route_to_controller1_press_and_release() {
         )
         .expect("press should run");
     assert_eq!(
-        runtime.machine().expect("loaded").controller1_state & 0x01,
+        runtime.machine().expect("loaded").controller1_state() & 0x01,
         0x01,
         "uppercase 'A' should still set bit 0 (case-insensitive lookup)",
     );
@@ -451,7 +451,7 @@ fn key_events_route_to_controller1_press_and_release() {
         )
         .expect("release should run");
     assert_eq!(
-        runtime.machine().expect("loaded").controller1_state & 0x01,
+        runtime.machine().expect("loaded").controller1_state() & 0x01,
         0,
         "release should clear bit 0",
     );
@@ -501,7 +501,7 @@ fn every_button_name_maps_to_distinct_bit() {
             .expect("press frame should run");
         let mask = 1u8 << bit;
         assert_eq!(
-            runtime.machine().expect("loaded").controller1_state & mask,
+            runtime.machine().expect("loaded").controller1_state() & mask,
             mask,
             "button {name} should set bit {bit}",
         );
@@ -538,7 +538,7 @@ fn unknown_button_name_does_not_alter_controller_state() {
         )
         .expect("frame should run");
     assert_eq!(
-        runtime.machine().expect("loaded").controller1_state,
+        runtime.machine().expect("loaded").controller1_state(),
         0,
         "unknown button should not alter controller state",
     );
@@ -581,7 +581,7 @@ fn non_port1_button_and_other_events_are_ignored() {
         )
         .expect("frame should run");
     assert_eq!(
-        runtime.machine().expect("loaded").controller1_state,
+        runtime.machine().expect("loaded").controller1_state(),
         0,
         "port-2 and pointer events should not alter controller 1",
     );

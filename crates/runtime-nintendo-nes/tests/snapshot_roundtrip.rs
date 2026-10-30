@@ -50,7 +50,7 @@ fn runtime_snapshot_round_trips_loaded_machine_state() {
         restored
             .machine()
             .expect("machine restored")
-            .controller1_state,
+            .controller1_state(),
         0b0000_1000
     );
 }

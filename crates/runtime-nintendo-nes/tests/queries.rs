@@ -8,7 +8,6 @@ use emu198x_shell::{
     HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink, QueryError, SessionQueryProvider,
 };
-use machine_nintendo_nes::Nes;
 use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
 use serde_json::json;
 
@@ -306,15 +305,15 @@ fn query_provider_exposes_oam_and_counts_sprites_per_scanline() {
         // Ten sprites on scanline 100 — two more than the PPU can draw —
         // and one on its own at scanline 50.
         for i in 0..10u8 {
-            nes.ppu.write_oam(i * 4, 100);
-            nes.ppu.write_oam(i * 4 + 1, i);
-            nes.ppu.write_oam(i * 4 + 2, 0);
-            nes.ppu.write_oam(i * 4 + 3, i * 8);
+            nes.write_oam(i * 4, 100);
+            nes.write_oam(i * 4 + 1, i);
+            nes.write_oam(i * 4 + 2, 0);
+            nes.write_oam(i * 4 + 3, i * 8);
         }
-        nes.ppu.write_oam(10 * 4, 50);
+        nes.write_oam(10 * 4, 50);
         // Park the rest off the visible area.
         for i in 11..64u8 {
-            nes.ppu.write_oam(i * 4, 0xF8);
+            nes.write_oam(i * 4, 0xF8);
         }
     }
 
@@ -398,14 +397,13 @@ fn sprite_scanline_counts_follow_the_sprite_height_bit() {
     {
         let nes = runtime.machine_mut().expect("cartridge loaded");
         for i in 0..9u8 {
-            nes.ppu.write_oam(i * 4, 100);
+            nes.write_oam(i * 4, 100);
         }
         for i in 9..64u8 {
-            nes.ppu.write_oam(i * 4, 0xF8);
+            nes.write_oam(i * 4, 0xF8);
         }
         // Through the real register write, not a test-only setter.
-        let Nes { ppu, mapper, .. } = nes;
-        ppu.cpu_write(0x2000, 0x20, mapper.as_mut()); // 8x16 sprites
+        nes.write_ppu_register(0x2000, 0x20); // 8x16 sprites
     }
 
     let provider = NesSessionQueryProvider;

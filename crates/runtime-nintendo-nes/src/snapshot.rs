@@ -5,8 +5,9 @@
 //! `MachineCore::snapshot` and `MachineCore::restore` are thin
 //! delegators that call into [`encode`] and [`decode`].
 
+use crate::Nes;
+use common_nintendo_nes::NesSnapshot;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_nintendo_nes::{Nes, NesSnapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::NesRuntime;
@@ -72,7 +73,13 @@ pub(crate) fn decode(runtime: &mut NesRuntime, bytes: &[u8]) -> Result<(), Machi
         })?;
     debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
 
-    let machine = snapshot.machine.map(Nes::from_snapshot);
+    let machine = snapshot
+        .machine
+        .map(|state| Nes::from_snapshot(state, runtime.model().machine_region()))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot {
+            reason: reason.into(),
+        })?;
     if machine
         .as_ref()
         .is_some_and(|machine| machine.region() != runtime.model().machine_region())
@@ -92,7 +99,7 @@ pub(crate) fn decode(runtime: &mut NesRuntime, bytes: &[u8]) -> Result<(), Machi
 
 #[cfg(test)]
 mod fidelity_tests {
-    use machine_nintendo_nes::{Nes, NesSnapshot};
+    use common_nintendo_nes::{Nes, NesSnapshot};
     use nintendo_nes_cartridge::{Mirroring, Nrom};
     #[test]
     fn malformed_output_buffers_are_rejected_by_snapshot_decode() {

@@ -16,7 +16,7 @@ use emu198x_shell::{
     HeadlessSession,
     mcp::{InlineTool, ToolError, ToolRegistry},
 };
-use machine_nintendo_nes::Nes;
+use runtime_nintendo_nes::Nes;
 use runtime_nintendo_nes::{NesRuntime, NesSessionQueryProvider};
 use serde_json::{Value, json};
 
@@ -81,7 +81,7 @@ fn arg_u16_or(args: &Value, name: &str, default: u16) -> Result<u16, ToolError> 
 
 fn tool_dump_palette(_args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
     let nes = nes_ref(s)?;
-    let pal = nes.ppu.palette_ram();
+    let pal = nes.ppu().palette_ram();
     let bg: Vec<String> = (0..16).map(|i| format!("{:02X}", pal[i])).collect();
     let sp: Vec<String> = (16..32).map(|i| format!("{:02X}", pal[i])).collect();
     Ok(json!({
@@ -98,7 +98,7 @@ fn tool_dump_oam(args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
         .min(64 - u64::from(start))
         .max(1);
     let nes = nes_ref(s)?;
-    let oam = nes.ppu.oam();
+    let oam = nes.ppu().oam();
     let sprites: Vec<Value> = (start..start + count as u16)
         .map(|i| {
             let base = (i as usize) * 4;
@@ -131,7 +131,7 @@ fn tool_dump_nametable(args: Value, s: &mut NesSession) -> Result<Value, ToolErr
     // `which`: 0/1 to pick one nametable (1 KiB); omit for both.
     let which = args.get("which").and_then(Value::as_u64);
     let nes = nes_ref(s)?;
-    let nt = nes.ppu.nametable_ram();
+    let nt = nes.ppu().nametable_ram();
     let (start, end) = match which {
         Some(0) => (0, 1024),
         Some(1) => (1024, 2048),

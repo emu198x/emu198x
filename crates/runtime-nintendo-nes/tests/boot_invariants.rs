@@ -189,11 +189,13 @@ fn both_controllers_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> 
     restored.restore(&bytes)?;
     let restored_machine = restored.machine().expect("restored cartridge");
     assert_eq!(
-        restored_machine.controller1_state, 0b0101_0101,
+        restored_machine.controller1_state(),
+        0b0101_0101,
         "controller 1 state must survive round-trip"
     );
     assert_eq!(
-        restored_machine.controller2_state, 0b1010_1010,
+        restored_machine.controller2_state(),
+        0b1010_1010,
         "controller 2 state must survive round-trip"
     );
     Ok(())

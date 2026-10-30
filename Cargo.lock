@@ -651,6 +651,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-nintendo-nes"
+version = "0.45.1"
+dependencies = [
+ "emu198x-mos-6502",
+ "emu198x-ricoh-apu-2a03",
+ "emu198x-ricoh-ppu-2c02",
+ "emu198x-test-skip",
+ "format-nintendo-famicom-fds",
+ "nintendo-nes-cartridge",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-sega-master-system"
 version = "0.45.1"
 dependencies = [
@@ -1923,11 +1937,11 @@ dependencies = [
 name = "emu198x-nes"
 version = "0.45.1"
 dependencies = [
+ "common-nintendo-nes",
  "emu198x-app-icon",
  "emu198x-ricoh-ppu-2c02",
  "emu198x-shell",
  "emu198x-ui",
- "machine-nintendo-nes",
  "runtime-nintendo-nes",
  "serde",
  "serde_json",
@@ -4163,17 +4177,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-nintendo-nes"
+name = "machine-nintendo-nes-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-mos-6502",
- "emu198x-ricoh-apu-2a03",
- "emu198x-ricoh-ppu-2c02",
- "emu198x-test-skip",
- "format-nintendo-famicom-fds",
- "nintendo-nes-cartridge",
- "serde",
- "serde-big-array",
+ "common-nintendo-nes",
+]
+
+[[package]]
+name = "machine-nintendo-nes-pal"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-nes",
 ]
 
 [[package]]
@@ -6048,10 +6062,12 @@ dependencies = [
 name = "runtime-nintendo-nes"
 version = "0.45.1"
 dependencies = [
+ "common-nintendo-nes",
  "emu198x-ricoh-ppu-2c02",
  "emu198x-shell",
  "emu198x-test-skip",
- "machine-nintendo-nes",
+ "machine-nintendo-nes-ntsc",
+ "machine-nintendo-nes-pal",
  "nintendo-nes-cartridge",
  "postcard",
  "serde",

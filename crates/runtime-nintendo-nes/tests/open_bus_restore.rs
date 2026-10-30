@@ -22,7 +22,7 @@ fn mid_instruction_guest_reads_resume_identically_for_both_boards() {
         let m = live.machine_mut().expect("loaded");
         let mut reached = false;
         for _ in 0..10_000 {
-            if m.cpu.addr == 0x4000 && m.cpu.rw {
+            if m.cpu().addr == 0x4000 && m.cpu().rw {
                 reached = true;
                 break;
             }

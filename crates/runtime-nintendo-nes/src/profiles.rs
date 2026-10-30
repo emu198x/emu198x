@@ -47,10 +47,10 @@ impl Model {
     }
 
     #[must_use]
-    pub const fn machine_region(self) -> machine_nintendo_nes::Region {
+    pub const fn machine_region(self) -> common_nintendo_nes::Region {
         match self {
-            Self::NesNtsc => machine_nintendo_nes::Region::Ntsc,
-            Self::NesPal => machine_nintendo_nes::Region::Pal,
+            Self::NesNtsc => common_nintendo_nes::Region::Ntsc,
+            Self::NesPal => common_nintendo_nes::Region::Pal,
         }
     }
 
@@ -121,7 +121,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-            machine_id: MachineId::from("nintendo-nes"),
+            machine_id: MachineId::from(model.model_id()),
             profile_id: ProfileId::from(model.profile_id()),
             display_name: model.display_name().into(),
             family: Family::Nes,

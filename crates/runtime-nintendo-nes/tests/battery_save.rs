@@ -53,9 +53,9 @@ fn save_ram_round_trips_through_a_sav_image() {
     // Session 1: write some save bytes through the CPU bus ($6000+).
     let mut rt = load(&rom);
     let nes = rt.machine_mut().expect("machine loaded");
-    nes.mapper.cpu_write(0x6000, 0xA5);
-    nes.mapper.cpu_write(0x6001, 0x5A);
-    nes.mapper.cpu_write(0x7FFF, 0xC3);
+    nes.mapper_mut().cpu_write(0x6000, 0xA5);
+    nes.mapper_mut().cpu_write(0x6001, 0x5A);
+    nes.mapper_mut().cpu_write(0x7FFF, 0xC3);
 
     // Export the .sav image.
     let sav = rt.cartridge_ram().expect("battery RAM present").to_vec();
@@ -66,12 +66,12 @@ fn save_ram_round_trips_through_a_sav_image() {
     // saved bytes back onto the bus.
     let mut rt2 = load(&rom);
     assert_eq!(
-        rt2.machine().expect("loaded").mapper.cpu_read(0x6000),
+        rt2.machine().expect("loaded").mapper().cpu_read(0x6000),
         0x00,
         "fresh"
     );
     rt2.restore_cartridge_ram(&sav).expect("restore");
-    let m = &rt2.machine().expect("loaded").mapper;
+    let m = &rt2.machine().expect("loaded").mapper();
     assert_eq!(m.cpu_read(0x6000), 0xA5);
     assert_eq!(m.cpu_read(0x6001), 0x5A);
     assert_eq!(m.cpu_read(0x7FFF), 0xC3);

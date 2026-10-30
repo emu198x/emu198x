@@ -151,3 +151,21 @@ fn only_the_famicom_model_has_a_disk_slot() {
         Err(MachineError::InvalidMedia { .. })
     ));
 }
+
+#[test]
+fn a_restored_disk_keeps_its_own_bios_when_reset_without_host_firmware() {
+    let mut original = runtime_with_bios();
+    load_disk(&mut original, &disk()).expect("disk");
+    run_frames(&mut original, 3);
+    let saved = original.snapshot().expect("save contains adapter BIOS");
+    let mut restored = NesRuntime::blank(Model::NesNtsc);
+    restored.restore(&saved).expect("self-contained live disk");
+    assert!(restored.has_disk());
+    restored.reset(ResetKind::Hard);
+    assert!(
+        restored.has_disk(),
+        "reset must retain the BIOS carried by the restored adapter"
+    );
+    run_frames(&mut restored, 25);
+    assert_eq!(ram(&restored, 0x030F), 0xA0);
+}
