@@ -36,8 +36,11 @@ impl<B: MegaDriveBoard> MegaDriveCore<B> {
             || state.vdp.pal_machine != B::REGION.pal()
             || state.ram.len() != 0x10000
             || state.z80_ram.len() != 0x2000
-            || state.frame_width() as usize > FRAME_STRIDE
-            || state.framebuffer().len() < FRAME_STRIDE * state.frame_height() as usize
+            || !valid_frame_geometry(
+                state.frame_width(),
+                state.frame_height(),
+                state.framebuffer().len(),
+            )
         {
             return Err("snapshot hardware does not match this Mega Drive board".into());
         }
@@ -149,5 +152,39 @@ impl<B: MegaDriveBoard> MegaDriveCore<B> {
     /// Delegate to the original common engine.
     pub fn finish_restore(&mut self) {
         self.state.finish_restore()
+    }
+}
+
+fn valid_frame_geometry(width: u32, height: u32, pixels: usize) -> bool {
+    width > 0
+        && height > 0
+        && width as usize <= FRAME_STRIDE
+        && height as usize <= pixels / FRAME_STRIDE
+}
+#[cfg(test)]
+mod geometry_tests {
+    use super::*;
+    #[test]
+    fn rejects_empty_or_unaddressable_geometry_and_accepts_real_vdp_buffers() {
+        let pixels = Vdp::new(false).framebuffer().len();
+        for (width, height) in [
+            (0, 243),
+            (FRAME_STRIDE as u32, 0),
+            (FRAME_STRIDE as u32 + 1, 243),
+            (FRAME_STRIDE as u32, u32::MAX),
+        ] {
+            assert!(
+                !valid_frame_geometry(width, height, pixels),
+                "accepted {width}x{height} into {pixels} pixels"
+            );
+        }
+        for pal in [false, true] {
+            let vdp = Vdp::new(pal);
+            assert!(valid_frame_geometry(
+                vdp.frame_width() as u32,
+                vdp.frame_height() as u32,
+                vdp.framebuffer().len()
+            ));
+        }
     }
 }
