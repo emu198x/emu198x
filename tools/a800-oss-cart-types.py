@@ -11,14 +11,14 @@ boards share their sizes with plain cartridges:
 
 MAME records the board per title in `hash/a800.xml`, a CC0-1.0 file carrying
 no redistribution burden. This script distils the OSS titles into a sorted
-CRC32 table that `machine-atari-800xl` uses as positive evidence: a
+CRC32 table that `common-atari-800xl` uses as positive evidence: a
 headerless image whose CRC32 is in the table gets that board, and every other
 image keeps the plain layout its size implies. See
 `knowledge/decisions/cart-layout-needs-positive-evidence.md`.
 
 Run from the repo root:
 
-    python3 tools/a800-oss-cart-types.py --out crates/machine-atari-800xl/src/oss_carts.rs
+    python3 tools/a800-oss-cart-types.py --out crates/common-atari-800xl/src/oss_carts.rs
 
 The vendored hash file lives in the umbrella tree at
 `198x/emulators/multi-system/mame/hash/a800.xml`; pass `--hash-file` when

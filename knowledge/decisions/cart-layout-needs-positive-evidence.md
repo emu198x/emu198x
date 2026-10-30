@@ -114,7 +114,7 @@ and The Writer's Tool on an 8 KB one. TOSEC ships them headerless, and a
 the same four steps:
 
 - `tools/a800-oss-cart-types.py` distils MAME's `hash/a800.xml` (CC0-1.0)
-  into `crates/machine-atari-800xl/src/oss_carts.rs`: 14 OSS titles keyed
+  into `crates/common-atari-800xl/src/oss_carts.rs`: 14 OSS titles keyed
   by CRC32, each mapped to its board. Neither Altirra nor atari800 ships a
   cartridge database to take the table from.
 - An image the table does not know keeps the plain layout for its size:
@@ -124,7 +124,7 @@ the same four steps:
   dumps boot to their prompt or editor, the `CART`-headered MAC/65 still
   boots through its header, and The Writer's Tool runs its editor from its
   program disk. An `#[ignore]`d fixture test holds this
-  (`crates/machine-atari-800xl/tests/oss_cartridges.rs`).
+  (`crates/common-atari-800xl/tests/oss_cartridges.rs`).
 
 **Considered and not done: refusing an unidentified 16 KB image.** An
 error naming `--cart-type` would stop an unknown OSS dump booting into

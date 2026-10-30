@@ -428,7 +428,7 @@ jobs:
           # The 800XL boots AltirraOS: Avery Lee's XL/XE OS reimplementation,
           # under an all-permissive notice of its own rather than the GPLv2
           # that covers the emulator around it.
-          cargo test -p machine-atari-800xl --test altirraos_boot -- --ignored
+          cargo test -p common-atari-800xl --test altirraos_boot -- --ignored
 
   # Cross-platform smoke build. Catches platform-specific compile
   # regressions on macOS (primary dev host) and Windows without
