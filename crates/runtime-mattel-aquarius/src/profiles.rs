@@ -101,7 +101,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         release_year: 1983,
         summary: "Mattel Aquarius — Z80A + Microsoft BASIC ROM (8 KB), 4 KB internal RAM, optional 16 KB expansion, character display.".into(),
-        clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
+        clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(common_mattel_aquarius::CPU_CLOCK_HZ)),
         firmware: vec![
             FirmwareRequirement::new(
                 BIOS_FIRMWARE_ID,
