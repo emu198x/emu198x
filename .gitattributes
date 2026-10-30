@@ -37,3 +37,5 @@
 # NES postcard snapshots and complete binary output packets.
 /test-data/nes/board-split/*.state binary
 /test-data/nes/board-split/*.output binary
+/test-data/nes/board-split-v3/*.state binary
+/test-data/nes/board-split-v3/*.output binary

@@ -353,7 +353,7 @@ fn reset_with_corrupt_cached_cartridge_bytes_blanks_machine() {
     }
 
     let bytes = to_allocvec(&ManualEnvelope {
-        version: 2,
+        version: 3,
         time: 0,
         cartridge_mapper: Some(0),
         // Not iNES — parse_ines will reject during reset's rebuild.

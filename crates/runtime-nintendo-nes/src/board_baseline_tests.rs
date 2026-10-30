@@ -101,7 +101,7 @@ fn output(r: &mut NesRuntime) -> Vec<u8> {
 }
 #[test]
 fn regional_boards_preserve_complete_saves_and_continued_output() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/nes/board-split");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/nes/board-split-v3");
     for model in Model::ALL {
         for (name, devices) in [
             ("pads", InputDevices::Controllers),
@@ -112,6 +112,18 @@ fn regional_boards_preserve_complete_saves_and_continued_output() {
             let mut live = specimen(model, devices);
             let saved = live.snapshot().expect("save");
             let expected = output(&mut live);
+            // Preserve original execution independently of the corrected wire layout.
+            type Fields = Vec<(u64, u64, u32, u32, Vec<u32>, Vec<u32>)>;
+            let legacy = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../test-data/nes/board-split/{name}.output"));
+            let old: (Fields, Vec<u8>) =
+                postcard::from_bytes(&std::fs::read(legacy).expect("v2 control"))
+                    .expect("v2 packets");
+            let current: (Fields, Vec<u8>) = postcard::from_bytes(&expected).expect("v3 packets");
+            assert!(
+                current.0 == old.0,
+                "{name}: original pixels, time and audio must not change"
+            );
             if let Some(dir) = std::env::var_os("EMU198X_NES_CAPTURE") {
                 let dir = PathBuf::from(dir);
                 std::fs::create_dir_all(&dir).expect("capture directory");
@@ -147,4 +159,45 @@ fn regional_boards_preserve_complete_saves_and_continued_output() {
             );
         }
     }
+}
+
+#[test]
+fn partial_visible_field_restore_keeps_ntsc_waveform_codes() {
+    let mut live = specimen(Model::NesNtsc, InputDevices::Controllers);
+    for _ in 0..20_000 {
+        live.machine_mut().expect("loaded").tick();
+    }
+    let saved = live.snapshot().expect("save visible field");
+    let mut restored = NesRuntime::blank(Model::NesNtsc);
+    restored.restore(&saved).expect("restore");
+    fn packet(r: &mut NesRuntime) -> emu198x_shell::CapturedFrame {
+        let mut frames = emu198x_shell::LatestFrameCapture::default();
+        let mut audio = emu198x_shell::NullAudioSink;
+        let result = r
+            .run_frame(&mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frames,
+                audio_sink: &mut audio,
+                trace_sink: &mut NullTraceSink,
+            })
+            .expect("field");
+        assert_eq!(result.stop_reason, emu198x_shell::StopReason::ReachedTarget);
+        assert_eq!(frames.frames_seen(), 1);
+        frames.frame().expect("emitted packet").clone()
+    }
+    let direct = packet(&mut live);
+    let resumed = packet(&mut restored);
+    assert!(
+        direct
+            .signal
+            .as_ref()
+            .expect("NTSC source")
+            .codes
+            .iter()
+            .any(|x| *x != 0)
+    );
+    assert_eq!(
+        direct, resumed,
+        "the complete first emitted field must match, including waveform codes and phase"
+    );
 }

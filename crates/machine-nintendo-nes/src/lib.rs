@@ -166,6 +166,21 @@ pub struct NesSnapshot {
     controller_strobe: bool,
     /// The Zapper and Four Score. Added in runtime snapshot version 2.
     ports: Ports,
+    /// CPU data bus latch, observable on unmapped/write-only reads.
+    open_bus: u8,
+    #[serde(deserialize_with = "deserialize_signal_codes")]
+    signal_codes: Vec<u16>,
+    ppu_open_bus_refresh_ticks: [u64; 8],
+}
+
+fn deserialize_signal_codes<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<u16>, D::Error> {
+    let codes = Vec::<u16>::deserialize(deserializer)?;
+    if codes.len() != (FB_WIDTH * FB_HEIGHT) as usize || codes.iter().any(|code| *code >= 512) {
+        return Err(serde::de::Error::custom("invalid NES signal-code buffer"));
+    }
+    Ok(codes)
 }
 
 /// NES machine.
@@ -1123,6 +1138,9 @@ impl Nes {
             controller2_state: self.controller2_state,
             controller_strobe: self.controller_strobe,
             ports: self.ports.clone(),
+            open_bus: self.open_bus,
+            signal_codes: self.ppu.signal_codes().to_vec(),
+            ppu_open_bus_refresh_ticks: self.ppu.open_bus_refresh_ticks(),
         }
     }
 
@@ -1134,6 +1152,11 @@ impl Nes {
     pub fn restore_snapshot(&mut self, snapshot: NesSnapshot) {
         self.cpu = snapshot.cpu;
         self.ppu = snapshot.ppu;
+        self.ppu
+            .restore_open_bus_refresh_ticks(snapshot.ppu_open_bus_refresh_ticks);
+        self.ppu
+            .restore_signal_codes(&snapshot.signal_codes)
+            .expect("validated snapshot output mirror");
         self.apu = snapshot.apu;
         self.apu.after_restore();
         self.mapper = mapper_from_snapshot(snapshot.mapper);
@@ -1160,17 +1183,22 @@ impl Nes {
         self.controller2_state = snapshot.controller2_state;
         self.controller_strobe = snapshot.controller_strobe;
         self.ports = snapshot.ports;
+        self.open_bus = snapshot.open_bus;
     }
 
     /// Reconstruct a machine directly from a snapshot. Like
     /// [`Self::restore_snapshot`], rehydrates `&'static` references.
     #[must_use]
     pub fn from_snapshot(snapshot: NesSnapshot) -> Self {
+        let mut ppu = snapshot.ppu;
+        ppu.restore_open_bus_refresh_ticks(snapshot.ppu_open_bus_refresh_ticks);
+        ppu.restore_signal_codes(&snapshot.signal_codes)
+            .expect("validated snapshot output mirror");
         let mut apu = snapshot.apu;
         apu.after_restore();
         Self {
             cpu: snapshot.cpu,
-            ppu: snapshot.ppu,
+            ppu,
             apu,
             mapper: mapper_from_snapshot(snapshot.mapper),
             ram: snapshot.ram,
@@ -1198,9 +1226,7 @@ impl Nes {
             controller2_state: snapshot.controller2_state,
             controller_strobe: snapshot.controller_strobe,
             ports: snapshot.ports,
-            // open_bus isn't snapshotted — the next CPU read will
-            // refresh it before any code can observe the value.
-            open_bus: 0,
+            open_bus: snapshot.open_bus,
         }
     }
 }
@@ -1211,6 +1237,63 @@ impl Nes {
 mod tests {
     use super::*;
     use nintendo_nes_cartridge::{Mirroring, Nrom, parse_ines};
+
+    #[test]
+    fn a_mid_instruction_open_bus_read_continues_identically() {
+        let mut prg = vec![0xea; 16_384];
+        // Read a write-only APU register, store its floating-bus value, halt.
+        prg[..8].copy_from_slice(&[0xad, 0x00, 0x40, 0x85, 0x00, 0x4c, 0x05, 0x80]);
+        prg[0x3ffc..0x3ffe].copy_from_slice(&[0, 0x80]);
+        let mut live = Nes::new(Box::new(Nrom::new(prg, Vec::new(), Mirroring::Horizontal)));
+        let mut reached = false;
+        for _ in 0..10_000 {
+            if live.cpu.addr == 0x4000 && live.cpu.rw {
+                reached = true;
+                break;
+            }
+            live.tick();
+        }
+        assert!(reached, "guest must reach its floating-bus read");
+        let mut restored = Nes::from_snapshot(live.snapshot());
+        for _ in 0..100 {
+            live.tick();
+            restored.tick();
+        }
+        assert_eq!(
+            live.peek(0),
+            0x40,
+            "the last operand byte remains on the CPU bus"
+        );
+        assert_eq!(
+            restored.peek(0),
+            live.peek(0),
+            "the resumed guest must store the same byte"
+        );
+    }
+
+    #[test]
+    fn snapshot_preserves_the_next_cpu_open_bus_read() {
+        for address in [0x4000, 0x4018, 0x4016] {
+            let mut live = nop_nes();
+            assert_eq!(live.cpu_read(0x8000), 0xea, "prime bus from actual ROM");
+            let saved = live.snapshot();
+            let expected = live.cpu_read(address);
+            let mut restored = Nes::from_snapshot(saved.clone());
+            assert_eq!(
+                restored.cpu_read(address),
+                expected,
+                "reconstructed read at {address:04x}"
+            );
+            let mut existing = nop_nes();
+            existing.cpu_read(0);
+            existing.restore_snapshot(saved);
+            assert_eq!(
+                existing.cpu_read(address),
+                expected,
+                "in-place read at {address:04x}"
+            );
+        }
+    }
 
     /// Run a blargg-style NES test ROM (result block at `$6000`,
     /// signature `DE B0 61` at `$6001-3`, `$6000`=`0x80` running else
