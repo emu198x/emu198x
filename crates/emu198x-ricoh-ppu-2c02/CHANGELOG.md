@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.1
+
+### Added
+
+- Capture and restore per-bit bus-refresh timestamps from a containing machine save.
+- Restore a validated colour/emphasis output mirror from a containing machine save, preserving partial-field composite-video output without changing the PPU’s own serialized layout.
+
 ## 0.1.0
 
 ### Added

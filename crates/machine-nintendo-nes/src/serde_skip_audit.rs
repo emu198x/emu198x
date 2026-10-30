@@ -42,17 +42,24 @@ struct SerdeSkipAudit {
 }
 
 #[cfg(test)]
-const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[SerdeSkipAudit {
-    path: "crates/emu198x-ricoh-apu-2a03/src/lib.rs",
-    expected: 4,
-    justification: "Four `&'static` region-dependent timing tables \
+const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
+    SerdeSkipAudit {
+        path: "crates/emu198x-ricoh-ppu-2c02/src/lib.rs",
+        expected: 2,
+        justification: "The per-bit bus-refresh deadlines and derived signal-code mirror are retained separately in NesSnapshot v3 and restored with Ppu::restore_open_bus_refresh_ticks and Ppu::restore_signal_codes before emitting a resumed field.",
+    },
+    SerdeSkipAudit {
+        path: "crates/emu198x-ricoh-apu-2a03/src/lib.rs",
+        expected: 4,
+        justification: "Four `&'static` region-dependent timing tables \
                         (noise period, DMC rate, 4-step and 5-step frame \
                         counter sequences). Rehydrated by `Apu::after_restore` \
                         from the serialized `region` field. Without it, PAL \
                         snapshots silently revert to NTSC tables on restore. \
                         `Nes::restore_snapshot` / `Nes::from_snapshot` invoke \
                         `after_restore`.",
-}];
+    },
+];
 
 #[cfg(test)]
 mod tests {

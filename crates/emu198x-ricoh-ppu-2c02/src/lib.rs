@@ -1425,10 +1425,36 @@ impl Ppu {
     }
 
     /// Colour plus per-pixel emphasis, retained before RGB conversion.
-    /// After restore, a complete field must be rendered before using this mirror.
+    /// After deserializing the PPU, restore the containing machine’s saved
+    /// mirror with `restore_signal_codes` or render a complete field first.
     #[must_use]
     pub fn signal_codes(&self) -> &[u16] {
         &self.signal_codes
+    }
+
+    /// Per-bit refresh deadlines retained by a containing machine snapshot.
+    #[must_use]
+    pub const fn open_bus_refresh_ticks(&self) -> [u64; 8] {
+        self.open_bus_decay
+    }
+
+    /// Restore deadlines captured alongside this PPU's serialized state.
+    pub fn restore_open_bus_refresh_ticks(&mut self, ticks: [u64; 8]) {
+        self.open_bus_decay = ticks;
+    }
+
+    /// Restore the output mirror retained by a containing machine snapshot.
+    /// The PPU's own serialized layout continues to omit this derived buffer.
+    ///
+    /// # Errors
+    /// Rejects wrong dimensions or codes outside the nine-bit colour/emphasis range.
+    pub fn restore_signal_codes(&mut self, codes: &[u16]) -> Result<(), &'static str> {
+        if codes.len() != (FB_WIDTH * FB_HEIGHT) as usize || codes.iter().any(|code| *code >= 512) {
+            return Err("invalid PPU signal-code buffer");
+        }
+        self.signal_codes.clear();
+        self.signal_codes.extend_from_slice(codes);
+        Ok(())
     }
 
     fn apply_mask_effects(&self, palette_index: u8) -> u32 {
@@ -1738,6 +1764,22 @@ fn flip_byte(mut b: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn output_mirror_restore_validates_before_changing_live_codes() {
+        let mut ppu = super::Ppu::new();
+        let codes = vec![511; (super::FB_WIDTH * super::FB_HEIGHT) as usize];
+        ppu.restore_signal_codes(&codes).expect("valid output");
+        assert_eq!(ppu.signal_codes(), codes);
+        assert!(ppu.restore_signal_codes(&[]).is_err());
+        let invalid = vec![512; codes.len()];
+        assert!(ppu.restore_signal_codes(&invalid).is_err());
+        assert_eq!(
+            ppu.signal_codes(),
+            codes,
+            "invalid mirror must leave live output intact"
+        );
+    }
+
     use super::*;
 
     /// The CHR side of an NROM board (mapper 0): 8 KiB of CHR ROM, or

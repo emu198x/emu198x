@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::NesRuntime;
 
-/// Version 2 added the Zapper and Four Score state to the machine.
-const SNAPSHOT_VERSION: u16 = 2;
+/// Version 3 retains the CPU open-bus latch; older values are unrecoverable.
+const SNAPSHOT_VERSION: u16 = 3;
 
 /// Persistable NES runtime envelope. Wraps the machine's chip
 /// snapshot (when present) with the surrounding runtime context
@@ -54,16 +54,23 @@ pub(crate) fn encode(runtime: &NesRuntime) -> Result<Vec<u8>, MachineError> {
 /// restores the machine state, the cartridge bytes / mapper, and the
 /// time stamp atomically.
 pub(crate) fn decode(runtime: &mut NesRuntime, bytes: &[u8]) -> Result<(), MachineError> {
+    // Inspect only the version prefix before attempting the changed payload.
+    let (version, _): (u16, _) =
+        postcard::take_from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!(
+                "unsupported NES snapshot version {version}; expected {SNAPSHOT_VERSION}"
+            ),
+        });
+    }
     let snapshot: NesRuntimeSnapshotV1 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported NES snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
 
     let machine = snapshot.machine.map(Nes::from_snapshot);
     if machine
@@ -81,4 +88,54 @@ pub(crate) fn decode(runtime: &mut NesRuntime, bytes: &[u8]) -> Result<(), Machi
     runtime.set_machine(machine);
     runtime.refresh_rgba_framebuffer();
     Ok(())
+}
+
+#[cfg(test)]
+mod fidelity_tests {
+    use machine_nintendo_nes::{Nes, NesSnapshot};
+    use nintendo_nes_cartridge::{Mirroring, Nrom};
+    #[test]
+    fn malformed_output_buffers_are_rejected_by_snapshot_decode() {
+        let live = Nes::new(Box::new(Nrom::new(
+            vec![0xea; 16_384],
+            vec![],
+            Mirroring::Horizontal,
+        )));
+        let original = serde_json::to_value(live.snapshot()).expect("state value");
+        for codes in [vec![], vec![512u16; 256 * 240]] {
+            let mut malformed = original.clone();
+            malformed["signal_codes"] = serde_json::to_value(codes).expect("codes");
+            let result = serde_json::from_value::<NesSnapshot>(malformed);
+            assert!(
+                result.is_err(),
+                "invalid mirror must fail before a live machine can be constructed"
+            );
+        }
+    }
+
+    #[test]
+    fn serialized_ppu_bus_decay_deadlines_resume_identically() {
+        let mut live = Nes::new(Box::new(Nrom::new(
+            vec![0xea; 16_384],
+            vec![],
+            Mirroring::Horizontal,
+        )));
+        // A bus refresh late enough that substituting the reset deadline
+        // would falsely expire it. Only the PPU is relevant to this storage test.
+        live.ppu.run(
+            live.mapper.as_mut(),
+            emu198x_ricoh_ppu_2c02::OPEN_BUS_DECAY_TICKS + 4,
+        );
+        live.ppu.cpu_write(0, 0x1f, live.mapper.as_mut());
+        let bytes = postcard::to_allocvec(&live.snapshot()).expect("serialize");
+        let snapshot: NesSnapshot = postcard::from_bytes(&bytes).expect("decode");
+        let mut restored = Nes::from_snapshot(snapshot);
+        let expected = live.ppu.cpu_read(0, live.mapper.as_mut());
+        assert_eq!(expected, 0x1f, "a freshly written bus has not decayed");
+        assert_eq!(
+            restored.ppu.cpu_read(0, restored.mapper.as_mut()),
+            expected,
+            "saved per-bit refresh deadlines must survive serialization"
+        );
+    }
 }

@@ -135,7 +135,7 @@ fn snapshot_round_trip_is_fixed_point_after_one_frame() -> Result<(), Box<dyn Er
     Ok(())
 }
 
-/// Seam 5 waypoint: NES snapshot envelope version is locked at 2.
+/// Seam 5 waypoint: NES snapshot envelope version is locked at 3.
 ///
 /// Postcard varint-encodes the leading `version: u16` field as a
 /// single byte (for value ≤ 127). A silent bump would change the
@@ -143,11 +143,10 @@ fn snapshot_round_trip_is_fixed_point_after_one_frame() -> Result<(), Box<dyn Er
 /// snapshots. Catches a regression where someone bumps the constant
 /// without an explicit decision.
 ///
-/// Version 2 appended the Zapper and Four Score state to the machine
-/// snapshot; postcard has no field names, so version 1 snapshots cannot
-/// be read as version 2 and are refused.
+/// Version 3 retains the CPU open-bus latch omitted by v2; older saves
+/// cannot reproduce arbitrary CPU-phase execution and are refused.
 #[test]
-fn snapshot_envelope_version_is_locked_at_v2() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v3() -> Result<(), Box<dyn Error>> {
     let rom = minimal_ines();
     let mut runtime = NesRuntime::blank(Model::NesNtsc);
     let mut media = MediaSet::new();
@@ -156,8 +155,8 @@ fn snapshot_envelope_version_is_locked_at_v2() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 2,
-        "NES snapshot envelope version should be 2 (got {})",
+        bytes[0], 3,
+        "NES snapshot envelope version should be 3 (got {})",
         bytes[0]
     );
     Ok(())
