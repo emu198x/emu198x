@@ -1,0 +1,12 @@
+[package]
+name = "machine-atari-130xe-ntsc"
+description = "Fixed atari-130xe-ntsc board"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-atari-800xl = {path="../common-atari-800xl",version="0.45.1"}
+[lints]
+workspace = true

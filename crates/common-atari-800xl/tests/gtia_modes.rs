@@ -21,7 +21,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 /// Map chip colour clocks into the full GTIA picture's pixel coordinates.
 const FIRST_HALF_CLOCK: i32 = emu198x_atari_gtia::GtiaRegion::Ntsc.first_half_clock() as i32;
@@ -50,9 +50,10 @@ fn cartridge() -> Vec<u8> {
 
 /// Boot the probe in the given mode and return one row of the picture as
 /// colour clocks: the ARGB pixel at each colour clock's first half.
-fn row(prior: u8, colbk: u8) -> (Atari800xl, Vec<u32>) {
-    let mut machine = Atari800xl::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
-        .expect("cartridge-only machine");
+fn row(prior: u8, colbk: u8) -> (Atari800xlState, Vec<u32>) {
+    let mut machine =
+        Atari800xlState::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
+            .expect("cartridge-only machine");
     machine.poke(0x80, prior);
     machine.poke(0x81, colbk);
     // The program sets up during the first frame; the third is whole.
@@ -77,7 +78,7 @@ const COLOUR_CLOCKS: i32 = 228;
 
 /// Compare a row against the expected colour value per colour clock, naming
 /// the first differences by colour clock.
-fn assert_row(machine: &Atari800xl, actual: &[u32], expected: &[(i32, u8)]) {
+fn assert_row(machine: &Atari800xlState, actual: &[u32], expected: &[(i32, u8)]) {
     let diffs: Vec<String> = expected
         .iter()
         .filter_map(|&(cc, colour)| {

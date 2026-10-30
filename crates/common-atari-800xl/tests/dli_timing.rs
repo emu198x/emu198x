@@ -30,7 +30,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 /// Map chip colour clocks into the full GTIA picture's pixel coordinates.
 const FIRST_HALF_CLOCK: usize = emu198x_atari_gtia::GtiaRegion::Ntsc.first_half_clock() as usize;
@@ -61,8 +61,9 @@ fn cartridge() -> Vec<u8> {
 /// empty (`false`, font B). `waits` is how many times the interrupt writes
 /// WSYNC before its stores.
 fn screen(width: (u8, usize), waits: u8, delay: u8) -> Vec<Vec<bool>> {
-    let mut machine = Atari800xl::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
-        .expect("cartridge-only machine");
+    let mut machine =
+        Atari800xlState::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
+            .expect("cartridge-only machine");
     machine.poke(0x80, width.0);
     machine.poke(0x81, waits);
     machine.poke(0x82, delay);

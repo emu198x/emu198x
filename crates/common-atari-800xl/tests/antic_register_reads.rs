@@ -6,7 +6,7 @@
 //! sequence ends with both NMIs enabled. Returning 0 leaves the VBI off
 //! and the game waiting on a jiffy clock that never ticks.
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 #[test]
 fn read_modify_write_on_nmien_ends_with_every_nmi_enabled() {
@@ -27,7 +27,7 @@ fn read_modify_write_on_nmien_ends_with_every_nmi_enabled() {
     ];
     cart[..program.len()].copy_from_slice(&program);
 
-    let mut machine = Atari800xl::new(None, None, Some(cart), Atari800xlRegion::Ntsc, false)
+    let mut machine = Atari800xlState::new(None, None, Some(cart), Atari800xlRegion::Ntsc, false)
         .expect("cart-only boot");
     machine.run_frame();
 

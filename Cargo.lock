@@ -493,6 +493,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-atari-800xl"
+version = "0.45.1"
+dependencies = [
+ "emu198x-atari-antic",
+ "emu198x-atari-gtia",
+ "emu198x-atari-pokey",
+ "emu198x-atari-sio",
+ "emu198x-mos-6502",
+ "emu198x-mos-pia-6520",
+ "emu198x-test-skip",
+ "format198x-atari-8bit-atr",
+ "format198x-atari-8bit-xex",
+ "postcard",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "common-coleco-colecovision"
 version = "0.45.1"
 dependencies = [
@@ -3710,6 +3729,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-atari-130xe-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-atari-800xl",
+]
+
+[[package]]
+name = "machine-atari-130xe-pal"
+version = "0.45.1"
+dependencies = [
+ "common-atari-800xl",
+]
+
+[[package]]
 name = "machine-atari-2600"
 version = "0.45.1"
 dependencies = [
@@ -3754,19 +3787,14 @@ dependencies = [
 name = "machine-atari-800xl"
 version = "0.45.1"
 dependencies = [
- "emu198x-atari-antic",
- "emu198x-atari-gtia",
- "emu198x-atari-pokey",
- "emu198x-atari-sio",
- "emu198x-mos-6502",
- "emu198x-mos-pia-6520",
- "emu198x-test-skip",
- "format198x-atari-8bit-atr",
- "format198x-atari-8bit-xex",
- "postcard",
- "serde",
- "serde_json",
- "sha2",
+ "common-atari-800xl",
+]
+
+[[package]]
+name = "machine-atari-800xl-pal"
+version = "0.45.1"
+dependencies = [
+ "common-atari-800xl",
 ]
 
 [[package]]
@@ -5728,11 +5756,15 @@ dependencies = [
 name = "runtime-atari-800xl"
 version = "0.45.1"
 dependencies = [
+ "common-atari-800xl",
  "emu198x-atari-gtia",
  "emu198x-shell",
  "format198x-atari-8bit-atr",
  "format198x-atari-8bit-xex",
+ "machine-atari-130xe-ntsc",
+ "machine-atari-130xe-pal",
  "machine-atari-800xl",
+ "machine-atari-800xl-pal",
  "postcard",
  "serde",
  "serde_json",

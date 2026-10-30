@@ -14,8 +14,8 @@
 //! symbols. Key names are single characters (the literal character to type)
 //! plus a few multi-letter names for non-printing keys.
 
+use crate::machine::Atari800xlMachine as Atari800xl;
 use emu198x_shell::InputEvent;
-use machine_atari_800xl::Atari800xl;
 
 /// Shift modifier bit in a POKEY scan code. Bit 6, not bit 7 — bit 7 is
 /// Control, and sending a shifted symbol with it set asks the OS for the

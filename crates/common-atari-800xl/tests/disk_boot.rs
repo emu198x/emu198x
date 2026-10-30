@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Disk};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState, Disk};
 
 const LOAD_ADDRESS: u16 = 0x0700;
 
@@ -64,7 +64,7 @@ fn the_os_boots_a_disk_in_d1() {
         emu198x_test_skip::skip!("no 800XL OS ROM staged");
     };
 
-    let mut sys = Atari800xl::new(Some(os), None, None, Atari800xlRegion::Ntsc, false)
+    let mut sys = Atari800xlState::new(Some(os), None, None, Atari800xlRegion::Ntsc, false)
         .expect("machine should initialise");
     sys.sio_mut().insert_disk(1, bootable_disk());
 

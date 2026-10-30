@@ -1,7 +1,7 @@
 //! Shared original Acid800 runner. Known guest failures never count as passes.
 use std::path::{Path, PathBuf};
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -55,7 +55,7 @@ fn symbol(labels: &str, name: &str) -> u16 {
     matches[0]
 }
 
-fn screen(machine: &Atari800xl) -> String {
+fn screen(machine: &Atari800xlState) -> String {
     let address = u16::from(machine.peek(0x58)) | (u16::from(machine.peek(0x59)) << 8);
     let mut text = String::new();
     for offset in 0..960 {
@@ -133,7 +133,7 @@ pub fn survey(
             (case, bytes, labels)
         })
         .collect();
-    let mut boot = Atari800xl::new(
+    let mut boot = Atari800xlState::new(
         Some(verified_file(
             &roms.join("atarixl.rom"),
             &manifest.os_sha256,
@@ -167,7 +167,7 @@ pub fn survey(
         } else {
             &case.pal
         };
-        let mut machine: Atari800xl = postcard::from_bytes(&state).expect("restore boot");
+        let mut machine: Atari800xlState = postcard::from_bytes(&state).expect("restore boot");
         let xex = format198x_atari_8bit_xex::parse(&bytes).expect("parse XEX");
         let mut runad_loaded = false;
         for segment in &xex.segments {
