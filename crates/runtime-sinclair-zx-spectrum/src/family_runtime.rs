@@ -363,6 +363,14 @@ impl SpectrumRuntimeKind {
     }
 }
 
+// Keep each concrete constructor in its own stack frame. Inlining all thirteen
+// into the dispatch reserves the largest temporaries even when booting a 48K
+// Spectrum, overflowing the Apple host's 512 KiB worker stack.
+#[inline(never)]
+fn build_boxed<T>(build: impl FnOnce() -> Result<T, MachineError>) -> Result<Box<T>, MachineError> {
+    build().map(Box::new)
+}
+
 impl FamilyRuntime for SpectrumRuntimeKind {
     type Model = crate::Model;
 
@@ -375,43 +383,43 @@ impl FamilyRuntime for SpectrumRuntimeKind {
     ) -> Result<Self, MachineError> {
         Ok(match model {
             crate::Model::Spectrum16KPal => {
-                Self::Spectrum16K(Box::new(Spectrum16kRuntime::from_firmware(firmware)?))
+                Self::Spectrum16K(build_boxed(|| Spectrum16kRuntime::from_firmware(firmware))?)
             }
             crate::Model::Spectrum48KPal => {
-                Self::Spectrum48K(Box::new(Spectrum48kRuntime::from_firmware(firmware)?))
+                Self::Spectrum48K(build_boxed(|| Spectrum48kRuntime::from_firmware(firmware))?)
             }
-            crate::Model::SpectrumPlus => {
-                Self::SpectrumPlus(Box::new(SpectrumPlusRuntime::from_firmware(firmware)?))
-            }
-            crate::Model::Spectrum128KPal => {
-                Self::Spectrum128K(Box::new(Spectrum128kRuntime::from_firmware(firmware)?))
-            }
-            crate::Model::SpectrumPlus2 => {
-                Self::SpectrumPlus2(Box::new(SpectrumPlus2Runtime::from_firmware(firmware)?))
-            }
-            crate::Model::SpectrumPlus2A => {
-                Self::SpectrumPlus2A(Box::new(SpectrumPlus2ARuntime::from_firmware(firmware)?))
-            }
-            crate::Model::SpectrumPlus2B => {
-                Self::SpectrumPlus2B(Box::new(SpectrumPlus2BRuntime::from_firmware(firmware)?))
-            }
-            crate::Model::SpectrumPlus3 => {
-                Self::SpectrumPlus3(Box::new(SpectrumPlus3Runtime::from_firmware(firmware)?))
-            }
+            crate::Model::SpectrumPlus => Self::SpectrumPlus(build_boxed(|| {
+                SpectrumPlusRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::Spectrum128KPal => Self::Spectrum128K(build_boxed(|| {
+                Spectrum128kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumPlus2 => Self::SpectrumPlus2(build_boxed(|| {
+                SpectrumPlus2Runtime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumPlus2A => Self::SpectrumPlus2A(build_boxed(|| {
+                SpectrumPlus2ARuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumPlus2B => Self::SpectrumPlus2B(build_boxed(|| {
+                SpectrumPlus2BRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumPlus3 => Self::SpectrumPlus3(build_boxed(|| {
+                SpectrumPlus3Runtime::from_firmware(firmware)
+            })?),
             crate::Model::Pentagon128 => {
-                Self::Pentagon128(Box::new(Pentagon128Runtime::from_firmware(firmware)?))
+                Self::Pentagon128(build_boxed(|| Pentagon128Runtime::from_firmware(firmware))?)
             }
-            crate::Model::ScorpionZS256 => {
-                Self::ScorpionZS256(Box::new(ScorpionZS256Runtime::from_firmware(firmware)?))
-            }
+            crate::Model::ScorpionZS256 => Self::ScorpionZS256(build_boxed(|| {
+                ScorpionZS256Runtime::from_firmware(firmware)
+            })?),
             crate::Model::TimexTC2048 => {
-                Self::TimexTC2048(Box::new(TimexTC2048Runtime::from_firmware(firmware)?))
+                Self::TimexTC2048(build_boxed(|| TimexTC2048Runtime::from_firmware(firmware))?)
             }
             crate::Model::TimexTC2068 => {
-                Self::TimexTC2068(Box::new(TimexTC2068Runtime::from_firmware(firmware)?))
+                Self::TimexTC2068(build_boxed(|| TimexTC2068Runtime::from_firmware(firmware))?)
             }
             crate::Model::TimexTS2068 => {
-                Self::TimexTS2068(Box::new(TimexTS2068Runtime::from_firmware(firmware)?))
+                Self::TimexTS2068(build_boxed(|| TimexTS2068Runtime::from_firmware(firmware))?)
             }
         })
     }
