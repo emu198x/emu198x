@@ -167,6 +167,9 @@ fn partial_visible_field_restore_keeps_ntsc_waveform_codes() {
     for _ in 0..20_000 {
         live.machine_mut().expect("loaded").tick();
     }
+    live.set_time(MachineTime::new(
+        live.machine().expect("loaded").master_clock(),
+    ));
     let saved = live.snapshot().expect("save visible field");
     let mut restored = NesRuntime::blank(Model::NesNtsc);
     restored.restore(&saved).expect("restore");
