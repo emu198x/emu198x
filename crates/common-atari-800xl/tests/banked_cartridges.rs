@@ -5,7 +5,7 @@
 //! and copies each marker into RAM at `$0600` onwards. The machine boots
 //! cart-only with no OS ROM, so execution starts at the cartridge base.
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 /// The start of the RAM the programs report into.
 const REPORT: u16 = 0x0600;
@@ -27,8 +27,8 @@ fn banked_rom(banks: usize, bank_len: usize) -> Vec<u8> {
     rom
 }
 
-fn run(image: Vec<u8>) -> Atari800xl {
-    let mut machine = Atari800xl::new(None, None, Some(image), Atari800xlRegion::Ntsc, false)
+fn run(image: Vec<u8>) -> Atari800xlState {
+    let mut machine = Atari800xlState::new(None, None, Some(image), Atari800xlRegion::Ntsc, false)
         .expect("cart-only boot");
     for _ in 0..2 {
         machine.run_frame();
@@ -36,7 +36,7 @@ fn run(image: Vec<u8>) -> Atari800xl {
     machine
 }
 
-fn report(machine: &Atari800xl, len: u16) -> Vec<u8> {
+fn report(machine: &Atari800xlState, len: u16) -> Vec<u8> {
     (0..len).map(|i| machine.peek(REPORT + i)).collect()
 }
 
@@ -128,7 +128,7 @@ fn oss_cart_selects_banks_by_control_address_and_switches_off() {
     ];
     rom[..stub.len()].copy_from_slice(&stub);
 
-    let mut machine = Atari800xl::new(
+    let mut machine = Atari800xlState::new(
         None,
         None,
         Some(with_header(15, rom)),

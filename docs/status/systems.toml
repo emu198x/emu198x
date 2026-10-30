@@ -100,6 +100,31 @@ milestone = "Atari 7800 100%"
 
 [[system]]
 machine_id = "atari-800xl"
+machine_crate = "machine-atari-800xl"
+crate = "emu198x-atari-800xl"
+label = "system:atari-800xl"
+milestone = "Atari 800XL 100%"
+
+# Shared XL/XE backlog; board evidence is exclusive to its owner.
+[[system]]
+machine_id = "atari-800xl-pal"
+machine_crate = "machine-atari-800xl-pal"
+crate = "emu198x-atari-800xl"
+label = "system:atari-800xl"
+milestone = "Atari 800XL 100%"
+
+# Shared XL/XE backlog; board evidence is exclusive to its owner.
+[[system]]
+machine_id = "atari-130xe-ntsc"
+machine_crate = "machine-atari-130xe-ntsc"
+crate = "emu198x-atari-800xl"
+label = "system:atari-800xl"
+milestone = "Atari 800XL 100%"
+
+# Shared XL/XE backlog; board evidence is exclusive to its owner.
+[[system]]
+machine_id = "atari-130xe-pal"
+machine_crate = "machine-atari-130xe-pal"
 crate = "emu198x-atari-800xl"
 label = "system:atari-800xl"
 milestone = "Atari 800XL 100%"

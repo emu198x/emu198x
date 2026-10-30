@@ -9,7 +9,7 @@ use emu198x_shell::{
 pub enum Model {
     A800xlNtsc,
     A800xlPal,
-    /// The 130XE: an 800XL board with 64 KB more RAM banked behind PORTB.
+    /// The 130XE adds a controller for 64 KiB of extended RAM behind PORTB.
     A130xeNtsc,
     A130xePal,
 }
@@ -28,12 +28,12 @@ impl Model {
         Self::A130xePal.variant_id(),
     ];
 
-    /// The board's RAM fit.
+    /// The physical board's memory controller.
     #[must_use]
-    pub const fn memory(self) -> machine_atari_800xl::MemoryModel {
+    pub const fn memory(self) -> common_atari_800xl::MemoryModel {
         match self {
-            Self::A800xlNtsc | Self::A800xlPal => machine_atari_800xl::MemoryModel::Xl64k,
-            Self::A130xeNtsc | Self::A130xePal => machine_atari_800xl::MemoryModel::Xe128k,
+            Self::A800xlNtsc | Self::A800xlPal => common_atari_800xl::MemoryModel::Xl64k,
+            Self::A130xeNtsc | Self::A130xePal => common_atari_800xl::MemoryModel::Xe128k,
         }
     }
 
@@ -113,7 +113,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("atari-800xl"),
+        machine_id: MachineId::from(match model{Model::A800xlNtsc=>"atari-800xl",Model::A800xlPal=>"atari-800xl-pal",Model::A130xeNtsc=>"atari-130xe-ntsc",Model::A130xePal=>"atari-130xe-pal"}),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -123,8 +123,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A130xeNtsc | Model::A130xePal => 1985,
         },
         summary: match model.memory() {
-            machine_atari_800xl::MemoryModel::Xl64k => "Atari 800XL — 6502C + ANTIC + GTIA + POKEY + PIA, 64 KB RAM, optional 16 KB OS ROM + 8 KB BASIC ROM, optional cartridge.",
-            machine_atari_800xl::MemoryModel::Xe128k => "Atari 130XE — the 800XL's chips with 128 KB RAM: four 16 KB banks behind PORTB, separately for the CPU and ANTIC. Same OS and BASIC ROMs.",
+            common_atari_800xl::MemoryModel::Xl64k => "Atari 800XL — 6502C + ANTIC + GTIA + POKEY + PIA, 64 KB RAM, optional 16 KB OS ROM + 8 KB BASIC ROM, optional cartridge.",
+            common_atari_800xl::MemoryModel::Xe128k => "Atari 130XE — the 800XL's chips with 128 KB RAM: four 16 KB banks behind PORTB, separately for the CPU and ANTIC. Same OS and BASIC ROMs.",
         }
         .into(),
         // Runtime time and frame_ticks count colour clocks, two per CPU
@@ -183,18 +183,21 @@ mod tests {
     }
 
     #[test]
-    fn the_130xe_is_a_variant_of_the_same_machine_with_more_ram() {
-        for model in [Model::A130xeNtsc, Model::A130xePal] {
+    fn board_identities_are_distinct_while_profile_ids_and_aliases_stay_stable() {
+        for (model, board, profile) in [
+            (Model::A800xlNtsc, "atari-800xl", "atari-800xl-ntsc"),
+            (Model::A800xlPal, "atari-800xl-pal", "atari-800xl-pal"),
+            (Model::A130xeNtsc, "atari-130xe-ntsc", "atari-130xe-ntsc"),
+            (Model::A130xePal, "atari-130xe-pal", "atari-130xe-pal"),
+        ] {
             let p = profile_for(model);
-            assert_eq!(p.machine_id.as_str(), "atari-800xl");
-            assert_eq!(model.memory(), machine_atari_800xl::MemoryModel::Xe128k);
-            assert_eq!(Model::from_variant_id(model.variant_id()), Some(model));
+            assert_eq!(p.machine_id.as_str(), board);
+            assert_eq!(p.profile_id.as_str(), profile);
+            assert_eq!(Model::from_variant_id(profile), Some(model));
         }
+        assert_eq!(Model::from_variant_id("ntsc"), Some(Model::A800xlNtsc));
+        assert_eq!(Model::from_variant_id("pal"), Some(Model::A800xlPal));
         assert_eq!(Model::from_variant_id("130xe"), Some(Model::A130xePal));
-        assert_eq!(
-            Model::A800xlPal.memory(),
-            machine_atari_800xl::MemoryModel::Xl64k
-        );
     }
 
     #[test]

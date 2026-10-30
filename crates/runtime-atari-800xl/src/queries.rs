@@ -1,7 +1,7 @@
 //! Family-owned query surface for the Atari 800XL runtime.
 
+use crate::machine::Atari800xlMachine as Atari800xl;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_atari_800xl::Atari800xl;
 use serde_json::{Value, json};
 
 use crate::runtime::Atari800xlRuntime;

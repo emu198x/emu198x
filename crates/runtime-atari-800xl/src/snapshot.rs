@@ -6,8 +6,8 @@
 //! from ROM. Mirrors the SG-1000 / Game Boy shape: a borrowing envelope for
 //! encode (no clone), an owning envelope for decode.
 
+use crate::machine::Atari800xlMachine as Atari800xl;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_atari_800xl::Atari800xl;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Atari800xlRuntime;
@@ -59,7 +59,7 @@ struct Atari800xlRuntimeSnapshotV2 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Atari800xl>,
+    machine: Option<common_atari_800xl::Atari800xlState>,
     xex_bytes: Option<Vec<u8>>,
     xex_pending: bool,
 }
@@ -105,9 +105,14 @@ pub(crate) fn decode(runtime: &mut Atari800xlRuntime, bytes: &[u8]) -> Result<()
             ),
         });
     }
+    let machine = snapshot
+        .machine
+        .map(|state| Atari800xl::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_xex(snapshot.xex_bytes, snapshot.xex_pending);
-    runtime.set_machine(snapshot.machine);
+    runtime.set_machine(machine);
     Ok(())
 }
 
@@ -164,6 +169,46 @@ mod tests {
                 );
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod board_binding_tests {
+    use super::*;
+    use crate::Model;
+
+    #[test]
+    fn foreign_hardware_under_a_matching_header_is_rejected_atomically() {
+        let rom = include_bytes!("../../../test-data/atari/gtia-modes/atari-800xl-gtia-modes.bin")
+            .to_vec();
+        for selected in Model::ALL {
+            for foreign in Model::ALL.into_iter().filter(|m| *m != selected) {
+                let donor = Atari800xlRuntime::new(foreign, None, None, Some(rom.clone()), false)
+                    .expect("donor");
+                let mut receiver =
+                    Atari800xlRuntime::new(selected, None, None, Some(rom.clone()), false)
+                        .expect("receiver");
+                let before = receiver.snapshot().expect("before");
+                let forged = postcard::to_allocvec(&Atari800xlRuntimeSnapshotRefV2 {
+                    version: SNAPSHOT_VERSION,
+                    time: 12345,
+                    model_id: selected.model_id(),
+                    machine: donor.machine(),
+                    xex_bytes: Some(&[0xFA, 0xCE]),
+                    xex_pending: true,
+                })
+                .expect("forged envelope");
+                assert!(
+                    matches!(
+                        receiver.restore(&forged),
+                        Err(MachineError::InvalidSnapshot { .. })
+                    ),
+                    "selected {selected:?}, foreign {foreign:?}"
+                );
+                assert_eq!(receiver.snapshot().expect("unchanged"), before);
+                assert_eq!(receiver.model(), selected);
+            }
         }
     }
 }

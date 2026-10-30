@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 fn os_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ATARI_800XL_OS") {
@@ -45,7 +45,7 @@ fn os_reaches_self_check() {
     let basic = basic_path().and_then(|p| fs::read(&p).ok());
 
     let mut sys =
-        Atari800xl::new(Some(os), basic, None, Atari800xlRegion::Ntsc, true).expect("init");
+        Atari800xlState::new(Some(os), basic, None, Atari800xlRegion::Ntsc, true).expect("init");
     for _ in 0..200 {
         sys.run_frame();
     }

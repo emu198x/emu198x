@@ -22,8 +22,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState, Cartridge, CartridgeKind};
 use format198x_atari_8bit_atr::AtrImage;
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge, CartridgeKind};
 
 const OFFICIAL_XL_OS_CRC32: u32 = 0x1F9C_D270;
 
@@ -145,7 +145,7 @@ const CARTS: &[Expect] = &[
 
 /// The text window as characters. Atari stores *internal* codes rather than
 /// ATASCII: `$00-$3F` are ATASCII `$20-$5F` and `$60-$7F` are themselves.
-fn screen_text(system: &Atari800xl) -> String {
+fn screen_text(system: &Atari800xlState) -> String {
     let savmsc = u16::from(system.peek(0x58)) | (u16::from(system.peek(0x59)) << 8);
     let mut out = String::with_capacity(24 * 41);
     for row in 0..24u16 {
@@ -216,9 +216,9 @@ impl Fixtures {
     }
 
     /// Cold boot `image` with no override under the XL OS, BASIC off.
-    fn boot(&self, image: &[u8]) -> Atari800xl {
+    fn boot(&self, image: &[u8]) -> Atari800xlState {
         let cart = Cartridge::from_rom(image).expect("cartridge parses");
-        Atari800xl::with_cartridge(
+        Atari800xlState::with_cartridge(
             Some(self.os.clone()),
             None,
             Some(cart),
@@ -228,7 +228,7 @@ impl Fixtures {
     }
 }
 
-fn run(system: &mut Atari800xl, frames: u32, press_start_at: Option<u32>) {
+fn run(system: &mut Atari800xlState, frames: u32, press_start_at: Option<u32>) {
     for frame in 0..frames {
         if let Some(at) = press_start_at {
             if frame == at {
@@ -322,13 +322,13 @@ fn writers_tool_runs_its_editor_from_the_oss_8k_board() {
 }
 
 /// The sectors of an ATR image, as a disk for the drive.
-fn disk_from_atr(bytes: &[u8]) -> machine_atari_800xl::Disk {
+fn disk_from_atr(bytes: &[u8]) -> common_atari_800xl::Disk {
     let atr = AtrImage::parse(bytes).expect("ATR parses");
     let data = (1..=atr.sector_count())
         .filter_map(|sector| atr.sector(sector))
         .flatten()
         .copied()
         .collect();
-    machine_atari_800xl::Disk::new(atr.sector_size(), data, atr.write_protected())
+    common_atari_800xl::Disk::new(atr.sector_size(), data, atr.write_protected())
         .expect("a parsed ATR is a whole disk")
 }

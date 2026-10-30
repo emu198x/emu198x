@@ -16,7 +16,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 /// DMACTL: normal playfield, display list DMA, player and missile DMA.
 const DMACTL_TWO_LINE: u8 = 0x2E;
@@ -132,8 +132,9 @@ fn cartridge() -> Vec<u8> {
 /// Boot the probe with the given registers and return every pixel that is
 /// not the background colour after the picture has settled.
 fn lit_pixels(dmactl: u8, gractl: u8, vdelay: u8) -> BTreeSet<(i32, i32)> {
-    let mut machine = Atari800xl::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
-        .expect("cartridge-only machine");
+    let mut machine =
+        Atari800xlState::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
+            .expect("cartridge-only machine");
     machine.poke(0x80, dmactl);
     machine.poke(0x81, gractl);
     machine.poke(0x82, vdelay);

@@ -1,13 +1,14 @@
 //! Runtime wrapper for the Atari 800XL.
 
+use crate::machine::Atari800xlMachine as Atari800xl;
+use common_atari_800xl::Disk;
+use common_atari_800xl::{Cartridge, CartridgeKind};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
 use format198x_atari_8bit_atr::AtrImage;
-use machine_atari_800xl::Disk;
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge, CartridgeKind};
 
 use crate::profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for};
 use crate::snapshot;
@@ -252,18 +253,13 @@ impl Atari800xlRuntime {
             self.disk_1 = disk;
             return;
         }
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => Atari800xlRegion::Pal,
-            _ => Atari800xlRegion::Ntsc,
-        };
         let mut machine = Atari800xl::with_cartridge(
             self.os_bytes.clone(),
             self.basic_bytes.clone(),
             self.cartridge.clone(),
-            region,
+            self.model,
             self.basic_enabled,
-        )
-        .with_memory(self.model.memory());
+        );
         if let Some(disk) = disk {
             machine.sio_mut().insert_disk(1, disk);
         }

@@ -25,7 +25,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 fn rom_dir() -> Option<PathBuf> {
     let root = std::env::var_os("EMU198X_ROMS_ROOT")
@@ -39,7 +39,7 @@ fn rom_dir() -> Option<PathBuf> {
 /// value plus a constant the way a C64 screen code is. Getting this wrong
 /// renders a perfectly good boot screen as line noise, which is how the
 /// first reading of this test's output was misdiagnosed as a hang.
-fn screen_text(system: &Atari800xl) -> String {
+fn screen_text(system: &Atari800xlState) -> String {
     // SAVMSC ($58/$59) points at the top-left of the text window.
     let savmsc = u16::from(system.peek(0x58)) | (u16::from(system.peek(0x59)) << 8);
     let mut out = String::with_capacity(24 * 41);
@@ -73,7 +73,7 @@ fn altirraos_cold_starts_to_a_basic_prompt() {
     assert_eq!(os.len(), 0x4000, "the XL kernel is 16 KiB");
     assert_eq!(basic.len(), 0x2000, "Altirra BASIC is 8 KiB");
 
-    let mut system = Atari800xl::new(
+    let mut system = Atari800xlState::new(
         Some(os),
         Some(basic),
         None,
@@ -126,8 +126,9 @@ fn altirraos_cold_starts_without_basic_when_asked() {
     let os = std::fs::read(&os_path).expect("AltirraOS should read");
     let basic = std::fs::read(dir.join("altirra_basic.rom")).expect("Altirra BASIC should read");
 
-    let mut system = Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, false)
-        .expect("AltirraOS should initialise an 800XL");
+    let mut system =
+        Atari800xlState::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, false)
+            .expect("AltirraOS should initialise an 800XL");
     for _ in 0..1000 {
         system.run_frame();
     }

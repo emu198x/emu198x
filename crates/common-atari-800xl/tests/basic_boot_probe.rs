@@ -19,7 +19,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use common_atari_800xl::{Atari800xlRegion, Atari800xlState};
 
 fn rom_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
@@ -32,8 +32,8 @@ fn basic_boot_programs_antic_and_gtia() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
     let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
-    let mut sys =
-        Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true).expect("boot");
+    let mut sys = Atari800xlState::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true)
+        .expect("boot");
 
     // ~5 seconds of NTSC frames — well past the OS cold-boot settle.
     let rtclok_start = sys.ram()[0x14];
@@ -110,8 +110,8 @@ fn boots_to_basic_ready() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
     let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
-    let mut sys =
-        Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true).expect("boot");
+    let mut sys = Atari800xlState::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true)
+        .expect("boot");
 
     // The built-in BASIC cartridge sets the "boot peripherals" flag, so the
     // OS attempts a disk boot over SIO before running BASIC. With no drive,
@@ -173,8 +173,8 @@ fn keyboard_types_into_basic() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
     let basic = std::fs::read(dir.join("ataribas.rom")).expect("ataribas.rom");
-    let mut sys =
-        Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true).expect("boot");
+    let mut sys = Atari800xlState::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, true)
+        .expect("boot");
     for _ in 0..600 {
         sys.run_frame();
     }

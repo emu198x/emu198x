@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+common-atari-800xl = {path="../common-atari-800xl",version="0.45.1"}
+machine-atari-800xl-pal = {path="../machine-atari-800xl-pal",version="0.45.1"}
+machine-atari-130xe-ntsc = {path="../machine-atari-130xe-ntsc",version="0.45.1"}
+machine-atari-130xe-pal = {path="../machine-atari-130xe-pal",version="0.45.1"}
 emu198x-shell = { workspace = true }
 emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.0" }
 machine-atari-800xl = { path = "../machine-atari-800xl", version = "0.45.0" }

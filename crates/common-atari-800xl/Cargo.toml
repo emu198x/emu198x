@@ -1,0 +1,28 @@
+[package]
+name = "common-atari-800xl"
+description = "Shared original Atari XL/XE wiring and state"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-atari-antic = { path = "../emu198x-atari-antic", version = "0.1.0" }
+emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.0" }
+emu198x-atari-sio = { path = "../emu198x-atari-sio", version = "0.1.0" }
+emu198x-atari-pokey = { path = "../emu198x-atari-pokey", version = "0.1.0" }
+emu198x-mos-6502 = "0.6.1"
+emu198x-mos-pia-6520 = "0.1.0"
+serde = { workspace = true }
+
+[dev-dependencies]
+format198x-atari-8bit-atr = "0.1.0"
+sha2 = { workspace = true }
+serde_json = { workspace = true }
+format198x-atari-8bit-xex = "0.1.0"
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
+postcard = { workspace = true }
+
+[lints]
+workspace = true

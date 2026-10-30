@@ -120,7 +120,7 @@ fn prepared(model: Model, banked: bool) -> Atari800xlRuntime {
     r.load_media(&media).expect("pending XEX");
     assert!(r.xex_pending());
     let m = r.machine_mut().expect("machine");
-    let mut disk = machine_atari_800xl::Disk::new(128, vec![1; 256], false).expect("disk");
+    let mut disk = common_atari_800xl::Disk::new(128, vec![1; 256], false).expect("disk");
     assert!(disk.write_sector(2, &[0x5A; 128]));
     m.sio_mut().insert_disk(1, disk);
     m.set_joystick(true, false, true, false);
