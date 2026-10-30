@@ -2,6 +2,8 @@
 
 Adopted 2026-10-30 for #2209. Steve chose fixing save fidelity before the Timex board split and explicitly approved version 17 with rejection of version 16.
 
+This supersedes the ULA transient-default justification in the serialization audit introduced by Seam 3 of `spectrum-architecture-review.md`: draining within a character cell is insufficient when the first resumed pixels change. The audit still locks every allowed skip; only the immutable engine timing reference may remain omitted.
+
 The shared ULA serializes its pending bitmap and attribute fetches, second Timex bitmap fetch, border output latch, VidEN, M-cycle falling phase and previous falling address. These are live state even when they drain or change within a character cell. Resetting them during restore can alter the first resumed pixels or phase. Only the immutable timing configuration remains outside the payload; every owner reattaches the correct configuration after decode.
 
 The shared engine and six wrappers use version 0.2.0 because their positional serialized layout changes. Spectrum runtime saves use version 17. Version 16 is rejected before payload decoding: it does not contain enough state for exact reconstruction. Do not silently default the missing fields or suppress the first resumed frame. Other legacy versions retain their existing rejection policy.
