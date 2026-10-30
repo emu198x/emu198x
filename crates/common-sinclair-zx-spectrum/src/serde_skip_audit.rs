@@ -6,8 +6,8 @@
 //! default function) on deserialise, not the value held before
 //! snapshot. That's only acceptable when either:
 //!
-//! 1. The default produces correct behaviour (transient state that
-//!    drains within one tick / one frame), or
+//! 1. The field is host-only or zero-sized, so its default cannot change
+//!    emulated output or machine state, or
 //! 2. The field is rehydrated by a typed `after_restore` hook the
 //!    runtime layer calls right after deserialise.
 //!
@@ -44,16 +44,13 @@ struct SerdeSkipAudit {
 const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
     SerdeSkipAudit {
         path: "crates/emu198x-sinclair-zx-spectrum-ula/src/lib.rs",
-        expected: 8,
-        justification: "Two-stage shifter pipeline + AOLatch border + \
-                        config + M-cycle fall counter: pipeline state drains \
-                        within one 16-pixel cycle; AOLatch within one \
-                        character cell; config is `&'static`, reattached by \
-                        `reattach_config()`. `mcycle_fall`/`prev_fall_addr` \
-                        default to a shut counter and rebuild on the first \
-                        address change, which is the next M-cycle — a \
-                        restored state resumes at an instruction boundary, so \
-                        there is no I/O M-cycle in flight to be mid-count.",
+        expected: 1,
+        justification: "Only the immutable UlaConfig reference is skipped and \
+                        reattached by the owning machine before stepping. \
+                        Snapshot v17 preserves pending fetches, output latch, \
+                        VidEN and falling-edge phase/address; their defaults \
+                        cannot reproduce exact continuation. See \
+                        spectrum-video-pipeline-snapshots.md and #2209.",
     },
     SerdeSkipAudit {
         path: "crates/emu198x-nec-upd765a/src/lib.rs",
