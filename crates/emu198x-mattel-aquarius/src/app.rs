@@ -14,6 +14,7 @@ pub const FRAME_TICKS: u64 = Model::Aquarius.frame_ticks();
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Aquarius {
+    pub model: Model,
     pub firmware: FirmwareOverrides,
     pub cart: Option<PathBuf>,
     pub expansion_kb: usize,
@@ -25,7 +26,9 @@ impl MachineApp for Aquarius {
 
     const BIN_NAME: &'static str = "emu198x-mattel-aquarius";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const MACHINE_OPTIONS: &'static str = "    --bios PATH     Aquarius BASIC ROM (8 KB); default
+    const MACHINE_OPTIONS: &'static str =
+        "    --model ID      mattel-aquarius (default) or mattel-aquarius-pal
+    --bios PATH     Aquarius BASIC ROM (8 KB); default
                     ~/.emu198x/roms/mattel-aquarius/aquarius.rom
                     (or set EMU198X_AQUARIUS_BIOS)
     --char PATH     Aquarius character ROM (2 KB); default
@@ -46,6 +49,11 @@ impl MachineApp for Aquarius {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id)
+                    .ok_or_else(|| LaunchError::Usage(format!("unknown Aquarius model {id}")))?;
+            }
             "--bios" | "--char" => {
                 let id = if flag == "--bios" {
                     runtime_mattel_aquarius::BIOS_FIRMWARE_ID
@@ -58,8 +66,8 @@ impl MachineApp for Aquarius {
                 .firmware
                 .add_spec(
                     &args.value(flag)?,
-                    Model::Aquarius.variant_id(),
-                    &Model::Aquarius.firmware_sources(),
+                    self.model.variant_id(),
+                    &self.model.firmware_sources(),
                 )
                 .map_err(|err| LaunchError::Usage(err.to_string()))?,
             "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
@@ -71,7 +79,7 @@ impl MachineApp for Aquarius {
     }
 
     fn frame_ticks(&self) -> u64 {
-        Model::Aquarius.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> AquariusSessionQueryProvider {
@@ -79,7 +87,7 @@ impl MachineApp for Aquarius {
     }
 
     fn build_runtime(&self) -> Result<AquariusRuntime, LaunchError> {
-        let mut runtime = build_variant::<AquariusRuntime>(Model::Aquarius, &self.firmware)
+        let mut runtime = build_variant::<AquariusRuntime>(self.model, &self.firmware)
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime.set_expansion_kb(self.expansion_kb);
         Ok(runtime)
@@ -87,7 +95,7 @@ impl MachineApp for Aquarius {
 
     fn build_mcp_runtime(&self) -> Result<AquariusRuntime, LaunchError> {
         let mut runtime =
-            build_variant_or_blank(Model::Aquarius, &self.firmware, AquariusRuntime::blank)
+            build_variant_or_blank(self.model, &self.firmware, AquariusRuntime::blank)
                 .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime.set_expansion_kb(self.expansion_kb);
         Ok(runtime)
@@ -235,5 +243,21 @@ mod tests {
                 "--expansion-kb expects a non-negative integer, got lots".to_owned()
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod regional_tests {
+    use super::*;
+    use emu198x_shell::launch::{Parsed, parse};
+    #[test]
+    fn canonical_pal_model_selects_its_native_budget() {
+        let args = vec!["--model".into(), "mattel-aquarius-pal".into()];
+        let Parsed::Run { app, .. } = parse::<Aquarius>(&args).expect("PAL flags") else {
+            panic!("run")
+        };
+        assert_eq!(app.model, Model::AquariusPal);
+        assert_eq!(app.frame_ticks(), Model::AquariusPal.frame_ticks());
+        assert!(parse::<Aquarius>(&["--model".into(), "unknown".into()]).is_err());
     }
 }

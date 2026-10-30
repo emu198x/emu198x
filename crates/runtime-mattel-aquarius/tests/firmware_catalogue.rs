@@ -2,9 +2,12 @@ use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore};
 use runtime_mattel_aquarius::{AquariusRuntime, BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model};
 
 #[test]
-fn single_model_catalogue_builds_the_existing_profile() {
+fn catalogue_retains_the_existing_profile_and_adds_pal() {
     let model = Model::Aquarius;
-    assert_eq!(AquariusRuntime::variant_ids(), &[model.profile_id()]);
+    assert_eq!(
+        AquariusRuntime::variant_ids(),
+        &[model.profile_id(), "mattel-aquarius-pal"]
+    );
     assert_eq!(
         AquariusRuntime::model_from_id(model.profile_id()),
         Some(model)

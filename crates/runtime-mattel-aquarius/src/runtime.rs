@@ -7,12 +7,12 @@
 //! The machine samples its 1-bit speaker into a waveform buffer, which this
 //! runtime drains into one mono `AudioPacket` per frame.
 
+use crate::machine::Aquarius;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_mattel_aquarius::Aquarius;
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model, profile_for};
@@ -225,13 +225,19 @@ impl AquariusRuntime {
     /// framebuffer from its live state. Replaces the cold-boot rebuild on the
     /// restore path so the resumed machine keeps its CPU/RAM/PSG/display state.
     pub(crate) fn set_machine(&mut self, machine: Option<Aquarius>) {
-        if let Some(machine) = &machine {
-            let width = machine.framebuffer_width();
-            let height = machine.framebuffer_height();
-            self.rgba_width = width;
-            self.rgba_height = height;
-            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
-        }
+        self.bios_bytes = machine.as_ref().map(|m| m.bios().to_vec());
+        self.char_rom_bytes = machine
+            .as_ref()
+            .filter(|m| !m.character_rom().is_empty())
+            .map(|m| m.character_rom().to_vec());
+        self.cart_bytes = machine
+            .as_ref()
+            .filter(|m| !m.cartridge().is_empty())
+            .map(|m| m.cartridge().to_vec());
+        self.expansion_kb = machine.as_ref().map_or(0, Aquarius::expansion_kb);
+        self.rgba_width = machine.as_ref().map_or(0, Aquarius::framebuffer_width);
+        self.rgba_height = machine.as_ref().map_or(0, Aquarius::framebuffer_height);
+        self.rgba_framebuffer = vec![0; (self.rgba_width * self.rgba_height * 4) as usize];
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
@@ -241,7 +247,7 @@ impl AquariusRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = Aquarius::new(bios, self.expansion_kb, self.model.machine_region());
+        let mut machine = Aquarius::new(bios, self.expansion_kb, self.model);
         if let Some(char_rom) = self.char_rom_bytes.clone() {
             machine.set_char_rom(char_rom);
         }

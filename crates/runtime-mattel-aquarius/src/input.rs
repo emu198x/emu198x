@@ -14,8 +14,8 @@
 //! through the Mini Expander's AY. One [`ControllerCache`] mirror per port
 //! re-applies the whole state via [`Aquarius::set_joystick`] on each event.
 
+use crate::machine::Aquarius;
 use emu198x_shell::InputEvent;
-use machine_mattel_aquarius::Aquarius;
 
 /// Host-side mirror of one Aquarius hand controller: four directions plus the
 /// fire button, re-applied via [`Aquarius::set_joystick`] on every event.
@@ -172,11 +172,11 @@ pub(crate) fn knows_key_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use machine_mattel_aquarius::AquariusRegion;
+    use crate::Model;
     use std::borrow::Cow;
 
     fn make_aquarius() -> Aquarius {
-        Aquarius::new(vec![0u8; 0x4000], 0, AquariusRegion::Ntsc)
+        Aquarius::new(vec![0u8; 0x4000], 0, Model::Aquarius)
     }
 
     fn button(port: u8, name: &str, pressed: bool) -> InputEvent {

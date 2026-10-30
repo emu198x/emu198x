@@ -6,8 +6,9 @@
 //! Mirrors the Game Boy / Jupiter Ace shape: a borrowing envelope for encode,
 //! an owning envelope for decode.
 
+use crate::machine::Aquarius;
+use common_mattel_aquarius::AquariusState;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_mattel_aquarius::Aquarius;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::AquariusRuntime;
@@ -33,7 +34,7 @@ struct AquariusRuntimeSnapshotV3 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Aquarius>,
+    machine: Option<AquariusState>,
 }
 
 pub(crate) fn encode(runtime: &AquariusRuntime) -> Result<Vec<u8>, MachineError> {
@@ -73,11 +74,15 @@ pub(crate) fn decode(runtime: &mut AquariusRuntime, bytes: &[u8]) -> Result<(), 
             ),
         });
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
+    let mut machine = snapshot
+        .machine
+        .map(|state| Aquarius::from_state(state, runtime.model()))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     if let Some(machine) = &mut machine {
         machine.cpu_mut().rehydrate_walker_sequence();
     }
+    runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())
 }

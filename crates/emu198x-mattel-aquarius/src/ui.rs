@@ -33,7 +33,7 @@ const AQUARIUS_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-/// The Mattel Aquarius as a [`UiSystem`] for the shared harness. Single-model;
+/// The Aquarius as a [`UiSystem`] for the shared harness. The regional board is selected at launch;
 /// a hard reset rebuilds the machine from the firmware the runtime holds. The
 /// cartridge and RAM expansion are fixed at construction.
 pub struct AquariusSystem;
@@ -57,7 +57,7 @@ impl UiSystem for AquariusSystem {
         DEFAULT_SCALE
     }
 
-    // The Aquarius drove a 4:3 TV; its 320×192 framebuffer stretches to fill it.
+    // The Aquarius drove a 4:3 TV.
 
     // The display is CPU-generated; advance whole frames so a slice never
     // captures a half-drawn picture.

@@ -22,15 +22,15 @@
 //! runs in an ordinary `--ignored` sweep instead of demanding three variables
 //! nothing else sets.
 //!
-//!   cargo test --release -p machine-mattel-aquarius --test cart_autostart_probe \
+//!   cargo test --release -p common-mattel-aquarius --test cart_autostart_probe \
 //!     -- --ignored --nocapture
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use common_mattel_aquarius::{AquariusRegion, AquariusState};
 use emu198x_zilog_z80::Z80Stepper;
-use machine_mattel_aquarius::{Aquarius, AquariusRegion};
 
 fn rom_dir() -> Option<PathBuf> {
     let home = env::var("HOME").ok()?;
@@ -78,9 +78,9 @@ fn read(path: Option<PathBuf>, what: &str) -> Vec<u8> {
     fs::read(&path).unwrap_or_else(|e| panic!("read {} ({e})", path.display()))
 }
 
-fn cart_machine() -> Aquarius {
+fn cart_machine() -> AquariusState {
     let bios = read(rom_path("EMU198X_AQUARIUS_BIOS", "aquarius.rom"), "BIOS");
-    let mut sys = Aquarius::new(bios, 0, AquariusRegion::Ntsc);
+    let mut sys = AquariusState::new(bios, 0, AquariusRegion::Ntsc);
     sys.set_char_rom(read(
         rom_path("EMU198X_AQUARIUS_CHAR", "aquarius-char.rom"),
         "character ROM",

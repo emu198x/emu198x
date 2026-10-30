@@ -19,7 +19,7 @@
 
 use std::path::PathBuf;
 
-use machine_mattel_aquarius::{Aquarius, AquariusRegion};
+use common_mattel_aquarius::{AquariusRegion, AquariusState};
 
 /// What colour attribute `$66` renders across a screen of spaces.
 const BACKGROUND: u32 = 0xFF00_00FF;
@@ -32,9 +32,9 @@ fn firmware(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn booted(name: &str) -> Aquarius {
+fn booted(name: &str) -> AquariusState {
     let rom = std::fs::read(firmware(name)).expect("firmware image");
-    let mut machine = Aquarius::new(rom, 0, AquariusRegion::Ntsc);
+    let mut machine = AquariusState::new(rom, 0, AquariusRegion::Ntsc);
     for _ in 0..10 {
         machine.run_frame();
     }

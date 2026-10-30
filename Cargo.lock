@@ -605,6 +605,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-mattel-aquarius"
+version = "0.45.1"
+dependencies = [
+ "emu198x-gi-ay-3-8910",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-msx"
 version = "0.45.1"
 dependencies = [
@@ -4050,12 +4062,16 @@ dependencies = [
 name = "machine-mattel-aquarius"
 version = "0.45.1"
 dependencies = [
- "emu198x-gi-ay-3-8910",
- "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "common-mattel-aquarius",
  "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-mattel-aquarius-pal"
+version = "0.45.1"
+dependencies = [
+ "common-mattel-aquarius",
+ "postcard",
 ]
 
 [[package]]
@@ -5923,9 +5939,11 @@ dependencies = [
 name = "runtime-mattel-aquarius"
 version = "0.45.1"
 dependencies = [
+ "common-mattel-aquarius",
  "emu198x-shell",
  "emu198x-zilog-z80",
  "machine-mattel-aquarius",
+ "machine-mattel-aquarius-pal",
  "postcard",
  "serde",
  "serde_json",

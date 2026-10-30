@@ -225,6 +225,14 @@ milestone = "Jupiter Ace 100%"
 
 [[system]]
 machine_id = "mattel-aquarius"
+machine_crate = "machine-mattel-aquarius"
+crate = "emu198x-mattel-aquarius"
+label = "system:aquarius"
+milestone = "Aquarius 100%"
+
+[[system]]
+machine_id = "mattel-aquarius-pal"
+machine_crate = "machine-mattel-aquarius-pal"
 crate = "emu198x-mattel-aquarius"
 label = "system:aquarius"
 milestone = "Aquarius 100%"

@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 71 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 72 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -42,7 +42,8 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `dragon` | `emu198x-dragon` | 1 | 8 | [system:dragon](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Adragon) | [Dragon 32 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Dragon+32+100%25%22) |
 | `dragon-64` | `emu198x-dragon` | 1 | 8 | [system:dragon-64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Adragon-64) | [Dragon 64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Dragon+64+100%25%22) |
 | `jupiter-ace` | `emu198x-jupiter-ace` | 3 | 5 | [system:jupiter-ace](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ajupiter-ace) | [Jupiter Ace 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Jupiter+Ace+100%25%22) |
-| `mattel-aquarius` | `emu198x-mattel-aquarius` | 3 | 5 | [system:aquarius](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aaquarius) | [Aquarius 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Aquarius+100%25%22) |
+| `mattel-aquarius` | `emu198x-mattel-aquarius` | 1 | 8 | [system:aquarius](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aaquarius) | [Aquarius 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Aquarius+100%25%22) |
+| `mattel-aquarius-pal` | `emu198x-mattel-aquarius` | 1 | 8 | [system:aquarius](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aaquarius) | [Aquarius 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Aquarius+100%25%22) |
 | `memotech-mtx` | `emu198x-memotech-mtx` | 3 | 5 | [system:mtx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amtx) | [Memotech MTX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Memotech+MTX+100%25%22) |
 | `mitsubishi-ml-f80` | `emu198x-msx` | 1 | 12 | [system:msx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amsx) | [MSX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22MSX+100%25%22) |
 | `mitsubishi-ml-fx1` | `emu198x-msx` | 1 | 12 | [system:msx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amsx) | [MSX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22MSX+100%25%22) |
