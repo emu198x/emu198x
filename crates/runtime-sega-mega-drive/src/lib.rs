@@ -18,3 +18,6 @@ pub use machine_sega_mega_drive::{Buttons, Device, MegaDrive, Region};
 pub use profiles::{Model, blank, profile_for, profiles, with_cartridge};
 pub use queries::MegaDriveSessionQueryProvider;
 pub use runtime::{MASTER_SYSTEM, MEGA_DRIVE, MegaDriveRuntime};
+
+#[cfg(test)]
+mod board_baseline_tests;
