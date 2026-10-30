@@ -31,6 +31,8 @@ machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-
 machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3", version = "0.45.0" }
 machine-timex-tc2048 = { path = "../machine-timex-tc2048", version = "0.45.0" }
 machine-timex-ts2068 = { path = "../machine-timex-ts2068", version = "0.45.0" }
+machine-timex-tc2068 = { path = "../machine-timex-tc2068", version = "0.45.0" }
+common-timex-2068 = { path = "../common-timex-2068", version = "0.45.0" }
 emu198x-peripheral-sinclair-zx-spectrum-divmmc = "0.1.0"
 emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick = "0.1.0"
 emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse = "0.1.0"

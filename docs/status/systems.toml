@@ -476,6 +476,20 @@ label = "system:spectrum"
 milestone = "Spectrum 100%"
 
 [[system]]
+machine_id = "timex-tc2068"
+machine_crate = "machine-timex-tc2068"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "timex-ts2068"
+machine_crate = "machine-timex-ts2068"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
 machine_id = "sinclair-zx80"
 machine_crate = "machine-sinclair-zx80"
 crate = "emu198x-sinclair-zx80"

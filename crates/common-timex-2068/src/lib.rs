@@ -1,0 +1,728 @@
+//! Shared wiring for fixed TC2068 (PAL) and TS2068 (NTSC) owners.
+//!
+//! Source references:
+//! - `knowledge/systems/spectrum/variants.md`
+//! - Adapted from `../Emu198x-Older/crates/machine-timex-ts2068/src/lib.rs`
+//!
+//! Hardware:
+//! - Z80 — TC2068: 3.5 MHz / TS2068: 3.528 MHz (master / 4)
+//! - Timex SCLD with PAL or NTSC config
+//! - 16 KB ROM + 48 KB RAM with DOCK / EXROM paging via port `$F4`
+//! - General Instrument AY-3-8912 PSG on ports `$F5` (select / read)
+//!   and `$F6` (data write) — NOT the standard 128K `$FFFD` / `$BFFD`
+//! - Full I/O decoding (exact low-byte match)
+//!
+//! `TimexModel::TS2068` selects 14.112 MHz NTSC timing with 262 lines.
+//! `TimexModel::TC2068` reuses the standard 48K PAL timing.
+
+pub mod memory;
+
+use common_sinclair_zx_spectrum::SpectrumTapePlayer;
+use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
+pub use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
+pub use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::peripheral::Peripheral;
+use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
+use common_sinclair_zx_spectrum::tape::{StopRelease, TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
+use common_sinclair_zx_spectrum::timing::{
+    FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K,
+};
+use common_sinclair_zx_spectrum::ula::Ula;
+use common_sinclair_zx_spectrum::ula_engine;
+use emu198x_gi_ay_3_8912::Ay3_8912;
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonJoystick;
+use emu198x_timex_scld::TimexScld;
+use emu198x_zilog_z80::{BusOp, Z80};
+use format_sinclair_zx_spectrum_snapshot::Snapshot;
+
+use crate::memory::MemoryTimex;
+
+const AUDIO_SAMPLE_RATE: u32 = 44_100;
+
+/// TC2068 (PAL) or TS2068 (NTSC).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TimexModel {
+    /// PAL Timex (sold in Portugal as the TC2068, Poland as the Unipolbrit
+    /// Komputer 2086): 14 MHz crystal, 312 lines.
+    TC2068,
+    /// NTSC Timex (the US TS2068): 14.112 MHz crystal, 262 lines.
+    TS2068,
+}
+
+/// TS2068 NTSC frame timing. The PAL TC2068 reuses `TIMING_48K`.
+pub const TIMING_TS2068: FrameTiming = FrameTiming {
+    master_hz: 14_112_000,
+    cpu_divisor: 4,
+    tstates_per_line: 224,
+    halfcycles_per_line: 224 * 4,
+    lines_per_frame: 262,
+    halfcycles_per_frame: 224 * 4 * 262,
+    tstates_per_frame: 224 * 262,
+    first_border_line: 8,
+    first_screen_line: 35,
+    last_screen_line: 227,
+    last_border_line: 254,
+    first_screen_tstate: 24,
+    screen_pixels_per_line: 256,
+    left_border_tstate: 0,
+    right_border_tstate: 176,
+    contention_start_tstate: 14_336,
+    contention_pattern: [6, 5, 4, 3, 2, 1, 0, 0],
+    contention_phase: 0,
+    contention_tstates_per_line: 128,
+    interrupt_start_tstate: 0,
+    interrupt_length_tstates: 32,
+};
+
+/// Original positional payload, decoded before fixed-board validation.
+#[derive(serde::Deserialize)]
+struct TimexState {
+    z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
+    ula: TimexScld,
+    memory: MemoryTimex,
+    framebuffer: Vec<u8>,
+    keyboard: [u8; 8],
+    /// Kempston Interface joystick. Defaults to unattached.
+    kempston: KempstonJoystick,
+    tape: TapePlayer,
+    /// Holds the tape input for one frame after playback stops, then
+    /// releases it to low, as FUSE's `tape_stop_mic_off` does.
+    tape_release: StopRelease,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
+    ay: Ay3_8912,
+    audio: BeeperAudio,
+    audio_frame: Vec<f32>,
+    model: TimexModel,
+
+    hc: u32,
+    speaker: SpeakerMixer,
+}
+
+/// Physical board selection; owners provide one immutable model.
+pub trait TimexBoard {
+    const MODEL: TimexModel;
+    const MACHINE_ID: &'static str;
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(bound(serialize = "", deserialize = ""), try_from = "TimexState")]
+pub struct Timex2068<B: TimexBoard> {
+    pub z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
+    ula: TimexScld,
+    pub memory: MemoryTimex,
+    pub framebuffer: Vec<u8>,
+    pub keyboard: [u8; 8],
+    /// Kempston Interface joystick. Defaults to unattached.
+    pub kempston: KempstonJoystick,
+    pub tape: TapePlayer,
+    /// Holds the tape input for one frame after playback stops, then
+    /// releases it to low, as FUSE's `tape_stop_mic_off` does.
+    tape_release: StopRelease,
+    /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
+    /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
+    #[serde(default)]
+    recorder: TapeRecorder,
+    pub ay: Ay3_8912,
+    pub audio: BeeperAudio,
+    pub audio_frame: Vec<f32>,
+    model: TimexModel,
+
+    pub(crate) hc: u32,
+    speaker: SpeakerMixer,
+    #[serde(skip)]
+    board: std::marker::PhantomData<B>,
+}
+
+impl<B: TimexBoard> Timex2068<B> {
+    #[must_use]
+    pub fn new() -> Self {
+        let model = B::MODEL;
+        let (timing, config) = match model {
+            TimexModel::TC2068 => (&TIMING_48K, &ula_engine::CONFIG_TIMEX_PAL),
+            TimexModel::TS2068 => (&TIMING_TS2068, &ula_engine::CONFIG_TS2068),
+        };
+        let cpu_hz = (timing.master_hz / u64::from(timing.cpu_divisor)) as u32;
+        // The Timex divides its AY input by 8 (not 2 like the 128K).
+        let ay_hz = cpu_hz / 8;
+        let samples_per_frame = (AUDIO_SAMPLE_RATE / 50) as usize;
+
+        Self {
+            z80: Z80::new(),
+            io_trace: IoTrace::default(),
+            ula: TimexScld::with_config(config),
+            memory: MemoryTimex::new(),
+            framebuffer: vec![0u8; SCREEN_WIDTH_HIRES * SCREEN_HEIGHT],
+            keyboard: [0xFF; 8],
+            kempston: KempstonJoystick::new(),
+            tape: TapePlayer::new(),
+            tape_release: StopRelease::new(),
+            recorder: TapeRecorder::new(),
+            ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, samples_per_frame),
+            audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, timing.tstates_per_frame, cpu_hz),
+            audio_frame: vec![0.0; samples_per_frame],
+            model,
+            hc: 0,
+            speaker: SpeakerMixer::default(),
+            board: std::marker::PhantomData,
+        }
+    }
+
+    /// Decodes any captured tape `SAVE` signal into standard-speed blocks.
+    #[must_use]
+    pub fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
+        self.recorder.decode()
+    }
+
+    /// Discards captured `SAVE` signal (e.g. after flushing it to a file).
+    pub fn clear_tape_recording(&mut self) {
+        self.recorder.clear();
+    }
+
+    /// Returns the static frame-timing descriptor for this variant.
+    #[must_use]
+    pub fn timing(&self) -> &'static FrameTiming {
+        match B::MODEL {
+            TimexModel::TC2068 => &TIMING_48K,
+            TimexModel::TS2068 => &TIMING_TS2068,
+        }
+    }
+
+    #[must_use]
+    pub fn model_id(&self) -> &'static str {
+        B::MACHINE_ID
+    }
+    /// Immutable physical model.
+    pub fn model(&self) -> TimexModel {
+        B::MODEL
+    }
+    /// Inspect the SCLD without allowing its timing configuration to change.
+    pub fn ula(&self) -> &TimexScld {
+        &self.ula
+    }
+    pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        self.tape.load_blocks(blocks);
+    }
+    pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
+        self.tape.load_pulses(pulses);
+    }
+    pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
+        self.tape.load_stream(stream);
+    }
+    pub fn tape_play(&mut self) {
+        self.tape.play();
+    }
+    pub fn tape_stop(&mut self) {
+        self.tape.stop();
+    }
+    /// Rewinds the tape to its start and stops it.
+    pub fn tape_rewind(&mut self) {
+        self.tape.rewind();
+    }
+    /// Moves the tape to the previous or next block; returns whether it moved.
+    pub fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.tape.seek_spectrum_block(direction)
+    }
+
+    /// Reset the CPU, timing, and audio state. Keeps ROM and RAM intact.
+    pub fn reset(&mut self) {
+        self.z80 = Z80::new();
+        self.hc = 0;
+        self.speaker = SpeakerMixer::default();
+    }
+
+    /// Reattach `&'static` references that don't survive serde's
+    /// `#[serde(skip)]` round-trip, and rehydrate the Z80 walker
+    /// sequence. Call once after restoring a postcard snapshot — the
+    /// runtime wires this through `after_restore`. The NTSC TS2068 uses
+    /// `CONFIG_TS2068` (262 lines) and the PAL TC2068 the 48K config;
+    /// the model picks the config exactly as `new` does, so a restore
+    /// doesn't fall back to 48K timing on an NTSC machine.
+    pub fn restore_volatile_refs(&mut self) {
+        let config = match B::MODEL {
+            TimexModel::TC2068 => &ula_engine::CONFIG_TIMEX_PAL,
+            TimexModel::TS2068 => &ula_engine::CONFIG_TS2068,
+        };
+        self.z80.rehydrate_walker_sequence();
+        self.ula.reattach_config(config);
+    }
+
+    /// Apply a parsed `.z80` snapshot. Treats the Timex as a stock 48K
+    /// for snapshot purposes — the page-to-base map matches the 48K
+    /// convention. AY state is not carried in `.z80` v2/v3 for Timex.
+    pub fn apply_snapshot(&mut self, snap: &Snapshot) {
+        apply_z80_registers(&mut self.z80, snap);
+        self.ula.write_fe(snap.border);
+        for (page, data) in &snap.pages {
+            let base: u16 = match *page {
+                4 => 0x8000,
+                5 => 0xC000,
+                8 => 0x4000,
+                _ => continue,
+            };
+            for (i, &byte) in data.iter().enumerate() {
+                self.memory.write(base.wrapping_add(i as u16), byte);
+            }
+        }
+    }
+    pub fn run_frame(&mut self) {
+        <Self as SpectrumDriver>::run_frame(self);
+    }
+    pub fn advance_halfcycles(&mut self, halfcycles: u32) {
+        <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
+    }
+    pub fn advance_tstates(&mut self, tstates: u32) {
+        <Self as SpectrumDriver>::advance_tstates(self, tstates);
+    }
+
+    fn handle_bus(&mut self) {
+        match self.z80.bus_request() {
+            Some(BusOp::MemRead) => self.z80.data_in = self.memory.read(self.z80.addr),
+            Some(BusOp::MemWrite) => self.memory.write(self.z80.addr, self.z80.data),
+            Some(BusOp::IoRead) => self.z80.data_in = self.io_read(self.z80.addr),
+            Some(BusOp::IoWrite) => self.io_write(self.z80.addr, self.z80.data),
+            Some(BusOp::IntAck) => self.z80.data_in = 0xFF,
+            None => {}
+        }
+    }
+
+    fn io_read(&mut self, port: u16) -> u8 {
+        let value = self.io_read_untraced(port);
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, value, false);
+        value
+    }
+
+    fn io_read_untraced(&mut self, port: u16) -> u8 {
+        // Kempston is a separate add-on board with its own (partial)
+        // decoding — the SCLD's full decoding doesn't constrain it.
+        if self.kempston.claims_port(port) {
+            return self.kempston.read(port);
+        }
+        // Timex uses full low-byte I/O decoding.
+        match port & 0xFF {
+            0xFE => {
+                let mut val = self.ula.read_fe(port, &self.keyboard);
+                if self.tape.is_playing() || self.tape_release.pending() {
+                    val = (val & !0x40) | if self.tape.ear_level() { 0x40 } else { 0x00 };
+                }
+                val
+            }
+            0xF4 => self.memory.read_f4(),
+            0xF5 => self.ay.read_data(),
+            0xFF => self.ula.read_ff(),
+            _ => 0xFF,
+        }
+    }
+
+    fn io_write(&mut self, port: u16, data: u8) {
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, data, true);
+        self.io_write_untraced(port, data);
+    }
+
+    fn io_write_untraced(&mut self, port: u16, data: u8) {
+        match port & 0xFF {
+            0xFE => {
+                self.ula.write_fe(data);
+                let beeper = data & 0x10 != 0;
+                if beeper != self.speaker.beeper {
+                    self.speaker.beeper = beeper;
+                    let tstate = common_sinclair_zx_spectrum::timing::FramePosition::new(
+                        self.hc,
+                        self.timing(),
+                    )
+                    .tstate(self.timing());
+                    self.audio.set_level(tstate, self.speaker.level());
+                }
+                // MIC (bit 3) carries the tape SAVE signal.
+                self.recorder.set_mic_level(data & 0x08 != 0);
+            }
+            0xF4 => self.memory.write_f4(data),
+            0xF5 => self.ay.select_register(data),
+            0xF6 => self.ay.write_data(data),
+            0xFF => {
+                self.ula.write_ff(data);
+                self.memory.set_exrom_enabled(data & 0x80 != 0);
+            }
+            _ => {}
+        }
+    }
+    pub fn audio_frame(&self) -> &[f32] {
+        &self.audio_frame
+    }
+
+    /// Current host-side speaker audio controls.
+    #[must_use]
+    pub fn audio_controls(&self) -> common_sinclair_zx_spectrum::audio::AudioControls {
+        self.audio.audio_controls()
+    }
+
+    /// Replaces the host-side speaker audio controls wholesale.
+    pub fn set_audio_controls(
+        &mut self,
+        controls: common_sinclair_zx_spectrum::audio::AudioControls,
+    ) {
+        self.audio.set_audio_controls(controls);
+    }
+
+    /// Enables or disables one host-side audio channel.
+    pub fn set_audio_channel_enabled(
+        &mut self,
+        channel: common_sinclair_zx_spectrum::audio::SpeakerChannel,
+        enabled: bool,
+    ) {
+        self.audio.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Sets the host-side gain for one audio channel.
+    pub fn set_audio_channel_gain(
+        &mut self,
+        channel: common_sinclair_zx_spectrum::audio::SpeakerChannel,
+        gain: f32,
+    ) {
+        self.audio.set_audio_channel_gain(channel, gain);
+    }
+
+    /// Start, or restart, capturing `IN`/`OUT` traffic.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace.start();
+    }
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take()
+    }
+
+    /// Bus-level port read.
+    pub fn port_read(&mut self, port: u16) -> u8 {
+        self.io_read(port)
+    }
+
+    /// Bus-level port write.
+    pub fn port_write(&mut self, port: u16, value: u8) {
+        self.io_write(port, value);
+    }
+}
+
+impl<B: TimexBoard> TryFrom<TimexState> for Timex2068<B> {
+    type Error = &'static str;
+    fn try_from(state: TimexState) -> Result<Self, Self::Error> {
+        let frame_ticks = match B::MODEL {
+            TimexModel::TC2068 => TIMING_48K.halfcycles_per_frame,
+            TimexModel::TS2068 => TIMING_TS2068.halfcycles_per_frame,
+        };
+        if state.model != B::MODEL
+            || state.framebuffer.len() != SCREEN_WIDTH_HIRES * SCREEN_HEIGHT
+            || state.hc >= frame_ticks
+        {
+            return Err("snapshot hardware does not match this fixed Timex board");
+        }
+        Ok(Self {
+            z80: state.z80,
+            io_trace: state.io_trace,
+            ula: state.ula,
+            memory: state.memory,
+            framebuffer: state.framebuffer,
+            keyboard: state.keyboard,
+            kempston: state.kempston,
+            tape: state.tape,
+            tape_release: state.tape_release,
+            recorder: state.recorder,
+            ay: state.ay,
+            audio: state.audio,
+            audio_frame: state.audio_frame,
+            model: state.model,
+            hc: state.hc,
+            speaker: state.speaker,
+            board: std::marker::PhantomData,
+        })
+    }
+}
+impl<B: TimexBoard> Default for Timex2068<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<B: TimexBoard> SpectrumDriver for Timex2068<B> {
+    fn frame_timing(&self) -> &FrameTiming {
+        self.timing()
+    }
+    #[inline(always)]
+    fn hc(&self) -> u32 {
+        self.hc
+    }
+    #[inline(always)]
+    fn hc_mut(&mut self) -> &mut u32 {
+        &mut self.hc
+    }
+    #[inline(always)]
+    fn tick_ula(&mut self) {
+        self.ula.tick(
+            &self.memory,
+            self.z80.addr,
+            self.z80.mreq,
+            self.z80.iorq,
+            self.z80.rfsh,
+            &mut self.framebuffer,
+        );
+    }
+
+    #[inline(always)]
+    fn cpu_clock_active(&self) -> bool {
+        self.ula.cpu_clock_active()
+    }
+
+    #[inline(always)]
+    fn tick_cpu_and_bus(&mut self) {
+        self.z80.tick();
+        self.handle_bus();
+    }
+
+    #[inline(always)]
+    fn feed_irq(&mut self) {
+        self.z80.irq = self.ula.interrupt_active();
+    }
+
+    #[inline(always)]
+    fn on_tstate(&mut self, position: common_sinclair_zx_spectrum::timing::FramePosition) {
+        let release_after = self.timing().tstates_per_frame;
+        self.tape_release.advance(&mut self.tape, 1, release_after);
+        self.recorder.advance(1);
+        if position.halfcycles() % 8 == 2 {
+            self.ay.tick();
+        }
+        let ear = self.tape_release.input_level(&self.tape);
+        if ear != self.speaker.ear {
+            self.speaker.ear = ear;
+            let tstate = position.tstate(self.timing());
+            self.audio.set_level(tstate, self.speaker.level());
+        }
+    }
+
+    #[inline(always)]
+    fn end_frame_ula(&mut self) {
+        self.ula.end_frame();
+    }
+
+    #[inline(always)]
+    fn on_end_frame(&mut self) {
+        self.audio.end_frame(&mut self.audio_frame);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct TestPal;
+    impl TimexBoard for TestPal {
+        const MODEL: TimexModel = TimexModel::TC2068;
+        const MACHINE_ID: &'static str = "timex-tc2068";
+    }
+    struct TestNtsc;
+    impl TimexBoard for TestNtsc {
+        const MODEL: TimexModel = TimexModel::TS2068;
+        const MACHINE_ID: &'static str = "timex-ts2068";
+    }
+
+    /// #1633: a tape that ends with its input high must not leave the
+    /// speaker's EAR input, or port `$FE` bit 6, latched there. FUSE's
+    /// `tape_stop_mic_off` releases it one frame after the tape stops.
+    #[test]
+    fn tape_input_is_released_one_frame_after_the_tape_stops() {
+        let idle_fe = Timex2068::<TestPal>::new().port_read(0x00FE) & 0x40;
+        let mut m = Timex2068::<TestPal>::new();
+        let frame = m.timing().tstates_per_frame;
+        m.load_tape_pulses(vec![1_000]);
+        m.tape_play();
+        m.advance_tstates(1_010);
+        assert!(
+            m.speaker.ear,
+            "the single pulse drained the tape and left the input high"
+        );
+        let held_fe = m.port_read(0x00FE) & 0x40;
+
+        m.advance_tstates(frame - 20);
+        assert!(
+            m.speaker.ear,
+            "the input is held for a frame after the stop"
+        );
+        assert_eq!(
+            m.port_read(0x00FE) & 0x40,
+            held_fe,
+            "and so is port $FE bit 6"
+        );
+
+        m.advance_tstates(20);
+        assert!(!m.speaker.ear, "one frame after the stop it is released");
+        assert_eq!(
+            m.port_read(0x00FE) & 0x40,
+            idle_fe,
+            "and port $FE bit 6 reads as it does with no tape"
+        );
+    }
+
+    /// #1637: port `$FE` bit 6 reads the tape input as it is, 1 while the
+    /// input is high and 0 while it is low, as the 48K's ULA does (Smith
+    /// ch. 20 p. 222). Checked with the MIC bit both ways and the speaker
+    /// bit clear, as the ROM loader writes them.
+    #[test]
+    fn port_fe_bit_6_follows_the_tape_input() {
+        macro_rules! check_tape {
+            ($make:expr) => {
+                for written in [0x00, 0x08] {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    m.load_tape_pulses(vec![1_000, 1_000_000]);
+                    m.tape_play();
+                    m.advance_tstates(500);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x00,
+                        "{}, wrote {written:#04x}: the tape is low, so is bit 6",
+                        stringify!($make)
+                    );
+                    m.advance_tstates(1_000);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x40,
+                        "{}, wrote {written:#04x}: the tape is high, so is bit 6",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_tape!(Timex2068::<TestPal>::new());
+        check_tape!(Timex2068::<TestNtsc>::new());
+    }
+
+    /// #1637: with no tape signal, bit 6 reads 1 whatever was written, as
+    /// FUSE's `$5F` for the Timex machines has it. A tape that is loaded
+    /// but not playing reads the same.
+    #[test]
+    fn port_fe_bit_6_with_no_tape_signal() {
+        // (written to `$FE`, bit 6 read back)
+        const IDLE: [(u8, u8); 4] = [(0x00, 0x40), (0x08, 0x40), (0x10, 0x40), (0x18, 0x40)];
+        macro_rules! check_idle {
+            ($make:expr) => {
+                for (written, expected) in IDLE {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        expected,
+                        "{}, no tape, wrote {written:#04x}",
+                        stringify!($make)
+                    );
+                    m.load_tape_pulses(vec![1_000]);
+                    m.advance_tstates(2_000);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        expected,
+                        "{}, stopped tape, wrote {written:#04x}",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_idle!(Timex2068::<TestPal>::new());
+        check_idle!(Timex2068::<TestNtsc>::new());
+    }
+
+    #[test]
+    fn pal_variant_uses_48k_timing() {
+        let m = Timex2068::<TestPal>::new();
+        assert_eq!(m.timing().master_hz, 14_000_000);
+        assert_eq!(m.timing().lines_per_frame, 312);
+        assert_eq!(m.model_id(), "timex-tc2068");
+    }
+
+    #[test]
+    fn ntsc_variant_uses_ts2068_timing() {
+        let m = Timex2068::<TestNtsc>::new();
+        assert_eq!(m.timing().master_hz, 14_112_000);
+        assert_eq!(m.timing().lines_per_frame, 262);
+        assert_eq!(m.model_id(), "timex-ts2068");
+    }
+
+    #[test]
+    fn run_frame_returns_to_origin() {
+        let mut m = Timex2068::<TestNtsc>::new();
+        m.run_frame();
+        assert_eq!(m.hc, 0);
+    }
+
+    #[test]
+    fn write_to_port_f5_then_read_via_f5_round_trips_ay_register() {
+        let mut m = Timex2068::<TestNtsc>::new();
+        // AY register select on port $F5, data write on $F6.
+        m.io_write(0x00F5, 0x08); // select Vol A
+        m.io_write(0x00F6, 0x0A); // write
+        assert_eq!(m.io_read(0x00F5), 0x0A);
+    }
+
+    #[test]
+    fn held_io_write_is_dispatched_once() {
+        let mut m = Timex2068::<TestNtsc>::new();
+        m.z80.addr = 0x00F5;
+        m.z80.data = 0x0D;
+        m.z80.iorq = true;
+        m.z80.wr = true;
+        m.z80.m1 = false;
+
+        m.handle_bus();
+        assert_eq!(m.ay.selected_register(), 0x0D);
+
+        // Change the driven data while the same held strobe is active. A raw
+        // level dispatcher would apply it; the edge-collapsed bus must not.
+        m.z80.data = 0x07;
+        m.handle_bus();
+        m.handle_bus();
+        assert_eq!(m.ay.selected_register(), 0x0D);
+
+        m.z80.iorq = false;
+        m.z80.wr = false;
+        m.handle_bus();
+        m.z80.iorq = true;
+        m.z80.wr = true;
+        m.handle_bus();
+        assert_eq!(m.ay.selected_register(), 0x07);
+    }
+
+    #[test]
+    fn audio_controls_passthrough_round_trips() {
+        use common_sinclair_zx_spectrum::audio::SpeakerChannel;
+        let mut m = Timex2068::<TestNtsc>::new();
+        let initial = m.audio_controls();
+        assert!(initial.channel(SpeakerChannel::Speaker).enabled());
+
+        m.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
+        m.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
+        let after = m.audio_controls();
+        assert!(!after.channel(SpeakerChannel::Speaker).enabled());
+        assert!((after.channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < f32::EPSILON);
+
+        m.set_audio_controls(initial);
+        assert!(
+            m.audio_controls()
+                .channel(SpeakerChannel::Speaker)
+                .enabled()
+        );
+    }
+}

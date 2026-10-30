@@ -8,6 +8,7 @@
 //! text, keyboard, tape state, frame timing) is shared in
 //! [`crate::queries`].
 
+use crate::Model;
 use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::io_trace::IoEvent as SpectrumIoEvent;
@@ -19,6 +20,7 @@ use common_sinclair_zx_spectrum::timing::{
     TIMING_PLUS2A, TIMING_SCORPION,
 };
 use common_sinclair_zx_spectrum_amstrad_class::{AmstradVariant, SpectrumAmstradClassCore};
+use common_timex_2068::{TIMING_TS2068, Timex2068, TimexBoard, TimexModel};
 use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::{KempstonButton, KempstonJoystick};
 use emu198x_peripheral_kempston_sinclair_zx_spectrum_mouse::{KempstonMouse, MouseButton};
@@ -36,7 +38,8 @@ use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
-use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
+use machine_timex_tc2068::TimexTC2068;
+use machine_timex_ts2068::TimexTS2068;
 use serde_json::{Value, json};
 
 /// Moves the Kempston mouse, plugging it in on the first event, as the
@@ -121,6 +124,8 @@ pub type TimexTC2048Runtime = SpectrumRuntime<TimexTC2048>;
 
 /// Timex TC2068 / TS2068 runtime.
 pub type TimexTS2068Runtime = SpectrumRuntime<TimexTS2068>;
+/// Fixed PAL Timex board runtime.
+pub type TimexTC2068Runtime = SpectrumRuntime<TimexTC2068>;
 
 // ─────────────────────────────────────────────────────────────────────
 // Boot-banner constants
@@ -2166,7 +2171,11 @@ impl SpectrumMachine for TimexTC2048 {
     }
 }
 
-impl SpectrumMachine for TimexTS2068 {
+impl<B: TimexBoard> SpectrumMachine for Timex2068<B> {
+    const FIXED_MODEL: Option<Model> = Some(match B::MODEL {
+        TimexModel::TC2068 => Model::TimexTC2068,
+        TimexModel::TS2068 => Model::TimexTS2068,
+    });
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
@@ -2178,13 +2187,13 @@ impl SpectrumMachine for TimexTS2068 {
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
     fn frame_halfcycles(&self) -> u32 {
-        match self.model {
+        match self.model() {
             TimexModel::TC2068 => TIMING_48K.halfcycles_per_frame,
             TimexModel::TS2068 => TIMING_TS2068.halfcycles_per_frame,
         }
     }
     fn run_frame(&mut self) {
-        TimexTS2068::run_frame(self);
+        Timex2068::run_frame(self);
     }
     fn framebuffer(&self) -> &[u8] {
         &self.framebuffer
@@ -2193,16 +2202,16 @@ impl SpectrumMachine for TimexTS2068 {
         &self.audio_frame
     }
     fn audio_controls(&self) -> AudioControls {
-        TimexTS2068::audio_controls(self)
+        Timex2068::audio_controls(self)
     }
     fn set_audio_controls(&mut self, controls: AudioControls) {
-        TimexTS2068::set_audio_controls(self, controls);
+        Timex2068::set_audio_controls(self, controls);
     }
     fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
-        TimexTS2068::set_audio_channel_enabled(self, channel, enabled);
+        Timex2068::set_audio_channel_enabled(self, channel, enabled);
     }
     fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
-        TimexTS2068::set_audio_channel_gain(self, channel, gain);
+        Timex2068::set_audio_channel_gain(self, channel, gain);
     }
     fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
         self.keyboard = *rows;
@@ -2211,38 +2220,38 @@ impl SpectrumMachine for TimexTS2068 {
         apply_kempston_button_index(&mut self.kempston, button, pressed)
     }
     fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
-        TimexTS2068::load_tape_blocks(self, blocks);
+        Timex2068::load_tape_blocks(self, blocks);
     }
     fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
-        TimexTS2068::load_tape_stream(self, stream);
+        Timex2068::load_tape_stream(self, stream);
     }
     fn tape_play(&mut self) {
-        TimexTS2068::tape_play(self);
+        Timex2068::tape_play(self);
     }
     fn tape_stop(&mut self) {
-        TimexTS2068::tape_stop(self);
+        Timex2068::tape_stop(self);
     }
     fn tape_rewind(&mut self) {
-        TimexTS2068::tape_rewind(self);
+        Timex2068::tape_rewind(self);
     }
     fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
-        TimexTS2068::tape_seek_block(self, direction)
+        Timex2068::tape_seek_block(self, direction)
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
-        TimexTS2068::recorded_tape_blocks(self)
+        Timex2068::recorded_tape_blocks(self)
     }
     fn clear_tape_recording(&mut self) {
-        TimexTS2068::clear_tape_recording(self);
+        Timex2068::clear_tape_recording(self);
     }
     fn reset_machine(&mut self) {
-        TimexTS2068::reset(self);
+        Timex2068::reset(self);
     }
     fn after_restore(&mut self) {
         self.restore_volatile_refs();
     }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
-        TimexTS2068::apply_snapshot(self, snap);
+        Timex2068::apply_snapshot(self, snap);
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
@@ -2294,10 +2303,10 @@ impl SpectrumMachine for TimexTS2068 {
         true
     }
     fn start_io_trace(&mut self) {
-        TimexTS2068::start_io_trace(self);
+        Timex2068::start_io_trace(self);
     }
     fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
-        TimexTS2068::take_io_trace(self)
+        Timex2068::take_io_trace(self)
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
@@ -2317,7 +2326,7 @@ impl SpectrumMachine for TimexTS2068 {
         }
         let value = match path {
             "kempston.state" => json!(self.kempston.state),
-            "timex.model" => json!(match self.model {
+            "timex.model" => json!(match self.model() {
                 TimexModel::TC2068 => "tc2068",
                 TimexModel::TS2068 => "ts2068",
             }),

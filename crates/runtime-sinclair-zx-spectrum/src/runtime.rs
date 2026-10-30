@@ -33,6 +33,8 @@ use crate::{Model, profile_for};
 /// `serde::Serialize`/`Deserialize`; the runtime uses that for snapshot
 /// round-trips through postcard.
 pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDriver {
+    /// A fixed owner can require the matching catalogue profile.
+    const FIXED_MODEL: Option<Model> = None;
     /// Pixel width of the framebuffer.
     const FRAME_WIDTH: u32;
     /// Pixel height of the framebuffer.
@@ -625,8 +627,14 @@ pub struct SpectrumRuntime<M: SpectrumMachine> {
 
 impl<M: SpectrumMachine> SpectrumRuntime<M> {
     /// Creates a runtime for the given profile and pre-initialised machine.
+    ///
+    /// # Panics
+    /// Panics if a fixed board is paired with a different catalogue model.
     #[must_use]
     pub fn new(model: Model, machine: M) -> Self {
+        if let Some(fixed) = M::FIXED_MODEL {
+            assert_eq!(model, fixed, "runtime profile must match the fixed board");
+        }
         Self {
             profile: profile_for(model),
             machine,

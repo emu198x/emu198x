@@ -1,11 +1,12 @@
 use common_sinclair_zx_spectrum::{driver::SpectrumDriver, memory::MemoryBus};
+use common_timex_2068::memory::{MemorySource, MemoryTimex};
+use common_timex_2068::{Timex2068, TimexBoard, TimexModel};
 use emu198x_shell::{
     MachineCore,
     cycle_profile::{CycleCounts, ProfileMemory},
     debug_info::DebugSymbols,
 };
-use machine_timex_ts2068::memory::{MemorySource, MemoryTimex};
-use runtime_sinclair_zx_spectrum::{Model, TimexTC2048Runtime, TimexTS2068Runtime};
+use runtime_sinclair_zx_spectrum::{Model, SpectrumRuntime, TimexTC2048Runtime};
 
 fn conserved(counts: &CycleCounts) {
     let code: u64 = counts.addresses.values().map(|cost| cost.ticks).sum();
@@ -27,10 +28,10 @@ fn conserved(counts: &CycleCounts) {
             + counts.trailing_partial_ticks
     );
 }
-fn runtime(model: Model) -> TimexTS2068Runtime {
+fn runtime<B: TimexBoard>() -> SpectrumRuntime<Timex2068<B>> {
     let mut rom = [0; 16384];
     rom[0x38] = 0x76;
-    TimexTS2068Runtime::new_ts2068(model, rom, [0; 8192])
+    SpectrumRuntime::<Timex2068<B>>::new_ts2068(rom, [0; 8192])
 }
 fn sources() -> DebugSymbols {
     let mut records = vec![
@@ -82,9 +83,13 @@ fn every_dock_mask_matches_the_existing_memory_read_priority() {
 
 #[test]
 fn home_ram_windows_join_by_eight_k_page_on_pal_and_ntsc() {
-    for model in [Model::TimexTC2068, Model::TimexTS2068] {
+    fn check<B: TimexBoard>() {
+        let model = match B::MODEL {
+            TimexModel::TC2068 => Model::TimexTC2068,
+            TimexModel::TS2068 => Model::TimexTS2068,
+        };
         for slot in 2..8u16 {
-            let mut runtime = runtime(model);
+            let mut runtime = runtime::<B>();
             let address = (slot << 13) + 0x100;
             runtime.machine_mut().memory.write(address, 0x76);
             runtime.machine_mut().z80.regs.pc = address;
@@ -109,13 +114,15 @@ fn home_ram_windows_join_by_eight_k_page_on_pal_and_ntsc() {
             );
         }
     }
+    check::<machine_timex_tc2068::Board>();
+    check::<machine_timex_ts2068::Board>();
 }
 
 #[test]
 fn every_empty_dock_window_is_unmapped_execution_not_home_ram() {
-    for model in [Model::TimexTC2068, Model::TimexTS2068] {
+    fn check<B: TimexBoard>() {
         for slot in 0..8u16 {
-            let mut runtime = runtime(model);
+            let mut runtime = runtime::<B>();
             let address = (slot << 13) + 0x100;
             runtime.machine_mut().memory.write_f4(1 << slot);
             runtime.machine_mut().memory.write(address, 0x76); // ignored
@@ -142,12 +149,14 @@ fn every_empty_dock_window_is_unmapped_execution_not_home_ram() {
             );
         }
     }
+    check::<machine_timex_tc2068::Board>();
+    check::<machine_timex_ts2068::Board>();
 }
 
 #[test]
 fn paging_out_own_home_code_preserves_the_out_instruction_source() {
-    for model in [Model::TimexTC2068, Model::TimexTS2068] {
-        let mut runtime = runtime(model);
+    fn check<B: TimexBoard>() {
+        let mut runtime = runtime::<B>();
         for (offset, byte) in [0x3e, 0x40, 0xd3, 0xf4, 0x76].into_iter().enumerate() {
             runtime
                 .machine_mut()
@@ -180,16 +189,18 @@ fn paging_out_own_home_code_preserves_the_out_instruction_source() {
         assert_eq!(profile.lines[0].cost.ticks, home_ticks);
         assert_eq!(profile.unmapped_ticks, unmapped_ticks);
     }
+    check::<machine_timex_tc2068::Board>();
+    check::<machine_timex_ts2068::Board>();
 }
 
 #[test]
 fn enabling_exrom_keeps_base_rom_costs_separate() {
-    for model in [Model::TimexTC2068, Model::TimexTS2068] {
+    fn check<B: TimexBoard>() {
         let mut rom = [0; 16384];
         rom[..4].copy_from_slice(&[0x3e, 0x80, 0xd3, 0xff]);
         let mut exrom = [0; 8192];
         exrom[4] = 0x76;
-        let mut runtime = TimexTS2068Runtime::new_ts2068(model, rom, exrom);
+        let mut runtime = SpectrumRuntime::<Timex2068<B>>::new_ts2068(rom, exrom);
         let counts = runtime
             .profile_cycles(1000)
             .expect("enable EXROM through CPU I/O");
@@ -205,6 +216,8 @@ fn enabling_exrom_keeps_base_rom_costs_separate() {
         );
         assert_eq!(counts.mapped_addresses[2].address, 4);
     }
+    check::<machine_timex_tc2068::Board>();
+    check::<machine_timex_ts2068::Board>();
 }
 
 #[test]
@@ -213,9 +226,9 @@ fn pal_and_ntsc_profile_preserves_machine_and_snapshot_state() {
     std::thread::Builder::new()
         .stack_size(8 * 1024 * 1024)
         .spawn(|| {
-            for model in [Model::TimexTC2068, Model::TimexTS2068] {
+            fn check<B: TimexBoard>() {
                 let make = || {
-                    let mut runtime = runtime(model);
+                    let mut runtime = runtime::<B>();
                     for (offset, byte) in [0xc3, 0, 0x40].into_iter().enumerate() {
                         runtime
                             .machine_mut()
@@ -246,6 +259,8 @@ fn pal_and_ntsc_profile_preserves_machine_and_snapshot_state() {
                     restored.profile_cycles(1000).expect("restored capture")
                 );
             }
+            check::<machine_timex_tc2068::Board>();
+            check::<machine_timex_ts2068::Board>();
         })
         .expect("snapshot worker")
         .join()

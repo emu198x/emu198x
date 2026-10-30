@@ -20,8 +20,7 @@
 //!
 //! All 13 Spectrum-family variants — the SOLID 8 (16K, 48K, +, 128K, +2,
 //! +2A, +2B, +3) plus the five exotics (Pentagon 128, Scorpion ZS-256,
-//! Timex TC2048 / TC2068 / TS2068). The exotics share runtime types
-//! (TC2068 and TS2068 both wrap `TimexTS2068`) and dispatch arms but
+//! Timex TC2048 / TC2068 / TS2068). The Timex 2068 models use distinct fixed board owners and dispatch arms, and
 //! each gets its own catalogue identity through the inner runtime's
 //! profile.
 
@@ -37,7 +36,8 @@ use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 use crate::variants::{
     Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
     Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
+    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTC2068Runtime,
+    TimexTS2068Runtime,
 };
 use emu198x_shell::display::Display;
 
@@ -285,7 +285,7 @@ pub enum SpectrumRuntimeKind {
     /// Timex TC2048 — Portuguese 48K-compatible with SCLD hi-res.
     TimexTC2048(Box<TimexTC2048Runtime>),
     /// Timex TC2068 (PAL).
-    TimexTC2068(Box<TimexTS2068Runtime>),
+    TimexTC2068(Box<TimexTC2068Runtime>),
     /// Timex TS2068 (NTSC).
     TimexTS2068(Box<TimexTS2068Runtime>),
 }
@@ -407,12 +407,12 @@ impl FamilyRuntime for SpectrumRuntimeKind {
             crate::Model::TimexTC2048 => {
                 Self::TimexTC2048(Box::new(TimexTC2048Runtime::from_firmware(firmware)?))
             }
-            crate::Model::TimexTC2068 => Self::TimexTC2068(Box::new(
-                TimexTS2068Runtime::from_firmware(crate::Model::TimexTC2068, firmware)?,
-            )),
-            crate::Model::TimexTS2068 => Self::TimexTS2068(Box::new(
-                TimexTS2068Runtime::from_firmware(crate::Model::TimexTS2068, firmware)?,
-            )),
+            crate::Model::TimexTC2068 => {
+                Self::TimexTC2068(Box::new(TimexTC2068Runtime::from_firmware(firmware)?))
+            }
+            crate::Model::TimexTS2068 => {
+                Self::TimexTS2068(Box::new(TimexTS2068Runtime::from_firmware(firmware)?))
+            }
         })
     }
 

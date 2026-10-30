@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 74 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 76 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -71,7 +71,7 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `sega-mega-drive-europe` | `emu198x-sega-mega-drive` | 1 | 12 | [system:mega-drive](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amega-drive) | [Mega Drive 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Mega+Drive+100%25%22) |
 | `sega-mega-drive-japan` | `emu198x-sega-mega-drive` | 1 | 12 | [system:mega-drive](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amega-drive) | [Mega Drive 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Mega+Drive+100%25%22) |
 | `sega-sg-1000` | `emu198x-sega-sg-1000` | 3 | 5 | [system:sg-1000](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Asg-1000) | [SG-1000 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22SG-1000+100%25%22) |
-| `sinclair-zx-spectrum` | `emu198x-spectrum` | 24 | 8 | [system:spectrum](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aspectrum) | [Spectrum 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Spectrum+100%25%22) |
+| `sinclair-zx-spectrum` ⚠️ | `emu198x-spectrum` | 26 | 8 | [system:spectrum](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aspectrum) | [Spectrum 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Spectrum+100%25%22) |
 | `sinclair-zx80` | `emu198x-sinclair-zx80` | 1 | 9 | [system:zx80](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Azx80) | [ZX80 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ZX80+100%25%22) |
 | `sinclair-zx80-usa` | `emu198x-sinclair-zx80` | 1 | 9 | [system:zx80](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Azx80) | [ZX80 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ZX80+100%25%22) |
 | `sinclair-zx81` | `emu198x-sinclair-zx81` | 1 | 9 | [system:zx81](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Azx81) | [ZX81 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ZX81+100%25%22) |
@@ -86,7 +86,9 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `tandy-coco` | `emu198x-dragon` | 1 | 8 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
 | `tandy-coco-2` | `emu198x-dragon` | 1 | 8 | [system:coco](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acoco) | [CoCo 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22CoCo+100%25%22) |
 | `tatung-einstein` | `emu198x-tatung-einstein` | 3 | 5 | [system:einstein](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aeinstein) | [Tatung Einstein 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Tatung+Einstein+100%25%22) |
+| `timex-tc2068` | `emu198x-spectrum` | 1 | 32 | [system:spectrum](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aspectrum) | [Spectrum 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Spectrum+100%25%22) |
 | `timex-ts1000` | `emu198x-sinclair-zx81` | 1 | 9 | [system:zx81](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Azx81) | [ZX81 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ZX81+100%25%22) |
+| `timex-ts2068` | `emu198x-spectrum` | 1 | 32 | [system:spectrum](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aspectrum) | [Spectrum 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Spectrum+100%25%22) |
 | `toshiba-hx-10` | `emu198x-msx` | 1 | 12 | [system:msx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amsx) | [MSX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22MSX+100%25%22) |
 | `yamaha-cx5m` | `emu198x-msx` | 1 | 12 | [system:msx](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Amsx) | [MSX 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22MSX+100%25%22) |
 

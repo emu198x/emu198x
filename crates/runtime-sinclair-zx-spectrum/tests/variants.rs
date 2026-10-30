@@ -30,7 +30,9 @@ use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use machine_timex_tc2048::TimexTC2048;
-use machine_timex_ts2068::{TIMING_TS2068, TimexModel, TimexTS2068};
+use machine_timex_tc2068::TimexTC2068;
+use machine_timex_ts2068::{TIMING_TS2068, TimexTS2068};
+use runtime_sinclair_zx_spectrum::TimexTC2068Runtime;
 use runtime_sinclair_zx_spectrum::{
     Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
     Spectrum128kRuntime, SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime,
@@ -239,7 +241,7 @@ fn timex_tc2048_runtime_emits_hires_dimensions() {
 
 #[test]
 fn timex_ts2068_runtime_uses_ntsc_frame_length_for_ts() {
-    let runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+    let runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
     let (frames, _, _) = run_single_frame(runtime, TIMING_TS2068.halfcycles_per_frame);
     assert_eq!(frames, 1);
 }
@@ -310,11 +312,9 @@ fn ts2068_restore_keeps_ntsc_ula_timing() {
     run_with_large_stack(|| {
         use common_sinclair_zx_spectrum::ula_engine::CONFIG_TS2068;
 
-        let original =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let original = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         let bytes = original.snapshot().expect("TS2068 snapshot should encode");
-        let mut restored =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let mut restored = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         restored
             .restore(&bytes)
             .expect("TS2068 snapshot should restore");
@@ -726,8 +726,7 @@ fn timex_tc2048_runtime_loads_tape_resets_and_round_trips() {
 #[test]
 fn timex_tc2068_runtime_runs_pal_frame_length_and_round_trips() {
     run_with_large_stack(|| {
-        let mut runtime =
-            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
+        let mut runtime = TimexTC2068Runtime::new(Model::TimexTC2068, TimexTC2068::new());
         run_one_frame_with_inputs(&mut runtime, TIMING_48K.halfcycles_per_frame, &[]);
         load_tape_into_runtime(&mut runtime, &minimal_tap());
         runtime
@@ -739,11 +738,10 @@ fn timex_tc2068_runtime_runs_pal_frame_length_and_round_trips() {
         runtime.reset(ResetKind::Hard);
         assert_eq!(runtime.time(), MachineTime::default());
 
-        let mut runtime =
-            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
+        let mut runtime = TimexTC2068Runtime::new(Model::TimexTC2068, TimexTC2068::new());
         run_one_frame_with_inputs(&mut runtime, TIMING_48K.halfcycles_per_frame, &[]);
         snapshot_round_trip_is_fixed_point(&mut runtime, || {
-            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068))
+            TimexTC2068Runtime::new(Model::TimexTC2068, TimexTC2068::new())
         });
     });
 }
@@ -751,8 +749,7 @@ fn timex_tc2068_runtime_runs_pal_frame_length_and_round_trips() {
 #[test]
 fn timex_ts2068_runtime_loads_tape_resets_and_round_trips() {
     run_with_large_stack(|| {
-        let mut runtime =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let mut runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         run_one_frame_with_inputs(&mut runtime, TIMING_TS2068.halfcycles_per_frame, &[]);
         load_tape_into_runtime(&mut runtime, &minimal_tap());
         runtime
@@ -770,11 +767,10 @@ fn timex_ts2068_runtime_loads_tape_resets_and_round_trips() {
         runtime.reset(ResetKind::Hard);
         assert_eq!(runtime.time(), MachineTime::default());
 
-        let mut runtime =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let mut runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         run_one_frame_with_inputs(&mut runtime, TIMING_TS2068.halfcycles_per_frame, &[]);
         snapshot_round_trip_is_fixed_point(&mut runtime, || {
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068))
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new())
         });
     });
 }
@@ -856,8 +852,7 @@ fn each_variant_accepts_tzx_via_runtime() {
         let mut tc2048 = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
         load_tape_into_runtime(&mut tc2048, &minimal_tzx());
 
-        let mut ts2068 =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let mut ts2068 = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         load_tape_into_runtime(&mut ts2068, &minimal_tzx());
     });
 }
@@ -1044,8 +1039,7 @@ fn timex_tc2048_runtime_exposes_kempston_state_query() {
 #[test]
 fn timex_ts2068_runtime_exposes_model_query_alongside_kempston() {
     run_with_large_stack(|| {
-        let runtime =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         assert_shared_query_paths_resolve(&runtime);
         assert_boot_paths_wired(&runtime);
 
@@ -1056,8 +1050,7 @@ fn timex_ts2068_runtime_exposes_model_query_alongside_kempston() {
             .expect("provider must own timex.model");
         assert_eq!(model.value, serde_json::json!("ts2068"));
 
-        let runtime_tc =
-            TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
+        let runtime_tc = TimexTC2068Runtime::new(Model::TimexTC2068, TimexTC2068::new());
         let model_tc = provider
             .query(&runtime_tc, "timex.model")
             .expect("timex model query should resolve")
@@ -1208,8 +1201,7 @@ fn scorpion_runtime_exposes_ay_register_queries() {
 #[test]
 fn timex_ts2068_runtime_exposes_ay_register_queries() {
     run_with_large_stack(|| {
-        let mut runtime =
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let mut runtime = TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new());
         assert_ay_query_round_trip(&mut runtime);
     });
 }
@@ -1532,7 +1524,7 @@ fn probe_ts2068_screen_ram() {
     if !main_path.exists() || !exrom_path.exists() {
         emu198x_test_skip::skip!("TS2068 ROMs missing");
     }
-    let mut m = TimexTS2068::new(TimexModel::TS2068);
+    let mut m = TimexTS2068::new();
     m.memory.load_rom(&main_path).expect("ts2068 main ROM");
     m.memory.load_exrom(&exrom_path).expect("ts2068 exrom");
     let mut rt = TimexTS2068Runtime::new(Model::TimexTS2068, m);
@@ -1682,7 +1674,7 @@ fn probe_all_variant_banners() {
         let main_path = dir.join("ts2068.rom");
         let exrom_path = dir.join("exrom.rom");
         if main_path.exists() && exrom_path.exists() {
-            let mut m = TimexTS2068::new(TimexModel::TS2068);
+            let mut m = TimexTS2068::new();
             m.memory.load_rom(&main_path).expect("ts2068 main ROM");
             m.memory.load_exrom(&exrom_path).expect("ts2068 exrom");
             let mut rt = TimexTS2068Runtime::new(Model::TimexTS2068, m);
@@ -1796,7 +1788,7 @@ fn every_variant_rewinds_and_searches_its_tape() {
         );
         rewinds_to_the_start(
             "TS2068",
-            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068)),
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new()),
         );
     });
 }

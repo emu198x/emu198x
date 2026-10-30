@@ -12,7 +12,7 @@
 
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH_HIRES};
-use machine_timex_ts2068::{TimexModel, TimexTS2068};
+use machine_timex_ts2068::TimexTS2068;
 use std::path::{Path, PathBuf};
 
 fn rom_dir() -> Option<PathBuf> {
@@ -125,7 +125,7 @@ fn golden_ts2068_boot() {
     if !main_rom.exists() || !exrom.exists() {
         emu198x_test_skip::skip!("TS2068 ROMs not found at {}", dir.display());
     }
-    let mut machine = TimexTS2068::new(TimexModel::TS2068);
+    let mut machine = TimexTS2068::new();
     machine
         .memory
         .load_rom(&main_rom)

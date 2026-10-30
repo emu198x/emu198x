@@ -669,7 +669,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ]),
         },
         Model::TimexTC2068 | Model::TimexTS2068 => MachineProfile {
-            machine_id: MachineId::from("sinclair-zx-spectrum"),
+            machine_id: MachineId::from(model.model_id()),
             profile_id: ProfileId::from(model.profile_id()),
             display_name: model.display_name().into(),
             family: Family::Spectrum,
@@ -680,8 +680,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             },
             release_year: model.release_year(),
             summary:
-                "Timex TC2068 (PAL) / TS2068 (NTSC): SCLD video, DOCK/EXROM paging via `$F4`, AY on `$F5`/`$F6`."
-                    .into(),
+                format!("{}: SCLD video, DOCK/EXROM paging via `$F4`, AY on `$F5`/`$F6`.", model.display_name()).into(),
             clock: ClockDesc::new(
                 "master-cycle",
                 ClockRate::from_hz(if matches!(model, Model::TimexTS2068) {
@@ -694,7 +693,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 .map(|i| {
                     FirmwareRequirement::new(
                         format!("timex-ts2068-rom-{i}"),
-                        format!("Timex TS2068 ROM {i}"),
+                        format!("{} ROM {i}", model.display_name()),
                         false,
                     )
                 })

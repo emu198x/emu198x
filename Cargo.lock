@@ -796,6 +796,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-timex-2068"
+version = "0.45.1"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "emu198x-gi-ay-3-8912",
+ "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "emu198x-timex-scld",
+ "emu198x-zilog-z80",
+ "format-sinclair-zx-spectrum-snapshot",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4600,6 +4614,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-timex-tc2068"
+version = "0.45.1"
+dependencies = [
+ "common-timex-2068",
+]
+
+[[package]]
 name = "machine-timex-ts1000"
 version = "0.45.1"
 dependencies = [
@@ -4611,15 +4632,9 @@ name = "machine-timex-ts2068"
 version = "0.45.1"
 dependencies = [
  "common-sinclair-zx-spectrum",
- "emu198x-gi-ay-3-8912",
- "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
+ "common-timex-2068",
  "emu198x-test-skip",
- "emu198x-timex-scld",
- "emu198x-zilog-z80",
- "format-sinclair-zx-spectrum-snapshot",
  "png",
- "serde",
- "serde-big-array",
 ]
 
 [[package]]
@@ -6150,6 +6165,7 @@ dependencies = [
  "common-sinclair-zx-spectrum-128k-class",
  "common-sinclair-zx-spectrum-48k-class",
  "common-sinclair-zx-spectrum-amstrad-class",
+ "common-timex-2068",
  "criterion",
  "emu198x-gi-ay-3-8912",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
@@ -6180,6 +6196,7 @@ dependencies = [
  "machine-sinclair-zx-spectrum-plus2b",
  "machine-sinclair-zx-spectrum-plus3",
  "machine-timex-tc2048",
+ "machine-timex-tc2068",
  "machine-timex-ts2068",
  "png",
  "postcard",
