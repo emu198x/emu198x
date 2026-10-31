@@ -77,13 +77,16 @@ fn held_contacts_and_peripherals_survive_restore_while_foreign_boards_are_refuse
     let held = m.cpu_read(0xdc01);
     assert_eq!(held & 4, 0);
     m.attach_reu(128);
+    m.attach_ultimate_uci();
     let state = m.snapshot_state();
     let mut restored = machine();
+    restored.attach_ultimate_uci();
     restored
         .restore_snapshot_state(state)
         .expect("matching board");
     assert_eq!(restored.cpu_read(0xdc01), held);
     assert!(restored.has_reu());
+    assert!(restored.ultimate_uci().is_some());
     restored.keyboard_mut().set_key(1, 2, false);
     assert_ne!(restored.cpu_read(0xdc01) & 4, 0);
     for model in [

@@ -27,7 +27,9 @@ peripheral operations but no replaceable whole-engine access.
 
 Profile IDs, firmware IDs, variant aliases and original version-22 wire bytes
 remain unchanged. Dispatch adds no serialized tag. C64 restore validates the
-model and VIC/SID/CIA population on a candidate before replacing live state;
+serialized model and VIC/SID/CIA population, then stages validated memory
+before committing state in place. It retains the live Ultimate host interface,
+which an engine clone deliberately omits;
 C128 binding validates model, VIC-IIe, CIA/SID population, RAM and output
 geometry, then rehydrates the Z80 walker. A foreign board under an otherwise
 matching runtime header is rejected without changing the selected machine.
