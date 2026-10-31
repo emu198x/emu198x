@@ -76,6 +76,13 @@ impl TapePlayer {
         }
     }
 
+    /// The loaded timing stream, independent of the current playback position.
+    /// Used to retain mounted media when rebuilding a machine after reset.
+    #[must_use]
+    pub fn spans(&self) -> &[TapeSpan] {
+        &self.spans
+    }
+
     /// Loads one timing-span stream and rewinds playback to the start.
     pub fn load_stream(&mut self, spans: Vec<TapeSpan>) {
         self.spans = spans;

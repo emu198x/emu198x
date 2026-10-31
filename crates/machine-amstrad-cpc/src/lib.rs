@@ -526,6 +526,18 @@ impl AmstradCpc {
         })
     }
 
+    /// The installed OS and BASIC in their original firmware-image order.
+    #[must_use]
+    pub fn firmware(&self) -> Vec<u8> {
+        [self.os_rom.as_slice(), self.basic_rom.as_slice()].concat()
+    }
+
+    /// Fitted expansion ROMs, including AMSDOS when present.
+    #[must_use]
+    pub fn upper_roms(&self) -> &std::collections::BTreeMap<u8, Vec<u8>> {
+        &self.upper_roms
+    }
+
     /// CPU T-states since power-on.
     #[must_use]
     pub fn cpu_tstates(&self) -> u64 {

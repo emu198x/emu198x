@@ -156,6 +156,11 @@ impl AmstradCpcRuntime {
     /// skipping this would panic on the first repaint.
     pub(crate) fn set_machine(&mut self, machine: Option<AmstradCpc>) {
         if let Some(machine) = &machine {
+            // Reset must use the restored hardware, even in a blank runtime or
+            // when the previous session had different firmware and media.
+            self.firmware_bytes = Some(machine.firmware());
+            self.amsdos_bytes = machine.upper_roms().get(&AMSDOS_ROM_NUMBER).cloned();
+            self.tape_spans = Some(machine.tape().spans().to_vec());
             self.size_framebuffer_for(machine);
         }
         self.machine = machine;
@@ -182,6 +187,16 @@ impl AmstradCpcRuntime {
                     reason,
                 }
             })?;
+        if let Some(old) = self.machine.as_ref() {
+            for (&number, image) in old.upper_roms() {
+                machine.fit_upper_rom(number, image).map_err(|reason| {
+                    MachineError::InvalidFirmware {
+                        id: format!("upper-rom-{number}"),
+                        reason,
+                    }
+                })?;
+            }
+        }
         if let (true, Some(amsdos)) = (self.model.has_disc(), self.amsdos_bytes.as_ref()) {
             machine
                 .fit_upper_rom(AMSDOS_ROM_NUMBER, amsdos)
