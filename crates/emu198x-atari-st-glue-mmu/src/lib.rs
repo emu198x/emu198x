@@ -172,6 +172,12 @@ impl GlueMmu {
         }
     }
 
+    /// Physical RAM fitted in bank order, independent of guest configuration.
+    #[must_use]
+    pub fn physical_banks(&self) -> [u32; 2] {
+        self.physical
+    }
+
     /// Bytes of RAM fitted across both banks.
     #[must_use]
     pub fn physical_ram(&self) -> usize {

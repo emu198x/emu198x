@@ -1,7 +1,8 @@
 //! Query surface for the Atari ST.
 
+use crate::machine::AtariSt;
+use common_atari_st::{Frequency, Monitor};
 use emu198x_shell::{MachineCore, QueryError, QueryResult, SessionQueryProvider};
-use machine_atari_st::{AtariSt, Frequency, Monitor};
 use serde_json::{Value, json};
 
 use crate::runtime::AtariStRuntime;
@@ -59,24 +60,24 @@ impl SessionQueryProvider<AtariStRuntime> for AtariStSessionQueryProvider {
                 Monitor::Colour => "colour",
                 Monitor::Mono => "mono",
             }),
-            "machine.frame_count" => json!(machine.machine().map_or(0, |m| m.glue.frames())),
+            "machine.frame_count" => json!(machine.machine().map_or(0, |m| m.glue().frames())),
             "machine.cycles" => json!(loaded(machine, path)?.cycles()),
             // The 68000's PC is two words ahead of the instruction it is
             // running (the prefetch); this is the instruction itself.
-            "cpu.pc" => json!(loaded(machine, path)?.cpu.instr_start_pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().instr_start_pc),
 
             "video" => {
                 let m = loaded(machine, path)?;
                 json!({
-                    "base": m.glue.video_base(),
+                    "base": m.glue().video_base(),
                     "frequency": frequency(m),
-                    "line": m.glue.position().0,
+                    "line": m.glue().position().0,
                     "resolution": resolution(m),
                 })
             }
-            "video.base" => json!(loaded(machine, path)?.glue.video_base()),
+            "video.base" => json!(loaded(machine, path)?.glue().video_base()),
             "video.frequency" => frequency(loaded(machine, path)?),
-            "video.line" => json!(loaded(machine, path)?.glue.position().0),
+            "video.line" => json!(loaded(machine, path)?.glue().position().0),
             "video.resolution" => resolution(loaded(machine, path)?),
 
             "floppy" => {
@@ -97,7 +98,7 @@ impl SessionQueryProvider<AtariStRuntime> for AtariStSessionQueryProvider {
 
 /// The frame rate the GLUE is generating, in whole hertz.
 fn frequency(machine: &AtariSt) -> Value {
-    json!(match machine.glue.frequency() {
+    json!(match machine.glue().frequency() {
         Frequency::Hz50 => 50,
         Frequency::Hz60 => 60,
         Frequency::Hz71 => 71,
@@ -105,7 +106,7 @@ fn frequency(machine: &AtariSt) -> Value {
 }
 
 fn resolution(machine: &AtariSt) -> Value {
-    json!(match machine.shifter.read_resolution() & 3 {
+    json!(match machine.shifter().read_resolution() & 3 {
         0 => "low",
         1 => "medium",
         _ => "high",

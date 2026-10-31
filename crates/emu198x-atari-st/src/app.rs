@@ -158,7 +158,7 @@ impl MachineApp for AtariSt {
     }
 
     fn report(&self, runtime: &AtariStRuntime, report: &mut Map<String, Value>) {
-        let frames = runtime.machine().map_or(0, |m| m.glue.frames());
+        let frames = runtime.machine().map_or(0, |m| m.glue().frames());
         report.insert("tos_loaded".to_owned(), runtime.machine().is_some().into());
         report.insert("frames_run".to_owned(), frames.into());
     }

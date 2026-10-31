@@ -95,6 +95,10 @@ pub struct Ikbd {
 }
 
 impl Ikbd {
+    pub(crate) fn cpu_hz(&self) -> u32 {
+        self.cpu_hz
+    }
+
     /// An IKBD for a machine whose CPU runs at `cpu_hz`.
     #[must_use]
     pub fn new(cpu_hz: u32) -> Self {

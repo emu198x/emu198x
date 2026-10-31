@@ -1,11 +1,11 @@
 //! Atari ST profile catalogue.
 
 use crate::AtariStRuntime;
+use common_atari_st::{Monitor, NTSC_MASTER_HZ, PAL_MASTER_HZ, VideoStandard};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
-use machine_atari_st::{Monitor, NTSC_MASTER_HZ, PAL_MASTER_HZ, VideoStandard};
 
 /// The TOS image's firmware id.
 pub const TOS_FIRMWARE_ID: &str = "atari-st-tos";
@@ -74,12 +74,12 @@ impl Model {
         }
     }
 
-    /// The machine crate's model: how much RAM.
+    /// The common engine's physical RAM-bank configuration.
     #[must_use]
-    pub const fn machine_model(self) -> machine_atari_st::Model {
+    pub const fn machine_model(self) -> common_atari_st::Model {
         match self {
-            Self::St520Pal | Self::St520Ntsc => machine_atari_st::Model::St520,
-            Self::St1040Pal | Self::St1040Ntsc => machine_atari_st::Model::St1040,
+            Self::St520Pal | Self::St520Ntsc => common_atari_st::Model::St520,
+            Self::St1040Pal | Self::St1040Ntsc => common_atari_st::Model::St1040,
         }
     }
 
@@ -183,7 +183,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("atari-st"),
+        machine_id: MachineId::from(model.model_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn tos_is_required_and_both_drives_are_offered() {
         for profile in profiles() {
-            assert_eq!(profile.machine_id.as_str(), "atari-st");
+            assert_eq!(profile.machine_id.as_str(), profile.profile_id.as_str());
             assert_eq!(profile.firmware.len(), 1);
             assert!(!profile.firmware[0].optional);
             assert_eq!(profile.media_slots.len(), 2);
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(Model::St520Pal.firmware_sources()[0].id, TOS_FIRMWARE_ID);
         assert_eq!(
             Model::St1040Pal.machine_model(),
-            machine_atari_st::Model::St1040
+            common_atari_st::Model::St1040
         );
     }
 }

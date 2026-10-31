@@ -54,7 +54,12 @@ pub fn word(machine: &runtime_atari_st::AtariSt, at: u32) -> u16 {
 /// EmuTOS 1.3 (192 KB, US) from the test-data cache, if it is there.
 #[allow(dead_code)]
 pub fn emutos() -> Option<Vec<u8>> {
-    let home = std::env::var_os("HOME")?;
-    let path = std::path::Path::new(&home).join(".emu198x/test-data/emutos/etos192us.img");
+    let path = std::env::var_os("EMU198X_EMUTOS_ROM")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                std::path::Path::new(&home).join(".emu198x/test-data/emutos/etos192us.img")
+            })
+        })?;
     std::fs::read(path).ok()
 }

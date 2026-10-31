@@ -1,6 +1,6 @@
 [package]
-name = "machine-atari-st"
-description = "Atari ST (520ST and 1040ST, STF): 68000, GLUE/MMU, Shifter, MFP 68901, ACIAs, YM2149, WD1772 behind the DMA chip, and a protocol-level IKBD"
+name = "common-atari-st"
+description = "Shared Atari ST wiring and regression tests for fixed owners"
 edition.workspace = true
 version.workspace = true
 publish = false

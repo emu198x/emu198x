@@ -9,7 +9,11 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-machine-atari-st = { path = "../machine-atari-st", version = "0.45.0" }
+common-atari-st = { path = "../common-atari-st", version = "0.45.0" }
+machine-atari-520st-pal = { path = "../machine-atari-520st-pal", version = "0.45.0" }
+machine-atari-520st-ntsc = { path = "../machine-atari-520st-ntsc", version = "0.45.0" }
+machine-atari-1040st-pal = { path = "../machine-atari-1040st-pal", version = "0.45.0" }
+machine-atari-1040st-ntsc = { path = "../machine-atari-1040st-ntsc", version = "0.45.0" }
 motorola-68000 = { path = "../motorola-68000", version = "0.45.0" }
 postcard = { workspace = true }
 serde = { workspace = true }

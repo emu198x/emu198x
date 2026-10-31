@@ -145,7 +145,29 @@ label = "system:atari-800xl"
 milestone = "Atari 800XL 100%"
 
 [[system]]
-machine_id = "atari-st"
+machine_id = "atari-520st-pal"
+machine_crate = "machine-atari-520st-pal"
+crate = "emu198x-atari-st"
+label = "system:atari-st"
+milestone = "Atari ST 100%"
+
+[[system]]
+machine_id = "atari-520st-ntsc"
+machine_crate = "machine-atari-520st-ntsc"
+crate = "emu198x-atari-st"
+label = "system:atari-st"
+milestone = "Atari ST 100%"
+
+[[system]]
+machine_id = "atari-1040st-pal"
+machine_crate = "machine-atari-1040st-pal"
+crate = "emu198x-atari-st"
+label = "system:atari-st"
+milestone = "Atari ST 100%"
+
+[[system]]
+machine_id = "atari-1040st-ntsc"
+machine_crate = "machine-atari-1040st-ntsc"
 crate = "emu198x-atari-st"
 label = "system:atari-st"
 milestone = "Atari ST 100%"

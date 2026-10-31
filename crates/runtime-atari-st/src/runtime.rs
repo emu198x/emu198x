@@ -6,12 +6,13 @@
 //! picture is converted to the host's RGBA after every frame. Time is
 //! counted in CPU cycles.
 
+use crate::machine::AtariSt;
+use common_atari_st::{AUDIO_SAMPLE_RATE, Monitor, disk_from_image};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
     MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat,
     ResetKind, RunResult, StopReason,
 };
-use machine_atari_st::{AUDIO_SAMPLE_RATE, AtariSt, Monitor, disk_from_image};
 
 use crate::Model;
 use crate::input::{MOUSE_DEVICE, apply_input_event};
@@ -134,17 +135,13 @@ impl AtariStRuntime {
     /// runtime holds. A snapshot does not carry TOS.
     pub(crate) fn set_restored_machine(
         &mut self,
-        mut machine: AtariSt,
+        machine: common_atari_st::AtariSt,
     ) -> Result<(), MachineError> {
         let tos = self.tos.clone().ok_or(MachineError::MissingFirmware {
             id: TOS_FIRMWARE_ID.to_owned(),
         })?;
-        machine
-            .finish_restore(tos)
-            .map_err(|error| MachineError::InvalidFirmware {
-                id: TOS_FIRMWARE_ID.to_owned(),
-                reason: error.to_string(),
-            })?;
+        let machine = AtariSt::from_state(machine, self.model, tos)
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
         self.monitor = machine.monitor();
         self.install(machine);
         Ok(())
@@ -433,7 +430,7 @@ impl MachineCore for AtariStRuntime {
         match format {
             "st" => Ok(disk.data().to_vec()),
             "msa" => {
-                machine_atari_st::msa_from_disk(disk).ok_or_else(|| MachineError::InvalidMedia {
+                common_atari_st::msa_from_disk(disk).ok_or_else(|| MachineError::InvalidMedia {
                     slot: slot.to_owned(),
                     reason: "the disk's geometry has no .msa form".to_owned(),
                 })

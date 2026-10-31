@@ -67,7 +67,7 @@ fn a_soft_reset_keeps_ram_and_a_hard_one_clears_it() {
     runtime.reset(ResetKind::Soft);
     let machine = runtime.machine().expect("machine");
     assert_eq!(machine.peek(0x2_0000), 0x5A);
-    assert_eq!(machine.cpu.regs.pc, 0xFC_0008, "back at the vector");
+    assert_eq!(machine.cpu().regs.pc, 0xFC_0008, "back at the vector");
     runtime.reset(ResetKind::Hard);
     assert_eq!(runtime.machine().expect("machine").peek(0x2_0000), 0);
 }
@@ -129,8 +129,7 @@ fn input_reaches_the_ikbd() {
     runtime
         .machine_mut()
         .expect("machine")
-        .acia_keyboard
-        .write(false, 0x96);
+        .write_keyboard_acia(false, 0x96);
     let events = [
         InputEvent::Key {
             name: "a".into(),
@@ -152,10 +151,10 @@ fn input_reaches_the_ikbd() {
     session.run_frames(1).expect("run");
     runtime = session.into_machine();
     let machine = runtime.machine_mut().expect("machine");
-    assert_eq!(machine.ikbd.stick(1).0, 0x80, "fire on the joystick port");
+    assert_eq!(machine.ikbd().stick(1).0, 0x80, "fire on the joystick port");
     // The key byte went out over the serial line into the keyboard ACIA.
     assert_eq!(
-        machine.acia_keyboard.read(true),
+        machine.read_keyboard_acia(true),
         0x1E,
         "the A key's make code"
     );
