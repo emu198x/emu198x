@@ -41,7 +41,7 @@ fn rom_dir() -> Option<PathBuf> {
 /// Screen RAM as text. Codes 1..=26 are the letters; 32..=63 coincide with
 /// ASCII, which covers the space, the digits and the full stop `READY.`
 /// ends on.
-fn screen_text(machine: &machine_commodore_c64::C64) -> String {
+fn screen_text(machine: &runtime_commodore_c64::C64) -> String {
     let mut out = String::with_capacity(25 * 41);
     for row in 0..25u16 {
         for col in 0..40u16 {

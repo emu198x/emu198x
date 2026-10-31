@@ -32,7 +32,6 @@ const C64_STACK_SOURCE_ROOTS: &[&str] = &[
     "crates/emu198x-mos-cia-6526/src",
     "crates/common-commodore-c64/src",
     "crates/common-commodore-iec/src",
-    "crates/machine-commodore-c64/src",
     "crates/machine-commodore-1541/src",
     "crates/machine-commodore-1571/src",
     "crates/machine-commodore-1581/src",

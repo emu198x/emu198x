@@ -15,7 +15,9 @@
 //! written against its own concrete runtime type and can reach that type's
 //! own methods.
 
+use crate::boards::C64;
 use common_commodore_c64::timing::C64Timing;
+use common_commodore_c64::{C64Config, C64Snapshot, KeyboardMatrix};
 use common_commodore_iec::IecBus;
 use emu198x_mos_6502::M6502;
 use emu198x_mos_cia_6526::Cia6526;
@@ -25,7 +27,6 @@ use emu198x_shell::{
     LoaderError, MachineError, MachineProfile, MediaImage, RomConvention, SessionQueryProvider,
     TapeAutoloaded,
 };
-use machine_commodore_c64::{C64, C64Config, C64Snapshot, KeyboardMatrix};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 

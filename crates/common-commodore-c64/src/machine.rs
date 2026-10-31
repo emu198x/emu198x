@@ -3497,3 +3497,36 @@ mod tests {
         assert_eq!(drive.read_with_iec_bus(0x1800, &bus) & 0x80, 0x80);
     }
 }
+
+#[cfg(test)]
+mod fixed_binding_tests {
+    use super::*;
+    use crate::board::{Board, C64Core};
+    #[derive(Clone)]
+    struct Pal;
+    impl Board for Pal {
+        const MODEL: C64Model = C64Model::PalBreadbin;
+        const MACHINE_ID: &'static str = "commodore-c64-pal-breadbin";
+    }
+    #[test]
+    fn forged_chip_population_with_matching_model_is_rejected_atomically() {
+        let mut machine =
+            C64Core::<Pal>::new(&[0; 0x2000], &[0; 0x2000], &[0; 0x1000]).expect("ROMs");
+        let before = postcard::to_allocvec(&machine.snapshot_state()).expect("before");
+        for mutation in 0..4 {
+            let mut forged = machine.snapshot_state();
+            match mutation {
+                0 => forged.vic = Vic::new(VicModel::Ntsc6567),
+                1 => forged.sid.model = emu198x_mos_sid_6581::SidModel::Mos8580,
+                2 => forged
+                    .cia1
+                    .set_model(emu198x_mos_cia_6526::CiaModel::Mos6526A),
+                _ => forged
+                    .cia2
+                    .set_model(emu198x_mos_cia_6526::CiaModel::Mos6526A),
+            }
+            assert!(machine.restore_snapshot_state(forged).is_err());
+            assert!(postcard::to_allocvec(&machine.snapshot_state()).expect("unchanged") == before);
+        }
+    }
+}

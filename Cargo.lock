@@ -583,8 +583,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-c128"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-c64",
+ "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
+ "emu198x-mos-sid-6581",
+ "emu198x-mos-vic-ii",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde-big-array",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "common-commodore-c64"
 version = "0.45.1"
+dependencies = [
+ "common-commodore-iec",
+ "emu198x-esp-at-modem",
+ "emu198x-mos-6502",
+ "emu198x-mos-cia-6526",
+ "emu198x-mos-sid-6581",
+ "emu198x-mos-vic-ii",
+ "emu198x-peripheral-ultimate-uci-net",
+ "emu198x-wdc-65c816",
+ "format198x-commodore-c64-crt",
+ "format198x-commodore-c64-prg",
+ "format198x-commodore-c64-tap",
+ "machine-commodore-1541",
+ "postcard",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "common-commodore-drive-gcr"
@@ -4054,43 +4088,45 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-commodore-c128"
+name = "machine-commodore-c128-ntsc"
 version = "0.45.1"
 dependencies = [
- "common-commodore-c64",
- "emu198x-mos-6502",
- "emu198x-mos-cia-6526",
- "emu198x-mos-sid-6581",
- "emu198x-mos-vic-ii",
- "emu198x-zilog-z80",
- "machine-commodore-c64",
- "postcard",
- "serde",
- "serde-big-array",
- "thiserror 2.0.21",
+ "common-commodore-c128",
 ]
 
 [[package]]
-name = "machine-commodore-c64"
+name = "machine-commodore-c128-pal"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-c128",
+]
+
+[[package]]
+name = "machine-commodore-c64-ntsc-breadbin"
 version = "0.45.1"
 dependencies = [
  "common-commodore-c64",
- "common-commodore-iec",
- "emu198x-esp-at-modem",
- "emu198x-mos-6502",
- "emu198x-mos-cia-6526",
- "emu198x-mos-sid-6581",
- "emu198x-mos-vic-ii",
- "emu198x-peripheral-ultimate-uci-net",
- "emu198x-wdc-65c816",
- "format198x-commodore-c64-crt",
- "format198x-commodore-c64-prg",
- "format198x-commodore-c64-tap",
- "machine-commodore-1541",
- "postcard",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
+]
+
+[[package]]
+name = "machine-commodore-c64-pal-breadbin"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-c64",
+]
+
+[[package]]
+name = "machine-commodore-c64c-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-c64",
+]
+
+[[package]]
+name = "machine-commodore-c64c-pal"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-c64",
 ]
 
 [[package]]
@@ -5954,6 +5990,7 @@ dependencies = [
 name = "runtime-commodore-c64"
 version = "0.45.1"
 dependencies = [
+ "common-commodore-c128",
  "common-commodore-c64",
  "common-commodore-iec",
  "emu198x-esp-at-modem",
@@ -5970,8 +6007,12 @@ dependencies = [
  "machine-commodore-1541",
  "machine-commodore-1571",
  "machine-commodore-1581",
- "machine-commodore-c128",
- "machine-commodore-c64",
+ "machine-commodore-c128-ntsc",
+ "machine-commodore-c128-pal",
+ "machine-commodore-c64-ntsc-breadbin",
+ "machine-commodore-c64-pal-breadbin",
+ "machine-commodore-c64c-ntsc",
+ "machine-commodore-c64c-pal",
  "png",
  "postcard",
  "serde",

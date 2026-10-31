@@ -30,10 +30,10 @@ pub use c128::{C128RomSet, C128Runtime};
 pub use drives::{DriveKind, IecDrive};
 // Re-exported so a host can drive the user port without naming the
 // machine-neutral modem crate directly.
+pub use common_commodore_c64::{AudioControls, SidChannel};
 pub use emu198x_esp_at_modem::{BitBangSerial, EspAtModem, EspAtTcpBridge};
 pub use family_runtime::{AsC64Runtime, C64RuntimeKind, C64Variant};
 pub use input::{key_name_is_valid, keys_for_char};
-pub use machine_commodore_c64::{AudioControls, SidChannel};
 pub use profiles::{C128Model, Model, c128_profile_for, c128_profiles, profile_for, profiles};
 pub use queries::C64SessionQueryProvider;
 pub use runtime::{C64FamilyRuntime, C64Runtime, SUPERCPU_FIRMWARE_ID};
@@ -47,3 +47,6 @@ mod signal;
 
 #[cfg(test)]
 mod board_baseline_tests;
+
+mod boards;
+pub use boards::{C64, C128};

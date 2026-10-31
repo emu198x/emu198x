@@ -12,8 +12,8 @@ use crate::runtime::{
     C64FamilyRuntime, C64Runtime, SCREEN_RAM_BASE, SCREEN_TEXT_HEIGHT, SCREEN_TEXT_WIDTH,
 };
 use crate::variants::C64FamilyMachine;
+use common_commodore_c64::machine::SuperCpu;
 use emu198x_esp_at_modem::EspAtTcpBridge;
-use machine_commodore_c64::machine::SuperCpu;
 
 /// Paths every machine in the family answers: its CPU, CIAs, VIC-II, the
 /// 40-column screen and bank 0 RAM. Wildcard paths like

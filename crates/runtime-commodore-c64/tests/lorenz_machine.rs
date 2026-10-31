@@ -41,7 +41,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_c64::{C64, C64Config, C64Model};
+use common_commodore_c64::{C64Config, C64Model};
+use runtime_commodore_c64::C64;
 
 // ---- Trap addresses -------------------------------------------------------
 //
