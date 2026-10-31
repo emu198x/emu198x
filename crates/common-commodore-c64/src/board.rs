@@ -5,7 +5,7 @@ use common_commodore_iec::IecBus;
 use emu198x_mos_6502::M6502;
 use emu198x_mos_cia_6526::Cia6526;
 pub use emu198x_mos_sid_6581::Sid6581;
-use emu198x_mos_vic_ii::{Vic, VicModel};
+use emu198x_mos_vic_ii::Vic;
 use std::marker::PhantomData;
 /// Configuration fixed by a machine owner.
 pub trait Board: Clone + 'static {
@@ -37,11 +37,8 @@ impl<B: Board> C64Core<B> {
     }
     /// Restore atomically, rejecting a foreign model or chip population.
     pub fn restore_snapshot_state(&mut self, state: C64Snapshot) -> Result<(), String> {
-        let mut candidate = self.inner.clone();
-        candidate.restore_snapshot_state(state)?;
-        validate(&candidate, B::MODEL)?;
-        self.inner = candidate;
-        Ok(())
+        state.validate_board(B::MODEL)?;
+        self.inner.restore_snapshot_state(state)
     }
     /// Forward the original `C64::model` operation.
     pub fn model(&self) -> C64Model {
@@ -419,23 +416,6 @@ impl<B: Board> C64Core<B> {
     pub fn supercpu_mut(&mut self) -> Option<&mut SuperCpu> {
         self.inner.supercpu_mut()
     }
-}
-fn validate(m: &C64, model: C64Model) -> Result<(), String> {
-    let vic = match model {
-        C64Model::PalBreadbin => VicModel::Pal6569,
-        C64Model::NtscBreadbin => VicModel::Ntsc6567,
-        C64Model::PalC64c => VicModel::Pal8565,
-        C64Model::NtscC64c => VicModel::Ntsc8562,
-    };
-    if m.model() != model
-        || m.vic().model() != vic
-        || m.sid().model != model.sid_model()
-        || m.cia1().model() != model.cia_model()
-        || m.cia2().model() != model.cia_model()
-    {
-        return Err("C64 snapshot chip population does not match fixed owner".into());
-    }
-    Ok(())
 }
 
 pub use emu198x_peripheral_ultimate_uci_net::UltimateUciNet;

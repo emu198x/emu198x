@@ -108,6 +108,27 @@ pub struct C64Snapshot {
     supercpu: Option<Box<SuperCpu>>,
 }
 
+impl C64Snapshot {
+    /// Check the fixed owner's chip population before consuming the state.
+    pub(crate) fn validate_board(&self, model: C64Model) -> Result<(), String> {
+        let vic = match model {
+            C64Model::PalBreadbin => VicModel::Pal6569,
+            C64Model::NtscBreadbin => VicModel::Ntsc6567,
+            C64Model::PalC64c => VicModel::Pal8565,
+            C64Model::NtscC64c => VicModel::Ntsc8562,
+        };
+        if self.model != model
+            || self.vic.model() != vic
+            || self.sid.model != model.sid_model()
+            || self.cia1.model() != model.cia_model()
+            || self.cia2.model() != model.cia_model()
+        {
+            return Err("C64 snapshot chip population does not match fixed owner".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct JoystickState {
     up: bool,
@@ -1219,6 +1240,10 @@ impl C64 {
             ));
         }
 
+        // Validate every fallible memory input before changing any live chip.
+        // Host-only Ultimate connections stay on this engine; cloning a C64
+        // deliberately drops them and is therefore not a restore transaction.
+        let memory = C64Memory::from_snapshot(snapshot.memory)?;
         self.cpu = snapshot.cpu;
         self.vic = snapshot.vic;
         self.vic.rebuild_signal_codes();
@@ -1226,7 +1251,7 @@ impl C64 {
         self.cia2 = snapshot.cia2;
         self.sid = snapshot.sid;
         self.datasette = snapshot.datasette;
-        self.memory = C64Memory::from_snapshot(snapshot.memory)?;
+        self.memory = memory;
         self.keyboard = snapshot.keyboard;
         self.joysticks = snapshot.joysticks;
         self.paddles = snapshot.paddles;
@@ -3528,5 +3553,73 @@ mod fixed_binding_tests {
             assert!(machine.restore_snapshot_state(forged).is_err());
             assert!(postcard::to_allocvec(&machine.snapshot_state()).expect("unchanged") == before);
         }
+    }
+}
+
+#[cfg(test)]
+mod host_restore_tests {
+    use super::*;
+    use crate::board::{Board, C64Core};
+    #[derive(Clone)]
+    struct Pal;
+    impl Board for Pal {
+        const MODEL: C64Model = C64Model::PalBreadbin;
+        const MACHINE_ID: &'static str = "commodore-c64-pal-breadbin";
+    }
+    #[test]
+    fn fixed_restore_preserves_the_live_ultimate_interface_like_the_original_engine() {
+        let mut raw = C64::new(C64Config {
+            model: C64Model::PalBreadbin,
+            kernal_rom: &[0; 0x2000],
+            basic_rom: &[0; 0x2000],
+            character_rom: &[0; 0x1000],
+        })
+        .expect("ROMs");
+        raw.attach_ultimate_uci();
+        raw.restore_snapshot_state(raw.snapshot_state())
+            .expect("raw restore");
+        assert!(
+            raw.ultimate_uci().is_some(),
+            "original restore keeps the live host interface"
+        );
+        let mut fixed =
+            C64Core::<Pal>::new(&[0; 0x2000], &[0; 0x2000], &[0; 0x1000]).expect("ROMs");
+        fixed.attach_ultimate_uci();
+        fixed
+            .restore_snapshot_state(fixed.snapshot_state())
+            .expect("fixed restore");
+        assert!(
+            fixed.ultimate_uci().is_some(),
+            "fixed restore must keep the same host interface"
+        );
+    }
+}
+
+#[cfg(test)]
+mod malformed_memory_restore_tests {
+    use super::*;
+    use crate::board::{Board, C64Core};
+    #[derive(Clone)]
+    struct Pal;
+    impl Board for Pal {
+        const MODEL: C64Model = C64Model::PalBreadbin;
+        const MACHINE_ID: &'static str = "commodore-c64-pal-breadbin";
+    }
+    #[test]
+    fn malformed_memory_cannot_partly_restore_chips_or_drop_the_host_interface() {
+        let mut machine =
+            C64Core::<Pal>::new(&[0; 0x2000], &[0; 0x2000], &[0; 0x1000]).expect("ROMs");
+        machine.attach_ultimate_uci();
+        machine.advance_phi2_cycles(137);
+        let before = postcard::to_allocvec(&machine.snapshot_state()).expect("before");
+        let mut value = serde_json::to_value(machine.snapshot_state()).expect("snapshot JSON");
+        let bytes = value["memory"]["ram"].as_array_mut().expect("RAM array");
+        assert!(bytes.pop().is_some());
+        let mut forged: C64Snapshot =
+            serde_json::from_value(value).expect("malformed RAM snapshot");
+        forged.cpu.regs.pc = 0x1234;
+        assert!(machine.restore_snapshot_state(forged).is_err());
+        assert!(postcard::to_allocvec(&machine.snapshot_state()).expect("unchanged") == before);
+        assert!(machine.ultimate_uci().is_some());
     }
 }
