@@ -18,3 +18,9 @@ pub use machine_nintendo_snes::{Buttons, Cartridge, Region, Snes};
 pub use profiles::{Model, blank, profile_for, profiles, with_cartridge};
 pub use queries::SnesSessionQueryProvider;
 pub use runtime::SnesRuntime;
+
+#[cfg(test)]
+mod restore_regressions;
+
+#[cfg(test)]
+mod board_baseline_tests;

@@ -71,7 +71,7 @@ impl SnesRuntime {
     /// clean-room program.
     #[must_use]
     pub fn has_original_ipl(&self) -> bool {
-        self.ipl.is_some()
+        self.ipl.is_some_and(|rom| rom != ipl::CLEAN_ROOM)
     }
 
     /// Insert a cartridge image and power the console on.
@@ -120,9 +120,16 @@ impl SnesRuntime {
     /// the one a later reset rebuilds from, since a snapshot can be
     /// restored into a runtime that never had one.
     pub(crate) fn set_machine(&mut self, machine: Option<Snes>) {
-        if let Some(machine) = &machine {
-            self.cart_image = Some(machine.cart.rom().to_vec());
-        }
+        self.cart_image = machine.as_ref().map(|m| m.cart.rom().to_vec());
+        self.ipl = machine
+            .as_ref()
+            .map(|m| {
+                // Snapshot validation checks this length before installation.
+                let mut bytes = [0; 64];
+                bytes.copy_from_slice(&m.apu.ipl);
+                bytes
+            })
+            .filter(|bytes| *bytes != ipl::CLEAN_ROOM);
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
@@ -132,11 +139,15 @@ impl SnesRuntime {
             self.machine = None;
             return;
         };
-        let Ok(cart) = cartridge::board(image) else {
+        let Ok(mut cart) = cartridge::board(image) else {
             self.machine = None;
             return;
         };
+        if let Some(previous) = self.machine.as_ref().filter(|m| m.cart.rom() == image) {
+            cart.load_ram(previous.cart.ram());
+        }
         self.machine = Some(Snes::new(cart, self.model.machine_region(), self.ipl));
+        self.time = MachineTime::default();
         self.update_rgba_framebuffer();
     }
 
