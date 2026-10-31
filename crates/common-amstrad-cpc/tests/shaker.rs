@@ -37,15 +37,15 @@
 //! these tests establish that the suite loads and runs, not what it concludes.
 //!
 //! ```text
-//! cargo test -p machine-amstrad-cpc --test shaker -- --ignored
+//! cargo test -p common-amstrad-cpc --test shaker -- --ignored
 //! ```
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use common_amstrad_cpc::{AmstradCpc, CpcModel};
 use emu198x_nec_upd765a::DiskImage;
-use machine_amstrad_cpc::{AmstradCpc, CpcModel};
 
 /// CPC DATA format: nine 512-byte sectors per track, IDs `&C1..&C9`.
 const SECTORS_PER_TRACK: usize = 9;

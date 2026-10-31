@@ -3,7 +3,7 @@
 //! The CPC has no character memory. Text is drawn as pixels, so anything that
 //! wants to *read* the screen — a test asserting on a firmware message, a
 //! harness scoring a test suite's report — has to undo the drawing. Before
-//! this existed, `machine-amstrad-cpc`'s tests could assert only that some
+//! this existed, `common-amstrad-cpc`'s tests could assert only that some
 //! number of screen bytes were non-zero, which proves something was drawn and
 //! never what.
 //!

@@ -1,6 +1,6 @@
 //! Amstrad CPC keyboard and joystick input mapping.
 //!
-//! [`machine_amstrad_cpc::key_for_char`] already covers everything with a
+//! [`common_amstrad_cpc::key_for_char`] already covers everything with a
 //! printable legend. What it cannot cover is the keys that produce no
 //! character — cursors, `ESC`, `COPY`, the function keypad — and the joystick,
 //! which on a CPC is not a separate device but row 9 of the same matrix.
@@ -15,8 +15,9 @@
 //! `cpc464` `kbrow.N` ports; two independent implementations reaching the same
 //! matrix is the check worth having.
 
+use crate::machine::AmstradCpc;
+use common_amstrad_cpc::key_for_char;
 use emu198x_shell::{InputEvent, KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING};
-use machine_amstrad_cpc::{AmstradCpc, key_for_char};
 
 use crate::runtime::AmstradCpcRuntime;
 
@@ -98,7 +99,7 @@ const SHIFT_NAME: &str = "shift";
 /// A single printable character falls through to the machine's own character
 /// map, so `"a"` and `"["` work here without being repeated — but only where
 /// the legend is unshifted. `"!"` resolves to nothing, because pressing row 8
-/// bit 0 alone types a `1`; [`keys_for_char`](CpcKeyboard::keys_for_char)
+/// bit 0 alone types a `1`; `keys_for_char`
 /// turns it into a `shift` + `1` chord instead.
 #[must_use]
 pub fn key_for_name(name: &str) -> Option<(usize, u8)> {

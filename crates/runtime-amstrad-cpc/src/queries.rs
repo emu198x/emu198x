@@ -1,8 +1,8 @@
 //! Family-owned query surface for the CPC runtime.
 
+use crate::machine::AmstradCpc;
 use emu198x_amstrad_gate_array::VideoMode;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_amstrad_cpc::AmstradCpc;
 use serde_json::json;
 
 use crate::runtime::AmstradCpcRuntime;

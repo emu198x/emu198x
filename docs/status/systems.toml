@@ -57,7 +57,22 @@ label = "system:electron"
 milestone = "Acorn Electron 100%"
 
 [[system]]
-machine_id = "amstrad-cpc"
+machine_id = "amstrad-cpc464"
+machine_crate = "machine-amstrad-cpc464"
+crate = "emu198x-amstrad-cpc"
+label = "system:cpc"
+milestone = "Amstrad CPC 100%"
+
+[[system]]
+machine_id = "amstrad-cpc664"
+machine_crate = "machine-amstrad-cpc664"
+crate = "emu198x-amstrad-cpc"
+label = "system:cpc"
+milestone = "Amstrad CPC 100%"
+
+[[system]]
+machine_id = "amstrad-cpc6128"
+machine_crate = "machine-amstrad-cpc6128"
 crate = "emu198x-amstrad-cpc"
 label = "system:cpc"
 milestone = "Amstrad CPC 100%"

@@ -7,7 +7,7 @@
 //! EMU198X_CPC_AMSDOS_ROM.
 //!
 //! ```text
-//! cargo test --release -p machine-amstrad-cpc --test firmware_disc -- --ignored
+//! cargo test --release -p common-amstrad-cpc --test firmware_disc -- --ignored
 //! ```
 //!
 //! The disc is built here, in AMSDOS's DATA format, so no disc image is
@@ -21,8 +21,8 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+use common_amstrad_cpc::{AmstradCpc, CpcModel, DiskImage};
 use emu198x_nec_upd765a::{DiskSector, DiskTrack};
-use machine_amstrad_cpc::{AmstradCpc, CpcModel, DiskImage};
 
 fn rom(env_var: &str, file: &str) -> Option<Vec<u8>> {
     let path = env::var(env_var).map(PathBuf::from).ok().or_else(|| {

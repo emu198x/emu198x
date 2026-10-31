@@ -13,7 +13,7 @@
 //!
 //! No firmware needed: the code runs from RAM at `$8000`.
 
-use machine_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::AmstradCpc;
 
 const CODE: u16 = 0x8000;
 

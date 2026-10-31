@@ -1,8 +1,8 @@
 //! Disc media on the CPC664 and CPC6128: load, write-back, reset, eject and
 //! export, and the 464's lack of a drive.
 
+use common_amstrad_cpc::DiskImage;
 use emu198x_shell::{MachineCore, MachineError, MediaImage, MediaKind, MediaSet, ResetKind};
-use machine_amstrad_cpc::DiskImage;
 use runtime_amstrad_cpc::{AmstradCpcRuntime, Model};
 
 fn firmware() -> Vec<u8> {

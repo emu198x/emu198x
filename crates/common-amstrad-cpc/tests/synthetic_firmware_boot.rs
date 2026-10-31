@@ -19,7 +19,7 @@
 
 use std::path::PathBuf;
 
-use machine_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::AmstradCpc;
 
 /// What pen 0 and the border set to hardware colour 6 render. The control
 /// image renders black — with no CRTC programming there is no raster.

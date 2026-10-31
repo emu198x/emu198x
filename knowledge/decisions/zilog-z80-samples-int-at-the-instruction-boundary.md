@@ -149,7 +149,7 @@ if ((R.Flags & (Z80_CHECK_INTERRUPT_FLAG | Z80_EXECUTE_INTERRUPT_HANDLER_FLAG))
 This matters because the CPC varies the axis the Spectrum cannot. Its
 `/INT` comes from the Gate Array's 6-bit HSync counter, driven by the
 CRTC, not from the beam. Our own CPC already honours the host ordering
-contract this record imposes — `machine-amstrad-cpc` sets `cpu.irq =
+contract this record imposes — `common-amstrad-cpc` sets `cpu.irq =
 gate_array.interrupt()` immediately before each `cpu.tick()` — and the
 Gate Array's counter advances on the CRTC tick, so the assertion instant
 is quantised by a different clock entirely.
@@ -165,7 +165,7 @@ still outstanding.
 `SHAKER` (Longshot, v2.6) is the CPC's hardware-accuracy suite, covering
 the Gate Array and CRTC 6845 across their manufacturing variants. It
 ships as an Extended DSK, and the CPC464 modelled here has no FDC —
-`machine-amstrad-cpc`'s own I/O map records the expansion/FDC decode as
+`common-amstrad-cpc`'s own I/O map records the expansion/FDC decode as
 "absent on a 464". The suite cannot boot as-is.
 
 Two routes out, neither taken yet:

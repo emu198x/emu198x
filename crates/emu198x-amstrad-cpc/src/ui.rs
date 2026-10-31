@@ -12,9 +12,9 @@
 
 use std::time::Duration;
 
+use common_amstrad_cpc::{FB_HEIGHT, FB_WIDTH};
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use machine_amstrad_cpc::{FB_HEIGHT, FB_WIDTH};
 use runtime_amstrad_cpc::AmstradCpcRuntime;
 
 use crate::app::{Cpc, FRAME_TICKS_PAL};

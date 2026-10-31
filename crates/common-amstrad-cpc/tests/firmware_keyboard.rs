@@ -4,7 +4,7 @@
 //! firmware is copyrighted and lives at `~/.emu198x/roms/amstrad-cpc/cpc464.rom`.
 //!
 //! ```text
-//! cargo test --release -p machine-amstrad-cpc --test firmware_keyboard -- --ignored
+//! cargo test --release -p common-amstrad-cpc --test firmware_keyboard -- --ignored
 //! ```
 //!
 //! `POKE` is the assertion rather than the screen. The CPC has no text buffer to
@@ -20,7 +20,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::AmstradCpc;
 
 /// Somewhere in RAM an empty BASIC program will not touch. Below the screen at
 /// `$C000` and well above BASIC's own workspace at the bottom of memory.

@@ -30,11 +30,11 @@ impl Model {
 
     /// The machine this model builds.
     #[must_use]
-    pub const fn machine_model(self) -> machine_amstrad_cpc::CpcModel {
+    pub const fn machine_model(self) -> common_amstrad_cpc::CpcModel {
         match self {
-            Self::Cpc464 => machine_amstrad_cpc::CpcModel::Cpc464,
-            Self::Cpc664 => machine_amstrad_cpc::CpcModel::Cpc664,
-            Self::Cpc6128 => machine_amstrad_cpc::CpcModel::Cpc6128,
+            Self::Cpc464 => common_amstrad_cpc::CpcModel::Cpc464,
+            Self::Cpc664 => common_amstrad_cpc::CpcModel::Cpc664,
+            Self::Cpc6128 => common_amstrad_cpc::CpcModel::Cpc6128,
         }
     }
 
@@ -172,7 +172,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         ));
     }
     MachineProfile {
-        machine_id: MachineId::from("amstrad-cpc"),
+        machine_id: MachineId::from(model.profile_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,

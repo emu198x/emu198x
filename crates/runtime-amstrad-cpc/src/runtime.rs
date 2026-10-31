@@ -1,12 +1,12 @@
 //! Runtime wrapper for the Amstrad CPC.
 
+use crate::machine::AmstradCpc;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
 use emu198x_tape_playback::TapeSpan;
-use machine_amstrad_cpc::AmstradCpc;
 
 use crate::input::apply_input_event;
 use crate::profiles::{AMSDOS_FIRMWARE_ID, Model, profile_for};

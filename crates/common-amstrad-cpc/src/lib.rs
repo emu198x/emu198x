@@ -86,15 +86,16 @@
 
 pub mod screen_text;
 
-use emu198x_amstrad_gate_array::GateArray;
-use emu198x_gi_ay_3_8912::Ay3_8912;
+pub use emu198x_amstrad_gate_array::GateArray;
+pub use emu198x_gi_ay_3_8912::Ay3_8912;
 use emu198x_intel_8255::Ppi8255;
-use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
+pub use emu198x_motorola_6845::{Crtc6845, Crtc6845Variant};
 pub use emu198x_nec_upd765a::DiskImage;
-use emu198x_nec_upd765a::Upd765a;
-use emu198x_tape_playback::{TapePlayer, TapeSpan};
+pub use emu198x_nec_upd765a::{DiskSector, DiskTrack, Upd765a};
+pub use emu198x_tape_playback::{TapePlayer, TapeSpan};
 use emu198x_z80_cadence::Z80Machine;
-use emu198x_zilog_z80::{BusOp, Z80};
+use emu198x_zilog_z80::BusOp;
+pub use emu198x_zilog_z80::Z80;
 use serde::{Deserialize, Serialize};
 
 /// T-states per CRTC character clock: 4 MHz CPU against a 1 MHz CRTC.
@@ -2077,3 +2078,6 @@ mod tests {
         assert_eq!(tstates, 2 * u64::from(16 - 12_u8) * 2 * 4_000);
     }
 }
+
+mod board;
+pub use board::{CpcBoard, CpcCore};

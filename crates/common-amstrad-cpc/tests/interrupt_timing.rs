@@ -23,14 +23,14 @@
 //! boots far enough to have a running Gate Array.
 //!
 //! ```text
-//! cargo test -p machine-amstrad-cpc --test interrupt_timing -- --ignored
+//! cargo test -p common-amstrad-cpc --test interrupt_timing -- --ignored
 //! ```
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::AmstradCpc;
 
 /// T-states per microsecond: the Z80A runs at 4 MHz on a CPC.
 const TSTATES_PER_USEC: u64 = 4;

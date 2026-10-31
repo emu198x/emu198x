@@ -466,6 +466,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-amstrad-cpc"
+version = "0.45.1"
+dependencies = [
+ "emu198x-amstrad-gate-array",
+ "emu198x-gi-ay-3-8912",
+ "emu198x-intel-8255",
+ "emu198x-motorola-6845",
+ "emu198x-nec-upd765a",
+ "emu198x-tape-playback",
+ "emu198x-test-skip",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "format-amstrad-cpc-cdt",
+ "format-amstrad-dsk",
+ "serde",
+]
+
+[[package]]
 name = "common-atari-2600"
 version = "0.45.1"
 dependencies = [
@@ -1183,10 +1201,10 @@ dependencies = [
 name = "emu198x-amstrad-cpc"
 version = "0.45.1"
 dependencies = [
+ "common-amstrad-cpc",
  "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
- "machine-amstrad-cpc",
  "runtime-amstrad-cpc",
  "serde_json",
 ]
@@ -3764,21 +3782,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-amstrad-cpc"
+name = "machine-amstrad-cpc464"
 version = "0.45.1"
 dependencies = [
- "emu198x-amstrad-gate-array",
- "emu198x-gi-ay-3-8912",
- "emu198x-intel-8255",
- "emu198x-motorola-6845",
- "emu198x-nec-upd765a",
- "emu198x-tape-playback",
- "emu198x-test-skip",
- "emu198x-z80-cadence",
- "emu198x-zilog-z80",
- "format-amstrad-cpc-cdt",
- "format-amstrad-dsk",
- "serde",
+ "common-amstrad-cpc",
+]
+
+[[package]]
+name = "machine-amstrad-cpc6128"
+version = "0.45.1"
+dependencies = [
+ "common-amstrad-cpc",
+]
+
+[[package]]
+name = "machine-amstrad-cpc664"
+version = "0.45.1"
+dependencies = [
+ "common-amstrad-cpc",
 ]
 
 [[package]]
@@ -5768,6 +5789,7 @@ dependencies = [
 name = "runtime-amstrad-cpc"
 version = "0.45.1"
 dependencies = [
+ "common-amstrad-cpc",
  "emu198x-amstrad-gate-array",
  "emu198x-nec-upd765a",
  "emu198x-shell",
@@ -5775,7 +5797,9 @@ dependencies = [
  "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
  "format-amstrad-dsk",
- "machine-amstrad-cpc",
+ "machine-amstrad-cpc464",
+ "machine-amstrad-cpc6128",
+ "machine-amstrad-cpc664",
  "postcard",
  "serde",
  "serde_json",
