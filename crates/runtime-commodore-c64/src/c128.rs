@@ -10,7 +10,10 @@
 //! drives, cartridges and user port keep their defaults: no media slots, no
 //! transport, no loaders.
 
+use crate::boards::C128;
+use common_commodore_c64::KeyboardMatrix;
 use common_commodore_c64::timing::C64Timing;
+use common_commodore_c128::C128Roms;
 use emu198x_mos_6502::M6502;
 use emu198x_mos_cia_6526::Cia6526;
 use emu198x_mos_vic_ii::Vic;
@@ -18,8 +21,6 @@ use emu198x_shell::{
     FirmwareSet, FirmwareSource, InputEvent, MachineError, MachineProfile, QueryError,
     RomConvention,
 };
-use machine_commodore_c64::KeyboardMatrix;
-use machine_commodore_c128::{C128, C128Roms};
 use serde_json::json;
 
 use crate::profiles::{C128Model, c128_profile_for};
@@ -87,7 +88,7 @@ impl C64FamilyModel for C128Model {
 impl C64FamilyMachine for C128 {
     type Model = C128Model;
     type Roms = C128RomSet;
-    type Snapshot = C128;
+    type Snapshot = common_commodore_c128::C128;
 
     /// The directory the machine's own boot tests read, by the same
     /// variable, plus the usual places under `~/.emu198x/roms`.
@@ -223,14 +224,15 @@ impl C64FamilyMachine for C128 {
         apply_c128_input_event(self, event);
     }
 
-    fn snapshot_state(&self) -> C128 {
-        self.clone()
+    fn snapshot_state(&self) -> common_commodore_c128::C128 {
+        self.snapshot_state()
     }
 
-    fn restore_snapshot_state(&mut self, snapshot: C128) -> Result<(), String> {
-        *self = snapshot;
-        self.finish_restore();
-        Ok(())
+    fn restore_snapshot_state(
+        &mut self,
+        snapshot: common_commodore_c128::C128,
+    ) -> Result<(), String> {
+        self.restore_snapshot_state(snapshot)
     }
 
     fn alternate_framebuffer(&self) -> Option<(&[u32], u32, u32)> {

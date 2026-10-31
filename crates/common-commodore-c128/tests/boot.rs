@@ -6,12 +6,12 @@
 //! `data/C128`).
 //!
 //! ```text
-//! EMU198X_C128_ROM_DIR=... cargo test --release -p machine-commodore-c128 --test boot -- --ignored
+//! EMU198X_C128_ROM_DIR=... cargo test --release -p common-commodore-c128 --test boot -- --ignored
 //! ```
 
 use std::path::PathBuf;
 
-use machine_commodore_c128::{C128, C128Model, C128Roms};
+use common_commodore_c128::{C128, C128Model, C128Roms};
 
 fn c128() -> C128 {
     c128_for(C128Model::Pal)

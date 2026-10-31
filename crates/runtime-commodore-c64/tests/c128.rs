@@ -64,7 +64,10 @@ where
 #[test]
 fn a_blank_c128_reports_its_own_profile_and_pacing() {
     let pal = C128Runtime::blank(C128Model::C128Pal);
-    assert_eq!(pal.profile().machine_id.as_str(), "commodore-c128");
+    assert_eq!(
+        pal.profile().machine_id.as_str(),
+        C128Model::C128Pal.model_id()
+    );
     assert_eq!(pal.native_frame_ticks(), 312 * 63);
     assert!(pal.profile().media_slots.is_empty());
     let ntsc = C128Runtime::blank(C128Model::C128Ntsc);

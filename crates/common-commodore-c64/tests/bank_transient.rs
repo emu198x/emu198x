@@ -1,6 +1,6 @@
 //! CPU-visible consequences of the C64C PRA bank-switch transient.
+use common_commodore_c64::{C64, C64Config, C64Model};
 use common_commodore_iec::IecBus;
-use machine_commodore_c64::{C64, C64Config, C64Model};
 use std::collections::HashSet;
 
 fn machine(model: C64Model) -> C64 {

@@ -179,7 +179,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
     };
 
     MachineProfile {
-        machine_id: MachineId::from("commodore-c64"),
+        machine_id: MachineId::from(model.model_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::C64,
@@ -306,10 +306,10 @@ impl C128Model {
 
     /// The machine crate's model for this one.
     #[must_use]
-    pub const fn machine_model(self) -> machine_commodore_c128::C128Model {
+    pub const fn machine_model(self) -> common_commodore_c128::C128Model {
         match self {
-            Self::C128Pal => machine_commodore_c128::C128Model::Pal,
-            Self::C128Ntsc => machine_commodore_c128::C128Model::Ntsc,
+            Self::C128Pal => common_commodore_c128::C128Model::Pal,
+            Self::C128Ntsc => common_commodore_c128::C128Model::Ntsc,
         }
     }
 
@@ -381,7 +381,7 @@ pub fn c128_profile_for(model: C128Model) -> MachineProfile {
     };
 
     MachineProfile {
-        machine_id: MachineId::from("commodore-c128"),
+        machine_id: MachineId::from(model.model_id()),
         profile_id: ProfileId::from(model.model_id()),
         display_name: model.display_name().into(),
         family: Family::C64,
@@ -467,7 +467,7 @@ mod tests {
     fn every_c128_firmware_source_is_a_required_profile_requirement() {
         for model in C128Model::ALL {
             let profile = c128_profile_for(model);
-            assert_eq!(profile.machine_id.as_str(), "commodore-c128");
+            assert_eq!(profile.machine_id.as_str(), model.model_id());
             assert_eq!(profile.firmware.len(), model.firmware_sources().len());
             for source in model.firmware_sources() {
                 let requirement = profile

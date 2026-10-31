@@ -39,8 +39,8 @@
 //!     `button{1,2,3,4}` → `fire` (single-fire joystick, every face
 //!     button routes to FIRE).
 
+use crate::boards::C64;
 use emu198x_shell::InputEvent;
-use machine_commodore_c64::C64;
 
 /// Map a Seam-2 input port onto the C64's case-labelled control port.
 /// The two ports are silkscreened "1" and "2" (CIA1 PA = "Control Port
@@ -331,8 +331,9 @@ pub fn keys_for_char(ch: char) -> Option<Vec<&'static str>> {
 #[cfg(test)]
 mod tests {
     use super::{apply_input_event, axis_to_pot8, canonical_control, machine_port, paddle_axis};
+    use crate::boards::C64;
+    use common_commodore_c64::{C64Config, C64Model};
     use emu198x_shell::InputEvent;
-    use machine_commodore_c64::{C64, C64Config, C64Model};
     use std::borrow::Cow;
 
     fn make_machine() -> C64 {

@@ -65,8 +65,15 @@ members = [
     "crates/gvp-a530",
     "crates/machine-commodore-amiga-ocs",
     "crates/machine-commodore-amiga-ecs",
-    "crates/machine-commodore-c128",
-    "crates/machine-commodore-c64",
+    "crates/common-commodore-c128",
+    "crates/machine-commodore-c64-pal-breadbin",
+    "crates/machine-commodore-c64-ntsc-breadbin",
+    "crates/machine-commodore-c64c-pal",
+    "crates/machine-commodore-c64c-ntsc",
+    "crates/machine-commodore-c128-pal",
+    "crates/machine-commodore-c128-ntsc",
+
+    
     "crates/machine-commodore-1541",
     "crates/machine-commodore-1571",
     "crates/machine-commodore-1581",

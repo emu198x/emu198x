@@ -266,10 +266,8 @@ impl FamilyRuntime for C64RuntimeKind {
         match variant {
             C64Variant::C64(model) => C64Runtime::from_firmware(model, firmware).map(Self::C64),
             C64Variant::C128(model) => {
-                <machine_commodore_c128::C128 as C64FamilyMachine>::runtime_from_firmware(
-                    model, firmware,
-                )
-                .map(Self::C128)
+                <crate::boards::C128 as C64FamilyMachine>::runtime_from_firmware(model, firmware)
+                    .map(Self::C128)
             }
         }
     }
@@ -300,7 +298,7 @@ impl FamilyRuntime for C64RuntimeKind {
     /// The C64's ROM directory; the C128's ROMs sit beside the C64's or in a
     /// `c128/` directory inside it.
     fn rom_convention() -> RomConvention {
-        <machine_commodore_c64::C64 as C64FamilyMachine>::rom_convention()
+        <crate::boards::C64 as C64FamilyMachine>::rom_convention()
     }
 
     fn firmware_sources(variant: C64Variant) -> Vec<FirmwareSource> {

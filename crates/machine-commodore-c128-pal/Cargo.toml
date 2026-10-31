@@ -1,0 +1,12 @@
+[package]
+name = "machine-commodore-c128-pal"
+description = "Fixed commodore-c128-pal configuration owner"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-commodore-c128 = { path = "../common-commodore-c128", version = "0.45.0" }
+[lints]
+workspace = true

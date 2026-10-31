@@ -2,6 +2,8 @@
 
 use std::borrow::Cow;
 
+use crate::boards::C64;
+use common_commodore_c64::{AudioControls, C64Model, SidChannel};
 use common_commodore_iec::IecBus;
 use emu198x_esp_at_modem::EspAtTcpBridge;
 use emu198x_shell::{
@@ -11,7 +13,6 @@ use emu198x_shell::{
 };
 use machine_commodore_1541::Drive1541;
 use machine_commodore_1581::Drive1581;
-use machine_commodore_c64::{AudioControls, C64, C64Model, SidChannel};
 use serde::Serialize;
 use serde_json::json;
 

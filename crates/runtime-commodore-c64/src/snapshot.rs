@@ -208,3 +208,50 @@ pub(crate) fn decode<M: C64FamilyMachine>(
     runtime.set_time(snapshot.time);
     Ok(())
 }
+
+#[cfg(test)]
+mod board_payload_tests {
+    use super::*;
+    use crate::{C64Runtime, C128Model, C128Runtime, Model};
+    use emu198x_shell::MachineCore;
+    #[test]
+    fn matching_c64_header_cannot_hide_foreign_hardware_or_mutate_the_runtime() {
+        for selected in Model::ALL {
+            let mut runtime = C64Runtime::blank(selected);
+            let before = runtime.snapshot().expect("before");
+            for foreign in Model::ALL {
+                if foreign == selected {
+                    continue;
+                }
+                let other = C64Runtime::blank(foreign);
+                let mut envelope: SnapshotEnvelopeV13<common_commodore_c64::C64Snapshot> =
+                    postcard::from_bytes(&before).expect("envelope");
+                envelope.machine = other.machine().snapshot_state();
+                envelope.time = MachineTime::new(1234);
+                let forged = postcard::to_allocvec(&envelope).expect("forged");
+                assert!(runtime.restore(&forged).is_err());
+                assert!(runtime.snapshot().expect("unchanged") == before);
+            }
+        }
+    }
+    #[test]
+    fn matching_c128_header_cannot_hide_foreign_hardware_or_mutate_the_runtime() {
+        for selected in C128Model::ALL {
+            let mut runtime = C128Runtime::blank(selected);
+            let before = runtime.snapshot().expect("before");
+            for foreign in C128Model::ALL {
+                if foreign == selected {
+                    continue;
+                }
+                let other = C128Runtime::blank(foreign);
+                let mut envelope: SnapshotEnvelopeV13<common_commodore_c128::C128> =
+                    postcard::from_bytes(&before).expect("envelope");
+                envelope.machine = other.machine().snapshot_state();
+                envelope.time = MachineTime::new(1234);
+                let forged = postcard::to_allocvec(&envelope).expect("forged");
+                assert!(runtime.restore(&forged).is_err());
+                assert!(runtime.snapshot().expect("unchanged") == before);
+            }
+        }
+    }
+}

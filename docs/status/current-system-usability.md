@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 82 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 86 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -39,8 +39,12 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `coleco-colecovision-ntsc` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
 | `coleco-colecovision-pal` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
 | `commodore-amiga` | `emu198x-amiga` | 23 | 7 | [system:amiga](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aamiga) | [Amiga 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amiga+100%25%22) |
-| `commodore-c128` ⚠️ | `emu198x-c64` | 13 | 6 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
-| `commodore-c64` ⚠️ | `emu198x-c64` | 13 | 6 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
+| `commodore-c128-ntsc` | `emu198x-c64` | 1 | 18 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
+| `commodore-c128-pal` | `emu198x-c64` | 1 | 18 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
+| `commodore-c64-ntsc-breadbin` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
+| `commodore-c64-pal-breadbin` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
+| `commodore-c64c-ntsc` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
+| `commodore-c64c-pal` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
 | `commodore-pet` | `emu198x-commodore-pet` | 3 | 5 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |
 | `commodore-vic-20-ntsc` | `emu198x-commodore-vic-20` | 1 | 9 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |
 | `commodore-vic-20-pal` | `emu198x-commodore-vic-20` | 1 | 9 | [system:vic-20](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Avic-20) | [VIC-20 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22VIC-20+100%25%22) |

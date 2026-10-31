@@ -3,8 +3,8 @@
 //! Two CPUs share one bus. At power-on the Z80 has it and runs its BIOS,
 //! which hands the bus to the 8502 by setting the MMU's MCR bit 0; the 8502
 //! then runs its reset sequence and boots BASIC 7.0. Around them: the 8722
-//! MMU ([`mmu`]), 128 KB of RAM, the VIC-IIe in its 8566 form, two 6526
-//! CIAs, a SID, the 8563 VDC ([`vdc`]) for 80 columns, and 2 KB of colour RAM
+//! MMU (`mmu`), 128 KB of RAM, the VIC-IIe in its 8564/8566 forms, two 6526
+//! CIAs, a SID, the 8563 VDC (`vdc`) for 80 columns, and 2 KB of colour RAM
 //! in two banks the 8502's port selects.
 //!
 //! The reference is VICE (`src/c128`, `src/vdc`). Not modelled yet: C64
@@ -14,13 +14,14 @@
 mod mmu;
 mod vdc;
 
+use common_commodore_c64::KeyboardMatrix;
 use common_commodore_c64::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_mos_6502::M6502;
 use emu198x_mos_cia_6526::{Cia6526, CiaModel};
 use emu198x_mos_sid_6581::Sid6581;
 use emu198x_mos_vic_ii::{Vic, VicMemory, VicModel, VicPhi2Bus};
-use emu198x_zilog_z80::{BusOp, Z80};
-use machine_commodore_c64::KeyboardMatrix;
+use emu198x_zilog_z80::BusOp;
+pub use emu198x_zilog_z80::Z80;
 use mmu::{Mmu, MmuEvent, Target};
 use serde::{Deserialize, Serialize};
 use vdc::Vdc;
@@ -722,3 +723,5 @@ fn screen_code_char(code: u8) -> char {
 
 #[cfg(test)]
 mod tests;
+
+pub mod board;

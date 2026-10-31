@@ -194,13 +194,43 @@ label = "system:amiga"
 milestone = "Amiga 100%"
 
 [[system]]
-machine_id = "commodore-c64"
+machine_id = "commodore-c64-pal-breadbin"
+machine_crate = "machine-commodore-c64-pal-breadbin"
 crate = "emu198x-c64"
 label = "system:c64"
 milestone = "C64 100%"
 
 [[system]]
-machine_id = "commodore-c128"
+machine_id = "commodore-c64-ntsc-breadbin"
+machine_crate = "machine-commodore-c64-ntsc-breadbin"
+crate = "emu198x-c64"
+label = "system:c64"
+milestone = "C64 100%"
+
+[[system]]
+machine_id = "commodore-c64c-pal"
+machine_crate = "machine-commodore-c64c-pal"
+crate = "emu198x-c64"
+label = "system:c64"
+milestone = "C64 100%"
+
+[[system]]
+machine_id = "commodore-c64c-ntsc"
+machine_crate = "machine-commodore-c64c-ntsc"
+crate = "emu198x-c64"
+label = "system:c64"
+milestone = "C64 100%"
+
+[[system]]
+machine_id = "commodore-c128-pal"
+machine_crate = "machine-commodore-c128-pal"
+crate = "emu198x-c64"
+label = "system:c128"
+milestone = "C128 100%"
+
+[[system]]
+machine_id = "commodore-c128-ntsc"
+machine_crate = "machine-commodore-c128-ntsc"
 crate = "emu198x-c64"
 label = "system:c128"
 milestone = "C128 100%"
