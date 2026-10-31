@@ -26,6 +26,9 @@ impl<B: Board> C128Core<B> {
             || state.vic.model() != B::MODEL.vic_model()
             || state.memory.ram.len() != RAM_SIZE
             || state.memory.colour.len() != 0x800
+            || state.memory.basic.len() != 0x8000
+            || state.memory.kernal.len() != 0x4000
+            || state.memory.chargen.len() != 0x2000
             || state.cia1.model() != CiaModel::Mos6526A
             || state.cia2.model() != CiaModel::Mos6526A
             || state.sid.model != emu198x_mos_sid_6581::SidModel::Mos6581
@@ -181,7 +184,7 @@ mod tests {
         })
         .expect("ROMs");
         assert!(C128Core::<Pal>::from_state(raw.clone()).is_ok());
-        for mutation in 0..7 {
+        for mutation in 0..10 {
             let mut forged = raw.clone();
             match mutation {
                 0 => forged.model = C128Model::Ntsc,
@@ -192,8 +195,17 @@ mod tests {
                 5 => {
                     forged.memory.ram.pop();
                 }
-                _ => {
+                6 => {
                     forged.memory.colour.pop();
+                }
+                7 => {
+                    forged.memory.basic.pop();
+                }
+                8 => {
+                    forged.memory.kernal.pop();
+                }
+                _ => {
+                    forged.memory.chargen.pop();
                 }
             }
             assert!(
