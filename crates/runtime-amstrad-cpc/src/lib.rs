@@ -11,3 +11,6 @@ pub use input::key_for_name;
 pub use profiles::{AMSDOS_FIRMWARE_ID, Model, ROM_FIRMWARE_ID, profile_for, profiles};
 pub use queries::AmstradCpcSessionQueryProvider;
 pub use runtime::AmstradCpcRuntime;
+
+#[cfg(test)]
+mod board_baseline_tests;
