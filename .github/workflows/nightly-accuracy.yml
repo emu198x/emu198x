@@ -761,7 +761,8 @@ jobs:
         env:
           EMU198X_STRICT_FIXTURES: "1"
         run: |
-          cargo test --release -p machine-amstrad-cpc -p runtime-amstrad-cpc \
+          cargo test --release -p common-amstrad-cpc -p machine-amstrad-cpc464 -p machine-amstrad-cpc664 \
+            -p machine-amstrad-cpc6128 -p runtime-amstrad-cpc \
             -p emu198x-amstrad-cpc -- --include-ignored
 
   # The VIC-20 VIC-I survey against VICE (#362): every case compares the

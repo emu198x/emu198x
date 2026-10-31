@@ -24,7 +24,7 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
-use machine_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::AmstradCpc;
 
 /// Where the test code is planted: RAM, clear of the firmware's variables.
 const CODE: u16 = 0x8000;

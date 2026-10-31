@@ -13,9 +13,8 @@
 //! #926 widened the shared port to the `u16` the bus actually carries, so the
 //! trace is here and reports whole addresses.
 
+use crate::machine::AmstradCpc;
 use emu198x_shell::DebugPrimitives;
-use emu198x_zilog_z80::Z80Stepper as _;
-use machine_amstrad_cpc::AmstradCpc;
 use serde_json::{Value, json};
 
 use crate::runtime::AmstradCpcRuntime;

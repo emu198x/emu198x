@@ -154,5 +154,5 @@ Re-read this entry when any of these appears:
 - CPC firmware guide, on M-cycles being stretched to a multiple of 4 T-states.
 - `emulators/amstrad-cpc/caprice32/src/z80.cpp` — `cc_op[256]`, and the
   hardcoded `iCycleCount` of 20 and 28 for the interrupt modes.
-- `crates/machine-amstrad-cpc/tests/microsecond_grid.rs` — the invariant and
+- `crates/common-amstrad-cpc/tests/microsecond_grid.rs` — the invariant and
   what currently falls off it.

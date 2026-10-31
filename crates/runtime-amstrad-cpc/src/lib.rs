@@ -14,3 +14,6 @@ pub use runtime::AmstradCpcRuntime;
 
 #[cfg(test)]
 mod board_baseline_tests;
+
+mod machine;
+pub use machine::AmstradCpc;

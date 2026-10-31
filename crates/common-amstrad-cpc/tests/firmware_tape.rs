@@ -1,7 +1,7 @@
 //! The real firmware loads a real game off a real tape.
 //!
 //! ```text
-//! cargo test --release -p machine-amstrad-cpc --test firmware_tape -- --ignored --nocapture
+//! cargo test --release -p common-amstrad-cpc --test firmware_tape -- --ignored --nocapture
 //! ```
 //!
 //! Needs the CPC464 firmware at `~/.emu198x/roms/amstrad-cpc/cpc464.rom` and a
@@ -24,7 +24,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::AmstradCpc;
 
 fn firmware_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_CPC_ROM") {

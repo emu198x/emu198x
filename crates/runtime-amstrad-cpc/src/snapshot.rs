@@ -5,8 +5,8 @@
 //! than cold-booting. Mirrors the Einstein / SG-1000 shape: a borrowing
 //! envelope for encode (no clone), an owning envelope for decode.
 
+use crate::machine::AmstradCpc;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_amstrad_cpc::AmstradCpc;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::AmstradCpcRuntime;
@@ -36,7 +36,7 @@ struct CpcRuntimeSnapshotV1 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<AmstradCpc>,
+    machine: Option<common_amstrad_cpc::AmstradCpc>,
 }
 
 pub(crate) fn encode(runtime: &AmstradCpcRuntime) -> Result<Vec<u8>, MachineError> {
@@ -78,15 +78,14 @@ pub(crate) fn decode(runtime: &mut AmstradCpcRuntime, bytes: &[u8]) -> Result<()
             ),
         });
     }
+    let machine = snapshot
+        .machine
+        .map(|state| {
+            AmstradCpc::from_state(state, runtime.model().machine_model())
+                .map_err(|reason| MachineError::InvalidSnapshot { reason })
+        })
+        .transpose()?;
     runtime.set_time(MachineTime::new(snapshot.time));
-    let mut machine = snapshot.machine;
-    if let Some(machine) = &mut machine {
-        // The Z80's micro-op walker is a function pointer sequence, which
-        // cannot survive serialisation; the core rebuilds it from the decoded
-        // register state. Without this a restored machine resumes mid-
-        // instruction with no walker and stalls.
-        machine.cpu_mut().rehydrate_walker_sequence();
-    }
     runtime.set_machine(machine);
     Ok(())
 }
@@ -113,6 +112,36 @@ mod tests {
                 );
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod board_payload_tests {
+    use super::*;
+    use crate::Model;
+    #[test]
+    fn matching_header_cannot_hide_a_foreign_board_and_rejection_is_atomic() {
+        for selected in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
+            let mut live =
+                AmstradCpcRuntime::new(selected, vec![0x11; 32768]).expect("live firmware");
+            let before = live.snapshot().expect("before");
+            for foreign in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
+                if selected == foreign {
+                    continue;
+                }
+                let board = AmstradCpc::with_model(&[0x22; 32768], foreign.machine_model())
+                    .expect("foreign");
+                let bytes = postcard::to_allocvec(&CpcRuntimeSnapshotRefV1 {
+                    version: SNAPSHOT_VERSION,
+                    time: 1234,
+                    model_id: selected.model_id(),
+                    machine: Some(&board),
+                })
+                .expect("forged envelope");
+                assert!(live.restore(&bytes).is_err());
+                assert!(live.snapshot().expect("after") == before);
+            }
         }
     }
 }

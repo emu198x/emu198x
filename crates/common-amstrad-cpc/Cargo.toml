@@ -1,6 +1,6 @@
 [package]
-name = "machine-amstrad-cpc"
-description = "Amstrad CPC464, 664 and 6128 — Z80, Gate Array, 6845 CRTC, AY-3-8912, 8255 PPI and µPD765A"
+name = "common-amstrad-cpc"
+description = "Shared CPC wiring and regression tests for fixed board owners"
 edition.workspace = true
 version.workspace = true
 publish = false

@@ -8,7 +8,7 @@
 //! These run without firmware: `with_model` only needs 32 KB of *something*,
 //! and nothing here executes.
 
-use machine_amstrad_cpc::{AmstradCpc, CpcModel};
+use common_amstrad_cpc::{AmstradCpc, CpcModel};
 
 /// Blank firmware. Nothing here runs code.
 fn stub() -> Vec<u8> {
