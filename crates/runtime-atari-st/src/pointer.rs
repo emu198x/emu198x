@@ -15,7 +15,7 @@
 //! pointer is only reported once the variables have been seen to follow the
 //! counts sent, and stops being reported when they stop following them.
 
-use machine_atari_st::AtariSt;
+use crate::machine::AtariSt;
 
 /// Offsets from the line-A base of the variables read here.
 const GCURX: u32 = 602;
@@ -44,10 +44,10 @@ struct Screen {
 
 impl Screen {
     fn of(machine: &AtariSt) -> Option<Self> {
-        let (size, scale) = if machine.frame_width() == machine_atari_st::MONO_WIDTH {
+        let (size, scale) = if machine.frame_width() == common_atari_st::MONO_WIDTH {
             ((640, 400), (1.0, 1.0))
         } else {
-            match machine.shifter.read_resolution() {
+            match machine.shifter().read_resolution() {
                 0 => ((320, 200), (2.0, 1.0)),
                 1 => ((640, 200), (1.0, 1.0)),
                 // High resolution on a colour monitor shows nothing usable.

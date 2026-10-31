@@ -530,6 +530,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-atari-st"
+version = "0.45.1"
+dependencies = [
+ "emu198x-atari-st-glue-mmu",
+ "emu198x-atari-st-shifter",
+ "emu198x-gi-ay-3-8910",
+ "emu198x-motorola-acia-6850",
+ "emu198x-motorola-mfp-68901",
+ "emu198x-test-skip",
+ "emu198x-western-digital-wd1770",
+ "format-atari-st-msa",
+ "format-atari-st-st",
+ "motorola-68000",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "common-coleco-colecovision"
 version = "0.45.1"
 dependencies = [
@@ -3803,6 +3821,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-atari-1040st-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-atari-st",
+]
+
+[[package]]
+name = "machine-atari-1040st-pal"
+version = "0.45.1"
+dependencies = [
+ "common-atari-st",
+]
+
+[[package]]
 name = "machine-atari-130xe-ntsc"
 version = "0.45.1"
 dependencies = [
@@ -3844,6 +3876,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-atari-520st-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-atari-st",
+]
+
+[[package]]
+name = "machine-atari-520st-pal"
+version = "0.45.1"
+dependencies = [
+ "common-atari-st",
+]
+
+[[package]]
 name = "machine-atari-7800"
 version = "0.45.1"
 dependencies = [
@@ -3869,24 +3915,6 @@ name = "machine-atari-800xl-pal"
 version = "0.45.1"
 dependencies = [
  "common-atari-800xl",
-]
-
-[[package]]
-name = "machine-atari-st"
-version = "0.45.1"
-dependencies = [
- "emu198x-atari-st-glue-mmu",
- "emu198x-atari-st-shifter",
- "emu198x-gi-ay-3-8910",
- "emu198x-motorola-acia-6850",
- "emu198x-motorola-mfp-68901",
- "emu198x-test-skip",
- "emu198x-western-digital-wd1770",
- "format-atari-st-msa",
- "format-atari-st-st",
- "motorola-68000",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -5867,9 +5895,13 @@ dependencies = [
 name = "runtime-atari-st"
 version = "0.45.1"
 dependencies = [
+ "common-atari-st",
  "emu198x-shell",
  "emu198x-test-skip",
- "machine-atari-st",
+ "machine-atari-1040st-ntsc",
+ "machine-atari-1040st-pal",
+ "machine-atari-520st-ntsc",
+ "machine-atari-520st-pal",
  "motorola-68000",
  "postcard",
  "serde",

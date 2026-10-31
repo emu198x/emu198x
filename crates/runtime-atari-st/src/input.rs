@@ -12,8 +12,9 @@
 //!   the mouse port (where two-player games put the second stick), with up,
 //!   down, left, right and fire.
 
+use crate::machine::AtariSt;
+use common_atari_st::Stick;
 use emu198x_shell::InputEvent;
-use machine_atari_st::{AtariSt, Stick};
 
 /// The mouse's device name.
 pub(crate) const MOUSE_DEVICE: &str = "mouse-1";
@@ -57,7 +58,7 @@ pub(crate) fn apply_input_event(machine: &mut AtariSt, event: &InputEvent) {
                 "fire" | "fire1" | "button1" | "a" | "south" => Stick::FIRE,
                 _ => return,
             };
-            let Stick(mut state) = machine.ikbd.stick(stick);
+            let Stick(mut state) = machine.ikbd().stick(stick);
             if *pressed {
                 state |= bit;
             } else {

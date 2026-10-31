@@ -69,13 +69,13 @@ pub mod ikbd;
 mod line_a;
 
 pub use emu198x_atari_st_glue_mmu::Frequency;
-use emu198x_atari_st_glue_mmu::GlueMmu;
-use emu198x_atari_st_shifter::Shifter;
-use emu198x_gi_ay_3_8910::{Ay3_8910, Variant};
-use emu198x_motorola_acia_6850::Acia6850;
-use emu198x_motorola_mfp_68901::{Mfp68901, TimerId};
-use emu198x_western_digital_wd1770::{Disk, Wd1770};
-use motorola_68000::Cpu68000;
+pub use emu198x_atari_st_glue_mmu::GlueMmu;
+pub use emu198x_atari_st_shifter::Shifter;
+pub use emu198x_gi_ay_3_8910::{Ay3_8910, Variant};
+pub use emu198x_motorola_acia_6850::Acia6850;
+pub use emu198x_motorola_mfp_68901::{Mfp68901, TimerId};
+pub use emu198x_western_digital_wd1770::{Disk, Wd1770};
+pub use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
 use serde::{Deserialize, Serialize};
@@ -617,7 +617,7 @@ impl AtariSt {
 
     /// Where the screen's top-left pixel is in the framebuffer: inside the
     /// border on a colour monitor, eight cycles further left in medium
-    /// resolution (see [`SHIFTER_DELAY`]), and at the corner on the
+    /// resolution (see `SHIFTER_DELAY`), and at the corner on the
     /// monochrome one.
     #[must_use]
     pub fn display_origin(&self) -> (usize, usize) {
@@ -1139,3 +1139,6 @@ fn rom_base(size: usize) -> Result<u32, RomError> {
 
 #[cfg(test)]
 mod tests;
+
+mod board;
+pub use board::{StBoard, StCore};

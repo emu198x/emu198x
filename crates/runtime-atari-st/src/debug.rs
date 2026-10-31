@@ -26,7 +26,7 @@ impl DebugPrimitives for AtariStRuntime {
     fn dbg_pc(&self) -> u32 {
         // The PC runs ahead of the instruction by the prefetch; the
         // debugger means the instruction itself.
-        self.machine.as_ref().map_or(0, |m| m.cpu.instr_start_pc)
+        self.machine.as_ref().map_or(0, |m| m.cpu().instr_start_pc)
     }
 
     fn dbg_peek(&self, addr: u32) -> u8 {
@@ -44,7 +44,7 @@ impl DebugPrimitives for AtariStRuntime {
         let Some(m) = self.machine.as_ref() else {
             return json!({});
         };
-        let cpu = &m.cpu;
+        let cpu = m.cpu();
         let r = &cpu.regs;
         json!({
             "pc": format!("${:08X}", r.pc),
@@ -80,7 +80,7 @@ impl DebugPrimitives for AtariStRuntime {
         Some(
             self.machine
                 .as_ref()
-                .map_or(0, |m| m.cpu.instruction_starts),
+                .map_or(0, |m| m.cpu().instruction_starts),
         )
     }
 
@@ -99,9 +99,9 @@ impl DebugPrimitives for AtariStRuntime {
         let Some(m) = self.machine.as_mut() else {
             return 0;
         };
-        let start = m.cpu.instruction_starts;
+        let start = m.cpu().instruction_starts;
         let mut ticks = 0;
-        while m.cpu.instruction_starts == start && ticks < STEP_TICK_LIMIT {
+        while m.cpu().instruction_starts == start && ticks < STEP_TICK_LIMIT {
             m.tick();
             ticks += 1;
         }

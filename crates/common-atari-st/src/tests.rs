@@ -182,8 +182,13 @@ fn audio_comes_out_at_48_khz() {
 // ---- EmuTOS ----
 
 fn emutos() -> Option<Vec<u8>> {
-    let home = std::env::var_os("HOME")?;
-    let path = std::path::Path::new(&home).join(".emu198x/test-data/emutos/etos192us.img");
+    let path = std::env::var_os("EMU198X_EMUTOS_ROM")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                std::path::Path::new(&home).join(".emu198x/test-data/emutos/etos192us.img")
+            })
+        })?;
     std::fs::read(path).ok()
 }
 
@@ -195,7 +200,9 @@ fn share(pixels: &[u32], colour: u32) -> f64 {
 #[test]
 fn emutos_boots_to_the_colour_desktop() {
     let Some(rom) = emutos() else {
-        emu198x_test_skip::skip!("EmuTOS 192K image not in ~/.emu198x/test-data/emutos");
+        emu198x_test_skip::skip!(
+            "EmuTOS 192K image unavailable; set EMU198X_EMUTOS_ROM or use ~/.emu198x/test-data/emutos"
+        );
     };
     let mut machine =
         AtariSt::new(Model::St520, VideoStandard::Pal, Monitor::Colour, rom).expect("EmuTOS");
@@ -228,7 +235,9 @@ fn emutos_boots_to_the_colour_desktop() {
 #[test]
 fn emutos_boots_to_the_mono_desktop() {
     let Some(rom) = emutos() else {
-        emu198x_test_skip::skip!("EmuTOS 192K image not in ~/.emu198x/test-data/emutos");
+        emu198x_test_skip::skip!(
+            "EmuTOS 192K image unavailable; set EMU198X_EMUTOS_ROM or use ~/.emu198x/test-data/emutos"
+        );
     };
     let mut machine =
         AtariSt::new(Model::St1040, VideoStandard::Pal, Monitor::Mono, rom).expect("EmuTOS");
@@ -293,7 +302,9 @@ fn boot_disk() -> Vec<u8> {
 #[test]
 fn emutos_runs_a_floppy_boot_sector_through_the_dma_chip() {
     let Some(rom) = emutos() else {
-        emu198x_test_skip::skip!("EmuTOS 192K image not in ~/.emu198x/test-data/emutos");
+        emu198x_test_skip::skip!(
+            "EmuTOS 192K image unavailable; set EMU198X_EMUTOS_ROM or use ~/.emu198x/test-data/emutos"
+        );
     };
     let mut machine =
         AtariSt::new(Model::St520, VideoStandard::Pal, Monitor::Colour, rom).expect("EmuTOS");
@@ -352,7 +363,9 @@ fn line_a_init_needs_a_handler() {
 #[test]
 fn emutos_answers_line_a_init_and_its_vdi_follows_the_mouse() {
     let Some(rom) = emutos() else {
-        emu198x_test_skip::skip!("EmuTOS 192K image not in ~/.emu198x/test-data/emutos");
+        emu198x_test_skip::skip!(
+            "EmuTOS 192K image unavailable; set EMU198X_EMUTOS_ROM or use ~/.emu198x/test-data/emutos"
+        );
     };
     let mut machine =
         AtariSt::new(Model::St520, VideoStandard::Pal, Monitor::Colour, rom).expect("EmuTOS");

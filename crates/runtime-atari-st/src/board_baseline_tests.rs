@@ -35,23 +35,20 @@ fn specimen(model: Model, monitor: Monitor) -> AtariStRuntime {
     let mut r = AtariStRuntime::new(model, common::tos()).expect("project TOS");
     r.set_monitor(monitor);
     let m = r.machine_mut().expect("machine");
-    m.glue.set_config(m.glue.matching_config());
-    m.glue.write(
+    m.set_memory_config(m.glue().matching_config());
+    m.write_glue(
         0x20a,
-        if model.standard() == machine_atari_st::VideoStandard::Pal {
+        if model.standard() == common_atari_st::VideoStandard::Pal {
             2
         } else {
             0
         },
     );
-    m.glue.write(0x201, 2);
-    m.glue.write(0x203, 0);
-    m.shifter
-        .write_resolution(if monitor == Monitor::Mono { 2 } else { 0 });
-    m.glue
-        .set_resolution(if monitor == Monitor::Mono { 2 } else { 0 });
+    m.write_glue(0x201, 2);
+    m.write_glue(0x203, 0);
+    m.set_resolution(if monitor == Monitor::Mono { 2 } else { 0 });
     for i in 0..16 {
-        m.shifter.write_palette(i, if i == 0 { 0 } else { 0x777 });
+        m.write_palette(i, if i == 0 { 0 } else { 0x777 });
     }
     for addr in 0x20000..0x28000 {
         m.poke(addr, if addr & 1 == 0 { 0x5a } else { 0xa5 });
@@ -61,17 +58,17 @@ fn specimen(model: Model, monitor: Monitor) -> AtariStRuntime {
     }
     let m = r.machine_mut().expect("machine");
     for (reg, val) in [(0, 40), (1, 0), (7, 0x3e), (8, 15)] {
-        m.psg.select_register(reg);
-        m.psg.write_data(val);
+        m.select_psg_register(reg);
+        m.write_psg_data(val);
     }
     m.key(0x1e, true);
     m.mouse_move(13, -7);
     m.mouse_buttons(true, false);
     m.joystick(
         1,
-        machine_atari_st::Stick(machine_atari_st::Stick::RIGHT | machine_atari_st::Stick::FIRE),
+        common_atari_st::Stick(common_atari_st::Stick::RIGHT | common_atari_st::Stick::FIRE),
     );
-    let disk = machine_atari_st::disk_from_st(&vec![0xa5; 80 * 9 * 512]).expect("disk");
+    let disk = common_atari_st::disk_from_st(&vec![0xa5; 80 * 9 * 512]).expect("disk");
     m.insert_disk(0, disk.clone());
     m.insert_disk(1, disk.write_protected(true));
     for _ in 0..137 {

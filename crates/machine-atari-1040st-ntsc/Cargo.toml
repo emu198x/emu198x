@@ -1,0 +1,14 @@
+[package]
+name = "machine-atari-1040st-ntsc"
+description = "Fixed Atari 1040st-ntsc bank and clock configuration"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-atari-st = { path = "../common-atari-st", version = "0.45.0" }
+
+[lints]
+workspace = true

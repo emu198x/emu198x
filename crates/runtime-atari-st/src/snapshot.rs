@@ -6,8 +6,8 @@
 //! supplies its own, which must be the image the snapshot was taken with
 //! for the restore to mean anything.
 
+use crate::machine::AtariSt;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_atari_st::AtariSt;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::AtariStRuntime;
@@ -31,7 +31,7 @@ struct AtariStSnapshotV1 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<AtariSt>,
+    machine: Option<common_atari_st::AtariSt>,
 }
 
 pub(crate) fn encode(runtime: &AtariStRuntime) -> Result<Vec<u8>, MachineError> {
@@ -120,5 +120,39 @@ mod tests {
             matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("no machine")),
             "{err:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod board_payload_tests {
+    use super::*;
+    use crate::Model;
+    #[test]
+    fn foreign_hardware_under_matching_header_is_rejected_without_mutation() {
+        for selected in Model::ALL {
+            let mut runtime = AtariStRuntime::new(selected, vec![0; 0x30000]).expect("TOS");
+            let before = runtime.snapshot().expect("before");
+            for foreign in Model::ALL {
+                if selected == foreign {
+                    continue;
+                }
+                let machine = AtariSt::new(
+                    foreign.machine_model(),
+                    foreign.standard(),
+                    common_atari_st::Monitor::Colour,
+                    vec![0; 0x30000],
+                )
+                .expect("foreign board");
+                let data = postcard::to_allocvec(&AtariStSnapshotRefV1 {
+                    version: SNAPSHOT_VERSION,
+                    time: 1234,
+                    model_id: selected.model_id(),
+                    machine: Some(&machine),
+                })
+                .expect("forged snapshot");
+                assert!(runtime.restore(&data).is_err());
+                assert!(runtime.snapshot().expect("after") == before);
+            }
+        }
     }
 }
