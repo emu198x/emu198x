@@ -43,3 +43,7 @@
 # Original complete CPC v4 states and native continuation packets.
 /test-data/amstrad-cpc/board-split-v4/*.state binary
 /test-data/amstrad-cpc/board-split-v4/*.output binary
+
+# Original complete Atari ST v1 states and native continuation packets.
+/test-data/atari-st/board-split-v1/*.state binary
+/test-data/atari-st/board-split-v1/*.output binary
