@@ -30,6 +30,15 @@ fn pentagon(rom: &[u8]) -> Pentagon128Runtime {
     runtime.machine_mut().memory.load_roms(rom, &[0; 16384]);
     runtime
 }
+// Like the Scorpion's, the Pentagon's Beta trap fires only while ROM 0 (128
+// BASIC) isn't selected, so its overlay checks run from ROM 1 (48 BASIC).
+fn pentagon_48(rom: &[u8]) -> Pentagon128Runtime {
+    let mut runtime = Pentagon128Runtime::blank();
+    let memory = &mut runtime.machine_mut().memory;
+    memory.load_roms(&[0; 16384], rom);
+    memory.write_7ffd(0x10);
+    runtime
+}
 fn scorpion(rom: &[u8]) -> ScorpionZS256Runtime {
     let mut runtime = ScorpionZS256Runtime::blank();
     runtime
@@ -96,7 +105,24 @@ macro_rules! overlay_checks {
 
 #[test]
 fn pentagon_observes_overlay_after_the_first_fetch_only() {
-    overlay_checks!(pentagon, 0, 0);
+    overlay_checks!(pentagon_48, 0, 1);
+}
+
+#[test]
+fn pentagon_rom_0_does_not_trap_into_the_overlay() {
+    let mut rom = [0; 16384];
+    rom[0x3d00] = 0x76;
+    let mut runtime = pentagon(&rom);
+    runtime.machine_mut().z80.regs.pc = 0x3d00;
+    let counts = runtime.profile_cycles(16).expect("ROM 0 fetch at the trap");
+    conserved(&counts);
+    assert!(!runtime.machine().beta.trdos_paged);
+    assert!(runtime.machine().z80.halt, "base ROM 0 HALT executes");
+    assert_eq!(
+        counts.mapped_addresses[0].mapping.memory,
+        ProfileMemory::Rom
+    );
+    assert_eq!(counts.mapped_addresses[0].mapping.page, 0);
 }
 #[test]
 fn scorpion_observes_its_tr_dos_overlay_rom() {
