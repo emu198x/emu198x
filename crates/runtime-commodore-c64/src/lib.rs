@@ -44,3 +44,6 @@ pub use typing::{
 pub use variants::{C64FamilyMachine, C64FamilyModel, C64RomSet};
 
 mod signal;
+
+#[cfg(test)]
+mod board_baseline_tests;
