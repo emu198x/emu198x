@@ -41,7 +41,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [acorn-bbc-micro](../../crates/emu198x-acorn-bbc-micro/src/app.rs) | 1 | Single profile | — | Model B |
 | [acorn-electron](../../crates/emu198x-acorn-electron/src/app.rs) | 1 | Single profile | — | Electron |
 | [amiga](../../crates/emu198x-amiga/src/app.rs) | 18 | `--model` | 18/18 | Six base machines; RAM/accelerator presets × region |
-| [amstrad-cpc](../../crates/emu198x-amstrad-cpc/src/app.rs) | 1 | Single profile | — | CPC 464 |
+| [amstrad-cpc](../../crates/emu198x-amstrad-cpc/src/app.rs) | 3 | `--model` | None | CPC464 / CPC664 / CPC6128 configurations |
 | [atari-2600](../../crates/emu198x-atari-2600/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [atari-5200](../../crates/emu198x-atari-5200/src/app.rs) | 1 | NTSC only | — | One model despite a region flag |
 | [atari-7800](../../crates/emu198x-atari-7800/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
@@ -776,3 +776,26 @@ Catalogue adoption covers all thirty registered binaries. Twenty-three expose
 macOS selectors; the other seven have one implemented profile. The catalogue
 migration is complete, with cross-host UI integration and hardware validation
 tracked separately from source coverage.
+
+
+## CPC fixed configuration owners
+
+The CPC464, CPC664 and CPC6128 now have separate machine/evidence owners over
+common wiring. Their profile and firmware IDs are unchanged. CLI, scripts and
+MCP select the existing three configurations. The public site's pinned browser
+player currently provides only CPC464, so the other two pages omit a player
+rather than substitute it. The native adapter still has no Machine-menu selector. Its family window title applies
+to all three, and does not identify a 664 or 6128 as a 464.
+
+Each owner has seven exclusive fixture-free tests. Original complete v4 saves
+and three resumed native fields compare pixels, sample bits, clock deltas and
+final state. Restore into a blank runtime followed by reset retains firmware,
+tape, expansion ROMs and modified discs. These are separate claims from booting
+commercial firmware. Local CPC464 boot/text and CPC664/CPC6128 catalogue/run
+regressions also pass with external firmware; their ROMs remain private.
+
+The retained HD6845S and generic Gate Array baseline does not qualify every
+CRTC/Gate Array revision, regional board or manufacturer-link configuration.
+See the [CPC ownership decision](../../knowledge/decisions/cpc-fixed-board-owners.md).
+Native menu click-through and host audio-device output have not been tested
+in this slice.
