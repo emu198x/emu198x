@@ -20,3 +20,8 @@ pub use machine_atari_st::{AtariSt, Monitor};
 pub use profiles::{Model, TOS_FIRMWARE_ID, blank, profile_for, profiles};
 pub use queries::AtariStSessionQueryProvider;
 pub use runtime::AtariStRuntime;
+
+#[cfg(test)]
+extern crate self as runtime_atari_st;
+#[cfg(test)]
+mod board_baseline_tests;
