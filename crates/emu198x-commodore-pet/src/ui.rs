@@ -20,7 +20,6 @@ use runtime_commodore_pet::{Model, PetRuntime};
 use crate::app::CommodorePet;
 
 const DEFAULT_SCALE: u32 = 3;
-const FRAME_HZ: f64 = 50.0;
 
 /// The PET has no joystick, but the harness still wants a button map — so an
 /// empty one. Every key flows through [`UiSystem::map_keys`] instead.
@@ -80,8 +79,8 @@ impl UiSystem for PetSystem {
         runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / FRAME_HZ)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(runtime.native_frame_ticks() as f64 / 1_000_000.0)
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
@@ -181,20 +180,21 @@ fn map_pet_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use runtime_commodore_pet::{BASIC_FIRMWARE_ID, KERNAL_FIRMWARE_ID};
 
     #[test]
     fn window_constructor_installs_catalogue_roms_and_sizes_both_profiles() {
         let dir = std::env::temp_dir().join(format!("pet-ui-catalogue-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("directory");
-        for (name, size) in [
-            ("kernal.rom", 4096),
-            ("basic.rom", 8192),
-            ("editor.rom", 2048),
-            ("chargen.rom", 4096),
-        ] {
-            std::fs::write(dir.join(name), vec![0x3c; size]).expect("ROM");
-        }
         for model in Model::ALL {
+            for source in model.firmware_sources() {
+                let size = match source.id {
+                    KERNAL_FIRMWARE_ID => 4096,
+                    BASIC_FIRMWARE_ID => model.basic_size(),
+                    _ => 2048,
+                };
+                std::fs::write(dir.join(source.candidates[0]), vec![0x3c; size]).expect("ROM");
+            }
             let app = CommodorePet {
                 model,
                 firmware: FirmwareOverrides {
@@ -205,19 +205,22 @@ mod tests {
             };
             let mut runtime = app.build_ui_runtime().expect("window runtime");
             let mut system = app.ui_system();
-            assert_eq!(system.variants().len(), 2);
+            assert_eq!(system.variants().len(), 3);
             assert_eq!(
                 system.current_variant().as_deref(),
                 Some(model.variant_id())
             );
             assert_eq!(
                 system.framebuffer_size(&runtime),
-                (model.screen_chars() * 8 + 64, 248)
+                (
+                    model.screen_chars() * 8 + 64,
+                    model.board().active_height() + 48
+                )
             );
-            assert_eq!(system.frame_ticks(&runtime), 20_000);
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
             assert_eq!(
                 system.frame_duration(&runtime),
-                Duration::from_secs_f64(1.0 / 50.0)
+                Duration::from_secs_f64(model.frame_ticks() as f64 / 1_000_000.0)
             );
             assert_eq!(runtime.machine().expect("machine").peek(0xe000), 0x3c);
             assert!(system.switch_variant(&mut runtime, "unknown").is_err());

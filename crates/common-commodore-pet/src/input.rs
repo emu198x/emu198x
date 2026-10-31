@@ -18,7 +18,7 @@
 //! character with no hint that the matrix is where the hole is.
 
 /// Logical key on the PET graphics keyboard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum PetKey {
     A,
     B,
@@ -112,6 +112,87 @@ pub enum PetKey {
 }
 
 impl PetKey {
+    /// UK business matrix from VICE PET gtk3_buuk_pos.vkm's hardware table.
+    /// A logical symbol closes its base contact and, where needed, Shift.
+    pub const fn business_contact(self) -> ((usize, u8), bool) {
+        use PetKey::*;
+        match self {
+            A => ((3, 0), false),
+            B => ((6, 2), false),
+            C => ((6, 1), false),
+            D => ((3, 1), false),
+            E => ((5, 1), false),
+            F => ((2, 2), false),
+            G => ((3, 2), false),
+            H => ((2, 3), false),
+            I => ((4, 5), false),
+            J => ((3, 3), false),
+            K => ((2, 5), false),
+            L => ((3, 5), false),
+            M => ((8, 3), false),
+            N => ((7, 2), false),
+            O => ((5, 5), false),
+            P => ((4, 6), false),
+            Q => ((5, 0), false),
+            R => ((4, 2), false),
+            S => ((2, 1), false),
+            T => ((5, 2), false),
+            U => ((5, 3), false),
+            V => ((7, 1), false),
+            W => ((4, 1), false),
+            X => ((8, 1), false),
+            Y => ((4, 3), false),
+            Z => ((7, 0), false),
+            Num0 => ((1, 3), false),
+            Num1 => ((1, 0), false),
+            Num2 => ((0, 0), false),
+            Num3 => ((9, 1), false),
+            Num4 => ((1, 1), false),
+            Num5 => ((0, 1), false),
+            Num6 => ((9, 2), false),
+            Num7 => ((1, 2), false),
+            Num8 => ((0, 2), false),
+            Num9 => ((9, 3), false),
+            Exclaim => ((1, 0), true),
+            Quote => ((0, 0), true),
+            Hash => ((9, 1), true),
+            Dollar => ((1, 1), true),
+            Percent => ((0, 1), true),
+            Ampersand => ((9, 2), true),
+            Apostrophe => ((1, 2), true),
+            ParenLeft => ((0, 2), true),
+            ParenRight => ((9, 3), true),
+            Minus => ((0, 3), false),
+            Equal => ((0, 3), true),
+            Semicolon => ((2, 6), false),
+            Plus => ((2, 6), true),
+            Colon => ((9, 5), false),
+            Asterisk => ((9, 5), true),
+            Comma => ((7, 3), false),
+            Less => ((7, 3), true),
+            Period => ((6, 3), false),
+            Greater => ((6, 3), true),
+            Slash => ((8, 6), false),
+            Question => ((8, 6), true),
+            BracketLeft => ((5, 6), false),
+            BracketRight => ((2, 4), false),
+            Backslash => ((4, 4), false),
+            UpArrow => ((1, 5), false),
+            LeftArrow => ((9, 0), false),
+            At => ((3, 6), false),
+            Return => ((3, 4), false),
+            Space => ((8, 2), false),
+            Home => ((8, 4), false),
+            CursorRight => ((0, 5), false),
+            CursorDown => ((5, 4), false),
+            Delete => ((4, 7), false),
+            ShiftLeft => ((6, 0), false),
+            ShiftRight => ((6, 6), false),
+            RvsOff => ((8, 0), false),
+            StopRun => ((9, 4), false),
+        }
+    }
+
     /// Return the `(row, col)` pair for this key — `row` is the binary row
     /// number driven on PIA #1 port A, `col` the column bit read on port B.
     #[must_use]

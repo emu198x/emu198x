@@ -236,7 +236,22 @@ label = "system:c128"
 milestone = "C128 100%"
 
 [[system]]
-machine_id = "commodore-pet"
+machine_id = "commodore-pet-2001n-32k"
+machine_crate = "machine-commodore-pet-2001n-32k"
+crate = "emu198x-commodore-pet"
+label = "system:pet"
+milestone = "PET 100%"
+
+[[system]]
+machine_id = "commodore-pet-4032"
+machine_crate = "machine-commodore-pet-4032"
+crate = "emu198x-commodore-pet"
+label = "system:pet"
+milestone = "PET 100%"
+
+[[system]]
+machine_id = "commodore-pet-8032"
+machine_crate = "machine-commodore-pet-8032"
 crate = "emu198x-commodore-pet"
 label = "system:pet"
 milestone = "PET 100%"

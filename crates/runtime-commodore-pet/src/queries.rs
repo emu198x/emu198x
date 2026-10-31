@@ -1,7 +1,7 @@
 //! Family-owned query surface for the PET runtime.
 
+use crate::machine::Pet;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_commodore_pet::Pet;
 use serde_json::json;
 
 use crate::runtime::PetRuntime;
@@ -33,8 +33,8 @@ impl SessionQueryProvider<PetRuntime> for PetSessionQueryProvider {
         let value = match path {
             "firmware.loaded" => json!(machine.machine().is_some()),
             "model.screen_chars" => json!(machine.model().screen_chars()),
-            "machine.frame_count" => json!(machine.machine().map_or(0, Pet::frame_count)),
-            "machine.master_clock" => json!(machine.machine().map_or(0, Pet::master_clock)),
+            "machine.frame_count" => json!(machine.machine().map_or(0, |m| m.frame_count())),
+            "machine.master_clock" => json!(machine.machine().map_or(0, |m| m.master_clock())),
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };

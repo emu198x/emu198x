@@ -1,11 +1,11 @@
 //! Runtime wrapper for the Commodore PET.
 
+use crate::machine::Pet;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_commodore_pet::Pet;
 
 use crate::input::apply_input_event;
 use crate::profiles::{
@@ -15,9 +15,8 @@ use crate::snapshot;
 use emu198x_shell::display::Display;
 
 const KERNAL_SIZE: usize = 4 * 1024;
-const BASIC_SIZE: usize = 8 * 1024;
 const EDITOR_SIZE: usize = 2 * 1024;
-const CHAR_SIZE: usize = 4 * 1024;
+const CHAR_SIZE: usize = 2 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 /// Frames of boot before a queued PRG is injected. The KERNAL reaches a usable
@@ -157,10 +156,11 @@ impl PetRuntime {
                 reason: format!("KERNAL is {} bytes; expected {KERNAL_SIZE}", kernal.len()),
             });
         }
-        if basic.len() != BASIC_SIZE {
+        let basic_size = self.model.basic_size();
+        if basic.len() != basic_size {
             return Err(MachineError::InvalidFirmware {
                 id: BASIC_FIRMWARE_ID.to_owned(),
-                reason: format!("BASIC is {} bytes; expected {BASIC_SIZE}", basic.len()),
+                reason: format!("BASIC is {} bytes; expected {basic_size}", basic.len()),
             });
         }
         if editor.len() != EDITOR_SIZE {
@@ -178,13 +178,15 @@ impl PetRuntime {
                 ),
             });
         }
-        self.set_machine(Some(Pet::new(
-            kernal,
-            basic,
-            editor,
-            char_rom,
-            self.model.screen_chars(),
-        )));
+        self.set_machine(Some(
+            Pet::new(self.model, kernal, basic, editor, char_rom).map_err(|reason| {
+                MachineError::InvalidFirmware {
+                    id: EDITOR_FIRMWARE_ID.into(),
+                    reason,
+                }
+            })?,
+        ));
+        self.time = MachineTime::default();
         Ok(())
     }
 
@@ -254,6 +256,13 @@ impl PetRuntime {
         self.model
     }
 
+    pub(crate) fn pending_prg(&self) -> Option<&[u8]> {
+        self.pending_prg.as_deref()
+    }
+    pub(crate) fn set_pending_prg(&mut self, program: Option<Vec<u8>>) {
+        self.pending_prg = program;
+    }
+
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
@@ -271,15 +280,17 @@ impl PetRuntime {
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         }
+        if machine.is_none() {
+            self.rgba_width = 0;
+            self.rgba_height = 0;
+            self.rgba_framebuffer.clear();
+        }
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) {
-        let machine = self
-            .machine
-            .as_ref()
-            .map(|machine| machine.cold_boot(self.model.screen_chars()));
+        let machine = self.machine.as_ref().map(|machine| machine.cold_boot());
         self.set_machine(machine);
     }
 
@@ -288,6 +299,14 @@ impl PetRuntime {
             self.rgba_framebuffer.fill(0);
             return;
         };
+        let width = machine.framebuffer_width();
+        let height = machine.framebuffer_height();
+        if (width, height) != (self.rgba_width, self.rgba_height) {
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer
+                .resize((width * height * 4) as usize, 0);
+        }
         for (index, &pixel) in machine.framebuffer().iter().enumerate() {
             let base = index * 4;
             self.rgba_framebuffer[base] = ((pixel >> 16) & 0xff) as u8;

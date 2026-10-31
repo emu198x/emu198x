@@ -35,9 +35,9 @@ fn synthetic_runtime() -> PetRuntime {
     PetRuntime::new(
         Model::Pet40Col,
         kernal,
-        vec![0u8; 8 * 1024],
+        vec![0u8; 12 * 1024],
         vec![0u8; 2 * 1024],
-        vec![0u8; 4 * 1024],
+        vec![0u8; 2 * 1024],
     )
     .expect("synthetic ROM set builds")
 }
@@ -104,6 +104,9 @@ fn a_short_image_is_rejected_at_the_slot_boundary() {
 }
 
 fn rom(name: &str) -> Option<Vec<u8>> {
+    if let Ok(root) = env::var("EMU198X_PET_ROMS") {
+        return Some(fs::read(PathBuf::from(root).join(name)).expect("PET ROM"));
+    }
     let home = env::var("HOME").ok()?;
     let path = PathBuf::from(home)
         .join(".emu198x/roms/commodore-pet")
@@ -115,15 +118,15 @@ fn rom(name: &str) -> Option<Vec<u8>> {
 #[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn a_basic_program_loads_and_runs_itself() {
     let (Some(kernal), Some(basic), Some(editor), Some(char_rom)) = (
-        rom("kernal.rom"),
-        rom("basic.rom"),
-        rom("editor.rom"),
-        rom("char.rom"),
+        rom("kernal-2.901465-03.bin"),
+        rom("basic-2.901465-01-02.bin"),
+        rom("edit-2-n.901447-24.bin"),
+        rom("characters-2.901447-10.bin"),
     ) else {
         panic!("PET ROM set not found at ~/.emu198x/roms/commodore-pet/");
     };
-    let mut runtime =
-        PetRuntime::new(Model::Pet40Col, kernal, basic, editor, char_rom).expect("build runtime");
+    let mut runtime = PetRuntime::new(Model::Pet2001n32k, kernal, basic, editor, char_rom)
+        .expect("build runtime");
 
     let mut media = MediaSet::new();
     let prg = poke_screen_prg();

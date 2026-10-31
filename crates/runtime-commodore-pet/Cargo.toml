@@ -9,7 +9,10 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-machine-commodore-pet = { path = "../machine-commodore-pet", version = "0.45.0" }
+common-commodore-pet = { path = "../common-commodore-pet" }
+machine-commodore-pet-2001n-32k = { path = "../machine-commodore-pet-2001n-32k" }
+machine-commodore-pet-4032 = { path = "../machine-commodore-pet-4032" }
+machine-commodore-pet-8032 = { path = "../machine-commodore-pet-8032" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

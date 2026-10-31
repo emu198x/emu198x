@@ -19,18 +19,21 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).expect("fixture directory");
-        for (name, size, value) in [
-            ("kernal.rom", 4096, 0x4c),
-            ("basic.rom", 8192, 0x42),
-            ("editor.rom", 2048, 0x45),
-            ("chargen.rom", 4096, 0x3c),
-        ] {
-            let mut bytes = vec![value; size];
-            if name == "kernal.rom" {
-                bytes[..3].copy_from_slice(&[0x4c, 0x00, 0xf0]);
-                bytes[4092..4094].copy_from_slice(&[0x00, 0xf0]);
+        for model in runtime_commodore_pet::Model::ALL {
+            for source in model.firmware_sources() {
+                let (size, value) = match source.id {
+                    "commodore-pet-kernal" => (4096, 0x4c),
+                    "commodore-pet-basic" => (model.basic_size(), 0x42),
+                    "commodore-pet-editor" => (2048, 0x45),
+                    _ => (2048, 0x3c),
+                };
+                let mut bytes = vec![value; size];
+                if source.id == "commodore-pet-kernal" {
+                    bytes[..3].copy_from_slice(&[0x4c, 0, 0xf0]);
+                    bytes[4092..4094].copy_from_slice(&[0, 0xf0]);
+                }
+                std::fs::write(dir.join(source.candidates[0]), bytes).expect("firmware");
             }
-            std::fs::write(dir.join(name), bytes).expect("firmware");
         }
         std::fs::write(dir.join("hello.prg"), [0x01, 0x04, 0x5a]).expect("PRG");
         Self(dir)
@@ -114,7 +117,7 @@ fn all_roms_resolve_with_pins_and_legacy_flags() {
         (
             "--kernal",
             "commodore-pet-kernal",
-            "kernal.rom",
+            "kernal-4.901465-22.bin",
             "EMU198X_PET_KERNAL",
             61440,
             0x4c,
@@ -122,7 +125,7 @@ fn all_roms_resolve_with_pins_and_legacy_flags() {
         (
             "--basic",
             "commodore-pet-basic",
-            "basic.rom",
+            "basic-4.901465-23-20-21.bin",
             "EMU198X_PET_BASIC",
             49152,
             0x42,
@@ -130,7 +133,7 @@ fn all_roms_resolve_with_pins_and_legacy_flags() {
         (
             "--editor",
             "commodore-pet-editor",
-            "editor.rom",
+            "edit-4-40-n-50Hz.901498-01.bin",
             "EMU198X_PET_EDITOR",
             57344,
             0x45,
@@ -138,7 +141,7 @@ fn all_roms_resolve_with_pins_and_legacy_flags() {
         (
             "--char",
             "commodore-pet-char",
-            "chargen.rom",
+            "characters-2.901447-10.bin",
             "EMU198X_PET_CHAR",
             61440,
             0x4c,
@@ -289,7 +292,10 @@ fn explicit_errors_fail_in_both_modes_and_absent_conventions_allow_blank_mcp() {
         !fixture
             .command()
             .env_clear()
-            .env("EMU198X_PET_KERNAL", fixture.0.join("kernal.rom"))
+            .env(
+                "EMU198X_PET_KERNAL",
+                fixture.0.join("kernal-4.901465-22.bin")
+            )
             .arg("--mcp")
             .output()
             .expect("partial pin")
@@ -324,7 +330,8 @@ fn failed_firmware_switch_preserves_the_running_machine_and_queued_prg() {
         tool_body(&call("memory_read", json!({"addr":57344,"len":1})))["bytes"],
         json!([0x45])
     );
-    std::fs::remove_file(fixture.0.join("editor.rom")).expect("remove conventional firmware");
+    std::fs::remove_file(fixture.0.join("edit-4-80-b-50Hz.901474-04.bin"))
+        .expect("remove conventional firmware");
     assert_eq!(
         call("set_machine", json!({"machine":"commodore-pet-80col"}))["result"]["isError"],
         true

@@ -1,45 +1,18 @@
-//! Commodore PET — 6502 + 6845 CRTC + 6520 PIA + 6522 VIA.
-//!
-//! Fresh-write against the workspace pin-driven bus pattern (RULES.md
-//! rule 6). The donor at `Emu198x-Oldest/crates/machine-commodore-pet/`
-//! used the deprecated `emu_core::Bus` callback and could not port
-//! directly; this file uses it as the system spec but wires the 6502
-//! through its public pin fields (`addr`, `data`, `data_in`, `rw`).
-//!
-//! # The Commodore PET
-//!
-//! Released by Commodore in 1977. One of the original "1977 trinity"
-//! alongside the Apple II and the TRS-80 Model I. The 8032 (modelled
-//! here) is the 1980 80-column business variant — same chipset, wider
-//! display. Famous chiclet keyboard on the earlier 2001; the 8032
-//! moved to a full-travel layout.
-//!
-//! - **CPU:** MOS 6502 at 1 MHz.
-//! - **CRTC:** Motorola 6845 generating character-display timing.
-//! - **PIA 6520** at `$E810` — keyboard column-select on port A,
-//!   row-data on port B.
-//! - **VIA 6522** at `$E840` — cassette + IEEE-488 + piezo speaker
-//!   on CB2.
-//! - **RAM:** 32 KB at `$0000-$7FFF`.
-//! - **Video RAM:** 2 KB at `$8000-$87FF`.
-//! - **ROMs:** BASIC (8 KB at `$C000-$DFFF`), Editor (2 KB at
-//!   `$E000-$E7FF`), Kernal (4 KB at `$F000-$FFFF`), Character ROM
-//!   (4 KB, display-only).
-//!
-//! Clock model: one master tick per 6502 cycle (1 MHz). The VIA ticks
-//! on that cadence; the 80-column board advances its CRTC twice per
-//! master tick because one CPU cycle carries two character times.
+//! Shared PET board wiring; concrete owners select one physical configuration.
 
 pub mod input;
 mod keyboard;
+pub mod owner;
+mod video;
+pub use video::Board;
+use video::Video;
 
 pub use input::PetKey;
 pub use keyboard::KeyboardState;
 
-use emu198x_mos_6502::M6502;
+pub use emu198x_mos_6502::M6502;
 use emu198x_mos_pia_6520::Pia6520;
 use emu198x_mos_via_6522::Via6522;
-use emu198x_motorola_6845::Crtc6845;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -77,18 +50,17 @@ pub struct Pet {
     editor_rom: Vec<u8>,
     kernal_rom: Vec<u8>,
     char_rom: Vec<u8>,
-    crtc: Crtc6845,
+    video: Video,
+    board: Board,
     pia: Pia6520,
     via: Via6522,
     keyboard: KeyboardState,
+    pressed_keys: Vec<PetKey>,
     framebuffer: Vec<u32>,
     screen_chars: u32,
     screen_width_px: u32,
     frame_complete: bool,
-    /// Piezo waveform, sampled from the VIA's CB2 output at the audio output
-    /// rate. Drained each frame by [`Pet::take_audio_buffer`]; regenerated
-    /// live, so it is not part of the snapshot.
-    #[serde(skip)]
+    /// Undelivered waveform samples are part of exact restored state.
     audio_buffer: Vec<f32>,
     /// Fractional accumulator converting the 1 MHz Φ2 clock to the 48 kHz
     /// output rate: one sample is emitted each time it crosses
@@ -102,51 +74,31 @@ pub struct Pet {
 impl Pet {
     /// Cold-boot with the installed firmware and the selected display profile.
     #[must_use]
-    pub fn cold_boot(&self, screen_chars: u32) -> Self {
+    pub fn cold_boot(&self) -> Self {
         Self::new(
             self.kernal_rom.clone(),
             self.basic_rom.clone(),
             self.editor_rom.clone(),
             self.char_rom.clone(),
-            screen_chars,
+            self.board,
         )
     }
 
-    /// Create a new PET. ROM sizes: kernal 4 KB, basic 8 KB, editor 2 KB,
-    /// char ROM 4 KB. `screen_chars` is 40 (PET 4032) or 80 (PET 8032).
+    /// Construct shared state. Fixed owners validate board-specific ROM sizes.
     pub fn new(
         kernal_rom: Vec<u8>,
         basic_rom: Vec<u8>,
         editor_rom: Vec<u8>,
         char_rom: Vec<u8>,
-        screen_chars: u32,
+        board: Board,
     ) -> Self {
+        let screen_chars = board.columns();
         let screen_width_px = if screen_chars >= 80 {
             SCREEN_WIDTH_80
         } else {
             SCREEN_WIDTH_40
         };
-        let mut crtc = Crtc6845::new();
-        // PET CRTC register setup. This editor ROM does not reprogram the CRTC
-        // at boot (it powers up with these values), so they must give the real
-        // PET frame timing. The 40-column PAL frame is 64 cycles/line × 313
-        // lines = 20,032 cycles → 49.92 Hz at 1 MHz, per VICE (`src/pet/pet.h`
-        // PET_PAL_CYCLES_PER_LINE=64, PET_PAL_SCREEN_LINES=313); the CRTC line
-        // is R0+1 cycles, and 313 scanlines = (R4+1)×(R9+1) + R5 = 39×8 + 1.
-        // The donor values (R0=49, R4=31 → 50×260 = 13,000 cycles ≈ 77 Hz) ran
-        // the machine ~1.3× too fast. R6/R1 (25 rows × 40 cols displayed) and R9
-        // (8 scanlines/char) are unchanged, so the visible screen is identical;
-        // R2/R7 sync positions sit inside the wider totals.
-        let regs: [u8; 14] = if screen_chars >= 80 {
-            [99, 80, 82, 8, 31, 4, 25, 29, 0, 9, 0, 0, 0x10, 0x00]
-        } else {
-            [63, 40, 48, 4, 38, 1, 25, 34, 0, 7, 0, 0, 0x10, 0x00]
-        };
-        for (i, &v) in regs.iter().enumerate() {
-            crtc.write_address(i as u8);
-            crtc.write_data(v);
-        }
-
+        let video = Video::new(board);
         // Run the 6502 reset sequence so the first fetch comes from the KERNAL
         // reset vector ($FFFC); without it the CPU powers on at PC=$0000,
         // executes the BRK there, and never cold-starts (the screen sticks on
@@ -161,11 +113,17 @@ impl Pet {
             editor_rom,
             kernal_rom,
             char_rom,
-            crtc,
+            video,
+            board,
             pia: Pia6520::new(),
             via: Via6522::new(),
             keyboard: KeyboardState::new(),
-            framebuffer: vec![0xFF00_0000; (screen_width_px * SCREEN_HEIGHT) as usize],
+            pressed_keys: Vec::new(),
+            framebuffer: vec![
+                0xFF00_0000;
+                (screen_width_px * (board.active_height() + BORDER_TOP + BORDER_BOTTOM))
+                    as usize
+            ],
             screen_chars,
             screen_width_px,
             frame_complete: false,
@@ -200,22 +158,11 @@ impl Pet {
     fn tick(&mut self) {
         self.master_clock += 1;
         self.tick_display();
-        if self.screen_chars >= 80 {
-            // The 80-column board's CRTC character clock is 2 MHz. VICE models
-            // the same wiring as `CRTC_HW_DOUBLE_CHARS`: two displayed
-            // characters are consumed in each 1 MHz machine cycle.
-            self.tick_display();
-        }
+        let sync = self.video.retrace_level();
+        self.via.pb_in = if sync { 0xff } else { !0x20 };
         self.via.tick();
         self.tick_audio();
-        // PIA #1 CA1 is wired to the CRTC vertical retrace: its edge is the
-        // 60 Hz system IRQ that runs the editor's keyboard scan and jiffy
-        // clock. Without it the machine boots to READY but never sees a key.
-        // PIA #1 CB1 is wired to the CRTC vertical retrace: its edge is the
-        // 60 Hz system IRQ that runs the editor's keyboard scan and jiffy
-        // clock (the editor enables CB1, not CA1 — CA1 is cassette sense).
-        // Without it the machine boots to READY but never sees a key.
-        self.pia.set_cb1(self.crtc.in_vertical_retrace());
+        self.pia.set_cb1(sync);
         self.cpu.irq = self.pia.irq_pending() || self.via.irq;
         self.cpu.tick();
         if self.cpu.rw {
@@ -249,52 +196,75 @@ impl Pet {
     }
 
     fn tick_display(&mut self) {
-        let new_frame = self.crtc.tick();
-        if new_frame {
-            self.frame_complete = true;
-        }
-        if !self.crtc.display_enable {
-            return;
-        }
-        let ra = self.crtc.raster_address();
-        // The CRTC address carries the display start (R12/R13, $1000 here). The
-        // screen cell and the video-RAM byte must come from the *same* relative
-        // address, so mask both into the 2 KB video RAM — otherwise the cell
-        // position lands off-screen while an unwritten cell is fetched.
-        let disp_addr = self.crtc.memory_address() & 0x07FF;
-        let char_code = self.video_ram[disp_addr as usize];
-        // The PET character ROM stores 8 bytes per glyph (one byte per
-        // scanline of the 8×8 cell), so the glyph base is `code * 8`, not
-        // `* 16`. Using 16 doubled the stride: every glyph read its
-        // neighbour's data and "spaces" fetched a non-blank glyph (the
-        // screen filled with horizontal-line noise).
-        let char_rom_addr = (u16::from(char_code) * 8 + u16::from(ra)) as usize;
-        let char_data = self.char_rom.get(char_rom_addr).copied().unwrap_or(0);
-        let on_cursor = self.crtc.cursor_active;
-        let chars_per_row = self.screen_chars;
-        let char_col = disp_addr % chars_per_row as u16;
-        let char_row = disp_addr / chars_per_row as u16;
-        let active_y =
-            u32::from(char_row) * (u32::from(self.crtc.max_scanline()) + 1) + u32::from(ra);
-        let active_x_base = u32::from(char_col) * 8;
-        if active_y >= ACTIVE_HEIGHT {
-            return;
-        }
-        let fb_y = BORDER_TOP + active_y;
-        let fb_x_base = BORDER_LEFT + active_x_base;
-        for px in 0..8u32 {
-            let fb_x = fb_x_base + px;
-            if fb_x >= self.screen_width_px {
-                break;
+        let beam = self.video.tick();
+        self.frame_complete |= beam.frame;
+        let pairs = if self.board == Board::Pet8032 { 2 } else { 1 };
+        for half in 0..pairs {
+            let address = (usize::from(beam.ma) * pairs + half) & self.board.video_mask();
+            let code = self.video_ram[address];
+            let bank = usize::from(self.via.ca2_out) * 1024;
+            let inverse = (code & 0x80 != 0) ^ beam.reverse;
+            let glyph = if !beam.display {
+                0
+            } else if beam.ra < 8 {
+                let byte = self
+                    .char_rom
+                    .get(bank + usize::from(code & 0x7f) * 8 + usize::from(beam.ra))
+                    .copied()
+                    .unwrap_or(0);
+                if inverse { !byte } else { byte }
+            } else {
+                0
+            };
+            let y = BORDER_TOP + u32::from(beam.y);
+            let x = BORDER_LEFT + (u32::from(beam.x) * pairs as u32 + half as u32) * 8;
+            if y >= self.framebuffer_height() - BORDER_BOTTOM {
+                continue;
             }
-            let bit = (char_data >> (7 - px)) & 1;
-            let fg = if on_cursor { bit == 0 } else { bit != 0 };
-            let colour = if fg { 0xFF00_FF00 } else { 0xFF00_0000 };
-            let idx = (fb_y * self.screen_width_px + fb_x) as usize;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = colour;
+            for pixel in 0..8 {
+                if x + pixel >= self.screen_width_px - BORDER_RIGHT {
+                    break;
+                }
+                let on = glyph & (0x80 >> pixel) != 0;
+                self.framebuffer[(y * self.screen_width_px + x + pixel) as usize] =
+                    if on { 0xff00_ff00 } else { 0xff00_0000 };
             }
         }
+    }
+
+    /// Reject forged board metadata and inconsistent allocations before binding.
+    pub fn validate(&self, board: Board) -> Result<(), String> {
+        let basic_len = if board == Board::Pet2001n32k {
+            8192
+        } else {
+            12288
+        };
+        if self.keyboard.rows() != self.contacts().rows()
+            || self.board != board
+            || !self.video.matches(board)
+            || self.screen_chars != board.columns()
+            || self.screen_width_px
+                != if board == Board::Pet8032 {
+                    SCREEN_WIDTH_80
+                } else {
+                    SCREEN_WIDTH_40
+                }
+            || self.framebuffer.len() != (self.screen_width_px * self.framebuffer_height()) as usize
+            || self.kernal_rom.len() != 4096
+            || self.basic_rom.len() != basic_len
+            || self.editor_rom.len() != 2048
+            || self.char_rom.len() != 2048
+            || self.audio_accum >= CPU_CLOCK_HZ
+            || self.audio_buffer.iter().any(|v| !v.is_finite())
+        {
+            return Err("PET state does not match its physical board or firmware layout".into());
+        }
+        Ok(())
+    }
+
+    /// The immutable board identity used to validate restored state.
+    pub const fn board(&self) -> Board {
+        self.board
     }
 
     fn take_frame_complete(&mut self) -> bool {
@@ -314,11 +284,14 @@ impl Pet {
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0x87FF => self.video_ram[(addr - 0x8000) as usize],
+            0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
             0x8800..=0x8FFF => 0xFF,
-            0x9000..=0xBFFF => 0xFF,
-            0xC000..=0xDFFF => {
-                let offset = (addr - 0xC000) as usize;
+            0x9000..=0xAFFF => 0xFF,
+            0xB000..=0xDFFF => {
+                let Some(offset) = addr.checked_sub(self.board.basic_start()) else {
+                    return 0xff;
+                };
+                let offset = usize::from(offset);
                 self.basic_rom.get(offset).copied().unwrap_or(0xFF)
             }
             0xE000..=0xE7FF => {
@@ -329,22 +302,9 @@ impl Pet {
                 self.update_keyboard();
                 self.pia.read((addr & 0x03) as u8)
             }
-            // VIA port B ($E840) carries the CRTC vertical-retrace state on
-            // PB5 (0 = off-screen). The editor spin-waits on it before writing
-            // the screen to avoid snow, so it must toggle each frame; the other
-            // input bits (IEEE handshake) idle high with no device attached.
-            0xE840 => {
-                // PB5 low signals vertical retrace; every other input bit
-                // idles high with no IEEE device attached.
-                let pb = if self.crtc.in_vertical_retrace() {
-                    !0x20u8
-                } else {
-                    0xFF
-                };
-                self.via.read_port_b_with_value(pb)
-            }
-            0xE841..=0xE84F => self.via.read((addr & 0x0F) as u8),
-            0xE880 => self.crtc.read_data(),
+            0xE840..=0xE84F => self.via.read((addr & 0x0F) as u8),
+            0xE880 => self.video.read_status(),
+            0xE881 => self.video.read_data(),
             0xE800..=0xEFFF => 0xFF,
             0xF000..=0xFFFF => {
                 let offset = (addr - 0xF000) as usize;
@@ -356,11 +316,17 @@ impl Pet {
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize] = value,
-            0x8000..=0x87FF => self.video_ram[(addr - 0x8000) as usize] = value,
+            0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()] = value,
             0xE810..=0xE81F => self.pia.write((addr & 0x03) as u8, value),
             0xE840..=0xE84F => self.via.write((addr & 0x0F) as u8, value),
-            0xE880 => self.crtc.write_address(value),
-            0xE881 => self.crtc.write_data(value),
+            0xE880 => self.video.write_address(value),
+            0xE881 => {
+                self.video.write_data(value);
+                self.framebuffer.resize(
+                    (self.screen_width_px * self.framebuffer_height()) as usize,
+                    0xff00_0000,
+                );
+            }
             _ => {}
         }
     }
@@ -377,31 +343,54 @@ impl Pet {
 
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        SCREEN_HEIGHT
+        self.video.height() + BORDER_TOP + BORDER_BOTTOM
     }
 
     pub fn press_key(&mut self, key: PetKey) {
-        let (row, col) = key.matrix();
-        self.keyboard.set_key(row, col, true);
+        if !self.pressed_keys.contains(&key) {
+            self.pressed_keys.push(key);
+        }
+        self.update_contacts();
     }
-
     pub fn release_key(&mut self, key: PetKey) {
-        let (row, col) = key.matrix();
-        self.keyboard.set_key(row, col, false);
+        self.pressed_keys.retain(|held| *held != key);
+        self.update_contacts();
+    }
+    pub fn release_all_keys(&mut self) {
+        self.pressed_keys.clear();
+        self.update_contacts();
+    }
+    fn contacts(&self) -> KeyboardState {
+        let mut keyboard = KeyboardState::new();
+        for &key in &self.pressed_keys {
+            let ((row, col), shift) = if self.board == Board::Pet8032 {
+                key.business_contact()
+            } else {
+                (key.matrix(), false)
+            };
+            keyboard.set_key(row, col, true);
+            if shift {
+                keyboard.set_key(6, 0, true);
+            }
+        }
+        keyboard
     }
 
-    pub fn release_all_keys(&mut self) {
-        self.keyboard.release_all();
+    fn update_contacts(&mut self) {
+        self.keyboard = self.contacts();
     }
 
     #[must_use]
     pub fn peek_memory(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
-            0x8000..=0x87FF => self.video_ram[(addr - 0x8000) as usize],
-            0xC000..=0xDFFF => self
+            0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
+            0xB000..=0xDFFF => self
                 .basic_rom
-                .get((addr - 0xC000) as usize)
+                .get(
+                    addr.checked_sub(self.board.basic_start())
+                        .map_or(usize::MAX, usize::from),
+                )
                 .copied()
                 .unwrap_or(0xFF),
             0xE000..=0xE7FF => self
@@ -483,7 +472,7 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x0800],
             vec![0u8; 0x1000],
-            40,
+            Board::Pet4032,
         )
     }
 
@@ -599,7 +588,7 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x0800],
             vec![0u8; 0x1000],
-            80,
+            Board::Pet8032,
         );
         assert_eq!(pet.framebuffer_width(), SCREEN_WIDTH_80);
     }
@@ -653,34 +642,24 @@ mod tests {
     }
 
     #[test]
-    fn frame_is_pal_50hz_at_1mhz() {
-        // The 40-column PET frame must be 64 cycles/line × 313 lines = 20,032
-        // CPU cycles → 49.92 Hz at 1 MHz, per VICE (`src/pet/pet.h`). The donor
-        // CRTC values gave 50 × 260 = 13,000 (≈77 Hz), running ~1.3× too fast.
-        // The CRTC drives the frame independently of the CPU program, so this
-        // holds with the synthetic test ROMs.
+    fn frame_matches_the_901498_01_editor_in_vice() {
         let mut pet = make_pet();
-        pet.run_frame(); // sync to a frame boundary
-        let frame = pet.run_frame();
-        assert_eq!(
-            frame, 20_032,
-            "PET PAL frame must be 20,032 cycles (64 × 313); got {frame}"
-        );
+        pet.run_frame();
+        assert_eq!(pet.run_frame(), 20_000);
     }
-
     #[test]
-    fn frame_is_16200_cpu_cycles_on_the_80_column_board() {
-        // The 8032 defaults are 100 CRTC character times per line and
-        // 32×10+4 = 324 scanlines. At two character times per 1 MHz CPU cycle,
-        // the complete frame is therefore 100×324/2 = 16,200 CPU cycles.
+    fn paired_fetches_do_not_double_the_crtc_clock() {
         let mut pet = Pet::new(
-            vec![0u8; 0x1000],
-            vec![0u8; 0x2000],
-            vec![0u8; 0x0800],
-            vec![0u8; 0x1000],
-            80,
+            vec![0; 4096],
+            vec![0; 12288],
+            vec![0; 2048],
+            vec![0; 2048],
+            Board::Pet8032,
         );
         pet.run_frame();
-        assert_eq!(pet.run_frame(), 16_200);
+        assert_eq!(pet.run_frame(), 19_992);
     }
 }
+
+#[cfg(test)]
+mod hardware_tests;
