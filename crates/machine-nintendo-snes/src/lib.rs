@@ -395,6 +395,26 @@ impl Snes {
         snes
     }
 
+    /// Validate board identity and allocations before binding restored state.
+    pub fn validate_board(&self, region: Region) -> Result<(), String> {
+        let ppu_region = match region {
+            Region::Ntsc => PpuRegion::Ntsc,
+            Region::Pal => PpuRegion::Pal,
+        };
+        if self.region != region
+            || self.ppu.region() != ppu_region
+            || self.wram.len() != 0x20000
+            || self.apu.ipl.len() != 64
+            || self.apu.dsp.ram().len() != 65536
+            || self.cart.rom().is_empty()
+            || self.ppu.framebuffer().len() != 512 * 480
+            || self.ppu.framebuffer_raw().len() != 512 * 480
+        {
+            return Err("SNES snapshot does not match the selected board or memory layout".into());
+        }
+        Ok(())
+    }
+
     /// Press the reset button. The 5A22 and the sound module restart; work
     /// RAM, VRAM and the cartridge's RAM keep what they had.
     pub fn reset(&mut self) {

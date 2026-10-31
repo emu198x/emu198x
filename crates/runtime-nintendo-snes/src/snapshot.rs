@@ -67,6 +67,11 @@ pub(crate) fn decode(runtime: &mut SnesRuntime, bytes: &[u8]) -> Result<(), Mach
             ),
         });
     }
+    if let Some(machine) = &snapshot.machine {
+        machine
+            .validate_board(runtime.model().machine_region())
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+    }
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(snapshot.machine);
     Ok(())
