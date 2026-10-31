@@ -23,7 +23,7 @@
 
 use std::path::PathBuf;
 
-use machine_commodore_pet::Pet;
+use common_commodore_pet::Pet;
 
 /// The PET's phosphor green.
 const LIT: u32 = 0xFF00_FF00;
@@ -41,7 +41,7 @@ fn booted(kernal: &str) -> Pet {
         firmware("commodore-pet-basic.rom"),
         firmware("commodore-pet-editor.rom"),
         firmware("commodore-pet-chargen.rom"),
-        40,
+        common_commodore_pet::Board::Pet2001n32k,
     );
     for _ in 0..20 {
         machine.run_frame();

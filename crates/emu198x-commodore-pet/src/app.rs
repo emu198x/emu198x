@@ -35,14 +35,14 @@ impl MachineApp for CommodorePet {
     const BIN_NAME: &'static str = "emu198x-commodore-pet";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str = "    --kernal PATH   KERNAL ROM (4 KB)
-    --basic PATH    BASIC ROM (8 KB)
+    --basic PATH    BASIC ROM (8 KB BASIC 2 / 12 KB BASIC 4)
     --editor PATH   editor ROM (2 KB)
-    --char PATH     character ROM (4 KB)
+    --char PATH     character ROM (2 KB)
                     ROM defaults: $EMU198X_PET_{KERNAL,BASIC,EDITOR,CHAR}, then
-                    ~/.emu198x/roms/commodore-pet/{kernal,basic,editor,chargen}.rom
+                    ~/.emu198x/roms/commodore-pet/ with model-specific part filenames
     --rom ID=PATH  pin one of the four catalogue ROM images
     --rom-dir DIR  firmware directory (or EMU198X_PET_ROM_DIR)
-    --model ID     commodore-pet-40col | commodore-pet-80col
+    --model ID     commodore-pet-2001n-32k | commodore-pet-40col | commodore-pet-80col
     --columns N     40 or 80 [default: 40]
     --prg PATH      load a .prg after boot and auto-RUN it";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
@@ -60,7 +60,9 @@ impl MachineApp for CommodorePet {
             "--columns" | "--model" => {
                 let id = args.value(flag)?;
                 self.model = Model::from_variant_id(&id).ok_or_else(|| {
-                    LaunchError::Usage(format!("{flag} expects 40 or 80, got {id}"))
+                    LaunchError::Usage(format!(
+                        "{flag} expects a PET profile ID (or 40/80), got {id}"
+                    ))
                 })?;
             }
             "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
@@ -177,7 +179,9 @@ mod tests {
         let err = parse::<CommodorePet>(&args(&["--columns", "forty"])).expect_err("rejects");
         assert_eq!(
             err,
-            LaunchError::Usage("--columns expects 40 or 80, got forty".to_owned())
+            LaunchError::Usage(
+                "--columns expects a PET profile ID (or 40/80), got forty".to_owned()
+            )
         );
     }
 

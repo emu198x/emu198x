@@ -5,17 +5,17 @@ use runtime_commodore_pet::{
 
 #[test]
 fn catalogue_installs_all_firmware_and_snapshot_reset_retains_it() {
-    let images = [
-        (KERNAL_FIRMWARE_ID, vec![0x4c; 4096]),
-        (BASIC_FIRMWARE_ID, vec![0x42; 8192]),
-        (EDITOR_FIRMWARE_ID, vec![0x45; 2048]),
-        (CHAR_FIRMWARE_ID, vec![0x3c; 4096]),
-    ];
-    let mut firmware = FirmwareSet::new();
-    for (id, bytes) in &images {
-        firmware.push(FirmwareImage::new(*id, bytes));
-    }
     for model in Model::ALL {
+        let images = [
+            (KERNAL_FIRMWARE_ID, vec![0x4c; 4096]),
+            (BASIC_FIRMWARE_ID, vec![0x42; model.basic_size()]),
+            (EDITOR_FIRMWARE_ID, vec![0x45; 2048]),
+            (CHAR_FIRMWARE_ID, vec![0x3c; 2048]),
+        ];
+        let mut firmware = FirmwareSet::new();
+        for (id, bytes) in &images {
+            firmware.push(FirmwareImage::new(*id, bytes));
+        }
         let runtime = PetRuntime::from_firmware(model, &firmware).expect("runtime");
         let snap = runtime.snapshot().expect("snapshot");
         let mut restored = PetRuntime::blank(model);
@@ -23,9 +23,12 @@ fn catalogue_installs_all_firmware_and_snapshot_reset_retains_it() {
         restored.reset(ResetKind::Hard);
         assert_eq!(restored.snapshot().expect("snapshot"), snap);
         assert_eq!(restored.machine().expect("machine").peek(0xe000), 0x45);
-        assert_eq!(restored.native_frame_ticks(), 20_000);
+        assert_eq!(restored.native_frame_ticks(), model.frame_ticks());
         assert_eq!(Model::from_variant_id(model.variant_id()), Some(model));
-        for target in Model::ALL {
+        for target in Model::ALL
+            .into_iter()
+            .filter(|target| target.basic_size() == model.basic_size())
+        {
             let replacement = restored
                 .replacement(target, &firmware)
                 .expect("replacement");

@@ -513,6 +513,7 @@ def commodore_pet_chargen() -> bytes:
     what stops the screen lighting without the CPU."""
     rom = bytearray(0x800)
     rom[8:16] = b"\xFF" * 8
+    rom[0x408:0x410] = b"\xFF" * 8  # CA2 selects either 1 KiB bank.
     return bytes(rom)
 
 
@@ -811,6 +812,7 @@ SINGLE_MACHINE = {
     # Browser/runtime firmware contract includes both 2 KiB character banks.
     "commodore-pet-chargen-4k.rom": lambda: commodore_pet_chargen() * 2,
     "commodore-pet-basic.rom": lambda: zero_rom(0x2000),
+    "commodore-pet-basic-4.rom": lambda: zero_rom(0x3000),
     "commodore-pet-editor.rom": lambda: zero_rom(0x800),
     "dragon-32.rom": dragon_32,
     "dragon-32-control.rom": dragon_32_control,

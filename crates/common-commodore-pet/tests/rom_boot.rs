@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_pet::Pet;
+use common_commodore_pet::Pet;
 
 fn rom(name: &str, env: &str, default_name: &str) -> Option<Vec<u8>> {
     if let Ok(p) = env::var(env) {
@@ -22,21 +22,27 @@ fn rom(name: &str, env: &str, default_name: &str) -> Option<Vec<u8>> {
 #[test]
 #[ignore = "FIXTURE: needs Commodore PET ROM set — run with --ignored"]
 fn rom_set_boots_without_panic() {
-    let kernal = rom("kernal", "EMU198X_PET_KERNAL", "kernal.rom");
-    let basic = rom("basic", "EMU198X_PET_BASIC", "basic.rom");
-    let editor = rom("editor", "EMU198X_PET_EDITOR", "editor.rom");
-    let char_rom = rom("char", "EMU198X_PET_CHAR", "char.rom");
+    let kernal = rom("kernal", "EMU198X_PET_KERNAL", "kernal-2.901465-03.bin");
+    let basic = rom("basic", "EMU198X_PET_BASIC", "basic-2.901465-01-02.bin");
+    let editor = rom("editor", "EMU198X_PET_EDITOR", "edit-2-n.901447-24.bin");
+    let char_rom = rom("char", "EMU198X_PET_CHAR", "characters-2.901447-10.bin");
 
     let (Some(kernal), Some(basic), Some(editor), Some(char_rom)) =
         (kernal, basic, editor, char_rom)
     else {
         panic!(
-            "PET ROM set incomplete — place kernal.rom (4 KB) / basic.rom (8 KB) / \
-             editor.rom (2 KB) / char.rom (4 KB) under ~/.emu198x/roms/commodore-pet/"
+            "PET ROM set incomplete — place kernal-2.901465-03.bin (4 KB) / basic-2.901465-01-02.bin (8 KB) / \
+             edit-2-n.901447-24.bin (2 KB) / characters-2.901447-10.bin (2 KB) under ~/.emu198x/roms/commodore-pet/"
         );
     };
 
-    let mut sys = Pet::new(kernal, basic, editor, char_rom, 40);
+    let mut sys = Pet::new(
+        kernal,
+        basic,
+        editor,
+        char_rom,
+        common_commodore_pet::Board::Pet2001n32k,
+    );
     for _ in 0..200 {
         sys.run_frame();
     }

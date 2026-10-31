@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_pet::{Pet, PetKey};
+use common_commodore_pet::{Pet, PetKey};
 
 fn rom(name: &str) -> Option<Vec<u8>> {
     if let Ok(dir) = env::var("EMU198X_PET_ROMS") {
@@ -48,12 +48,18 @@ fn screen_line(sys: &Pet, line: u16) -> Vec<u8> {
 /// Boot a PET on the real ROM set, or `None` when they are not installed.
 fn booted() -> Option<Pet> {
     let (kernal, basic, editor, charrom) = (
-        rom("kernal.rom")?,
-        rom("basic.rom")?,
-        rom("editor.rom")?,
-        rom("char.rom")?,
+        rom("kernal-2.901465-03.bin")?,
+        rom("basic-2.901465-01-02.bin")?,
+        rom("edit-2-n.901447-24.bin")?,
+        rom("characters-2.901447-10.bin")?,
     );
-    let mut sys = Pet::new(kernal, basic, editor, charrom, 40);
+    let mut sys = Pet::new(
+        kernal,
+        basic,
+        editor,
+        charrom,
+        common_commodore_pet::Board::Pet2001n32k,
+    );
     for _ in 0..120 {
         sys.run_frame();
     }
@@ -80,17 +86,23 @@ fn screen(sys: &Pet) -> String {
 #[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn types_a_basic_line_and_prints_the_result() {
     let (Some(kernal), Some(basic), Some(editor), Some(charrom)) = (
-        rom("kernal.rom"),
-        rom("basic.rom"),
-        rom("editor.rom"),
-        rom("char.rom"),
+        rom("kernal-2.901465-03.bin"),
+        rom("basic-2.901465-01-02.bin"),
+        rom("edit-2-n.901447-24.bin"),
+        rom("characters-2.901447-10.bin"),
     ) else {
         panic!(
             "PET ROMs not found — set EMU198X_PET_ROMS or place \
-             kernal.rom/basic.rom/editor.rom/char.rom at ~/.emu198x/roms/commodore-pet/"
+             kernal-2.901465-03.bin/basic-2.901465-01-02.bin/edit-2-n.901447-24.bin/characters-2.901447-10.bin at ~/.emu198x/roms/commodore-pet/"
         );
     };
-    let mut sys = Pet::new(kernal, basic, editor, charrom, 40);
+    let mut sys = Pet::new(
+        kernal,
+        basic,
+        editor,
+        charrom,
+        common_commodore_pet::Board::Pet2001n32k,
+    );
     for _ in 0..120 {
         sys.run_frame();
     }
@@ -131,17 +143,23 @@ fn types_a_basic_line_and_prints_the_result() {
 #[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn types_a_subtraction_through_the_keypad_minus() {
     let (Some(kernal), Some(basic), Some(editor), Some(charrom)) = (
-        rom("kernal.rom"),
-        rom("basic.rom"),
-        rom("editor.rom"),
-        rom("char.rom"),
+        rom("kernal-2.901465-03.bin"),
+        rom("basic-2.901465-01-02.bin"),
+        rom("edit-2-n.901447-24.bin"),
+        rom("characters-2.901447-10.bin"),
     ) else {
         panic!(
             "PET ROMs not found — set EMU198X_PET_ROMS or place \
-             kernal.rom/basic.rom/editor.rom/char.rom at ~/.emu198x/roms/commodore-pet/"
+             kernal-2.901465-03.bin/basic-2.901465-01-02.bin/edit-2-n.901447-24.bin/characters-2.901447-10.bin at ~/.emu198x/roms/commodore-pet/"
         );
     };
-    let mut sys = Pet::new(kernal, basic, editor, charrom, 40);
+    let mut sys = Pet::new(
+        kernal,
+        basic,
+        editor,
+        charrom,
+        common_commodore_pet::Board::Pet2001n32k,
+    );
     for _ in 0..120 {
         sys.run_frame();
     }

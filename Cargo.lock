@@ -647,6 +647,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-pet"
+version = "0.45.1"
+dependencies = [
+ "emu198x-mos-6502",
+ "emu198x-mos-pia-6520",
+ "emu198x-mos-via-6522",
+ "emu198x-motorola-6845",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-commodore-vic-20"
 version = "0.45.1"
 dependencies = [
@@ -1575,7 +1588,6 @@ dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
- "machine-commodore-pet",
  "png",
  "runtime-commodore-pet",
  "serde_json",
@@ -4130,16 +4142,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-commodore-pet"
+name = "machine-commodore-pet-2001n-32k"
 version = "0.45.1"
 dependencies = [
- "emu198x-mos-6502",
- "emu198x-mos-pia-6520",
- "emu198x-mos-via-6522",
- "emu198x-motorola-6845",
+ "common-commodore-pet",
  "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-commodore-pet-4032"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-pet",
+ "postcard",
+]
+
+[[package]]
+name = "machine-commodore-pet-8032"
+version = "0.45.1"
+dependencies = [
+ "common-commodore-pet",
+ "postcard",
 ]
 
 [[package]]
@@ -6025,8 +6048,11 @@ dependencies = [
 name = "runtime-commodore-pet"
 version = "0.45.1"
 dependencies = [
+ "common-commodore-pet",
  "emu198x-shell",
- "machine-commodore-pet",
+ "machine-commodore-pet-2001n-32k",
+ "machine-commodore-pet-4032",
+ "machine-commodore-pet-8032",
  "postcard",
  "serde",
  "serde_json",

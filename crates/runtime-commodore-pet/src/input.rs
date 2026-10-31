@@ -1,7 +1,8 @@
 //! PET keyboard input mapping.
 
+use crate::machine::Pet;
+use common_commodore_pet::PetKey;
 use emu198x_shell::InputEvent;
-use machine_commodore_pet::{Pet, PetKey};
 
 pub(crate) fn apply_input_event(machine: &mut Pet, event: &InputEvent) {
     if let InputEvent::Key { name, pressed } = event

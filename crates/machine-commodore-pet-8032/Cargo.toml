@@ -1,0 +1,14 @@
+[package]
+name = "machine-commodore-pet-8032"
+description = "Fixed Commodore PET 8032 board owner"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-commodore-pet = { path = "../common-commodore-pet" }
+[dev-dependencies]
+postcard = { workspace = true }
+[lints]
+workspace = true

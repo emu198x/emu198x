@@ -41,9 +41,9 @@ fn capture(kernal: Vec<u8>) -> CapturedAudio {
     let mut runtime = PetRuntime::new(
         Model::Pet40Col,
         kernal,
-        vec![0u8; 0x2000],
+        vec![0u8; 0x3000],
         vec![0u8; 0x0800],
-        vec![0u8; 0x1000],
+        vec![0u8; 0x0800],
     )
     .expect("synthetic ROM set builds");
     let mut frames = NullFrameSink;

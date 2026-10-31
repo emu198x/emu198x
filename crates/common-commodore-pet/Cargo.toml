@@ -1,5 +1,5 @@
 [package]
-name = "machine-commodore-pet"
+name = "common-commodore-pet"
 description = "Commodore PET (1977/79) — 6502 + 6845 CRTC + 6520 PIA + 6522 VIA"
 version.workspace = true
 publish = false

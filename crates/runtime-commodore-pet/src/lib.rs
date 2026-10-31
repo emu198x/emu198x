@@ -1,6 +1,7 @@
 //! Commodore PET family metadata and runtime surface.
 
 mod input;
+pub mod machine;
 mod profiles;
 mod queries;
 mod runtime;
@@ -12,3 +13,9 @@ pub use profiles::{
 };
 pub use queries::PetSessionQueryProvider;
 pub use runtime::PetRuntime;
+
+#[cfg(test)]
+mod save_regressions;
+
+#[cfg(test)]
+mod board_baseline_tests;
