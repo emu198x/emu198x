@@ -181,8 +181,14 @@ impl Pentagon128 {
             Some(BusOp::MemRead) => {
                 // Beta disk watches each M1 fetch for its `$3Dxx` magic-page
                 // trap. `MemRead` is already edge-collapsed, so the fetch is
-                // reported once.
-                if self.z80.m1 {
+                // reported once. FUSE `z80_ops.c`: on a 128-type machine the
+                // trap pages in and out only while a non-zero ROM is selected
+                // (`NOT_128_TYPE_OR_IS_48_TYPE`), so the 128 editor in ROM 0
+                // can run through $3D00-$3DFF without TR-DOS, as the Scorpion
+                // already does. Without this, entering any line in 128 BASIC
+                // paged TR-DOS in under the editor and filled the screen with
+                // rubbish (#2212).
+                if self.z80.m1 && self.memory.current_rom() != 0 {
                     self.beta.on_m1(self.z80.addr);
                 }
                 // While TR-DOS is paged in, ROM reads come from the Beta ROM.
@@ -524,6 +530,38 @@ mod tests {
         m.advance_tstates(7);
         // 7 T-states × 4 hc/T = 28 half-cycles
         assert_eq!(m.hc, 28);
+    }
+
+    fn fetch_m1(m: &mut Pentagon128, addr: u16) -> u8 {
+        m.z80.addr = addr;
+        m.z80.mreq = true;
+        m.z80.rd = true;
+        m.z80.m1 = true;
+        m.handle_bus();
+        m.z80.mreq = false;
+        m.z80.rd = false;
+        m.z80.m1 = false;
+        m.handle_bus();
+        m.z80.data_in
+    }
+
+    #[test]
+    fn beta_trap_fires_only_outside_rom_0() {
+        let mut m = Pentagon128::new();
+        let mut rom0 = vec![0u8; 16384];
+        let mut rom1 = vec![0u8; 16384];
+        rom0[0x3D00] = 0x01;
+        rom1[0x3D00] = 0x31;
+        m.memory.load_roms(&rom0, &rom1);
+
+        // ROM 0 (the 128 editor): $3D00 is ordinary code, no trap (#2212).
+        assert_eq!(fetch_m1(&mut m, 0x3D00), 0x01);
+        assert!(!m.beta.trdos_paged);
+
+        // ROM 1 (48 BASIC): the trap pages TR-DOS in.
+        m.port_write(0x7FFD, 0x10);
+        fetch_m1(&mut m, 0x3D00);
+        assert!(m.beta.trdos_paged);
     }
 
     #[test]
