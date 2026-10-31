@@ -36,7 +36,7 @@ const CPC_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "joyfire2")),
 ]);
 
-/// The Amstrad CPC as a [`UiSystem`] for the shared harness. Single-model; a
+/// The CPC family as a [`UiSystem`] for the shared harness. A
 /// hard reset rebuilds the machine from the firmware the runtime holds, and
 /// keeps the cassette in the deck.
 pub struct CpcSystem;
@@ -53,7 +53,7 @@ impl UiSystem for CpcSystem {
     type Runtime = AmstradCpcRuntime;
 
     fn window_title(&self) -> String {
-        "Emu198x Amstrad CPC464".to_owned()
+        "Emu198x Amstrad CPC".to_owned()
     }
 
     fn default_scale(&self) -> u32 {
