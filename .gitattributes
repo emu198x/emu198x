@@ -47,3 +47,6 @@
 # Original complete Atari ST v1 states and native continuation packets.
 /test-data/atari-st/board-split-v1/*.state binary
 /test-data/atari-st/board-split-v1/*.output binary
+
+test-data/commodore/board-split-v22/*.state binary
+test-data/commodore/board-split-v22/*.output binary
