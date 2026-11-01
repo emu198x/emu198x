@@ -17,7 +17,6 @@ emu198x-commodore-agnus-ecs = { path = "../emu198x-commodore-agnus-ecs", version
 emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
 emu198x-commodore-denise-ecs = { path = "../emu198x-commodore-denise-ecs", version = "0.1.0" }
 emu198x-commodore-gayle = { path = "../emu198x-commodore-gayle", version = "0.1.0" }
-machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.45.0" }
 emu198x-peripheral-commodore-amiga-floppy = { path = "../emu198x-peripheral-commodore-amiga-floppy", version = "0.1.0" }
 emu198x-peripheral-commodore-amiga-keyboard = { path = "../emu198x-peripheral-commodore-amiga-keyboard", version = "0.1.0" }
 emu198x-commodore-gary = { path = "../emu198x-commodore-gary", version = "0.1.0" }

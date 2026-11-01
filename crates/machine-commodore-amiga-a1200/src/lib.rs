@@ -81,14 +81,7 @@ const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 /// One entry in the diagnostic blit log.
 pub type BlitLogEntry = (u64, u32, u16, u16, u32, u32, u32, u32, u16);
 
-// `RamConfig` is intentionally re-exported from
-// `machine-commodore-amiga-ocs` rather than duplicated here. This
-// keeps the type identity shared so `runtime-commodore-amiga` (or
-// any other caller) can pass a single `RamConfig` value through both
-// `AmigaOcs::with_ram_config` and `AmigaA1200::with_ram_config`. The
-// memory layout, autoconfig wiring, and presets are identical for
-// the A500-family configurations both machines share.
-pub use machine_commodore_amiga_ocs::RamConfig;
+pub use common_commodore_amiga::RamConfig;
 
 /// Convert drive status (active-high booleans) into the CIA-A PRA
 /// external-input byte Kickstart reads via `$BFE001`.

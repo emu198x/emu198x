@@ -25,6 +25,7 @@ pub mod denise_counter;
 pub mod denise_window;
 pub mod driver;
 pub mod memory;
+mod ram_config;
 pub mod rtc;
 
 pub use board::{
@@ -40,3 +41,5 @@ pub use driver::{
     AmigaMemoryWriteRecord, AmigaMemoryWriteSource, AmigaSchedulerDiagnosticSnapshot,
     AmigaTrackStreamDiagnosticSnapshot, CpuBoundary,
 };
+
+pub use ram_config::RamConfig;

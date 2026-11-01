@@ -6,10 +6,11 @@ is worth exactly as much as its accuracy. This is what keeps it honest:
 
 - every shipping crate has at least one machine,
 - every machine a profile declares appears in the registry,
+- machine crates do not depend on other machine crates,
 - every label and milestone the registry names actually exists.
 
-The third check needs the GitHub API and is skipped without it, so the first
-two still run offline. A skipped check says so rather than passing quietly —
+The tracker check needs the GitHub API and is skipped without it; the local
+checks still run offline. A skipped check says so rather than passing quietly —
 see knowledge/decisions/a-gate-nobody-runs-is-a-silent-gate.md.
 """
 
@@ -87,6 +88,42 @@ def declared_machines() -> set[str]:
     return {m for m in found if not m.startswith("test-")} - {"dummy-machine"}
 
 
+def machine_dependency_problems(root: pathlib.Path) -> list[str]:
+    """Rule 34: machine crates must not depend on other machine crates.
+
+    Inspect every dependency scope, including renamed, inherited and target-
+    specific dependencies. A name-only scan can miss the forbidden package.
+    """
+    workspace = tomllib.loads((root / "Cargo.toml").read_text()).get("workspace", {})
+    inherited = workspace.get("dependencies", {})
+    problems: list[str] = []
+    machines = 0
+    for path in sorted((root / "crates").glob("*/Cargo.toml")):
+        manifest = tomllib.loads(path.read_text())
+        name = manifest["package"]["name"]
+        if not name.startswith("machine-"):
+            continue
+        machines += 1
+        scopes = [("package", manifest)]
+        scopes.extend(manifest.get("target", {}).items())
+        for scope, table in scopes:
+            for kind in ("dependencies", "build-dependencies", "dev-dependencies"):
+                for alias, spec in table.get(kind, {}).items():
+                    spec = spec if isinstance(spec, dict) else {}
+                    if spec.get("workspace"):
+                        shared = inherited[alias]
+                        spec = shared if isinstance(shared, dict) else {}
+                    dependency = spec.get("package", alias)
+                    if dependency.startswith("machine-"):
+                        problems.append(
+                            f"{name}: {scope} {kind} depends on {dependency}; "
+                            "shared hardware belongs in common-* (rule 34)"
+                        )
+    if not machines:
+        problems.append("machine dependency check found no machine manifests")
+    return problems
+
+
 def gh(args: list[str]):
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=False)
     if out.returncode != 0 or not out.stdout.strip():
@@ -96,7 +133,7 @@ def gh(args: list[str]):
 
 def main() -> int:
     systems = registry()
-    problems: list[str] = []
+    problems: list[str] = machine_dependency_problems(ROOT)
 
     ids = [s["machine_id"] for s in systems]
     if len(ids) != len(set(ids)):
