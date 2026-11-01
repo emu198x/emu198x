@@ -37,11 +37,7 @@ use crate::{
     Accelerator, AmigaConfig, ChipsetKind, ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES,
     FATTER_AGNUS_CHIP_RAM_BYTES, KIB, Model, OCS_AGNUS_CHIP_RAM_BYTES, profile_for,
 };
-use emu198x_shell::display::Display;
-
-/// Hires dot clock: twice the 7.09379 MHz PAL system tick, which is what
-/// the 768-wide framebuffer is drawn at.
-const HIRES_PIXEL_CLOCK_HZ: f64 = 14_187_580.0;
+use emu198x_shell::display::{Display, NTSC_ACTIVE_LINES, PAL_ACTIVE_LINES};
 
 pub(crate) const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
 pub(crate) const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
@@ -119,6 +115,11 @@ pub struct AmigaRuntime<M: AmigaMachine> {
 // =====================================================================
 
 impl<M: AmigaMachine> AmigaRuntime<M> {
+    // The host descriptor and emitted signal describe the same native samples.
+    fn output_pixel_clock_hz(&self) -> f64 {
+        self.tick_hz as f64 * 2.0 * f64::from(M::CHIPSET_FB_WIDTH) / f64::from(DISPLAY_WIDTH)
+    }
+
     /// Read-only access to the wrapped machine.
     #[must_use]
     pub fn machine(&self) -> &M {
@@ -564,8 +565,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
                         }),
                         encoding: emu198x_shell::SignalEncoding::Rgb,
                         timing: emu198x_shell::SignalTiming {
-                            pixel_hz: self.tick_hz as f64 * 2.0 * f64::from(M::CHIPSET_FB_WIDTH)
-                                / f64::from(DISPLAY_WIDTH),
+                            pixel_hz: self.output_pixel_clock_hz(),
                             carrier_hz: 0.0,
                             line_pixels: M::CHIPSET_FB_WIDTH,
                             first_pixel: 0,
@@ -698,16 +698,17 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         })
     }
 
-    /// Pinned to PAL, as `frame_ticks` and `framebuffer_size` already are:
-    /// this frontend runs an A500 PAL and ignores the runtime's region. The
-    /// NTSC machine's clock is a different figure and wants the region
-    /// threading through all three together, not here alone.
     fn display(&self) -> Option<Display> {
+        let (region, active_lines) = if self.model().is_ntsc() {
+            (emu198x_shell::machine::Region::Ntsc, NTSC_ACTIVE_LINES)
+        } else {
+            (emu198x_shell::machine::Region::Pal, PAL_ACTIVE_LINES)
+        };
         Some(Display::Television {
-            region: emu198x_shell::machine::Region::Pal,
-            pixel_clock_hz: HIRES_PIXEL_CLOCK_HZ * f64::from(M::CHIPSET_FB_WIDTH)
-                / f64::from(DISPLAY_WIDTH),
-            lines_per_tv_height: f64::from(DISPLAY_HEIGHT),
+            region,
+            pixel_clock_hz: self.output_pixel_clock_hz(),
+            // The retained framebuffer contains both interlaced fields.
+            lines_per_tv_height: active_lines * 2.0,
         })
     }
 
