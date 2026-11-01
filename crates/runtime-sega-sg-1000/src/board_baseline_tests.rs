@@ -106,16 +106,40 @@ fn specimen(model: Model) -> Sg1000Runtime {
     runtime.set_time(MachineTime::new(time));
     runtime
 }
+// Test-only original envelope encoder; production always writes v6.
+fn legacy_snapshot(runtime: &Sg1000Runtime) -> Vec<u8> {
+    postcard::to_allocvec(&(
+        5_u16,
+        runtime.time().get(),
+        runtime.model().model_id(),
+        runtime.machine(),
+    ))
+    .expect("legacy envelope")
+}
 fn continuation(runtime: &mut Sg1000Runtime) -> Vec<u8> {
     let fields: Vec<_> = (0..3).map(|_| field(runtime)).collect();
-    postcard::to_allocvec(&(fields, runtime.snapshot().expect("final state"))).expect("output")
+    postcard::to_allocvec(&(fields, legacy_snapshot(runtime))).expect("output")
 }
 #[test]
 fn original_v5_states_and_native_continuations_are_exact() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sega-sg-1000/board-v5");
     for model in Model::ALL {
+        if model == Model::Sg1000Pal {
+            let original = std::fs::read(root.join(format!("{}.state", model.model_id())))
+                .expect("original PAL");
+            let mut live = specimen(model);
+            let before = live.snapshot().expect("before");
+            assert!(
+                live.restore(&original)
+                    .expect_err("legacy PAL rejected")
+                    .to_string()
+                    .contains("v5 PAL")
+            );
+            assert!(live.snapshot().expect("unchanged") == before);
+            continue;
+        }
         let mut live = specimen(model);
-        let saved = live.snapshot().expect("save");
+        let saved = legacy_snapshot(&live);
         let output = continuation(&mut live);
         if let Some(dir) = std::env::var_os("EMU198X_SG1000_CAPTURE") {
             use std::io::Write;
@@ -140,13 +164,27 @@ fn original_v5_states_and_native_continuations_are_exact() {
         assert!(output == expected, "direct continuation");
         let mut restored = Sg1000Runtime::blank(model);
         restored.restore(&original).expect("restore");
-        assert!(
-            restored.snapshot().expect("reencode") == original,
-            "original envelope"
-        );
+        assert!(legacy_snapshot(&restored) == original, "original envelope");
         assert!(
             continuation(&mut restored) == expected,
             "first resumed pixels/audio/clocks/final state"
         );
     }
+}
+
+#[test]
+fn corrected_pal_v6_retains_partial_field_continuation() {
+    let mut live = specimen(Model::Sg1000Pal);
+    let saved = live.snapshot().expect("v6");
+    assert_eq!(
+        postcard::take_from_bytes::<u16>(&saved).expect("version").0,
+        6
+    );
+    let mut restored = Sg1000Runtime::blank(Model::Sg1000Pal);
+    restored.restore(&saved).expect("restore v6");
+    assert!(restored.snapshot().expect("same envelope") == saved);
+    assert!(
+        continuation(&mut live) == continuation(&mut restored),
+        "first pixels/audio/clocks/final state"
+    );
 }

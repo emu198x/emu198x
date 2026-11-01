@@ -20,7 +20,8 @@ use crate::runtime::Sg1000Runtime;
 /// holds a 240-line buffer that a version-4 PAL machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 5;
+// V6 changes PAL phase units and clock configuration; v5 NTSC remains exact.
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -58,16 +59,21 @@ pub(crate) fn decode(runtime: &mut Sg1000Runtime, bytes: &[u8]) -> Result<(), Ma
             reason: format!("decode failed: {reason}"),
         }
     })?;
-    if version != SNAPSHOT_VERSION {
+    if version != SNAPSHOT_VERSION && version != 5 {
         return Err(MachineError::InvalidSnapshot {
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
+    if version == 5 && runtime.model() == crate::Model::Sg1000Pal {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "v5 PAL saves use the old clock/phase model; expected v6".into(),
         });
     }
     let snapshot: Sg1000RuntimeSnapshotV3 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    debug_assert_eq!(snapshot.version, version);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -77,11 +83,19 @@ pub(crate) fn decode(runtime: &mut Sg1000Runtime, bytes: &[u8]) -> Result<(), Ma
             ),
         });
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
     let mut machine = snapshot.machine;
     if let Some(machine) = &mut machine {
+        let region = if runtime.model() == crate::Model::Sg1000Pal {
+            machine_sega_sg_1000::Sg1000Region::Pal
+        } else {
+            machine_sega_sg_1000::Sg1000Region::Ntsc
+        };
+        machine
+            .validate_board(region)
+            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
         machine.cpu_mut().rehydrate_walker_sequence();
     }
+    runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())
 }
@@ -129,3 +143,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "snapshot_validation_tests.rs"]
+mod validation_tests;

@@ -210,7 +210,18 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Model::Sg1000Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Model::Sg1000Pal.frame_ticks(), 228 * 313);
+        for model in Model::ALL {
+            let app = Sg1000 {
+                model,
+                ..Sg1000::default()
+            };
+            let mut runtime = Sg1000Runtime::new(model, vec![0x76; 8192]);
+            let (ticks, complete) = runtime.machine_mut().expect("machine").run_native_frame();
+            assert!(complete);
+            assert!(
+                app.frame_ticks().abs_diff(ticks) <= 1,
+                "launcher pacing must agree with the native wrap to one CPU clock"
+            );
+        }
     }
 }

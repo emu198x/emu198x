@@ -84,10 +84,11 @@ impl UiSystem for Sg1000System {
     }
 
     fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(match runtime.profile().region {
-            emu198x_shell::Region::Pal => 1.0 / 50.0,
-            _ => 1.0 / 60.0,
-        })
+        let rate = runtime.profile().clock.rate;
+        Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 * rate.denominator_hz as f64
+                / rate.numerator_hz as f64,
+        )
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
@@ -208,14 +209,13 @@ mod tests {
         for model in Model::ALL {
             let runtime = Sg1000Runtime::new(model, vec![0; 8192]);
             assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
-            let hz = if model.region() == emu198x_shell::Region::Pal {
-                50.0
-            } else {
-                60.0
-            };
-            assert_eq!(
-                system.frame_duration(&runtime),
-                Duration::from_secs_f64(1.0 / hz)
+            let rate = runtime.profile().clock.rate;
+            let paced_ticks = system.frame_duration(&runtime).as_secs_f64()
+                * rate.numerator_hz as f64
+                / rate.denominator_hz as f64;
+            assert!(
+                (paced_ticks - model.frame_ticks() as f64).abs() < 0.01,
+                "host pacing and declared clock must agree to Duration precision"
             );
             let machine = runtime.machine().expect("machine");
             assert_eq!(

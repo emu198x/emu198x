@@ -45,7 +45,7 @@ impl Model {
     pub const fn frame_ticks(self) -> u64 {
         match self {
             Self::Sg1000Ntsc | Self::Sg1000IiNtsc => 228 * 262,
-            Self::Sg1000Pal => 228 * 313,
+            Self::Sg1000Pal => machine_sega_sg_1000::Sg1000Region::Pal.frame_ticks(),
         }
     }
 
@@ -103,7 +103,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::Sg1000IiNtsc => "Sega SG-1000 II (1984) — early TMS9918 NTSC configuration with detachable controllers; later VDP/board revisions remain unqualified.",
         }
         .into(),
-        clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
+        clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(match model { Model::Sg1000Pal => 3_580_000, _ => 3_579_545 })),
         firmware: vec![],
         media_slots: vec![MediaSlot::new(
             "cartridge-1",

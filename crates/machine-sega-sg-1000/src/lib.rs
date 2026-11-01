@@ -50,8 +50,8 @@
 //!
 //! The shared cadence driver advances two Z80 half-cycles per T-state.
 //! VDP dots accumulate at 3:4 per half-cycle, giving three dots for every
-//! two T-states. The PSG advances once per T-state. The PAL PSG denominator
-//! and runtime clock currently differ; this is separate from port wiring.
+//! two T-states on NTSC. PAL accumulates its independent VDP oscillator
+//! against the CPU half-cycles. The PSG advances once per T-state.
 
 use emu198x_ti_sn76489::{NoiseLfsr, Sn76489};
 use emu198x_ti_tms9918::{Tms9918, VdpRegion};
@@ -73,16 +73,42 @@ const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 const NTSC_SCANLINES_PER_FRAME: u64 = 262;
 const PAL_SCANLINES_PER_FRAME: u64 = 313;
 const NTSC_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PER_FRAME;
-const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_FRAME;
+const PAL_TSTATES_PER_FRAME: u64 =
+    (342 * PAL_SCANLINES_PER_FRAME * 2 * 3_580_000_u64).div_ceil(10_738_635);
 
 const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
-const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
+const PAL_PSG_CLOCK_HZ: u32 = 3_580_000;
+/// TMS9929 oscillator, independent of the PAL console CPU/PSG clock.
+pub const PAL_VDP_CRYSTAL_HZ: u32 = 10_738_635;
 
 /// SG-1000 region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Sg1000Region {
     Ntsc,
     Pal,
+}
+
+impl Sg1000Region {
+    /// Nominal CPU/PSG frequency for this implemented configuration.
+    pub const fn cpu_hz(self) -> u32 {
+        match self {
+            Self::Ntsc => NTSC_PSG_CLOCK_HZ,
+            Self::Pal => PAL_PSG_CLOCK_HZ,
+        }
+    }
+    /// Rounded-up host pacing hint. Native requests stop at the VDP wrap.
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Ntsc => NTSC_TSTATES_PER_FRAME,
+            Self::Pal => PAL_TSTATES_PER_FRAME,
+        }
+    }
+    fn dot_ratio(self) -> (u32, u32) {
+        match self {
+            Self::Ntsc => (VDP_DOT_PHASE_NUMERATOR, VDP_DOT_PHASE_DENOMINATOR),
+            Self::Pal => (PAL_VDP_CRYSTAL_HZ, 4 * PAL_PSG_CLOCK_HZ),
+        }
+    }
 }
 
 /// SG-1000 controller — direction pad + two buttons.
@@ -173,6 +199,25 @@ pub struct Sg1000 {
 }
 
 impl Sg1000 {
+    /// Validate restored board configuration and allocations before installation.
+    pub fn validate_board(&self, expected: Sg1000Region) -> Result<(), String> {
+        let vdp_region = match expected {
+            Sg1000Region::Ntsc => VdpRegion::Ntsc,
+            Sg1000Region::Pal => VdpRegion::Pal,
+        };
+        if self.region != expected
+            || self.tstates_per_frame != expected.frame_ticks()
+            || self.vdp_phase >= expected.dot_ratio().1
+            || self.vdp.framebuffer_width() != vdp_region.framebuffer_width()
+            || self.vdp.framebuffer().len()
+                != (vdp_region.framebuffer_width() * vdp_region.framebuffer_height()) as usize
+            || self.vdp.scanline() >= vdp_region.lines_per_frame()
+        {
+            return Err("saved SG-1000 board, phase or video geometry does not match the selected configuration".into());
+        }
+        Ok(())
+    }
+
     /// Original cartridge image retained by the live machine.
     #[must_use]
     pub fn cartridge_rom(&self) -> &[u8] {
@@ -460,11 +505,12 @@ impl Z80Machine for Sg1000 {
     }
 
     fn tick_chips_halfcycle(&mut self) {
-        // 4. VDP advances by 3/4 dots per half-cycle — phase counter.
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+        // 4. NTSC uses CPUCLK; PAL has an independent VDP oscillator.
+        let (numerator, denominator) = self.region.dot_ratio();
+        self.vdp_phase += numerator;
+        while self.vdp_phase >= denominator {
             self.native_frame_ready |= self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            self.vdp_phase -= denominator;
         }
     }
 
@@ -528,6 +574,22 @@ mod tests {
                     machine.tick_tstate();
                 }
             }
+        }
+    }
+
+    #[test]
+    fn independent_pal_oscillator_reaches_the_expected_raster_phase() {
+        let mut machine = Sg1000::new(trap_cart(), Sg1000Region::Pal);
+        for ticks in [1_u64, 2, 37, 71_364, 3_580_000] {
+            while machine.cpu_tstates() < ticks {
+                machine.tick_tstate();
+            }
+            let expected_dots = ticks * 10_738_635 / (2 * 3_580_000);
+            let mut vdp = Vec::new();
+            machine.vdp.save_state(&mut vdp);
+            let dot = u16::from_le_bytes([vdp[16], vdp[17]]);
+            let actual = u64::from(machine.vdp.scanline()) * 342 + u64::from(dot);
+            assert_eq!(actual, expected_dots % (342 * 313), "at {ticks} CPU clocks");
         }
     }
 
