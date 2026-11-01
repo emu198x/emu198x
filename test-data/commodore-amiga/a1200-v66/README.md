@@ -30,9 +30,11 @@ A parked guest is the black/silent negative control. Capture is create-new-only
 and refuses any source HEAD after the original base; never regenerate saves
 or native observations using the extracted engine.
 
-A pre-split Linux replay discrepancy is under investigation. Do not treat the
-current host-DSP hashes as a qualified cross-platform result until that is
-resolved; strict comparisons remain enabled.
+The immutable resampler kernel in `crates/emu198x-shell/data/` preserves the
+original coefficient bits across hosts. All eight continuations compare
+exactly on macOS ARM and Linux ARM, including pending f64 resampler history;
+no platform-specific expected output or floating-point tolerance is used.
+Linux x86 is also checked by the normal CI test job.
 
 | File | Bytes | SHA-256 |
 |---|---:|---|

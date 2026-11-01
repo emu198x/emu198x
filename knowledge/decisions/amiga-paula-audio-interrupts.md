@@ -176,3 +176,15 @@ than ordinary playback. The primary note records the measured cost range.
 The WinUAE extraction's queue-time-unit discrepancy remains unresolved and
 is not silently promoted into an oracle. Physical PWM and continuous
 switched-analogue response remain separate gaps.
+
+
+On 2026-11-01, Steve approved freezing the existing windowed-sinc kernel as
+explicit little-endian binary64 data. This narrowly replaces the instruction
+above to rebuild its immutable coefficients using host math. Host sin/cos
+changed four saved pending corrections across macOS/Linux even when complete
+hardware state, pixels, emitted f32 audio and clocks matched. Decode the
+committed kernel on every host, preserving the original macOS coefficient
+bits and all v66 fields. Keep the original formula and SHA-256 provenance in
+`crates/emu198x-shell/data/`. No tolerance, platform-specific golden, chip clock,
+analog-filter model or history reset is introduced. Other floating-point
+filters are not covered by this portability result.
