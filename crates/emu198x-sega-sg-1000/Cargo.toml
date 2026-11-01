@@ -1,7 +1,7 @@
 [package]
 homepage.workspace = true
 name = "emu198x-sega-sg-1000"
-description = "Sega SG-1000 headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + SN76489A"
+description = "Sega SG-1000 emulator with native UI, script and MCP surfaces — Z80 + TMS9918A + SN76489A"
 version.workspace = true
 publish = false
 edition.workspace = true

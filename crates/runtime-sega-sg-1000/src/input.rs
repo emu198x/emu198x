@@ -1,4 +1,4 @@
-//! SG-1000 / SC-3000 controller input mapping.
+//! SG-1000 console controller input mapping.
 
 use emu198x_shell::InputEvent;
 use machine_sega_sg_1000::{ControllerState, Sg1000};

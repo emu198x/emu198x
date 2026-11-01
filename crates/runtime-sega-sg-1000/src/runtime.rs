@@ -1,4 +1,4 @@
-//! Runtime wrapper for Sega SG-1000 / SC-3000.
+//! Runtime wrapper for the Sega SG-1000 console family.
 //!
 //! SG-1000 is BIOS-less — the cartridge is everything. The runtime
 //! stays in `Option` until `load_media` or `insert_cartridge` provides
