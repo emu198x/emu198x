@@ -2943,9 +2943,9 @@ checksum = "521bc83489669ef9fbb8e32846464b7c3b419204b42823323b2e17573b33b4c7"
 
 [[package]]
 name = "format198x-commodore-amiga-adf"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ed288a79912b3af0eafa304afb2ff2ac27668ba88efcce03ef2a1b3ae9c0bca"
+checksum = "5c4569cb4196025141d21f88d23f587a857c094cda82b2f6f656a9b8f433f544"
 
 [[package]]
 name = "format198x-commodore-c128-d71"
@@ -3629,15 +3629,15 @@ dependencies = [
 
 [[package]]
 name = "isa198x"
-version = "0.1.0"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b82bc0bf85e1e4d080a687259533265bafc2e16f679064a90e2d0f492f7ad005"
+checksum = "af1d16e3e1d8912f7149bef16997f42b170c2fd62d986e75089f0409924ede7a"
 
 [[package]]
 name = "isa198x-disasm"
-version = "0.1.0"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf7c236e49615d4cd41339b60880e4dde1039484f1a8f4cc61f3716a367f509a"
+checksum = "3281b8a30e7b6fc0a1de463d300f0cf0dd5f67324c7160175102a23ab0637763"
 dependencies = [
  "isa198x",
 ]
@@ -7849,9 +7849,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.1.2"
+version = "9.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec2e3161de27091f18a831d9494e9c53378a34833af5c1dda35ad85849da18d6"
+checksum = "848dad21639597378c3be94c59fd4de683f0f6d8a5387575896e1245737d4f37"
 dependencies = [
  "crc32fast",
  "flate2",
