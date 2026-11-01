@@ -11,7 +11,7 @@
 //! interrupt flag, idles into the active display, and then writes 64 bytes
 //! from `$0000` with a fixed number of T-states between `OUT`s.
 
-use machine_sega_sg_1000::{Sg1000, Sg1000Region};
+use common_sega_sg_1000::{Sg1000, Sg1000Region};
 
 const WRITES: usize = 64;
 

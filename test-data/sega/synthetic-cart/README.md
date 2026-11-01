@@ -41,6 +41,11 @@ asserts that an **empty** cartridge fails that check, because an assertion
 nobody has watched fail is not evidence of anything — see
 [a gate nobody runs is a silent gate](../../../knowledge/decisions/a-gate-nobody-runs-is-a-silent-gate.md).
 
+The steps above describe the Master System and Game Gear paths. The SG-1000
+image has no CRAM write or mode 4: it writes fixed-palette backdrop index 15
+to register 7, enables graphics I and halts. Its expected white display checks
+CPU/port/register execution, not programmable palette memory.
+
 ## Why three images rather than one
 
 Each machine reaches its colour by a different route. The Master System's

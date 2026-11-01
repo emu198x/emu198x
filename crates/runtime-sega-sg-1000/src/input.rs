@@ -1,7 +1,8 @@
 //! SG-1000 console controller input mapping.
 
+use crate::Sg1000Machine as Sg1000;
+use common_sega_sg_1000::ControllerState;
 use emu198x_shell::InputEvent;
-use machine_sega_sg_1000::{ControllerState, Sg1000};
 
 pub(crate) fn apply_input_event(machine: &mut Sg1000, event: &InputEvent) {
     match event {

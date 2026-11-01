@@ -562,7 +562,22 @@ label = "system:mega-drive"
 milestone = "Mega Drive 100%"
 
 [[system]]
-machine_id = "sega-sg-1000"
+machine_id = "sega-sg-1000-ntsc"
+machine_crate = "machine-sega-sg-1000-ntsc"
+crate = "emu198x-sega-sg-1000"
+label = "system:sg-1000"
+milestone = "SG-1000 100%"
+
+[[system]]
+machine_id = "sega-sg-1000-pal"
+machine_crate = "machine-sega-sg-1000-pal"
+crate = "emu198x-sega-sg-1000"
+label = "system:sg-1000"
+milestone = "SG-1000 100%"
+
+[[system]]
+machine_id = "sega-sg-1000-ii-ntsc"
+machine_crate = "machine-sega-sg-1000-ii-ntsc"
 crate = "emu198x-sega-sg-1000"
 label = "system:sg-1000"
 milestone = "SG-1000 100%"

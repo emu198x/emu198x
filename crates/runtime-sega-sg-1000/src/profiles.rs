@@ -45,7 +45,7 @@ impl Model {
     pub const fn frame_ticks(self) -> u64 {
         match self {
             Self::Sg1000Ntsc | Self::Sg1000IiNtsc => 228 * 262,
-            Self::Sg1000Pal => machine_sega_sg_1000::Sg1000Region::Pal.frame_ticks(),
+            Self::Sg1000Pal => common_sega_sg_1000::Sg1000Region::Pal.frame_ticks(),
         }
     }
 
@@ -89,7 +89,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("sega-sg-1000"),
+        machine_id: MachineId::from(model.model_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn the_early_sg_1000_ii_keeps_its_existing_profile_contract() {
         let ii = profile_for(Model::Sg1000IiNtsc);
-        assert_eq!(ii.machine_id.as_str(), "sega-sg-1000");
+        assert_eq!(ii.machine_id.as_str(), Model::Sg1000IiNtsc.model_id());
         assert_eq!(ii.region, Region::Ntsc);
         assert_eq!(ii.release_year, 1984);
         assert_eq!(

@@ -4,12 +4,12 @@
 //! stays in `Option` until `load_media` or `insert_cartridge` provides
 //! a cartridge ROM.
 
+use crate::Sg1000Machine as Sg1000;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_sega_sg_1000::{Sg1000, Sg1000Region};
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, profile_for};
@@ -111,11 +111,7 @@ impl Sg1000Runtime {
             self.machine = None;
             return;
         };
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => Sg1000Region::Pal,
-            _ => Sg1000Region::Ntsc,
-        };
-        let machine = Sg1000::new(rom, region);
+        let machine = Sg1000::new(self.model, rom);
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -345,7 +341,7 @@ impl MachineCore for Sg1000Runtime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            f64::from(machine_sega_sg_1000::PAL_VDP_CRYSTAL_HZ) / 2.0,
+            f64::from(common_sega_sg_1000::PAL_VDP_CRYSTAL_HZ) / 2.0,
             emu198x_ti_tms9918::NTSC_DOT_CLOCK_HZ,
         )
     }

@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```text
-//! cargo test --release -p machine-sega-sg-1000 \
+//! cargo test --release -p common-sega-sg-1000 \
 //!     --test cart_boot -- --ignored --nocapture
 //! ```
 //!
@@ -20,7 +20,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sega_sg_1000::{Sg1000, Sg1000Region};
+use common_sega_sg_1000::{Sg1000, Sg1000Region};
 
 fn first_sg_in(dir: &PathBuf) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;

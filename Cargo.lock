@@ -788,6 +788,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sega-sg-1000"
+version = "0.45.1"
+dependencies = [
+ "emu198x-ti-sn76489",
+ "emu198x-ti-tms9918",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-sinclair-zx-spectrum"
 version = "0.45.1"
 dependencies = [
@@ -2290,11 +2303,11 @@ dependencies = [
 name = "emu198x-sega-sg-1000"
 version = "0.45.1"
 dependencies = [
+ "common-sega-sg-1000",
  "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-ui",
- "machine-sega-sg-1000",
  "png",
  "runtime-sega-sg-1000",
  "serde_json",
@@ -4510,16 +4523,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-sega-sg-1000"
+name = "machine-sega-sg-1000-ii-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-ti-sn76489",
- "emu198x-ti-tms9918",
- "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "common-sega-sg-1000",
  "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-sega-sg-1000-ntsc"
+version = "0.45.1"
+dependencies = [
+ "common-sega-sg-1000",
+ "postcard",
+]
+
+[[package]]
+name = "machine-sega-sg-1000-pal"
+version = "0.45.1"
+dependencies = [
+ "common-sega-sg-1000",
+ "postcard",
 ]
 
 [[package]]
@@ -6305,10 +6329,13 @@ dependencies = [
 name = "runtime-sega-sg-1000"
 version = "0.45.1"
 dependencies = [
+ "common-sega-sg-1000",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-zilog-z80",
- "machine-sega-sg-1000",
+ "machine-sega-sg-1000-ii-ntsc",
+ "machine-sega-sg-1000-ntsc",
+ "machine-sega-sg-1000-pal",
  "postcard",
  "serde",
  "serde_json",
