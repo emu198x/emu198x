@@ -9,7 +9,7 @@ use emu198x_shell::{
     NullAudioSink, NullFrameSink, NullTraceSink, SessionQueryProvider,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA1200Runtime, AmigaEcsRuntime,
+    A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA1200PalRuntime, AmigaEcsRuntime,
     AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime, AmigaRuntimeKind,
     AmigaSessionQueryProvider, Model,
 };
@@ -228,7 +228,7 @@ fn cpu_group_exposes_the_complete_bounded_schema() {
 fn cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models() {
     let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
     let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
-    let aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let aga = AmigaA1200PalRuntime::blank();
     let accelerated = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
 
     for runtime in [&ocs, &AmigaOcsRuntime::blank(Model::A2000OcsPal)] {
@@ -415,7 +415,7 @@ fn agnus_queries_distinguish_early_ocs_from_a2000_fat_8372a() {
 #[test]
 fn installed_agnus_query_names_cover_enhanced_machine_variants() {
     let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
-    let alice = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let alice = AmigaA1200PalRuntime::blank();
 
     assert_eq!(query_value(&ecs, "agnus.installed_variant"), json!("ecs"),);
     assert_eq!(
@@ -553,7 +553,7 @@ fn every_advertised_query_path_resolves_with_floppy_loaded() {
 
 #[test]
 fn every_a1200_query_path_resolves() {
-    let runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let runtime = AmigaA1200PalRuntime::blank();
     let provider = AmigaSessionQueryProvider;
     for path in provider.query_paths(&runtime, None) {
         let value = provider
@@ -668,7 +668,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         ],
     );
 
-    let aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let aga = AmigaA1200PalRuntime::blank();
     assert_group_leaf_catalogue(
         &aga,
         &[
@@ -759,7 +759,7 @@ fn runtime_configuration_queries_expose_complete_immutable_construction_intent()
         "the host mirror reports its size without returning framebuffer payload",
     );
 
-    let a1200 = AmigaA1200Runtime::blank(Model::A1200AgaNtsc);
+    let a1200 = runtime_commodore_amiga::AmigaA1200NtscRuntime::blank();
     assert_eq!(
         query_value(&a1200, "runtime.configuration.region"),
         json!("ntsc"),
@@ -871,7 +871,7 @@ fn audio_filter_queries_are_complete_dynamic_and_side_effect_free() {
         "the fitted A500 low-pass coefficients should be dynamically discoverable",
     );
 
-    let a1200 = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let a1200 = AmigaA1200PalRuntime::blank();
     let a1200_paths = provider.query_paths(&a1200, Some("runtime.audio_filter"));
     assert_eq!(
         query_value(&a1200, "runtime.audio_filter.static_low_pass"),
@@ -1013,7 +1013,7 @@ fn gayle_discovery_matches_the_configured_board() {
     let provider = AmigaSessionQueryProvider;
     let a500_plus = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
     let mut a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
-    let mut a1200 = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut a1200 = AmigaA1200PalRuntime::blank();
 
     assert!(
         !provider
@@ -1159,7 +1159,7 @@ fn expansion_queries_distinguish_generic_fast_ram_a530_and_absent_devices() {
     let a530 = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
     let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
     let a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
-    let a1200 = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let a1200 = AmigaA1200PalRuntime::blank();
 
     assert_no_expansions(&bare);
     assert_no_expansions(&ecs);
@@ -1307,7 +1307,7 @@ fn denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset() {
     let mut ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
     assert_denise_board_pipeline(&mut ecs);
 
-    let mut aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut aga = AmigaA1200PalRuntime::blank();
     assert_denise_board_pipeline(&mut aga);
 }
 
@@ -1604,7 +1604,7 @@ fn ecs_killehb_query_uses_bplcon2_instead_of_bplcon3() {
 
 #[test]
 fn aga_queries_expose_lisa_and_composed_hblank_state() {
-    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut runtime = AmigaA1200PalRuntime::blank();
     runtime.machine_mut().poke_word(0x00DF_F106, 0xA000); // BANK=5, LOCT=0
     runtime.machine_mut().poke_word(0x00DF_F19A, 0x8A5C); // COLOR13 -> slot 173, T=1
     let expected_delayed_color = json!({
@@ -1712,7 +1712,7 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
 
 #[test]
 fn aga_killehb_query_uses_bplcon2_instead_of_bplcon3_loct() {
-    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut runtime = AmigaA1200PalRuntime::blank();
     runtime.machine_mut().poke_word(0x00DF_F106, 0x0201); // LOCT | EXTBLKEN
     assert_eq!(
         query_value(&runtime, "denise.killehb_enabled"),
@@ -1738,7 +1738,7 @@ fn aga_killehb_query_uses_bplcon2_instead_of_bplcon3_loct() {
 
 #[test]
 fn scheduler_queries_do_not_drain_pending_cpu_boundaries() {
-    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut runtime = AmigaA1200PalRuntime::blank();
 
     for _ in 0..2_000 {
         runtime.machine_mut().tick();

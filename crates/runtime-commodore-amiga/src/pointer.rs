@@ -61,7 +61,12 @@ impl AmigaRuntimeKind {
                 rt.frame_count(),
                 &rt.pointer_seen,
             ),
-            Self::Aga(rt) => (
+            Self::AgaPal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::AgaNtsc(rt) => (
                 rt.machine().denise_diagnostic_snapshot(),
                 rt.frame_count(),
                 &rt.pointer_seen,

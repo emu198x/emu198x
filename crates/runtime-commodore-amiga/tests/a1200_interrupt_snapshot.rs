@@ -10,7 +10,7 @@ use std::error::Error;
 use emu198x_shell::MachineCore;
 use motorola_68000::cpu::{State, TAG_EXC_IACK_COMPLETE};
 use motorola_68000::microcode::MicroOp;
-use runtime_commodore_amiga::{AmigaA1200Runtime, Model};
+use runtime_commodore_amiga::{AmigaA1200PalRuntime, Model};
 
 const INITIAL_SSP: u32 = 0x0018_0000;
 const INITIAL_MSP: u32 = 0x0017_0000;
@@ -45,7 +45,7 @@ fn master_stack_kickstart() -> Vec<u8> {
     kickstart
 }
 
-fn is_post_acknowledge_boundary(runtime: &AmigaA1200Runtime) -> bool {
+fn is_post_acknowledge_boundary(runtime: &AmigaA1200PalRuntime) -> bool {
     let cpu = runtime.machine().cpu();
     matches!(cpu.state, State::Idle)
         && cpu.followup_tag == TAG_EXC_IACK_COMPLETE
@@ -57,7 +57,7 @@ fn is_post_acknowledge_boundary(runtime: &AmigaA1200Runtime) -> bool {
 #[test]
 fn a1200_post_acknowledge_state_survives_snapshot_and_forward_run() -> Result<(), Box<dyn Error>> {
     let kickstart = interrupt_kickstart();
-    let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart.clone())?;
+    let mut original = AmigaA1200PalRuntime::new(Model::A1200AgaPal, kickstart.clone())?;
     original.machine_mut().poke_word(0x00DF_F09A, 0xC040); // INTEN | BLIT
     original.machine_mut().poke_word(0x00DF_F09C, 0x8040); // request BLIT
 
@@ -73,7 +73,7 @@ fn a1200_post_acknowledge_state_survives_snapshot_and_forward_run() -> Result<()
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart)?;
+    let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, kickstart)?;
     restored.restore(&snapshot)?;
     assert!(
         is_post_acknowledge_boundary(&restored),
@@ -109,7 +109,7 @@ fn a1200_post_acknowledge_state_survives_snapshot_and_forward_run() -> Result<()
 #[test]
 fn a1200_restore_reinstalls_master_stack_capability() -> Result<(), Box<dyn Error>> {
     let kickstart = master_stack_kickstart();
-    let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart.clone())?;
+    let mut original = AmigaA1200PalRuntime::new(Model::A1200AgaPal, kickstart.clone())?;
 
     let mut master_mode_ready = false;
     for _ in 0..20_000 {
@@ -139,7 +139,7 @@ fn a1200_restore_reinstalls_master_stack_capability() -> Result<(), Box<dyn Erro
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart)?;
+    let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, kickstart)?;
     restored.restore(&snapshot)?;
 
     let restored_regs = &restored.machine().cpu().regs;

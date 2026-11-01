@@ -2,7 +2,7 @@
 use common_commodore_amiga::driver::AmigaDriver;
 use emu198x_shell::MachineCore;
 use runtime_commodore_amiga::{
-    AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
+    AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
     AmigaRuntime, Model,
 };
 use std::error::Error;
@@ -113,8 +113,8 @@ fn running_target_reload_and_audio_survive_live_restore() -> Result<(), Box<dyn 
             source,
         )?;
         failures += check(
-            AmigaA1200Runtime::new(Model::A1200AgaPal, rom())?,
-            AmigaA1200Runtime::new(Model::A1200AgaPal, rom())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom())?,
             source,
         )?;
     }

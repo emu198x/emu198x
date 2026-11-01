@@ -6,7 +6,8 @@
 //! operation per granted CCK. BBUSY stays asserted in DMACONR until it
 //! finishes, and INT_BLIT fires on completion.
 
-use machine_commodore_amiga_a1200::AmigaA1200;
+mod support;
+use support::AmigaA1200;
 
 const DMACONR: u32 = 0x00DF_F002;
 const INTREQR: u32 = 0x00DF_F01E;

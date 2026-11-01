@@ -1,6 +1,6 @@
 [package]
-name = "machine-commodore-amiga-a1200"
-description = "Commodore Amiga A1200 (AGA chipset) — Alice (emu198x-commodore-agnus-aga) + Lisa (emu198x-commodore-denise-aga) + Gayle (emu198x-commodore-gayle) wired into the common Amiga board substrate with its stock MC68EC020 clock domain."
+name = "common-commodore-amiga-aga"
+description = "Shared A1200 AGA board wiring with fixed regional construction markers."
 edition.workspace = true
 version.workspace = true
 publish = false

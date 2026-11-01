@@ -9,7 +9,9 @@
 //! Booting a real Kickstart 3.1 ROM is Stage C, tracked separately
 //! in `knowledge/decisions/amiga-machine-rollout-plan.md`.
 
-use machine_commodore_amiga_a1200::{AmigaA1200, DEFAULT_CHIP_RAM_SIZE, RamConfig};
+mod support;
+use common_commodore_amiga_aga::{DEFAULT_CHIP_RAM_SIZE, RamConfig};
+use support::AmigaA1200;
 
 /// 512 KiB zero-filled Kickstart placeholder — boots into a reset
 /// vector pointing at `$00000000` which the machine will faithfully
@@ -54,11 +56,12 @@ fn snapshot_round_trips_after_ticking() {
     // Postcard round-trip via serde — same path as the runtime's
     // snapshot envelope.
     let bytes = postcard::to_allocvec(&snap).expect("serialize");
-    let restored: machine_commodore_amiga_a1200::AmigaA1200Snapshot =
+    let restored: common_commodore_amiga_aga::AmigaA1200Snapshot =
         postcard::from_bytes(&bytes).expect("deserialize");
 
     let mut m2 = a1200_chip_only();
-    m2.restore_snapshot_state(restored);
+    m2.restore_snapshot_state(restored)
+        .expect("matching board snapshot");
 
     // Tick both forward; they should remain in lockstep.
     for _ in 0..100 {
@@ -128,11 +131,12 @@ fn snapshot_round_trip_preserves_m68ec020_variant_hooks() {
     }
     let snap = m.snapshot_state();
     let bytes = postcard::to_allocvec(&snap).expect("serialize");
-    let restored: machine_commodore_amiga_a1200::AmigaA1200Snapshot =
+    let restored: common_commodore_amiga_aga::AmigaA1200Snapshot =
         postcard::from_bytes(&bytes).expect("deserialize");
 
     let mut m2 = a1200_chip_only();
-    m2.restore_snapshot_state(restored);
+    m2.restore_snapshot_state(restored)
+        .expect("matching board snapshot");
 
     let cpu = m2.cpu();
     assert!(cpu.variant_decode_hook.is_some());

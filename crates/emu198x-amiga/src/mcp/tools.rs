@@ -18,10 +18,10 @@
 
 use std::path::PathBuf;
 
+use emu198x_peripheral_commodore_amiga_floppy::Adf;
 use emu198x_shell::HeadlessSession;
 use emu198x_shell::SessionQueryProvider;
 use emu198x_shell::mcp::{InlineTool, ToolError, ToolRegistry};
-use machine_commodore_amiga_a1200::Adf;
 use motorola_68000::disasm::disassemble;
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind};
 use serde_json::{Value, json};

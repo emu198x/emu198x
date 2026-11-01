@@ -194,6 +194,20 @@ label = "system:amiga"
 milestone = "Amiga 100%"
 
 [[system]]
+machine_id = "commodore-amiga-a1200-pal"
+machine_crate = "machine-commodore-amiga-a1200-pal"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a1200-ntsc"
+machine_crate = "machine-commodore-amiga-a1200-ntsc"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
 machine_id = "commodore-c64-pal-breadbin"
 machine_crate = "machine-commodore-c64-pal-breadbin"
 crate = "emu198x-c64"

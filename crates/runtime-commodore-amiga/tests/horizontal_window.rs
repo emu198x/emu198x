@@ -3,7 +3,7 @@ use common_commodore_amiga::{
     denise_chip::HorizontalDiwComparatorPhase, denise_window::DeniseWindow, driver::AmigaDriver,
 };
 use emu198x_shell::MachineCore;
-use runtime_commodore_amiga::{AmigaA1200Runtime, AmigaLiveAccess, AmigaMachine, Model};
+use runtime_commodore_amiga::{AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine};
 
 #[test]
 fn window_restore_preserves_pending_writes_and_fractional_output_history() {
@@ -45,8 +45,8 @@ fn window_restore_preserves_pending_writes_and_fractional_output_history() {
 
 #[test]
 fn live_window_write_survives_both_half_cck_restore_phases() {
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
+    let mut restored = AmigaA1200PalRuntime::blank();
     for copper in [false, true] {
         for register in [0x08E, 0x090, 0x1E4] {
             if copper {

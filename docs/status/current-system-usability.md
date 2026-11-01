@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 91 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 93 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -38,7 +38,9 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `atari-800xl-pal` | `emu198x-atari-800xl` | 1 | 12 | [system:atari-800xl](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-800xl) | [Atari 800XL 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+800XL+100%25%22) |
 | `coleco-colecovision-ntsc` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
 | `coleco-colecovision-pal` | `emu198x-colecovision` | 1 | 8 | [system:colecovision](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acolecovision) | [ColecoVision 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22ColecoVision+100%25%22) |
-| `commodore-amiga` | `emu198x-amiga` | 23 | 7 | [system:amiga](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aamiga) | [Amiga 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amiga+100%25%22) |
+| `commodore-amiga` ⚠️ | `emu198x-amiga` | 25 | 7 | [system:amiga](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aamiga) | [Amiga 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amiga+100%25%22) |
+| `commodore-amiga-a1200-ntsc` | `emu198x-amiga` | 1 | 30 | [system:amiga](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aamiga) | [Amiga 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amiga+100%25%22) |
+| `commodore-amiga-a1200-pal` | `emu198x-amiga` | 1 | 30 | [system:amiga](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aamiga) | [Amiga 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amiga+100%25%22) |
 | `commodore-c128-ntsc` | `emu198x-c64` | 1 | 18 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
 | `commodore-c128-pal` | `emu198x-c64` | 1 | 18 | [system:c128](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac128) | [C128 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C128+100%25%22) |
 | `commodore-c64-ntsc-breadbin` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |

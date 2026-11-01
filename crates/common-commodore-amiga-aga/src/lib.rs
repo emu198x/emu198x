@@ -1,18 +1,6 @@
-//! Commodore Amiga A1200 (AGA chipset) machine — Stage A of the
-//! A1200 rollout per `knowledge/decisions/amiga-machine-rollout-plan.md`.
-//!
-//! Wires the AGA chipset chips (Alice = `emu198x-commodore-agnus-aga`,
-//! Lisa = `commodore-denise-aga`) into the common Amiga board
-//! substrate alongside Gayle (IDE / PCMCIA address decoder) at
-//! `$D80000-$DFFFFF`. The stock MC68EC020 is held in the shared
-//! [`ActiveCpu`] runtime-selection type and receives two input-clock
-//! edges for each 7 MHz Amiga system tick.
-//!
-//! Structurally this is a parallel of `machine-commodore-amiga-ecs`
-//! with the chipset types swapped (`AgnusAga` for `AgnusEcs`,
-//! `DeniseAga` for `DeniseEcs`) and Gayle wired into the bus path.
-//! `AgnusAga` Derefs to `AgnusEcs` which Derefs to OCS Agnus, so the
-//! board-level wiring continues to pass through unchanged.
+//! Shared A1200 AGA wiring for fixed PAL and NTSC machine owners.
+//! The MC68EC020, Alice, Lisa and Gayle wiring is retained from the original
+//! A1200 engine; other AGA machines are not implemented by this core.
 
 mod agnus;
 mod denise;
@@ -56,6 +44,7 @@ pub use emu198x_peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
 
+pub use motorola_68000::CpuModel;
 use motorola_68000::bus::{
     DataPortSize, dynamic_transfer_bytes, extract_dynamic_bus_data, place_dynamic_read_data,
 };
@@ -162,8 +151,23 @@ const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 // `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
 // `common_commodore_amiga::board` (#34) and imported above.
 
-/// Amiga A1200 (AGA chipset) machine.
-pub struct AmigaA1200 {
+/// Fixed construction choices supplied by one machine owner.
+pub trait Configuration {
+    /// Board oscillator/video region.
+    const REGION: AgnusRegion;
+    /// Registry owner, distinct from a selectable firmware/RAM profile.
+    const MACHINE_ID: &'static str;
+    /// Stock A1200 chip-RAM fit; explicit RAM profiles remain available.
+    const DEFAULT_RAM: RamConfig = RamConfig {
+        chip_kb: 2048,
+        slow_kb: 0,
+        fast_kb: 0,
+    };
+}
+
+/// Shared A1200 wiring with a fixed construction identity.
+pub struct A1200Core<C: Configuration> {
+    board: std::marker::PhantomData<C>,
     cpu: ActiveCpu,
     /// Exact active-CPU edges emitted per Amiga system tick.
     cpu_clock: CpuClock,
@@ -348,7 +352,7 @@ pub struct AmigaA1200 {
     pub debug_rtc_log: Vec<(u64, u32, u32, bool, bool, u16)>,
 }
 
-/// Persistable Amiga (OCS) machine state.
+/// Persistable A1200 AGA machine state (wire fields unchanged).
 ///
 /// Captures every chip + every machine-level field whose value affects
 /// future behaviour. Diagnostic logs (`debug_*`) are deliberately
@@ -393,7 +397,13 @@ pub struct AmigaA1200Snapshot {
     e_clock_phase: u64,
 }
 
-impl AmigaA1200 {
+impl<C: Configuration> A1200Core<C> {
+    /// Fixed registry owner; changing saved chip state cannot relabel it.
+    #[must_use]
+    pub const fn machine_id(&self) -> &'static str {
+        C::MACHINE_ID
+    }
+
     fn apply_drive_control_from_cia_b(&mut self) {
         let prb = self.cia_b.port_b_output();
         self.drives.update_control(prb);
@@ -417,11 +427,10 @@ impl AmigaA1200 {
         self.cia_a.set_external_a(pra);
     }
 
-    /// Build a new Amiga (OCS) with the given Kickstart ROM image
-    /// and stock 512K chip RAM only (no expansion).
+    /// Build the fixed owner with its stock RAM fit and supplied firmware.
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
-        Self::with_ram_config(kickstart, RamConfig::bare())
+        Self::with_ram_config(kickstart, C::DEFAULT_RAM)
     }
 
     /// Build a new Amiga (OCS) with the given Kickstart ROM image
@@ -434,14 +443,14 @@ impl AmigaA1200 {
         Self::with_ram_config(
             kickstart,
             RamConfig {
-                chip_kb: DEFAULT_CHIP_RAM_SIZE as u32 / 1024,
+                chip_kb: C::DEFAULT_RAM.chip_kb,
                 slow_kb: (slow_ram_bytes / 1024) as u32,
                 fast_kb: 0,
             },
         )
     }
 
-    /// Build a new Amiga (OCS) with a fully explicit RAM layout.
+    /// Build the fixed owner with an explicit RAM layout.
     ///
     /// Panics if `cfg` is not one of the supported size combinations
     /// (see `RamConfig::is_valid`). When `cfg.fast_kb > 0` a single
@@ -449,22 +458,9 @@ impl AmigaA1200 {
     /// `expansion.library` discovers it during boot and assigns its
     /// base address.
     ///
-    /// PAL Agnus is used; the matching NTSC entry point is
-    /// `with_ram_config_ntsc`.
+    /// The owner marker fixes the region; callers cannot select another board.
     #[must_use]
     pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal)
-    }
-
-    /// NTSC counterpart of `with_ram_config`. Same RAM/autoconfig
-    /// rules; the Agnus is constructed with NTSC line/frame counts
-    /// and the per-line short/long alternation enabled.
-    #[must_use]
-    pub fn with_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc)
-    }
-
-    fn with_ram_config_region(kickstart: Vec<u8>, cfg: RamConfig, region: AgnusRegion) -> Self {
         assert!(
             cfg.is_valid(),
             "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
@@ -475,53 +471,11 @@ impl AmigaA1200 {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, region)
+        Self::with_memory_config(memory, cfg, true)
     }
 
-    /// Build a real A1000-style machine: a small bootstrap ROM at
-    /// `$F80000` plus writable WOM behind the normal 256K Kickstart
-    /// window. The WOM remains writable through `$FC0000-$FFFFFF`
-    /// until the bootstrap writes into `$F80000-$FBFFFF`, at which
-    /// point the bootstrap ROM disappears and the WOM becomes
-    /// read-only Kickstart. PAL Agnus.
-    #[must_use]
-    pub fn with_a1000_bootstrap_rom(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_a1000_bootstrap_rom_region(boot_rom, cfg, AgnusRegion::Pal)
-    }
-
-    /// NTSC counterpart of `with_a1000_bootstrap_rom`. The A1000
-    /// shipped in both PAL (Europe) and NTSC (US) configurations
-    /// with identical bootstrap ROMs; only the Agnus revision
-    /// differs.
-    #[must_use]
-    pub fn with_a1000_bootstrap_rom_ntsc(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_a1000_bootstrap_rom_region(boot_rom, cfg, AgnusRegion::Ntsc)
-    }
-
-    fn with_a1000_bootstrap_rom_region(
-        boot_rom: Vec<u8>,
-        cfg: RamConfig,
-        region: AgnusRegion,
-    ) -> Self {
-        assert!(
-            cfg.is_valid(),
-            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
-             slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
-        );
-        let memory = Memory::new_a1000_bootstrap_with_ram(
-            boot_rom,
-            cfg.chip_kb as usize * 1024,
-            cfg.slow_kb as usize * 1024,
-        );
-        Self::with_memory_config(memory, cfg, true, region)
-    }
-
-    fn with_memory_config(
-        memory: Memory,
-        cfg: RamConfig,
-        slow_ram_decode: bool,
-        region: AgnusRegion,
-    ) -> Self {
+    fn with_memory_config(memory: Memory, cfg: RamConfig, slow_ram_decode: bool) -> Self {
+        let region = C::REGION;
         // Autoconfig only supports the eight Zorro-II sizes; other
         // (still-valid) fast_kb values are rounded down to the nearest
         // supported size, dropping the remainder. In practice the
@@ -564,6 +518,7 @@ impl AmigaA1200 {
         gary.set_rtc_present(cfg.slow_kb > 0);
         gary.set_gayle_present(true);
         Self {
+            board: std::marker::PhantomData,
             cpu,
             cpu_clock: CpuClock::from_ratio(2, 1),
             cpu_domain_phase: CpuDomainPhase::default(),
@@ -1784,7 +1739,7 @@ impl AmigaA1200 {
     /// each emitted processor edge.
     /// One machine tick. The per-CCK body is the shared
     /// [`AmigaDriver::tick`]; this inherent method delegates so the many
-    /// existing `AmigaA1200::tick` callers (tests, the `AmigaMachine`
+    /// existing `A1200Core::tick` callers (tests, the `AmigaMachine`
     /// impl, MCP) keep working unchanged.
     pub fn tick(&mut self) {
         <Self as AmigaDriver>::tick(self);
@@ -2202,7 +2157,14 @@ impl AmigaA1200 {
     /// cleared (snapshots do not preserve observability state). Disk
     /// media is not restored here — re-mount via `insert_disk` after
     /// restore.
-    pub fn restore_snapshot_state(&mut self, snap: AmigaA1200Snapshot) {
+    pub fn restore_snapshot_state(&mut self, snap: AmigaA1200Snapshot) -> Result<(), String> {
+        if snap.agnus.region != C::REGION {
+            return Err(format!(
+                "snapshot region {:?} does not match fixed {:?} A1200 owner",
+                snap.agnus.region,
+                C::REGION
+            ));
+        }
         self.cpu = snap.cpu;
         self.cpu_clock = snap.cpu_clock;
         self.cpu_domain_phase = snap.cpu_domain_phase;
@@ -2261,6 +2223,7 @@ impl AmigaA1200 {
         self.debug_watch_writes.clear();
         self.debug_rtc_log.clear();
         self.cpu_boundaries.clear();
+        Ok(())
     }
 }
 
@@ -2269,7 +2232,7 @@ impl AmigaA1200 {
 // concrete Alice before coercion. The CPU is the MC68EC020 arm of
 // `ActiveCpu` and the bus-dispatch chain
 // carries the extra Gayle arm.
-impl AmigaDriver for AmigaA1200 {
+impl<C: Configuration> AmigaDriver for A1200Core<C> {
     fn agnus(&self) -> &Agnus {
         &self.agnus
     }
@@ -2572,19 +2535,19 @@ impl AmigaDriver for AmigaA1200 {
     }
 
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
-        AmigaA1200::dispatch_custom_write(self, offset, val);
+        A1200Core::dispatch_custom_write(self, offset, val);
     }
     fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
-        AmigaA1200::dispatch_copper_write(self, offset, val);
+        A1200Core::dispatch_copper_write(self, offset, val);
     }
     fn feed_next_write_word(&mut self) {
-        AmigaA1200::feed_next_write_word(self);
+        A1200Core::feed_next_write_word(self);
     }
     fn feed_next_mfm_word(&mut self) {
-        AmigaA1200::feed_next_mfm_word(self);
+        A1200Core::feed_next_mfm_word(self);
     }
     fn refresh_cia_a_external_inputs(&mut self) {
-        AmigaA1200::refresh_cia_a_external_inputs(self);
+        A1200Core::refresh_cia_a_external_inputs(self);
     }
 
     fn tick_cpu_with_ipl(&mut self) {
@@ -2614,6 +2577,15 @@ impl AmigaDriver for AmigaA1200 {
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
+    #[derive(Clone, Debug)]
+    struct LegacyPal;
+    impl Configuration for LegacyPal {
+        const REGION: AgnusRegion = AgnusRegion::Pal;
+        const MACHINE_ID: &'static str = "test-a1200-pal";
+        const DEFAULT_RAM: RamConfig = RamConfig::bare();
+    }
+    type AmigaA1200 = A1200Core<LegacyPal>;
+
     use emu198x_peripheral_commodore_amiga_floppy::DD;
     use emu198x_peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
     use motorola_68000::CpuModel;
@@ -2962,7 +2934,9 @@ mod bus_plan_dispatch_tests {
         let snapshot: AmigaA1200Snapshot =
             postcard::from_bytes(&encoded).expect("deserialize A1200 snapshot");
         let mut restored = AmigaA1200::new(rom);
-        restored.restore_snapshot_state(snapshot);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
 
         assert_eq!(restored.cpu.model(), CpuModel::M68EC020);
         assert_eq!(restored.cpu_clock.numerator(), 2);
@@ -3219,7 +3193,9 @@ mod bus_plan_dispatch_tests {
         let snapshot: AmigaA1200Snapshot =
             postcard::from_bytes(&bytes).expect("deserialize snapshot");
         let mut restored = AmigaA1200::new(rom.clone());
-        restored.restore_snapshot_state(snapshot);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
         assert!(restored.agnus.programmed_vblank_active());
 
         restored.agnus.vpos = 39;
@@ -3231,7 +3207,9 @@ mod bus_plan_dispatch_tests {
         let bytes = postcard::to_allocvec(&restored.snapshot_state()).expect("serialize edge");
         let snapshot: AmigaA1200Snapshot = postcard::from_bytes(&bytes).expect("deserialize edge");
         let mut edge_restored = AmigaA1200::new(rom);
-        edge_restored.restore_snapshot_state(snapshot);
+        edge_restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
         assert!(!edge_restored.agnus.programmed_vblank_active());
         assert!(edge_restored.agnus.programmed_vblank_stop_event());
     }
@@ -3276,7 +3254,9 @@ mod bus_plan_dispatch_tests {
         let snapshot: AmigaA1200Snapshot =
             postcard::from_bytes(&bytes).expect("deserialize snapshot");
         let mut restored = AmigaA1200::new(rom);
-        restored.restore_snapshot_state(snapshot);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
 
         assert_eq!(restored.agnus.sprite_vstart(0), 0x0301);
         assert_eq!(restored.agnus.sprite_vstop(0), 0x0302);
@@ -3322,7 +3302,9 @@ mod bus_plan_dispatch_tests {
         let snapshot: AmigaA1200Snapshot =
             postcard::from_bytes(&bytes).expect("deserialize snapshot");
         let mut restored = AmigaA1200::new(rom);
-        restored.restore_snapshot_state(snapshot);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
 
         assert_eq!(restored.cck_phase, 1);
         assert!(
@@ -3357,7 +3339,9 @@ mod bus_plan_dispatch_tests {
         let snapshot: AmigaA1200Snapshot =
             postcard::from_bytes(&bytes).expect("deserialize snapshot");
         let mut restored = AmigaA1200::new(rom);
-        restored.restore_snapshot_state(snapshot);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
 
         assert_eq!(restored.agnus.hpos, 0x003F);
         assert_eq!(restored.agnus.ddfstrt, 0x0080);
@@ -3392,7 +3376,9 @@ mod bus_plan_dispatch_tests {
         let snapshot: AmigaA1200Snapshot =
             postcard::from_bytes(&bytes).expect("deserialize snapshot");
         let mut restored = AmigaA1200::new(rom);
-        restored.restore_snapshot_state(snapshot);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching board snapshot");
 
         assert_eq!(restored.agnus.hpos, 0x0040);
         assert_eq!(restored.agnus.ddfstop, 0x0080);

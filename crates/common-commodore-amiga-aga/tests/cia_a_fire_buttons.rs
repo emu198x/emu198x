@@ -6,7 +6,8 @@
 //! port-0 mouse-left button landed on PA7 instead of PA6 (surfaced by
 //! Code198x Unit 10 authoring).
 
-use machine_commodore_amiga_a1200::AmigaA1200;
+mod support;
+use support::AmigaA1200;
 
 const PRA: u32 = 0x00BF_E001;
 const FIR0: u16 = 1 << 6; // controller port 0 fire (mouse left button)

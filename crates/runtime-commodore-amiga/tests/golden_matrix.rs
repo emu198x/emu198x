@@ -67,8 +67,8 @@ use emu198x_shell::{
     HeadlessScript, HeadlessSession, MediaKind, ScriptMediaKind, ScriptStep, read_media_asset,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaOcsRuntime, AmigaSessionQueryProvider,
-    DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaA1200NtscRuntime, AmigaA1200PalRuntime, AmigaOcsRuntime,
+    AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 /// One row in the golden matrix.
@@ -514,20 +514,29 @@ fn run_row(row: &GoldenRow) {
             // the AGA runtime rather than the OCS one. The boot shape is
             // otherwise identical to the OCS Direct path: optional disk,
             // tick to settle, then select the registered historical hires view.
-            let mut rt = AmigaA1200Runtime::new(row.model, rom_bytes)
-                .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
-            if let Some(spec) = disk {
-                let Some(bytes) = load_optional_disk_asset(spec, row.name) else {
-                    return;
-                };
-                let adf = Adf::from_bytes(bytes)
-                    .unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
-                rt.machine_mut().insert_adf(adf);
+            macro_rules! capture_aga {
+                ($runtime:expr) => {{
+                    let mut rt =
+                        $runtime.unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
+                    if let Some(spec) = disk {
+                        let Some(bytes) = load_optional_disk_asset(spec, row.name) else {
+                            return;
+                        };
+                        let adf = Adf::from_bytes(bytes)
+                            .unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
+                        rt.machine_mut().insert_adf(adf);
+                    }
+                    for _ in 0..(settle_frames * A500_PAL_FRAME_TICKS) {
+                        rt.machine_mut().tick();
+                    }
+                    crop_fsuae_rgb(rt.machine().denise().framebuffer())
+                }};
             }
-            for _ in 0..(settle_frames * A500_PAL_FRAME_TICKS) {
-                rt.machine_mut().tick();
+            if row.model.is_ntsc() {
+                capture_aga!(AmigaA1200NtscRuntime::new(row.model, rom_bytes))
+            } else {
+                capture_aga!(AmigaA1200PalRuntime::new(row.model, rom_bytes))
             }
-            crop_fsuae_rgb(rt.machine().denise().framebuffer())
         }
         BootFlow::Direct {
             disk,

@@ -238,7 +238,7 @@ mod tests {
             AmigaLiveAccess::tick(&mut kind);
         }
         assert!(kind.cpu_trace_entries().is_empty());
-        let AmigaRuntimeKind::Aga(runtime) = &mut kind else {
+        let AmigaRuntimeKind::AgaPal(runtime) = &mut kind else {
             panic!("A1200 must use the AGA runtime");
         };
         assert!(

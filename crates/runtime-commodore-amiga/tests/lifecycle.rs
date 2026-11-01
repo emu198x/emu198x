@@ -1011,9 +1011,8 @@ fn reset_preserves_ecs_ntsc_region() {
 #[test]
 fn reset_preserves_a1200_ntsc_region() {
     use machine_commodore_amiga_ocs::AgnusRegion;
-    use runtime_commodore_amiga::AmigaA1200Runtime;
 
-    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaNtsc);
+    let mut runtime = runtime_commodore_amiga::AmigaA1200NtscRuntime::blank();
     runtime.reset(ResetKind::Hard);
 
     assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);

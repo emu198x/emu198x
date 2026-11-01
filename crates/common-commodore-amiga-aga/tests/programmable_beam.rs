@@ -1,6 +1,8 @@
 //! Alice programmable beam timing through the A1200 register bus.
 
-use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
+mod support;
+use common_commodore_amiga_aga::AmigaA1200Snapshot;
+use support::AmigaA1200;
 
 fn parked_cpu_rom() -> Vec<u8> {
     let mut rom = vec![0u8; 256 * 1024];
@@ -42,7 +44,9 @@ fn a1200_snapshot_preserves_explicit_zero_beam_totals() {
     let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
     let snapshot: AmigaA1200Snapshot = postcard::from_bytes(&bytes).expect("deserialize snapshot");
     let mut restored = AmigaA1200::new(parked_cpu_rom());
-    restored.restore_snapshot_state(snapshot);
+    restored
+        .restore_snapshot_state(snapshot)
+        .expect("matching board snapshot");
 
     let starting_vbl = restored.agnus().vbl_count;
     for _ in 0..2 {

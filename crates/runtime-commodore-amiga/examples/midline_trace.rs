@@ -1,7 +1,7 @@
 //! Trace physical bitplane transfers around the mid-line register probes.
 use emu198x_peripheral_commodore_amiga_floppy::Adf;
 use emu198x_shell::HeadlessSession;
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaA1200Runtime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaA1200PalRuntime, Model};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("usage: midline_trace <kickstart> <probe.adf> [line]".into());
     }
     let line: u16 = args.get(2).map_or(Ok(132), |value| value.parse())?;
-    let mut runtime = AmigaA1200Runtime::new(Model::A1200AgaPal, std::fs::read(&args[0])?)?;
+    let mut runtime = AmigaA1200PalRuntime::new(Model::A1200AgaPal, std::fs::read(&args[0])?)?;
     runtime
         .machine_mut()
         .insert_adf(Adf::from_bytes(std::fs::read(&args[1])?)?);

@@ -583,6 +583,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-amiga-aga"
+version = "0.46.0"
+dependencies = [
+ "common-commodore-amiga",
+ "emu198x-commodore-agnus-aga",
+ "emu198x-commodore-agnus-ecs",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-amiga-autoconfig",
+ "emu198x-commodore-denise-aga",
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
+ "emu198x-commodore-gary",
+ "emu198x-commodore-gayle",
+ "emu198x-commodore-paula-8364",
+ "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
+ "emu198x-peripheral-commodore-amiga-keyboard",
+ "emu198x-test-skip",
+ "motorola-68000",
+ "motorola-68020",
+ "png",
+ "postcard",
+ "serde",
+ "zip",
+]
+
+[[package]]
 name = "common-commodore-c128"
 version = "0.46.0"
 dependencies = [
@@ -1276,10 +1303,10 @@ version = "0.46.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
- "machine-commodore-amiga-a1200",
  "motorola-68000",
  "png",
  "runtime-commodore-amiga",
@@ -4052,30 +4079,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-commodore-amiga-a1200"
+name = "machine-commodore-amiga-a1200-ntsc"
 version = "0.46.0"
 dependencies = [
- "common-commodore-amiga",
- "emu198x-commodore-agnus-aga",
- "emu198x-commodore-agnus-ecs",
- "emu198x-commodore-agnus-ocs",
- "emu198x-commodore-amiga-autoconfig",
- "emu198x-commodore-denise-aga",
- "emu198x-commodore-denise-ecs",
- "emu198x-commodore-denise-ocs",
- "emu198x-commodore-gary",
- "emu198x-commodore-gayle",
- "emu198x-commodore-paula-8364",
- "emu198x-mos-cia-8520",
- "emu198x-peripheral-commodore-amiga-floppy",
- "emu198x-peripheral-commodore-amiga-keyboard",
- "emu198x-test-skip",
- "motorola-68000",
- "motorola-68020",
- "png",
- "postcard",
- "serde",
- "zip",
+ "common-commodore-amiga-aga",
+]
+
+[[package]]
+name = "machine-commodore-amiga-a1200-pal"
+version = "0.46.0"
+dependencies = [
+ "common-commodore-amiga-aga",
 ]
 
 [[package]]
@@ -6025,6 +6039,7 @@ name = "runtime-commodore-amiga"
 version = "0.46.0"
 dependencies = [
  "common-commodore-amiga",
+ "common-commodore-amiga-aga",
  "emu198x-commodore-agnus-ocs",
  "emu198x-commodore-denise-aga",
  "emu198x-commodore-denise-ocs",
@@ -6034,7 +6049,8 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "gvp-a530",
- "machine-commodore-amiga-a1200",
+ "machine-commodore-amiga-a1200-ntsc",
+ "machine-commodore-amiga-a1200-pal",
  "machine-commodore-amiga-ecs",
  "machine-commodore-amiga-ocs",
  "motorola-68000",

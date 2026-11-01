@@ -1,7 +1,8 @@
 //! Moving the family RAM type must retain existing import and save contracts.
 
 use common_commodore_amiga::RamConfig;
-use machine_commodore_amiga_a1200::RamConfig as AgaRamConfig;
+use machine_commodore_amiga_a1200_ntsc::RamConfig as AgaNtscRamConfig;
+use machine_commodore_amiga_a1200_pal::RamConfig as AgaRamConfig;
 use machine_commodore_amiga_ecs::RamConfig as EcsRamConfig;
 use machine_commodore_amiga_ocs::RamConfig as OcsRamConfig;
 
@@ -21,7 +22,8 @@ fn public_reexports_remain_the_same_type() {
         let ocs: OcsRamConfig = config;
         let ecs: EcsRamConfig = ocs;
         let aga: AgaRamConfig = ecs;
-        let runtime: runtime_commodore_amiga::RamConfig = aga;
+        let ntsc: AgaNtscRamConfig = aga;
+        let runtime: runtime_commodore_amiga::RamConfig = ntsc;
         assert_eq!(runtime, config);
     }
 }
@@ -49,6 +51,10 @@ fn saved_layout_remains_three_ordered_u32_fields() -> Result<(), postcard::Error
         assert_eq!(postcard::from_bytes::<OcsRamConfig>(&old_bytes)?, config);
         assert_eq!(postcard::from_bytes::<EcsRamConfig>(&old_bytes)?, config);
         assert_eq!(postcard::from_bytes::<AgaRamConfig>(&old_bytes)?, config);
+        assert_eq!(
+            postcard::from_bytes::<AgaNtscRamConfig>(&old_bytes)?,
+            config
+        );
     }
     Ok(())
 }

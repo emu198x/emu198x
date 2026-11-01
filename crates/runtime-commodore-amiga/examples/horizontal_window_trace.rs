@@ -1,14 +1,14 @@
 //! Observe DIW register delivery and Denise's gate without modifying execution.
 use emu198x_peripheral_commodore_amiga_floppy::Adf;
 use emu198x_shell::HeadlessSession;
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaLiveAccess, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaA1200PalRuntime, AmigaLiveAccess, Model};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 2 {
         return Err("usage: horizontal_window_trace <kickstart> <probe.adf>".into());
     }
-    let mut runtime = AmigaA1200Runtime::new(Model::A1200AgaPal, std::fs::read(&args[0])?)?;
+    let mut runtime = AmigaA1200PalRuntime::new(Model::A1200AgaPal, std::fs::read(&args[0])?)?;
     runtime
         .machine_mut()
         .insert_adf(Adf::from_bytes(std::fs::read(&args[1])?)?);

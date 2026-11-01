@@ -1,5 +1,5 @@
 //! Execute register writes through a real MC68020 guest bus cycle.
-use runtime_commodore_amiga::{AmigaA1200Runtime, Model};
+use runtime_commodore_amiga::{AmigaA1200PalRuntime, Model};
 
 #[test]
 fn guest_cpu_write_reaches_lisas_extended_collision_controls() {
@@ -14,7 +14,7 @@ fn guest_cpu_write_reaches_lisas_extended_collision_controls() {
         rom[8 + index * 2..10 + index * 2].copy_from_slice(&word.to_be_bytes());
     }
     let mut runtime =
-        AmigaA1200Runtime::new(Model::A1200AgaPal, rom).expect("construct guest bus fixture");
+        AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom).expect("construct guest bus fixture");
     for _ in 0..10_000 {
         runtime.machine_mut().tick();
         if runtime
@@ -102,7 +102,7 @@ fn guest_cpu_reads_clxdat_with_bit_fifteen_set() {
         let mut ecs =
             AmigaEcsRuntime::new(Model::A500PlusEcsPal, rom(512 * 1024)).expect("ECS guest");
         let mut aga =
-            AmigaA1200Runtime::new(Model::A1200AgaPal, rom(512 * 1024)).expect("AGA guest");
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom(512 * 1024)).expect("AGA guest");
         for _ in 0..2000 {
             ocs.machine_mut().tick();
             ecs.machine_mut().tick();
@@ -137,7 +137,7 @@ fn guest_cpu_write_reaches_bpl8dat_holding_register() {
     for (index, word) in program.iter().enumerate() {
         rom[8 + index * 2..10 + index * 2].copy_from_slice(&word.to_be_bytes());
     }
-    let mut runtime = AmigaA1200Runtime::new(Model::A1200AgaPal, rom).expect("AGA guest");
+    let mut runtime = AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom).expect("AGA guest");
     for _ in 0..2000 {
         runtime.machine_mut().tick();
     }

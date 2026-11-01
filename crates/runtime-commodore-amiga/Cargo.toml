@@ -16,7 +16,9 @@ emu198x-commodore-gayle = { path = "../emu198x-commodore-gayle", version = "0.1.
 common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.46.0" }
 emu198x-shell = { workspace = true }
 gvp-a530 = { path = "../gvp-a530", version = "0.46.0" }
-machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.46.0" }
+common-commodore-amiga-aga = { path = "../common-commodore-amiga-aga", version = "0.46.0" }
+machine-commodore-amiga-a1200-pal = { path = "../machine-commodore-amiga-a1200-pal", version = "0.46.0" }
+machine-commodore-amiga-a1200-ntsc = { path = "../machine-commodore-amiga-a1200-ntsc", version = "0.46.0" }
 machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs", version = "0.46.0" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.46.0" }
 motorola-68000 = { path = "../motorola-68000", version = "0.46.0" }

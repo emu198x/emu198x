@@ -125,8 +125,8 @@ fn host_decimation_rejects_ultrasonic_aliases() {
         sweep(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc)),
         sweep(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal)),
         sweep(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc)),
-        sweep(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal)),
-        sweep(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaNtsc)),
+        sweep(crate::AmigaA1200PalRuntime::blank()),
+        sweep(crate::AmigaA1200NtscRuntime::blank()),
     ] {
         count += cases;
         failures += failed;
@@ -211,8 +211,8 @@ fn led_control_follows_the_delayed_signal_on_every_board() {
     led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A1000OcsNtsc));
     led_alignment(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal));
     led_alignment(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc));
-    led_alignment(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal));
-    led_alignment(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaNtsc));
+    led_alignment(crate::AmigaA1200PalRuntime::blank());
+    led_alignment(crate::AmigaA1200NtscRuntime::blank());
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn benchmark_runtime_audio_conversion() {
     for band_limited in [false, true] {
         for repeat in 0..3 {
             for edge_ticks in [1_u64, 2, 16, 248] {
-                let mut runtime = AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal);
+                let mut runtime = crate::AmigaA1200PalRuntime::blank();
                 for (offset, value) in [
                     (0xa6, 1000),
                     (0xa8, 64),

@@ -6,7 +6,8 @@
 //! LEFT and UP. A prior bug used the naive X=horizontal / Y=vertical layout,
 //! so LEFT read as DOWN and DOWN read as LEFT in real games.
 
-use machine_commodore_amiga_a1200::AmigaA1200;
+mod support;
+use support::AmigaA1200;
 
 const JOY1DAT: u32 = 0x00DF_F00C;
 const PAIRS: u16 = 0x0303; // both pot pairs' low two bits
