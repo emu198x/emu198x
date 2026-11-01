@@ -100,7 +100,9 @@ def rewrite_workspace_requirements(base: str) -> int:
     Crates with their own version are skipped — see `independently_versioned`.
     """
     own = independently_versioned()
-    pattern = re.compile(r'(path = "\.\./([^"]+)", version = ")([^"]+)(")')
+    # Manifests aren't all formatted alike: some write `{path="../x",version="1"}`
+    # with no spaces, and a pattern that needs them skips those silently.
+    pattern = re.compile(r'(path\s*=\s*"\.\./([^"]+)"\s*,\s*version\s*=\s*")([^"]+)(")')
 
     def replace(match: re.Match[str]) -> str:
         if match.group(2) in own:
@@ -117,6 +119,18 @@ def rewrite_workspace_requirements(base: str) -> int:
                 1 for m in pattern.finditer(text)
                 if m.group(2) not in own and m.group(3) != base
             )
+
+    # A requirement the rewrite missed only shows up later, as a resolution
+    # failure in cargo. Name it here instead.
+    any_path_version = re.compile(r'path\s*=\s*"\.\./([^"]+)"[^}\n]*?version\s*=\s*"([^"]+)"')
+    missed = [
+        f"{manifest.relative_to(ROOT)}: {m.group(1)} = {m.group(2)}"
+        for manifest in sorted(ROOT.glob("crates/*/Cargo.toml"))
+        for m in any_path_version.finditer(manifest.read_text())
+        if m.group(1) not in own and m.group(2) != base
+    ]
+    if missed:
+        sys.exit("path dependencies still not at " + base + ":\n  " + "\n  ".join(missed))
     return changed
 
 
