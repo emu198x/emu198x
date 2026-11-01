@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 format198x-acorn-uef = "0.1.0"
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.45.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.46.0" }
 serde = { workspace = true }
 
 [dev-dependencies]

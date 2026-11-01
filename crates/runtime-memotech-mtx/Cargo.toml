@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-ti-tms9918 = "0.1.0"
-machine-memotech-mtx = { path = "../machine-memotech-mtx", version = "0.45.0" }
+machine-memotech-mtx = { path = "../machine-memotech-mtx", version = "0.46.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

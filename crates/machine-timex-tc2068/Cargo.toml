@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-timex-2068 = { path = "../common-timex-2068", version = "0.45.0" }
+common-timex-2068 = { path = "../common-timex-2068", version = "0.46.0" }
 
 [lints]
 workspace = true

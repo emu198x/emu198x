@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.45.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.46.0" }
 format198x-commodore-c64-crt = "0.1.0"
 format198x-commodore-c64-prg = "0.1.0"
 format198x-commodore-c64-tap = "0.1.0"
@@ -25,8 +25,8 @@ emu198x-peripheral-ultimate-uci-net = { path = "../emu198x-peripheral-ultimate-u
 [dev-dependencies]
 postcard = { workspace = true }
 serde_json = { workspace = true }
-emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.45.0" }
-machine-commodore-1541 = { path = "../machine-commodore-1541", version = "0.45.0" }
+emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.46.0" }
+machine-commodore-1541 = { path = "../machine-commodore-1541", version = "0.46.0" }
 
 [lints]
 workspace = true

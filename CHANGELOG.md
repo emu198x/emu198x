@@ -4,6 +4,60 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.46.0] - 2026-11-01
+
+
+### Added
+
+- Run standard GxROM mapper 66 cartridges
+- Execute optional monochrome Game Boy boot firmware
+- **Breaking** — Select named MSX boards instead of generic presets. The four generic MSX1/MSX2 PAL/NTSC presets, their aliases and --region selection are retired. Select a named manufacturer board with --model. Generic saves are rejected without inferring a physical machine; the nine existing manufacturer profiles and their v10 saves remain compatible.
+
+
+### Fixed
+
+- Reject unsafe Einstein disk images before mounting
+- Import C64 startup programs before serving MCP requests
+- Load CoCo firmware from its catalogue chip dumps
+- Preserve shifted operators in Dragon and CoCo commands
+- Stop advertising unimplemented SC-3000 hardware
+- Reject invalid ColecoVision cartridges before replacing the mount
+- Diagnose missing BBC teletext fonts in headless reports
+- Map reversed Neo Geo P1 dumps before booting
+- Present browser pixels sharply at the runtime aspect
+- Load Einstein disks through the checked published DSK codec
+- Stop native frame requests at actual video boundaries
+- Expose and sound the live MSX PPI outputs
+- Keep restored cartridge images available after reset
+- Reject unmapped cartridge data before replacing live media
+- Preserve SVI media when resetting a restored machine
+- Advertise the PAL Atari 2600 colour clock accurately
+- Require the selected ZX board and RAM when restoring legacy saves
+- Bind Atari XL and XE profiles to distinct physical boards
+- Bind Aquarius regional profiles to distinct physical boards
+- Scale Aquarius PAL pixels using the engine dot clock
+- Bind Mega Drive market profiles to fixed regional boards
+- Reject empty and oversized Mega Drive snapshot geometry
+- Resume Spectrum saves without changing the first frame
+- Bind Timex 2068 profiles to their own physical boards
+- Boot Spectrum family on Apple worker stacks
+- Resume NES saves without losing CPU or video bus state
+- Bind NES regional profiles to their own physical boards
+- Retain restored CPC firmware and media across reset
+- Describe all three CPC configurations accurately in the native adapter
+- Run the Pentagon's 128 BASIC without paging TR-DOS under the editor
+- Reject truncated C128 firmware in restored board state
+- Preserve live C64 peripherals through state restore
+- Give three PET configurations matching hardware and exact saves
+- Retain SNES firmware and cartridge RAM across restored resets
+- Preserve SNES firmware in v2 saves and bind fixed regional owners
+- Describe Oric memory and 5200 board support accurately
+- Qualify SG-1000 support with original state evidence
+- Show the existing SG-1000 II launch profile in help
+- Keep PAL SG-1000 clocks and v6 saves consistent
+- Name the supported early SG-1000 II configuration in selection
+- Remove Amiga machine-to-machine dependencies
+
 ## [0.45.1] - 2026-10-27
 
 

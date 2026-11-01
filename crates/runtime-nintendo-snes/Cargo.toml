@@ -12,7 +12,7 @@ emu198x-shell = { workspace = true }
 common-nintendo-snes = { path = "../common-nintendo-snes" }
 machine-nintendo-snes-ntsc = { path = "../machine-nintendo-snes-ntsc" }
 machine-nintendo-snes-pal = { path = "../machine-nintendo-snes-pal" }
-format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.45.0" }
+format-nintendo-snes-sfc = { path = "../format-nintendo-snes-sfc", version = "0.46.0" }
 isa198x-disasm = "0.1"
 postcard = { workspace = true }
 serde = { workspace = true }
