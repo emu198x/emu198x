@@ -1,0 +1,14 @@
+[package]
+name = "machine-nintendo-snes-pal"
+description = "Fixed PAL Super NES regional configuration"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-nintendo-snes = { path = "../common-nintendo-snes" }
+[dev-dependencies]
+postcard = { workspace = true }
+[lints]
+workspace = true

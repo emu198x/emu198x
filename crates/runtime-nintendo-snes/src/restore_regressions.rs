@@ -1,12 +1,7 @@
 //! Cache/state regressions found before the regional extraction.
+use crate::test_cartridge as common;
 use crate::{Model, SnesRuntime};
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, ResetKind};
-#[allow(
-    dead_code,
-    reason = "The shared cartridge helper exports integration-only address constants."
-)]
-#[path = "../tests/common/mod.rs"]
-mod common;
 fn firmware() -> [u8; 64] {
     let mut v = [0; 64];
     v[..2].copy_from_slice(&[0x2f, 0xfe]);
@@ -57,7 +52,7 @@ fn empty_restore_clears_the_cartridge_cache() {
 
 #[test]
 fn supplying_the_builtin_program_does_not_claim_original_firmware() {
-    let rom = machine_nintendo_snes::ipl::CLEAN_ROOM;
+    let rom = common_nintendo_snes::ipl::CLEAN_ROOM;
     let mut set = FirmwareSet::new();
     set.push(FirmwareImage::new("snes-ipl", &rom));
     let mut r = SnesRuntime::from_firmware(Model::SnesNtsc, &set).expect("firmware");
@@ -67,4 +62,30 @@ fn supplying_the_builtin_program_does_not_claim_original_firmware() {
     let mut restored = SnesRuntime::blank(Model::SnesNtsc);
     restored.restore(&saved).expect("restore");
     assert!(!restored.has_original_ipl());
+}
+
+#[test]
+fn a_blank_save_retains_firmware_for_a_later_cartridge() {
+    let ipl = firmware();
+    let mut set = FirmwareSet::new();
+    set.push(FirmwareImage::new("snes-ipl", &ipl));
+    let live = SnesRuntime::from_firmware(Model::SnesNtsc, &set).expect("firmware");
+    assert!(live.machine().is_none());
+    let mut restored = SnesRuntime::blank(Model::SnesNtsc);
+    restored
+        .restore(&live.snapshot().expect("save"))
+        .expect("restore");
+    restored
+        .insert_cartridge(common::cartridge())
+        .expect("cartridge");
+    assert_eq!(restored.machine().expect("machine").apu.ipl, ipl);
+}
+
+#[test]
+fn switching_region_keeps_the_loaded_cartridges_sram() {
+    let r = runtime();
+    let replacement = r
+        .replacement(Model::SnesPal, &FirmwareSet::new())
+        .expect("switch");
+    assert_eq!(replacement.machine().expect("machine").peek(0x700000), 0xa5);
 }

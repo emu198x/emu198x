@@ -748,6 +748,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-nintendo-snes"
+version = "0.45.1"
+dependencies = [
+ "emu198x-nintendo-s-ppu",
+ "emu198x-sony-s-dsp",
+ "emu198x-sony-spc700",
+ "emu198x-wdc-65c816",
+ "format-nintendo-snes-sfc",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "common-sega-master-system"
 version = "0.45.1"
 dependencies = [
@@ -4299,16 +4312,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-nintendo-snes"
+name = "machine-nintendo-snes-ntsc"
 version = "0.45.1"
 dependencies = [
- "emu198x-nintendo-s-ppu",
- "emu198x-sony-s-dsp",
- "emu198x-sony-spc700",
- "emu198x-wdc-65c816",
- "format-nintendo-snes-sfc",
+ "common-nintendo-snes",
  "postcard",
- "serde",
+]
+
+[[package]]
+name = "machine-nintendo-snes-pal"
+version = "0.45.1"
+dependencies = [
+ "common-nintendo-snes",
+ "postcard",
 ]
 
 [[package]]
@@ -6201,10 +6217,12 @@ dependencies = [
 name = "runtime-nintendo-snes"
 version = "0.45.1"
 dependencies = [
+ "common-nintendo-snes",
  "emu198x-shell",
  "format-nintendo-snes-sfc",
  "isa198x-disasm",
- "machine-nintendo-snes",
+ "machine-nintendo-snes-ntsc",
+ "machine-nintendo-snes-pal",
  "postcard",
  "serde",
  "serde_json",

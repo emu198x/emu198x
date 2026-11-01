@@ -8,12 +8,13 @@
 //! The picture is 512 pixels wide, two per dot, so hi-res modes fit, and 240
 //! rows, or 480 while the PPU runs an interlaced frame.
 
+use crate::machine::SnesMachine as Snes;
+use common_nintendo_snes::{AUDIO_SAMPLE_RATE, ipl};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_nintendo_snes::{AUDIO_SAMPLE_RATE, Snes, ipl};
 
 use crate::Model;
 use crate::cartridge;
@@ -134,6 +135,18 @@ impl SnesRuntime {
         self.update_rgba_framebuffer();
     }
 
+    pub(crate) fn snapshot_ipl(&self) -> Option<&[u8]> {
+        self.machine
+            .as_ref()
+            .map(|m| m.apu.ipl.as_slice())
+            .or_else(|| self.ipl.as_ref().map(|rom| rom.as_slice()))
+            .filter(|rom| *rom != ipl::CLEAN_ROOM)
+    }
+
+    pub(crate) fn set_snapshot_ipl(&mut self, rom: Option<[u8; 64]>) {
+        self.ipl = rom.filter(|rom| *rom != ipl::CLEAN_ROOM);
+    }
+
     fn rebuild_machine(&mut self) {
         let Some(image) = self.cart_image.as_deref() else {
             self.machine = None;
@@ -146,7 +159,7 @@ impl SnesRuntime {
         if let Some(previous) = self.machine.as_ref().filter(|m| m.cart.rom() == image) {
             cart.load_ram(previous.cart.ram());
         }
-        self.machine = Some(Snes::new(cart, self.model.machine_region(), self.ipl));
+        self.machine = Some(Snes::new(self.model, cart, self.ipl));
         self.time = MachineTime::default();
         self.update_rgba_framebuffer();
     }
@@ -240,6 +253,11 @@ impl emu198x_shell::FamilyRuntime for SnesRuntime {
         }
         if let Some(image) = &self.cart_image {
             replacement.insert_cartridge(image.clone())?;
+            if let (Some(previous), Some(next)) =
+                (self.machine.as_ref(), replacement.machine.as_mut())
+            {
+                next.load_cartridge_ram(previous.cart.ram());
+            }
         }
         Ok(replacement)
     }

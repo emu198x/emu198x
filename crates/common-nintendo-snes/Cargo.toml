@@ -1,5 +1,5 @@
 [package]
-name = "machine-nintendo-snes"
+name = "common-nintendo-snes"
 description = "Super NES / Super Famicom: the 5A22's 65C816, DMA/HDMA and I/O, the S-PPU pair, the S-SMP sound module and the cartridge boards, on the master clock"
 edition.workspace = true
 version.workspace = true
