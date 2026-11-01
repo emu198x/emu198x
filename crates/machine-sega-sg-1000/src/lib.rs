@@ -41,10 +41,10 @@
 //!
 //! # Pause / NMI
 //!
-//! The SG-1000 console has no front-panel pause button. The SC-3000
-//! keyboard variant routes a key press into the Z80's NMI line. This
-//! crate exposes [`Sg1000::set_pause_pressed`] for hosts that want to
-//! simulate the SC-3000 path; the line is held until released.
+//! Sega's SG-1000 product page lists the console's hold button. The
+//! existing pause input drives the Z80 NMI line, as MAME's `sg1000`
+//! `trigger_nmi` does. [`Sg1000::set_pause_pressed`] holds the line until
+//! released. This does not implement the SC-3000 keyboard or PPI.
 //!
 //! # Clock model
 //!
@@ -135,7 +135,7 @@ pub struct IoEvent {
     pub write: bool,
 }
 
-/// SG-1000 / SC-3000 machine.
+/// SG-1000 console machine.
 ///
 /// Fully serialisable for save-states: the Z80, the TMS9918 VDP, the SN76489
 /// PSG, cart ROM, and RAM all carry live state. `io_trace` is a host-side debug
@@ -370,7 +370,7 @@ impl Sg1000 {
         &mut self.controller2
     }
 
-    /// Pause / SC-3000 NMI line (level-driven, host-controlled).
+    /// Console hold/pause NMI line (level-driven, host-controlled).
     pub fn set_pause_pressed(&mut self, pressed: bool) {
         self.pause_pressed = pressed;
     }

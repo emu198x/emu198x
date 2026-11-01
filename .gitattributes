@@ -50,3 +50,7 @@
 
 test-data/commodore/board-split-v22/*.state binary
 test-data/commodore/board-split-v22/*.output binary
+
+# Original SG-1000 state/output evidence.
+test-data/sega-sg-1000/board-v5/*.state binary
+test-data/sega-sg-1000/board-v5/*.output binary

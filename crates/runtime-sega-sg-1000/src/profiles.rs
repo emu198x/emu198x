@@ -5,15 +5,15 @@ use emu198x_shell::{
     ProfileId, Region, WritebackPolicy, known_capability,
 };
 
-/// Supported SG-1000 / SC-3000 family models.
+/// Supported SG-1000 console configurations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
     /// SG-1000 NTSC (60 Hz / 262 lines).
     Sg1000Ntsc,
     /// SG-1000 PAL (50 Hz / 313 lines).
     Sg1000Pal,
-    /// SG-1000 II (1984): the same machine re-cased, with detachable
-    /// controllers and the My Card adapter port. Japan, NTSC.
+    /// Early SG-1000 II (1984), TMS9918 NTSC configuration.
+    /// Later TMS9118/custom-VDP boards are not qualified by this profile.
     Sg1000IiNtsc,
 }
 
@@ -100,7 +100,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         },
         summary: match model {
             Model::Sg1000Ntsc | Model::Sg1000Pal => "Sega SG-1000 — Z80A + TMS9918A + SN76489, 1 KB RAM, BIOS-less cartridge boot. Predecessor to the Master System.",
-            Model::Sg1000IiNtsc => "Sega SG-1000 II (1984) — the SG-1000's chips in a new case with detachable controllers and a My Card adapter port. Electrically the same machine.",
+            Model::Sg1000IiNtsc => "Sega SG-1000 II (1984) — early TMS9918 NTSC configuration with detachable controllers; later VDP/board revisions remain unqualified.",
         }
         .into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sg_1000_ii_is_the_same_machine_in_a_new_case() {
+    fn the_early_sg_1000_ii_keeps_its_existing_profile_contract() {
         let ii = profile_for(Model::Sg1000IiNtsc);
         assert_eq!(ii.machine_id.as_str(), "sega-sg-1000");
         assert_eq!(ii.region, Region::Ntsc);
