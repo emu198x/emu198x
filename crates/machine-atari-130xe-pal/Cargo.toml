@@ -7,6 +7,6 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 [dependencies]
-common-atari-800xl = {path="../common-atari-800xl",version="0.45.1"}
+common-atari-800xl = {path="../common-atari-800xl",version="0.46.0"}
 [lints]
 workspace = true

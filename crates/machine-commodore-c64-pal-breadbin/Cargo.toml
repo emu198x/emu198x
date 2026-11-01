@@ -7,6 +7,6 @@ publish = false
 license.workspace = true
 repository.workspace = true
 [dependencies]
-common-commodore-c64 = { path = "../common-commodore-c64", version = "0.45.0" }
+common-commodore-c64 = { path = "../common-commodore-c64", version = "0.46.0" }
 [lints]
 workspace = true

@@ -8,13 +8,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.45.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.46.0" }
 emu198x-shell = { workspace = true }
-format-acorn-uef = { path = "../format-acorn-uef", version = "0.45.0" }
-machine-acorn-bbc-micro = { path = "../machine-acorn-bbc-micro", version = "0.45.0" }
-common-acorn-bbc-micro = { path = "../common-acorn-bbc-micro", version = "0.45.0" }
-machine-acorn-bbc-micro-b-plus = { path = "../machine-acorn-bbc-micro-b-plus", version = "0.45.0" }
-machine-acorn-bbc-master-128 = { path = "../machine-acorn-bbc-master-128", version = "0.45.0" }
+format-acorn-uef = { path = "../format-acorn-uef", version = "0.46.0" }
+machine-acorn-bbc-micro = { path = "../machine-acorn-bbc-micro", version = "0.46.0" }
+common-acorn-bbc-micro = { path = "../common-acorn-bbc-micro", version = "0.46.0" }
+machine-acorn-bbc-micro-b-plus = { path = "../machine-acorn-bbc-micro-b-plus", version = "0.46.0" }
+machine-acorn-bbc-master-128 = { path = "../machine-acorn-bbc-master-128", version = "0.46.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

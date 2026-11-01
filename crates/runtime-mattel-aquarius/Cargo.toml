@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-mattel-aquarius = { path = "../common-mattel-aquarius", version = "0.45.0" }
-machine-mattel-aquarius-pal = { path = "../machine-mattel-aquarius-pal", version = "0.45.0" }
+common-mattel-aquarius = { path = "../common-mattel-aquarius", version = "0.46.0" }
+machine-mattel-aquarius-pal = { path = "../machine-mattel-aquarius-pal", version = "0.46.0" }
 emu198x-shell = { workspace = true }
-machine-mattel-aquarius = { path = "../machine-mattel-aquarius", version = "0.45.0" }
+machine-mattel-aquarius = { path = "../machine-mattel-aquarius", version = "0.46.0" }
 emu198x-zilog-z80 = "0.8.0"
 postcard = { workspace = true }
 serde = { workspace = true }

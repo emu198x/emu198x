@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-atari-2600 = { path = "../common-atari-2600", version = "0.45.1" }
-machine-atari-2600-pal = { path = "../machine-atari-2600-pal", version = "0.45.1" }
+common-atari-2600 = { path = "../common-atari-2600", version = "0.46.0" }
+machine-atari-2600-pal = { path = "../machine-atari-2600-pal", version = "0.46.0" }
 emu198x-shell = { workspace = true }
 emu198x-atari-tia = { path = "../emu198x-atari-tia", version = "0.1.0" }
-machine-atari-2600 = { path = "../machine-atari-2600", version = "0.45.0" }
+machine-atari-2600 = { path = "../machine-atari-2600", version = "0.46.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
