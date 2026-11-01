@@ -43,7 +43,10 @@ fn regional_switches_keep_cartridge_but_reset_machine_and_session() {
         assert_ne!(machine.peek(49152), 0x73);
         assert_eq!(machine.frame_count(), 0);
         session.run_frames(1).expect("new region runs");
-        assert_eq!(session.time().get(), model.frame_ticks());
+        assert!(
+            session.time().get().abs_diff(model.frame_ticks()) <= 1,
+            "native rational phase may finish one T-state before the rounded-up pacing hint"
+        );
         session.reset(ResetKind::Hard).expect("reset");
         assert_eq!(
             session

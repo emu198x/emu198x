@@ -345,7 +345,7 @@ impl MachineCore for Sg1000Runtime {
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            emu198x_ti_tms9918::PAL_DOT_CLOCK_HZ,
+            f64::from(machine_sega_sg_1000::PAL_VDP_CRYSTAL_HZ) / 2.0,
             emu198x_ti_tms9918::NTSC_DOT_CLOCK_HZ,
         )
     }
