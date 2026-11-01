@@ -244,7 +244,8 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
             return match r {
                 AmigaRuntimeKind::Ocs(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::Ecs(r) => r.machine().floppy0_image_bytes(),
-                AmigaRuntimeKind::Aga(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::AgaPal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::AgaNtsc(r) => r.machine().floppy0_image_bytes(),
             }
             .ok_or_else(|| "No disk in this slot".into());
         }

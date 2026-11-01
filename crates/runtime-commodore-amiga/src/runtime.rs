@@ -15,13 +15,13 @@
 
 use emu198x_shell::audio::band_limited::{BandLimitedHistory, BandLimitedStereo, DELAY};
 
+use common_commodore_amiga_aga::{A1200Core, Configuration as A1200Configuration};
 use emu198x_peripheral_commodore_amiga_floppy::{Adf, MAX_DRIVES};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult,
     StopReason,
 };
-use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{
     AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel,
 };
@@ -1017,7 +1017,7 @@ impl AmigaRuntime<AmigaEcs> {
 // OCS-crate types the OCS impl uses.
 // =====================================================================
 
-impl AmigaRuntime<AmigaA1200> {
+impl<C: A1200Configuration> AmigaRuntime<A1200Core<C>> {
     /// Construct a runtime from owned model-specific firmware bytes,
     /// using the model's preset RAM layout (2 MiB chip for stock
     /// A1200).
@@ -1048,8 +1048,15 @@ impl AmigaRuntime<AmigaA1200> {
     pub fn with_config(config: AmigaConfig, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
         let model = config.model();
         validate_config(config, ChipsetKind::Aga)?;
+        if model.is_ntsc() != matches!(C::REGION, machine_commodore_amiga_ocs::AgnusRegion::Ntsc)
+            || profile_for(model).machine_id.as_str() != C::MACHINE_ID
+        {
+            return Err(MachineError::InvalidRequest {
+                reason: "selected profile does not match fixed A1200 owner".into(),
+            });
+        }
         validate_firmware_rom(model, &firmware_rom)?;
-        let machine = build_amiga_a1200(config, &firmware_rom);
+        let machine = build_amiga_a1200::<C>(config, &firmware_rom);
         let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
         let mut runtime = Self {
             profile: profile_for(model),
@@ -1099,9 +1106,13 @@ impl AmigaRuntime<AmigaA1200> {
 
     /// Construct with a zero-filled placeholder firmware.
     #[must_use]
-    pub fn blank(model: Model) -> Self {
+    pub fn blank() -> Self {
+        let model = match C::REGION {
+            machine_commodore_amiga_ocs::AgnusRegion::Pal => Model::A1200AgaPal,
+            machine_commodore_amiga_ocs::AgnusRegion::Ntsc => Model::A1200AgaNtsc,
+        };
         Self::new(model, blank_firmware_rom(model))
-            .expect("blank model firmware image should be valid")
+            .expect("fixed A1200 placeholder firmware is valid")
     }
 
     /// RAM layout currently installed.
@@ -1129,17 +1140,11 @@ impl AmigaRuntime<AmigaA1200> {
     }
 }
 
-pub(crate) fn build_amiga_a1200(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaA1200 {
-    // A1200 only ever boots from Kickstart 3.0 / 3.1 (no A1000-style
-    // bootstrap path). Region drives PAL/NTSC Agnus selection inside
-    // the chip layer; A1200 reuses the same shared AgnusRegion enum.
-    let model = config.model();
-    let firmware = firmware_rom.to_vec();
-    if model.is_ntsc() {
-        AmigaA1200::with_ram_config_ntsc(firmware, config.ram())
-    } else {
-        AmigaA1200::with_ram_config(firmware, config.ram())
-    }
+pub(crate) fn build_amiga_a1200<C: A1200Configuration>(
+    config: AmigaConfig,
+    firmware_rom: &[u8],
+) -> A1200Core<C> {
+    A1200Core::<C>::with_ram_config(firmware_rom.to_vec(), config.ram())
 }
 
 pub(crate) fn build_amiga_ecs(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaEcs {
@@ -1414,8 +1419,8 @@ mod tests {
             pulse_cases(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc)),
             pulse_cases(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal)),
             pulse_cases(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc)),
-            pulse_cases(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal)),
-            pulse_cases(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaNtsc)),
+            pulse_cases(crate::AmigaA1200PalRuntime::blank()),
+            pulse_cases(crate::AmigaA1200NtscRuntime::blank()),
         ] {
             cases += count;
             failures += failed;
@@ -1522,24 +1527,26 @@ mod tests {
                 AmigaRuntime::<AmigaEcs>::blank(model),
             );
         }
-        for model in [Model::A1200AgaPal, Model::A1200AgaNtsc] {
-            checkpoints += replay_audio(
-                AmigaRuntime::<AmigaA1200>::blank(model),
-                AmigaRuntime::<AmigaA1200>::blank(model),
-            );
-        }
+        checkpoints += replay_audio(
+            crate::AmigaA1200PalRuntime::blank(),
+            crate::AmigaA1200PalRuntime::blank(),
+        );
+        checkpoints += replay_audio(
+            crate::AmigaA1200NtscRuntime::blank(),
+            crate::AmigaA1200NtscRuntime::blank(),
+        );
         assert_eq!(checkpoints, 48);
     }
 
     #[test]
     fn audio_sampling_matches_instruction_boundary_stepping() {
-        let mut regular = AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal);
+        let mut regular = crate::AmigaA1200PalRuntime::blank();
         use common_commodore_amiga::driver::AmigaDriver;
         for (offset, value) in [(0xa6, 2), (0xa8, 32), (0xaa, 0x40c0)] {
             AmigaDriver::dispatch_custom_write(regular.machine_mut(), offset, value);
         }
         let saved = regular.snapshot().expect("initial audio setup");
-        let mut stepped = AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal);
+        let mut stepped = crate::AmigaA1200PalRuntime::blank();
         stepped.restore(&saved).expect("copy initial setup");
         for _ in 0..2000 {
             regular.tick_and_sample_audio();
@@ -1590,7 +1597,11 @@ mod tests {
                             inner.audio_sample_accumulator =
                                 inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
                         }
-                        AmigaRuntimeKind::Aga(inner) => {
+                        AmigaRuntimeKind::AgaPal(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                        AmigaRuntimeKind::AgaNtsc(inner) => {
                             inner.audio_sample_accumulator =
                                 inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
                         }
@@ -1610,7 +1621,11 @@ mod tests {
                             inner.rgba_framebuffer.fill(0x5a);
                             inner.non_black_pixels = u32::MAX;
                         }
-                        AmigaRuntimeKind::Aga(inner) => {
+                        AmigaRuntimeKind::AgaPal(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                        AmigaRuntimeKind::AgaNtsc(inner) => {
                             inner.rgba_framebuffer.fill(0x5a);
                             inner.non_black_pixels = u32::MAX;
                         }
@@ -1666,7 +1681,12 @@ mod tests {
             match (&deferred, &regular) {
                 (AmigaRuntimeKind::Ocs(d), AmigaRuntimeKind::Ocs(r)) => compare_runtime!(d, r),
                 (AmigaRuntimeKind::Ecs(d), AmigaRuntimeKind::Ecs(r)) => compare_runtime!(d, r),
-                (AmigaRuntimeKind::Aga(d), AmigaRuntimeKind::Aga(r)) => compare_runtime!(d, r),
+                (AmigaRuntimeKind::AgaPal(d), AmigaRuntimeKind::AgaPal(r)) => {
+                    compare_runtime!(d, r)
+                }
+                (AmigaRuntimeKind::AgaNtsc(d), AmigaRuntimeKind::AgaNtsc(r)) => {
+                    compare_runtime!(d, r)
+                }
                 _ => panic!("matching model variants"),
             }
             deferred.debug_target_mut().expect("debug target").resync();
@@ -1682,7 +1702,10 @@ mod tests {
             match (&deferred, &regular) {
                 (AmigaRuntimeKind::Ocs(d), AmigaRuntimeKind::Ocs(r)) => compare_frame!(d, r),
                 (AmigaRuntimeKind::Ecs(d), AmigaRuntimeKind::Ecs(r)) => compare_frame!(d, r),
-                (AmigaRuntimeKind::Aga(d), AmigaRuntimeKind::Aga(r)) => compare_frame!(d, r),
+                (AmigaRuntimeKind::AgaPal(d), AmigaRuntimeKind::AgaPal(r)) => compare_frame!(d, r),
+                (AmigaRuntimeKind::AgaNtsc(d), AmigaRuntimeKind::AgaNtsc(r)) => {
+                    compare_frame!(d, r)
+                }
                 _ => panic!("matching model variants"),
             }
         }

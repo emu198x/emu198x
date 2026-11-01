@@ -309,7 +309,8 @@ impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQue
         match machine {
             crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query_paths(rt, prefix),
             crate::variants::AmigaRuntimeKind::Ecs(rt) => self.query_paths(rt, prefix),
-            crate::variants::AmigaRuntimeKind::Aga(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::AgaPal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::AgaNtsc(rt) => self.query_paths(rt, prefix),
         }
     }
 
@@ -321,7 +322,8 @@ impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQue
         match machine {
             crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query(rt, path),
             crate::variants::AmigaRuntimeKind::Ecs(rt) => self.query(rt, path),
-            crate::variants::AmigaRuntimeKind::Aga(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::AgaPal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::AgaNtsc(rt) => self.query(rt, path),
         }
     }
 }

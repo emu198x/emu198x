@@ -168,7 +168,11 @@ pub(crate) fn decode<M: AmigaMachine>(
     // not pass through the live machine: machine diagnostics and watch state
     // are intentionally outside the persisted snapshot.
     let mut candidate_machine = M::build(runtime.firmware_rom(), envelope.config);
-    candidate_machine.restore_snapshot_state(envelope.machine);
+    candidate_machine
+        .restore_snapshot_state(envelope.machine)
+        .map_err(|reason| MachineError::InvalidSnapshot {
+            reason: format!("machine state does not match Amiga configuration: {reason}"),
+        })?;
     let expected_framebuffer_pixels =
         (M::CHIPSET_FB_WIDTH as usize).saturating_mul(M::CHIPSET_FB_HEIGHT as usize);
     validate_framebuffer_pixels(
@@ -255,7 +259,7 @@ mod tests {
     use motorola_68000::CpuModel;
 
     use super::*;
-    use crate::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model};
+    use crate::{AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model};
 
     #[test]
     fn all_denise_variants_restore_pending_strobe_and_half_cck_counter_commit() {
@@ -365,8 +369,8 @@ mod tests {
                 channel,
             );
             reject(
-                AmigaA1200Runtime::blank(Model::A1200AgaPal),
-                AmigaA1200Runtime::blank(Model::A1200AgaPal),
+                AmigaA1200PalRuntime::blank(),
+                AmigaA1200PalRuntime::blank(),
                 channel,
             );
         }

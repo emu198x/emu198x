@@ -7,7 +7,8 @@
 //! OCS core). At reset, with nothing latched, CLXDAT reads `$8000`: bit 15
 //! is fixed high (registered FS-UAE custom.cpp::CLXDAT).
 
-use machine_commodore_amiga_a1200::AmigaA1200;
+mod support;
+use support::AmigaA1200;
 
 #[test]
 fn clxdat_read_is_wired_not_open_bus() {

@@ -1,7 +1,7 @@
 //! HRM register map: BPL6PTL is $0F6. AGA extends the pairs through $0FE;
 //! WinUAE custom.cpp dispatches BPLxPTH/BPLxPTL for all eight planes.
 use common_commodore_amiga::AmigaDriver;
-use machine_commodore_amiga_a1200::AmigaA1200;
+use machine_commodore_amiga_a1200_pal::AmigaA1200;
 use machine_commodore_amiga_ecs::AmigaEcs;
 use machine_commodore_amiga_ocs::AmigaOcs;
 

@@ -19,8 +19,10 @@
 //! investigation is explicit because it captures extensive per-tick state and
 //! is not a routine regression gate.
 
-use machine_commodore_amiga_a1200::{AmigaA1200, PAL_FRAME_TICKS, RamConfig};
+mod support;
+use common_commodore_amiga_aga::{PAL_FRAME_TICKS, RamConfig};
 use std::path::PathBuf;
+use support::AmigaA1200;
 
 fn load_ks31_rom() -> Option<Vec<u8>> {
     let path = match std::env::var("EMU198X_KS31_A1200_ROM") {

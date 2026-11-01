@@ -6,7 +6,7 @@ use emu198x_shell::{
     MediaImage, MediaKind, MediaSet, NullAudioSink, NullFrameSink, NullTraceSink, StopReason,
 };
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const ORIGINAL_HEAD: &str = "cbcda19a116bdf3a86a8d41c186c046842c342b8";
@@ -84,7 +84,7 @@ fn controls(pressed: bool) -> Vec<InputEvent> {
     ]
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct Audio(Vec<(u64, u32, u8, Vec<u32>)>);
 impl AudioSink for Audio {
     fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
@@ -97,7 +97,7 @@ impl AudioSink for Audio {
         Ok(())
     }
 }
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct Field {
     elapsed: u64,
     complete_frame_sha256: [u8; 32],
@@ -140,7 +140,7 @@ fn field(runtime: &mut AmigaRuntimeKind, events: &[InputEvent], active: bool) ->
         audio,
     }
 }
-fn specimen(model: Model, interlace: bool) -> AmigaRuntimeKind {
+fn specimen(model: Model, interlace: bool, debug_cut: bool) -> AmigaRuntimeKind {
     let mut runtime = AmigaRuntimeKind::new(model, firmware(true, interlace)).expect("A1200");
     let disk = vec![0x35; 901_120];
     let mut media = MediaSet::new();
@@ -160,7 +160,34 @@ fn specimen(model: Model, interlace: bool) -> AmigaRuntimeKind {
                 trace_sink: &mut NullTraceSink,
             },
         )
-        .expect("half-CCK cut");
+        .expect("original short time request");
+    if debug_cut {
+        for _ in 0..2000 {
+            runtime
+                .debug_target_mut()
+                .expect("live debugger")
+                .step_instruction();
+            if runtime.scheduler_diagnostic_snapshot().cck_phase == 1 {
+                break;
+            }
+        }
+        assert_eq!(
+            runtime.scheduler_diagnostic_snapshot().cck_phase,
+            1,
+            "actual half-CCK cut"
+        );
+        assert_eq!(
+            runtime.time().get(),
+            runtime.tick_count(),
+            "debugger accounts machine ticks"
+        );
+    } else {
+        assert_eq!(
+            runtime.scheduler_diagnostic_snapshot().cck_phase,
+            0,
+            "original request stopped at a CCK boundary"
+        );
+    }
     assert!(!runtime.overlay(), "guest removed overlay");
     assert_ne!(runtime.read_word(0x1200), 0, "guest counter advanced");
     assert_ne!(runtime.read_word(0x1202), 0, "guest sampled held joystick");
@@ -178,6 +205,35 @@ fn continuation(runtime: &mut AmigaRuntimeKind) -> Vec<u8> {
     postcard::to_allocvec(&(fields, digest(&runtime.snapshot().expect("final v66 save"))))
         .expect("native observations")
 }
+fn diagnose(name: &str, actual: &[u8], expected: &[u8]) {
+    let (a, final_a): (Vec<Field>, [u8; 32]) =
+        postcard::from_bytes(actual).expect("actual observations");
+    let (e, final_e): (Vec<Field>, [u8; 32]) =
+        postcard::from_bytes(expected).expect("original observations");
+    assert_eq!(a.len(), e.len());
+    for (index, (a, e)) in a.iter().zip(&e).enumerate() {
+        let mut differences = 0;
+        let mut max_ulp = 0;
+        let mut max_error = 0.0_f32;
+        for (a, e) in a.audio.0.iter().zip(&e.audio.0) {
+            for (a, e) in a.3.iter().zip(&e.3) {
+                differences += usize::from(a != e);
+                max_ulp = max_ulp.max(a.abs_diff(*e));
+                max_error = max_error.max((f32::from_bits(*a) - f32::from_bits(*e)).abs());
+            }
+        }
+        eprintln!(
+            "{name}: field {index}: clocks {}/{}, frame exact={}, audio packets {}/{}, differing samples={differences}, max bit-distance={max_ulp}, max absolute error={max_error:e}",
+            a.elapsed,
+            e.elapsed,
+            a.complete_frame_sha256 == e.complete_frame_sha256,
+            a.audio.0.len(),
+            e.audio.0.len()
+        );
+    }
+    eprintln!("{name}: complete final save exact={}", final_a == final_e);
+}
+
 fn capture_directory() -> Option<PathBuf> {
     let directory = std::env::var_os("EMU198X_A1200_CAPTURE")?;
     let head = std::process::Command::new("git")
@@ -209,14 +265,23 @@ fn capture_directory() -> Option<PathBuf> {
     );
     Some(directory.into())
 }
-#[test]
-fn original_v66_native_continuations_remain_exact() {
+fn verify_original_continuations(debug_cut: bool) {
     let root =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/commodore-amiga/a1200-v66");
+    for (name, active, interlace) in [
+        ("active-progressive", true, false),
+        ("active-interlaced", true, true),
+        ("inactive", false, false),
+    ] {
+        assert_eq!(
+            firmware(active, interlace),
+            std::fs::read(root.join(format!("{name}.rom"))).expect("owned firmware bytes")
+        );
+    }
     let capture = capture_directory();
     for model in [Model::A1200AgaPal, Model::A1200AgaNtsc] {
         for interlace in [false, true] {
-            let name = format!(
+            let mut name = format!(
                 "{}-{}",
                 model.model_id(),
                 if interlace {
@@ -225,8 +290,11 @@ fn original_v66_native_continuations_remain_exact() {
                     "progressive"
                 }
             );
+            if debug_cut {
+                name.push_str("-debug-cut");
+            }
             let (original, expected) = if let Some(directory) = &capture {
-                let mut live = specimen(model, interlace);
+                let mut live = specimen(model, interlace, debug_cut);
                 let saved = live.snapshot().expect("original v66 save");
                 let output = continuation(&mut live);
                 std::fs::create_dir_all(directory).expect("capture directory");
@@ -252,16 +320,35 @@ fn original_v66_native_continuations_remain_exact() {
             let mut restored =
                 AmigaRuntimeKind::new(model, firmware(true, interlace)).expect("fixed profile");
             restored.restore(&original).expect("old v66 restore");
+            assert_eq!(
+                restored.scheduler_diagnostic_snapshot().cck_phase,
+                u8::from(debug_cut),
+                "{name}: retained half-CCK phase"
+            );
             assert!(
                 restored.snapshot().expect("reencoded") == original,
                 "{name}: complete save bytes"
             );
+            let actual = continuation(&mut restored);
+            if actual != expected {
+                diagnose(&name, &actual, &expected);
+            }
             assert!(
-                continuation(&mut restored) == expected,
+                actual == expected,
                 "{name}: first frame/audio/clocks/final bytes"
             );
         }
         let mut inactive = AmigaRuntimeKind::new(model, firmware(false, false)).expect("inactive");
         field(&mut inactive, &[], false);
     }
+}
+
+#[test]
+fn original_v66_native_continuations_remain_exact() {
+    verify_original_continuations(false);
+}
+
+#[test]
+fn original_v66_debug_cut_continuations_remain_exact() {
+    verify_original_continuations(true);
 }

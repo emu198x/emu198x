@@ -109,7 +109,8 @@ impl Commodore {
             (Machine::Amiga(m), "floppy-0") => match m.runtime() {
                 AmigaRuntimeKind::Ocs(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::Ecs(r) => r.machine().floppy0_image_bytes(),
-                AmigaRuntimeKind::Aga(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::AgaPal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::AgaNtsc(r) => r.machine().floppy0_image_bytes(),
             },
             _ => None,
         };

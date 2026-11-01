@@ -265,6 +265,11 @@ impl Model {
     /// The model a variant id names.
     #[must_use]
     pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "commodore-amiga-a1200-pal" => return Some(Self::A1200AgaPal),
+            "commodore-amiga-a1200-ntsc" => return Some(Self::A1200AgaNtsc),
+            _ => {}
+        }
         Self::VARIANTS
             .into_iter()
             .find(|model| model.variant_id() == id)
@@ -650,7 +655,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
     // recording-fps derivation needs. See the `profile_for` doc comment.
     let tick_hz = cck_hz.saturating_mul(2);
     MachineProfile {
-        machine_id: MachineId::from("commodore-amiga"),
+        machine_id: match model {
+            Model::A1200AgaPal => MachineId::from("commodore-amiga-a1200-pal"),
+            Model::A1200AgaNtsc => MachineId::from("commodore-amiga-a1200-ntsc"),
+            _ => MachineId::from("commodore-amiga"),
+        },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Amiga,

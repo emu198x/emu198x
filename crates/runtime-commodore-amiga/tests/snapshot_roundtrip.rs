@@ -38,7 +38,7 @@ use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
 use runtime_commodore_amiga::{
-    AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
+    AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
     AmigaRuntime, Model,
 };
 
@@ -154,8 +154,8 @@ fn cancelled_audio_startup_delivery_survives_live_restore() -> Result<(), Box<dy
                     pending,
                 )?;
                 check(
-                    AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
-                    AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+                    AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
+                    AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
                     channel,
                     second,
                     pending,
@@ -280,8 +280,8 @@ fn paula_handover_sampling_history_survives_live_restore() -> Result<(), Box<dyn
                 manual,
             )?;
             check(
-                AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
-                AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+                AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
+                AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
                 period,
                 manual,
             )?;
@@ -385,8 +385,8 @@ fn paula_manual_stop_decisions_survive_live_restore() -> Result<(), Box<dyn Erro
                 stop,
             )?;
             check(
-                AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
-                AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+                AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
+                AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
                 period,
                 stop,
             )?;
@@ -467,8 +467,8 @@ fn paula_pending_loop_and_delayed_irq_survive_live_restore() -> Result<(), Box<d
             attach,
         )?;
         check(
-            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
-            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
             attach,
         )?;
     }
@@ -563,8 +563,8 @@ fn paula_modulation_and_pending_dma_survive_live_restore() -> Result<(), Box<dyn
             attach,
         )?;
         check(
-            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
-            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
             attach,
         )?;
     }
@@ -659,8 +659,8 @@ fn paula_zero_and_short_periods_survive_live_restore() -> Result<(), Box<dyn Err
             period,
         )?;
         check(
-            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
-            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?,
             period,
         )?;
     }
@@ -731,8 +731,8 @@ fn horizontal_display_window_survives_strobe_reset_and_half_cck_restore()
             stop,
         )?;
         check(
-            AmigaA1200Runtime::blank(Model::A1200AgaPal),
-            AmigaA1200Runtime::blank(Model::A1200AgaPal),
+            AmigaA1200PalRuntime::blank(),
+            AmigaA1200PalRuntime::blank(),
             stop,
         )?;
     }
@@ -792,10 +792,7 @@ fn malformed_combined_refresh_restore_preserves_the_destination() -> Result<(), 
         AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
         AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
     )?;
-    check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-    )
+    check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }
 
 #[test]
@@ -912,10 +909,7 @@ fn combined_refresh_display_replays_through_live_service_on_every_chipset()
         AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
         AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
     )?;
-    check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-    )
+    check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }
 
 #[test]
@@ -1030,10 +1024,7 @@ fn overlapping_display_address_samples_before_outgoing_pointer_service()
         AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
         AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
     )?;
-    check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-    )
+    check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }
 
 #[test]
@@ -1151,8 +1142,8 @@ fn bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service()
         &[1],
     )?;
     check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200PalRuntime::blank(),
+        AmigaA1200PalRuntime::blank(),
         &[1, 2, 4],
     )
 }
@@ -1272,8 +1263,8 @@ fn addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset()
         &[1],
     )?;
     check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200PalRuntime::blank(),
+        AmigaA1200PalRuntime::blank(),
         &[1, 2, 4],
     )
 }
@@ -1344,7 +1335,7 @@ fn automatic_strobes_cross_the_live_pipeline_and_reset_denise() -> Result<(), Bo
     }
     check(AmigaOcsRuntime::blank(Model::A500OcsPal), false)?;
     check(AmigaEcsRuntime::blank(Model::A500PlusEcsPal), true)?;
-    check(AmigaA1200Runtime::blank(Model::A1200AgaPal), true)
+    check(AmigaA1200PalRuntime::blank(), true)
 }
 
 #[test]
@@ -1456,8 +1447,8 @@ fn live_strobe_service_and_denise_counter_replay_on_every_chipset() -> Result<()
         true,
     )?;
     check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200PalRuntime::blank(),
+        AmigaA1200PalRuntime::blank(),
         true,
     )?;
     Ok(())
@@ -2835,7 +2826,7 @@ fn line_onedot_suppression_survives_postcard_round_trip() -> Result<(), Box<dyn 
 fn alice_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     const DESTINATION: u32 = 0x0000_2000;
 
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     {
         let machine = original.machine_mut();
         machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
@@ -2861,7 +2852,7 @@ fn alice_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<()
     assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&snapshot)?;
     assert_eq!(snapshot, restored.snapshot()?);
 
@@ -2886,7 +2877,7 @@ fn alice_source_finish_with_pending_d_survives_postcard_round_trip() -> Result<(
     const DESTINATION: u32 = 0x0000_2000;
     const DMA_BLITTER: u16 = 0x0040;
 
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     {
         let machine = original.machine_mut();
         machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
@@ -2920,7 +2911,7 @@ fn alice_source_finish_with_pending_d_survives_postcard_round_trip() -> Result<(
     assert_ne!(original.machine().intreq() & INT_BLIT, 0);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&snapshot)?;
     assert_eq!(snapshot, restored.snapshot()?);
     for _ in 0..32 {
@@ -2957,7 +2948,7 @@ fn a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip() -> Result<(), 
     const DESTINATION: u32 = 0x0000_1001;
 
     let kickstart = dynamic_long_write_kickstart();
-    let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart.clone())?;
+    let mut original = AmigaA1200PalRuntime::new(Model::A1200AgaPal, kickstart.clone())?;
     {
         let machine = original.machine_mut();
         machine.poke_byte(DESTINATION - 1, 0xA5);
@@ -3005,7 +2996,7 @@ fn a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip() -> Result<(), 
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart)?;
+    let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, kickstart)?;
     restored.restore(&snapshot)?;
     assert_eq!(snapshot, restored.snapshot()?);
 
@@ -3409,8 +3400,8 @@ fn enhanced_vertical_close_replays_across_both_post_wrap_cells() -> Result<(), B
         |m| m.agnus_ecs().vertical_diw_active(),
     )?;
     check(
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200PalRuntime::blank(),
+        AmigaA1200PalRuntime::blank(),
         |m| m.agnus_aga().vertical_diw_active(),
     )
 }
@@ -3645,7 +3636,7 @@ fn ecs_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
 
 #[test]
 fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     original.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     original.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
     original.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
@@ -3667,7 +3658,7 @@ fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&snapshot)?;
     assert!(restored.machine().denise_aga().programmed_hblank_active());
     assert_eq!(
@@ -3750,7 +3741,7 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
     const OLD_ARGB: u32 = 0xFF11_2233;
     const NEW_ARGB: u32 = 0xFFAA_BBCC;
 
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -3844,7 +3835,7 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&snapshot)?;
     assert_eq!(
         (
@@ -3949,7 +3940,7 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
     const OLD_ARGB: u32 = 0xFF11_2233;
     const NEW_ARGB: u32 = 0xFFAA_BBCC;
 
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -4028,7 +4019,7 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&snapshot)?;
     assert_eq!(
         restored
@@ -4119,7 +4110,7 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
 
 #[test]
 fn aga_display_register_pipelines_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F1C4, 0x0740); // HBSTRT
@@ -4166,7 +4157,7 @@ fn aga_display_register_pipelines_survive_snapshot_round_trip() -> Result<(), Bo
     assert_eq!(lisa_before.programmed_hblank_pipeline[1].hbstop, 0x0350);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&snapshot)?;
 
     assert_eq!(
@@ -4364,7 +4355,7 @@ fn ocs_fixed_blank_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>>
 #[test]
 fn lisa_reset_blank_comparison_survives_half_cck_restore() -> Result<(), Box<dyn Error>> {
     for (start, stop) in [(1, 0xA0), (0x0301, 0xA0), (0x80, 1), (0x80, 0x0301)] {
-        let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+        let mut original = AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?;
         for (reg, value) in [(0x100, 1), (0x106, 1), (0x1C4, start), (0x1C6, stop)] {
             original.machine_mut().poke_word(0x00DF_F000 + reg, value);
         }
@@ -4386,7 +4377,7 @@ fn lisa_reset_blank_comparison_survives_half_cck_restore() -> Result<(), Box<dyn
                 counter.position() > 400 && counter.next_comparison_position() == 2;
             levels.insert(m.denise_aga().programmed_hblank_active());
             let bytes = original.snapshot()?;
-            let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+            let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?;
             restored.restore(&bytes)?;
             assert!(
                 bytes == restored.snapshot()?,
@@ -4417,7 +4408,7 @@ fn lisa_reset_blank_comparison_survives_half_cck_restore() -> Result<(), Box<dyn
 
 #[test]
 fn lisa_vertical_blank_strobes_and_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+    let mut original = AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?;
     for (register, value) in [(0x100, 1), (0x106, 1), (0x1C4, 0x80), (0x1C6, 0x07A0)] {
         original
             .machine_mut()
@@ -4444,7 +4435,7 @@ fn lisa_vertical_blank_strobes_and_edges_survive_runtime_restore() -> Result<(),
         pending_stop |= state.pending_programmed == Some(false);
         retained_blank |= state.programmed_active;
         let bytes = original.snapshot()?;
-        let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+        let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, blank_kickstart())?;
         restored.restore(&bytes)?;
         assert_eq!(
             state,
@@ -4619,8 +4610,8 @@ fn restore_preserves_writable_live_floppy_image_across_chipset_tiers() -> Result
     )?;
     assert_writable_live_floppy_snapshot(
         "AGA A1200",
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
-        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200PalRuntime::blank(),
+        AmigaA1200PalRuntime::blank(),
     )?;
     Ok(())
 }
@@ -4628,7 +4619,7 @@ fn restore_preserves_writable_live_floppy_image_across_chipset_tiers() -> Result
 #[test]
 fn aga_collision_extension_survives_restore_and_base_write_resets_it() -> Result<(), Box<dyn Error>>
 {
-    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut original = AmigaA1200PalRuntime::blank();
     original.machine_mut().poke_word(0x00DF_F098, 0x0FFF);
     original.machine_mut().poke_word(0x00DF_F10E, 0x00C3);
     assert_eq!(
@@ -4642,7 +4633,7 @@ fn aga_collision_extension_survives_restore_and_base_write_resets_it() -> Result
         0x00C3
     );
     let bytes = original.snapshot()?;
-    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let mut restored = AmigaA1200PalRuntime::blank();
     restored.restore(&bytes)?;
     assert_eq!(restored.snapshot()?, bytes);
     assert_eq!(
@@ -4686,7 +4677,7 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
     rom[10..12].copy_from_slice(&0x7E01u16.to_be_bytes()); // MOVEQ #1,D7
     rom[12..14].copy_from_slice(&0x60FEu16.to_be_bytes());
     for held in [false, true] {
-        let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
+        let mut original = AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom.clone())?;
         let mut reached = false;
         for _ in 0..10_000 {
             original.machine_mut().tick();
@@ -4718,7 +4709,7 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
         assert!(reached, "prefetch boundary not reached: holding={held}");
         let bytes = original.snapshot()?;
         assert_eq!(bytes[0], 66);
-        let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
+        let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom.clone())?;
         restored.restore(&bytes)?;
         assert_eq!(bytes, restored.snapshot()?);
         for _ in 0..1_000 {

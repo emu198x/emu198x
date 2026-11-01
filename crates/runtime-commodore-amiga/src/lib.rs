@@ -45,5 +45,6 @@ pub use typing::{
     type_string,
 };
 pub use variants::{
-    AmigaA1200Runtime, AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime, AmigaRuntimeKind,
+    AmigaA1200NtscRuntime, AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime,
+    AmigaRuntimeKind,
 };

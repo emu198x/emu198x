@@ -216,7 +216,7 @@ fn build_empty_session(model: Model, kickstart: &[u8]) -> TestSession {
 fn ocs_runtime(session: &TestSession) -> &AmigaOcsRuntime {
     match session.machine() {
         AmigaRuntimeKind::Ocs(runtime) => runtime,
-        AmigaRuntimeKind::Ecs(_) | AmigaRuntimeKind::Aga(_) => {
+        AmigaRuntimeKind::Ecs(_) | AmigaRuntimeKind::AgaPal(_) | AmigaRuntimeKind::AgaNtsc(_) => {
             panic!("Test Kit gate requires an OCS-shaped runtime")
         }
     }
