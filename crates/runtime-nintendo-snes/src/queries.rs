@@ -1,7 +1,7 @@
 //! Query surface for the Super NES.
 
+use crate::SnesMachine as Snes;
 use emu198x_shell::{MachineCore, QueryError, QueryResult, SessionQueryProvider};
-use machine_nintendo_snes::Snes;
 use serde_json::json;
 
 use crate::runtime::SnesRuntime;

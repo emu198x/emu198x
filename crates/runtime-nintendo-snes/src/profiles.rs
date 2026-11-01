@@ -1,11 +1,11 @@
 //! Super NES profile catalogue.
 
 use crate::SnesRuntime;
+use common_nintendo_snes::{NTSC_MASTER_HZ, PAL_MASTER_HZ, ipl};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
-use machine_nintendo_snes::{NTSC_MASTER_HZ, PAL_MASTER_HZ, ipl};
 
 /// Lines in an NTSC and a PAL frame, and master clocks in a line.
 const NTSC_LINES: u64 = 262;
@@ -83,10 +83,10 @@ impl Model {
     }
 
     #[must_use]
-    pub const fn machine_region(self) -> machine_nintendo_snes::Region {
+    pub const fn machine_region(self) -> common_nintendo_snes::Region {
         match self {
-            Self::SnesPal => machine_nintendo_snes::Region::Pal,
-            Self::SnesNtsc | Self::SuperFamicom => machine_nintendo_snes::Region::Ntsc,
+            Self::SnesPal => common_nintendo_snes::Region::Pal,
+            Self::SnesNtsc | Self::SuperFamicom => common_nintendo_snes::Region::Ntsc,
         }
     }
 
@@ -108,6 +108,14 @@ impl Model {
         match self {
             Self::SnesPal => PAL_MASTER_HZ,
             Self::SnesNtsc | Self::SuperFamicom => NTSC_MASTER_HZ,
+        }
+    }
+
+    /// The two implemented regional configurations; branding stays a profile.
+    pub const fn machine_id(self) -> &'static str {
+        match self {
+            Self::SnesPal => "nintendo-snes-pal",
+            Self::SnesNtsc | Self::SuperFamicom => "nintendo-snes-ntsc",
         }
     }
 
@@ -168,7 +176,7 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("nintendo-snes"),
+        machine_id: MachineId::from(model.machine_id()),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
@@ -232,7 +240,10 @@ mod tests {
     #[test]
     fn the_ipl_rom_is_optional_firmware() {
         for profile in profiles() {
-            assert_eq!(profile.machine_id.as_str(), "nintendo-snes");
+            assert!(matches!(
+                profile.machine_id.as_str(),
+                "nintendo-snes-ntsc" | "nintendo-snes-pal"
+            ));
             assert!(profile.firmware.iter().all(|f| f.optional));
         }
         assert!(Model::SnesNtsc.firmware_sources()[0].optional);

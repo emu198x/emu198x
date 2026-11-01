@@ -568,6 +568,17 @@ impl SPpu {
         std::mem::take(&mut self.frame_ready)
     }
 
+    /// Check serialized allocations before a machine installs restored state.
+    /// This covers both VRAM sizes the PPU supports without changing state.
+    #[must_use]
+    pub fn has_valid_memory_layout(&self) -> bool {
+        self.vram.len() == 0x10000
+            && matches!(self.vram_mask, 0x7fff | 0xffff)
+            && self.oam.len() == 128
+            && self.raw.len() == FRAME_WIDTH * FRAME_HEIGHT
+            && self.argb.len() == FRAME_WIDTH * FRAME_HEIGHT
+    }
+
     /// The picture, ARGB8888, [`FRAME_WIDTH`] × [`FRAME_HEIGHT`].
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
@@ -635,5 +646,24 @@ impl SPpu {
         let b = level(brightness, (colour >> 10) & 31);
         self.raw[index] = value;
         self.argb[index] = 0xFF00_0000 | r << 16 | g << 8 | b;
+    }
+}
+
+#[cfg(test)]
+mod restored_layout_tests {
+    use super::*;
+    #[test]
+    fn malformed_video_allocations_are_refused() {
+        let good = SPpu::new(Region::Ntsc);
+        assert!(good.has_valid_memory_layout());
+        let mut vram = good.clone();
+        vram.vram.pop();
+        assert!(!vram.has_valid_memory_layout());
+        let mut oam = good.clone();
+        oam.oam.pop();
+        assert!(!oam.has_valid_memory_layout());
+        let mut pixels = good;
+        pixels.argb.pop();
+        assert!(!pixels.has_valid_memory_layout());
     }
 }

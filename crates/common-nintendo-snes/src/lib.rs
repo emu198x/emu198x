@@ -65,6 +65,7 @@ pub mod apu;
 pub mod cart;
 pub mod dma;
 pub mod ipl;
+pub mod owner;
 pub mod pad;
 
 use emu198x_nintendo_s_ppu::{Region as PpuRegion, SPpu};
@@ -407,6 +408,7 @@ impl Snes {
             || self.apu.ipl.len() != 64
             || self.apu.dsp.ram().len() != 65536
             || self.cart.rom().is_empty()
+            || !self.ppu.has_valid_memory_layout()
             || self.ppu.framebuffer().len() != 512 * 480
             || self.ppu.framebuffer_raw().len() != 512 * 480
         {

@@ -5,7 +5,7 @@
 //! taken as a LoROM board with no RAM, the way most emulators treat a
 //! headerless dump. A coprocessor board is refused.
 
-use machine_nintendo_snes::{Cartridge, CartridgeError, Map};
+use common_nintendo_snes::{Cartridge, CartridgeError, Map};
 
 /// The board for `image`.
 ///

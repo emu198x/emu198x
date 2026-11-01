@@ -5,8 +5,9 @@
 //! face buttons sit in a diamond like a modern pad's: B south, A east,
 //! Y west, X north.
 
+use crate::SnesMachine as Snes;
+use common_nintendo_snes::Buttons;
 use emu198x_shell::InputEvent;
-use machine_nintendo_snes::{Buttons, Snes};
 
 /// Apply one host input event to the machine's pads. Button events name a
 /// port, 1 or 2; key events go to port 1.
@@ -51,13 +52,14 @@ fn button<'a>(buttons: &'a mut Buttons, name: &str) -> Option<&'a mut bool> {
 #[cfg(test)]
 mod tests {
     use super::apply_input_event;
+    use crate::{Model, SnesMachine as Snes};
+    use common_nintendo_snes::{Buttons, Cartridge, Map};
     use emu198x_shell::InputEvent;
-    use machine_nintendo_snes::{Buttons, Cartridge, Map, Region, Snes};
 
     fn machine() -> Snes {
         Snes::new(
+            Model::SnesNtsc,
             Cartridge::from_rom(vec![0; 0x8000], Map::LoRom, 0),
-            Region::Ntsc,
             None,
         )
     }

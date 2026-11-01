@@ -4,22 +4,32 @@
 //! are part of it, so a restore resumes at the exact master clock. A
 //! borrowing envelope for encode, an owning one for decode.
 
+use common_nintendo_snes::Snes;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_nintendo_snes::Snes;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::SnesRuntime;
 
-/// Version 1 is the first. The machine serialises positionally, so any
-/// change to its layout needs a bump here.
-const SNAPSHOT_VERSION: u16 = 1;
+/// V2 retains the IPL even without a cartridge. V1 can be recovered exactly
+/// only when its machine carries the firmware bytes.
+const SNAPSHOT_VERSION: u16 = 2;
 
 #[derive(Serialize)]
-struct SnesSnapshotRefV1<'a> {
+struct SnesSnapshotRefV2<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
+    ipl: Option<&'a [u8]>,
     machine: Option<&'a Snes>,
+}
+
+#[derive(Deserialize)]
+struct SnesSnapshotV2 {
+    version: u16,
+    time: u64,
+    model_id: String,
+    ipl: Option<Vec<u8>>,
+    machine: Option<Snes>,
 }
 
 #[derive(Deserialize)]
@@ -31,78 +41,86 @@ struct SnesSnapshotV1 {
 }
 
 pub(crate) fn encode(runtime: &SnesRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = SnesSnapshotRefV1 {
+    let snapshot = SnesSnapshotRefV2 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model_id(),
-        machine: runtime.machine(),
+        ipl: runtime.snapshot_ipl(),
+        machine: runtime.machine().map(|m| m.state()),
     };
-    postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
-        reason: format!("encode failed: {reason}"),
-    })
+    postcard::to_allocvec(&snapshot).map_err(invalid_decode)
+}
+
+fn invalid_decode(reason: impl std::fmt::Display) -> MachineError {
+    MachineError::InvalidSnapshot {
+        reason: format!("snapshot codec: {reason}"),
+    }
 }
 
 pub(crate) fn decode(runtime: &mut SnesRuntime, bytes: &[u8]) -> Result<(), MachineError> {
-    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
-        MachineError::InvalidSnapshot {
-            reason: format!("decode failed: {reason}"),
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(invalid_decode)?;
+    let (time, model_id, machine, ipl) = match version {
+        1 => {
+            let saved: SnesSnapshotV1 = postcard::from_bytes(bytes).map_err(invalid_decode)?;
+            debug_assert_eq!(saved.version, 1);
+            let Some(machine) = saved.machine else {
+                return Err(invalid_decode(
+                    "blank v1 saves omit the IPL and cannot be restored exactly",
+                ));
+            };
+            let ipl = machine.apu.ipl.clone();
+            (saved.time, saved.model_id, Some(machine), Some(ipl))
         }
-    })?;
-    if version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
-        });
-    }
-    let snapshot: SnesSnapshotV1 =
-        postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-            reason: format!("decode failed: {reason}"),
-        })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
-    if snapshot.model_id != runtime.model_id() {
+        SNAPSHOT_VERSION => {
+            let saved: SnesSnapshotV2 = postcard::from_bytes(bytes).map_err(invalid_decode)?;
+            debug_assert_eq!(saved.version, SNAPSHOT_VERSION);
+            (saved.time, saved.model_id, saved.machine, saved.ipl)
+        }
+        _ => {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "unsupported snapshot version {version}; expected 1 or {SNAPSHOT_VERSION}"
+                ),
+            });
+        }
+    };
+    if model_id != runtime.model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
-                "snapshot model {} does not match runtime model {}",
-                snapshot.model_id,
+                "snapshot model {model_id} does not match runtime model {}",
                 runtime.model_id()
             ),
         });
     }
-    if let Some(machine) = &snapshot.machine {
+    let ipl: Option<[u8; 64]> = ipl
+        .map(|rom| {
+            rom.try_into().map_err(|rom: Vec<u8>| {
+                invalid_decode(format!("IPL must contain 64 bytes, found {}", rom.len()))
+            })
+        })
+        .transpose()?;
+    if let Some(machine) = &machine {
         machine
             .validate_board(runtime.model().machine_region())
-            .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+            .map_err(invalid_decode)?;
+        let expected = ipl
+            .as_ref()
+            .unwrap_or(&common_nintendo_snes::ipl::CLEAN_ROOM);
+        if machine.apu.ipl.as_slice() != expected {
+            return Err(invalid_decode("envelope IPL does not match machine IPL"));
+        }
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_machine(snapshot.machine);
+    let machine = machine
+        .map(|state| crate::SnesMachine::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(invalid_decode)?;
+    // Everything above is fallible; installation is atomic after validation.
+    runtime.set_time(MachineTime::new(time));
+    runtime.set_machine(machine);
+    runtime.set_snapshot_ipl(ipl);
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{SNAPSHOT_VERSION, decode};
-    use crate::{Model, blank};
-    use emu198x_shell::{MachineCore, MachineError};
-
-    #[test]
-    fn decode_rejects_a_future_version_before_the_payload() {
-        let mut runtime = blank(Model::SnesNtsc);
-        let bytes = postcard::to_allocvec(&(SNAPSHOT_VERSION + 1)).expect("encodes");
-        let err = decode(&mut runtime, &bytes).expect_err("rejected");
-        assert!(
-            matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("unsupported snapshot version")),
-            "{err:?}"
-        );
-        assert!(decode(&mut runtime, &[]).is_err());
-    }
-
-    #[test]
-    fn decode_rejects_another_models_snapshot() {
-        let snapshot = blank(Model::SnesNtsc).snapshot().expect("encode");
-        let mut runtime = blank(Model::SnesPal);
-        let err = runtime.restore(&snapshot).expect_err("model mismatch");
-        assert!(
-            matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("does not match")),
-            "{err:?}"
-        );
-    }
-}
+#[path = "snapshot_tests.rs"]
+mod tests;
