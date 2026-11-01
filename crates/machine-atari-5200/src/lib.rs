@@ -68,7 +68,10 @@ pub const POT_MAX: u8 = 228;
 /// Atari 5200 region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atari5200Region {
+    /// NTSC timing used by the shipping runtime. Board revision is unqualified.
     Ntsc,
+    /// Experimental PAL timing; not an identified manufactured 5200 board.
+    /// The runtime does not expose this configuration.
     Pal,
 }
 

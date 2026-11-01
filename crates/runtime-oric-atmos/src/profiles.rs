@@ -7,9 +7,9 @@ use emu198x_shell::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
-    /// Oric-1 (1983) — 48 KB RAM.
+    /// Oric-1 48K (1983) — 64 KiB physical DRAM, 48 KiB below ROM.
     Oric1,
-    /// Oric Atmos (1984) — 64 KB RAM, improved keyboard.
+    /// Oric Atmos (1984) — the same DRAM capacity, with the later ROM/keyboard.
     Atmos,
 }
 
@@ -99,7 +99,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::Oric1 => 1983,
             Model::Atmos => 1984,
         },
-        summary: "Oric — 6502A + 16 KB BASIC/OS ROM, 48 KB (Oric-1) or 64 KB (Atmos) RAM, VIA + AY-via-VIA, TEXT + HIRES ULA.".into(),
+        // Oric service manual (1984), pp. 10–11: both 48K models fit
+        // 64 KiB of DRAM; the stock ROM overlays its upper 16 KiB.
+        summary: "Oric — 6502A + 16 KiB BASIC/OS ROM, 64 KiB physical DRAM with 48 KiB below ROM, VIA + AY-via-VIA, TEXT + HIRES ULA.".into(),
         clock: ClockDesc::new("m6502-cycle", ClockRate::from_hz(1_000_000)),
         firmware: vec![FirmwareRequirement::new(
             BIOS_FIRMWARE_ID,
