@@ -4,10 +4,11 @@
 //! into a fixed output ring. No transition queue can overflow. The caller
 //! retains its integer sample phase and emits at its existing host cadence.
 //! At 48 kHz, the cutoff is 22 kHz and the linear-phase delay is 1 ms.
+//! Coefficients are fixed across hosts; provenance and the original generator
+//! live in `data/README.md`.
 //! Design/evidence: Amiga `paula-audio/bandwidth-probe` in the test corpus.
 
 use serde::{Deserialize, Serialize};
-use std::f64::consts::PI;
 use std::sync::LazyLock;
 
 /// Number of future host frames affected by a signal transition.
@@ -15,42 +16,19 @@ pub const SUPPORT: usize = 96;
 /// Fixed signal delay, in host frames; align time-varying controls to this.
 pub const DELAY: usize = SUPPORT / 2;
 const PHASES: usize = 256;
-const CUTOFF: f64 = 22.0 / 48.0;
 // Generous bound for normalised input: |correction| <= 1 + ||h||_1 < 4.
 const MAX_CORRECTION: f64 = 8.0;
 type Stereo = [f64; 2];
 type Row = [f64; SUPPORT];
 
 static KERNEL: LazyLock<Box<[Row]>> = LazyLock::new(|| {
-    // Allocate on the heap, including during construction (also on Wasm).
-    let mut integral = vec![0.0; SUPPORT * PHASES + 1];
-    let mut previous = 0.0;
-    let mut area = 0.0;
-    for (i, sample) in integral.iter_mut().enumerate() {
-        let t = i as f64 / PHASES as f64;
-        let x = t - DELAY as f64;
-        let window = 0.42 - 0.5 * (2.0 * PI * t / SUPPORT as f64).cos()
-            + 0.08 * (4.0 * PI * t / SUPPORT as f64).cos();
-        let sinc = if x == 0.0 {
-            2.0 * CUTOFF
-        } else {
-            (2.0 * PI * CUTOFF * x).sin() / (PI * x)
-        };
-        let value = window * sinc;
-        if i != 0 {
-            area += (previous + value) / (2 * PHASES) as f64;
-        }
-        *sample = area;
-        previous = value;
-    }
-    for sample in &mut integral {
-        *sample /= area;
-    }
+    // Decode onto the heap, including on Wasm. The size is checked at compile
+    // time; explicit little-endian decoding gives every host the same bits.
+    const BYTES: &[u8; (PHASES + 1) * SUPPORT * 8] =
+        include_bytes!("../../data/band-limited-kernel.f64le");
     let mut rows = vec![[0.0; SUPPORT]; PHASES + 1].into_boxed_slice();
-    for (phase, row) in rows.iter_mut().enumerate() {
-        for (sample, correction) in row.iter_mut().enumerate() {
-            *correction = integral[sample * PHASES + phase] - 1.0;
-        }
+    for (coefficient, bytes) in rows.iter_mut().flatten().zip(BYTES.as_chunks::<8>().0) {
+        *coefficient = f64::from_le_bytes(*bytes);
     }
     rows
 });
