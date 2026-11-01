@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use machine_sega_sg_1000::{Sg1000, Sg1000Region};
+use common_sega_sg_1000::{Sg1000, Sg1000Region};
 
 /// TMS9918 palette entry 15.
 const WHITE: u32 = 0xFFFF_FFFF;

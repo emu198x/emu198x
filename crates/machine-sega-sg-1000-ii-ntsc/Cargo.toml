@@ -1,0 +1,14 @@
+[package]
+name = "machine-sega-sg-1000-ii-ntsc"
+description = "Fixed sega-sg-1000-ii-ntsc board configuration"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+common-sega-sg-1000 = { path = "../common-sega-sg-1000" }
+[dev-dependencies]
+postcard = { workspace = true }
+[lints]
+workspace = true

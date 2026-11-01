@@ -5,8 +5,8 @@
 //! that cold-booted from the cart. Mirrors the Game Boy / Jupiter Ace shape: a
 //! borrowing envelope for encode (no clone), an owning envelope for decode.
 
+use common_sega_sg_1000::Sg1000;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_sega_sg_1000::Sg1000;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Sg1000Runtime;
@@ -46,7 +46,7 @@ pub(crate) fn encode(runtime: &Sg1000Runtime) -> Result<Vec<u8>, MachineError> {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
-        machine: runtime.machine(),
+        machine: runtime.machine().map(|m| m.state()),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -83,18 +83,21 @@ pub(crate) fn decode(runtime: &mut Sg1000Runtime, bytes: &[u8]) -> Result<(), Ma
             ),
         });
     }
-    let mut machine = snapshot.machine;
-    if let Some(machine) = &mut machine {
+    let machine = snapshot.machine;
+    if let Some(machine) = &machine {
         let region = if runtime.model() == crate::Model::Sg1000Pal {
-            machine_sega_sg_1000::Sg1000Region::Pal
+            common_sega_sg_1000::Sg1000Region::Pal
         } else {
-            machine_sega_sg_1000::Sg1000Region::Ntsc
+            common_sega_sg_1000::Sg1000Region::Ntsc
         };
         machine
             .validate_board(region)
             .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
-        machine.cpu_mut().rehydrate_walker_sequence();
     }
+    let machine = machine
+        .map(|state| crate::Sg1000Machine::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())

@@ -5,7 +5,7 @@ use emu198x_shell::MachineCore;
 fn malformed_board_and_phase_fail_before_mutating_time_or_cartridge() {
     let mut live = Sg1000Runtime::new(Model::Sg1000Ntsc, vec![0x76; 8192]);
     let before = live.snapshot().expect("before");
-    let original = serde_json::to_value(live.machine().expect("loaded")).expect("raw");
+    let original = serde_json::to_value(live.machine().expect("loaded").state()).expect("raw");
     for fault in ["region", "tstates_per_frame", "vdp_phase", "framebuffer"] {
         let mut value = original.clone();
         match fault {
@@ -19,7 +19,7 @@ fn malformed_board_and_phase_fail_before_mutating_time_or_cartridge() {
                     .pop();
             }
         }
-        let machine: machine_sega_sg_1000::Sg1000 =
+        let machine: common_sega_sg_1000::Sg1000 =
             serde_json::from_value(value).expect("forged state");
         let bytes = postcard::to_allocvec(&Sg1000RuntimeSnapshotRefV3 {
             version: 6,
@@ -51,4 +51,32 @@ fn blank_v6_round_trips_for_every_profile_and_legacy_pal_rejects_before_decode()
         .expect("blank v5");
     ntsc.restore(&legacy).expect("NTSC legacy blank");
     assert!(ntsc.machine().is_none());
+}
+
+#[test]
+fn catalogue_and_bound_owner_agree_across_restore_and_replacement() {
+    use emu198x_shell::{FamilyRuntime, FirmwareSet};
+    for model in Model::ALL {
+        let live = Sg1000Runtime::new(model, vec![0x76; 8192]);
+        assert_eq!(
+            live.profile().machine_id.as_str(),
+            live.machine().expect("owner").machine_id()
+        );
+        let saved = live.snapshot().expect("save");
+        let mut restored = Sg1000Runtime::blank(model);
+        restored.restore(&saved).expect("restore");
+        assert_eq!(
+            restored.profile().machine_id.as_str(),
+            restored.machine().expect("restored owner").machine_id()
+        );
+        for target in Model::ALL {
+            let switched = live
+                .replacement(target, &FirmwareSet::new())
+                .expect("replacement");
+            assert_eq!(
+                switched.profile().machine_id.as_str(),
+                switched.machine().expect("new owner").machine_id()
+            );
+        }
+    }
 }

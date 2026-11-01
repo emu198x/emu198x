@@ -1,7 +1,7 @@
 //! Family-owned query surface for the SG-1000 runtime.
 
+use crate::Sg1000Machine as Sg1000;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_sega_sg_1000::Sg1000;
 use serde_json::json;
 
 use crate::runtime::Sg1000Runtime;
@@ -42,7 +42,7 @@ impl SessionQueryProvider<Sg1000Runtime> for Sg1000SessionQueryProvider {
             "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
             "machine.region" => json!(format!("{:?}", machine.model().region())),
             "machine.frame_count" => {
-                json!(machine.machine().map_or(0, Sg1000::frame_count))
+                json!(machine.machine().map_or(0, |m| m.frame_count()))
             }
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),

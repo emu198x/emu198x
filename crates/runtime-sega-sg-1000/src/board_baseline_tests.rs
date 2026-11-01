@@ -112,7 +112,7 @@ fn legacy_snapshot(runtime: &Sg1000Runtime) -> Vec<u8> {
         5_u16,
         runtime.time().get(),
         runtime.model().model_id(),
-        runtime.machine(),
+        runtime.machine().map(|m| m.state()),
     ))
     .expect("legacy envelope")
 }
