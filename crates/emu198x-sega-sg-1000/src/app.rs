@@ -31,7 +31,7 @@ impl MachineApp for Sg1000 {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
         "    --cart PATH     cartridge ROM (required; a bare PATH is accepted too)
-    --model ID      sega-sg-1000-ntsc | sega-sg-1000-pal
+    --model ID      sega-sg-1000-ntsc | sega-sg-1000-pal | sega-sg-1000-ii-ntsc
     --region MODE   ntsc | pal [default: ntsc]; last selector wins";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     Cmd/Ctrl+Shift+R  emulator hard reset
