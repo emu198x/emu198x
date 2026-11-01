@@ -469,6 +469,14 @@ pkg-config = { version = "*", stage = ["build"] }
 runner = "ubuntu-22.04-arm"
 host = "aarch64-unknown-linux-gnu"
 
+# dist 0.32 builds Apple Silicon on macos-14 by default. GitHub retires that
+# image on 2 November 2026, and its brownouts cancelled the v0.46.0 build
+# (actions/runner-images#13518). The Intel target already builds on
+# macos-15-intel.
+[workspace.metadata.dist.github-custom-runners.aarch64-apple-darwin]
+runner = "macos-15"
+host = "aarch64-apple-darwin"
+
 [profile.dist]
 inherits = "release"
 # No cross-crate LTO for release archives. Every one of the 31 emulator
