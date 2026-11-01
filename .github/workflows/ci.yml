@@ -123,6 +123,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/status/check_registry.py
 
+      - name: Check the machine dependency gate
+        run: python3 scripts/status/test_machine_dependencies.py
+
       # The committed status pages are generated from the registry and the
       # dependency graph. Neither needs a build, so this costs seconds and
       # sits here rather than behind the test job. A page edited by hand
