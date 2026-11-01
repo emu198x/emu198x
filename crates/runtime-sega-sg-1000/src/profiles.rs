@@ -68,7 +68,7 @@ impl Model {
         match self {
             Self::Sg1000Ntsc => "Sega SG-1000 (NTSC)",
             Self::Sg1000Pal => "Sega SG-1000 (PAL)",
-            Self::Sg1000IiNtsc => "Sega SG-1000 II (NTSC)",
+            Self::Sg1000IiNtsc => "Sega SG-1000 II (early TMS9918, NTSC)",
         }
     }
 
