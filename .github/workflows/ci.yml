@@ -490,6 +490,12 @@ jobs:
     name: Test
     timeout-minutes: 120
     runs-on: ubuntu-latest
+    # This job links the whole fleet. Incremental objects and debug symbols
+    # exhaust the hosted runner before the evidence ledger can be written.
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     # `EMU198X_SKIP_LOG` is not set here: the collector points each test
     # binary at its own log, which is the only way a skip can be
     # attributed to the crate that raised it — the logged line carries the
@@ -533,10 +539,16 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
+      - name: Measure free disk before restoring test artifacts
+        run: df -h .
+
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: test-linux
+          shared-key: test-linux-no-incremental-no-debug
+
+      - name: Measure free disk after restoring test artifacts
+        run: df -h .
 
       - name: Run the workspace test suite and collect evidence
         # Replaces `cargo test --workspace --no-fail-fast`, and is the same
@@ -550,6 +562,10 @@ jobs:
         # and a status canon that repeated the suite to measure it would
         # earn the same fate. One run, all the data.
         run: python3 scripts/status/collect_evidence.py --out target/status-evidence.json
+
+      - name: Measure remaining test disk
+        if: always()
+        run: df -h .
 
       - name: Run doctests
         # The collector runs test binaries; rustdoc runs doctests, which are
