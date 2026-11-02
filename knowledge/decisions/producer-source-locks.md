@@ -8,10 +8,10 @@ packaging. Each archive receives an unsigned JSON receipt binding the source
 commit, lock hash, target, producer job/run/attempt and archive/executable hashes.
 The source manifests define the complete suite; an omitted package fails.
 
-Qualification reads the actual archives independently on all five native hosts
-before GitHub hosting. The producer also rechecks bytes after notarization,
-which submits copies and does not modify the archives. Linux retains generated
-Homebrew checksum rejection, installation and emulator smoke checks.
+Each producer verifies its own archives on its native host after notarization,
+which submits copies and does not modify the archives, and before upload. Linux
+retains generated Homebrew checksum rejection, installation and emulator smoke
+checks. (Amended 2026-11-02; see "Producers verify themselves" below.)
 
 PRs use the real packaging jobs, without publication. The macOS signing setup
 step runs only for publishing runs, so PRs receive no signing/notary secrets.
@@ -31,7 +31,35 @@ their checks establish the compiled per-executable dependency/feature graph;
 that remains unknown under umbrella #72.
 
 
-## Release retries
+## Producers verify themselves
+
+Amended 2026-11-02 with Steve's approval, to make releases simpler and faster
+(plan `docs/plans/2026-11-02-ci-targeted-fixes.md`). This replaces the rule
+that "qualification reads the actual archives independently on all five
+native hosts", and the retry procedure below.
+
+The separate `Verify source lock` jobs are removed. They ran the producer's
+own check a second time, on a second runner per platform, after upload.
+GitHub's Apple Silicon runners are scarce. In the v0.46.2 run 41467795429 the
+Apple Silicon check was cancelled with "The job was not acquired by Runner of
+type hosted even after multiple attempts", after every package had been built.
+Two of the last three releases failed on Apple Silicon runners.
+
+What this gives up: nothing re-reads the archives on a separate machine after
+upload. GitHub's artifact upload and download verify the bytes in transit.
+
+Because every receipt is now verified in the job that wrote it, producer and
+verifier always share an attempt. **A retry before hosting may rerun only the
+failed jobs** (`gh run rerun RUN_ID --failed`): each rerun producer writes and
+checks new receipts in the new attempt. The same-attempt check in
+`source_lock.py` stays. Receipts are still never edited, and
+`GITHUB_RUN_ATTEMPT` is still never overridden. If hosting already published
+assets, inspect that publication before choosing recovery, as before.
+
+`scripts/test_source_lock.py` fails if a verifier returns to
+`qualify-packages.yml`.
+
+## Release retries (until 2026-11-02)
 
 Producer receipts and their verifiers must belong to the same workflow run and
 attempt. A retry of only failed/selected jobs can retain successful archives from

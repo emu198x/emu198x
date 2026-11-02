@@ -54,29 +54,25 @@ a day, mostly waiting on CI.
   multiple attempts". GitHub's own runner assignment gave up. No limit of ours
   was involved, and there's none to raise, so option B below doesn't apply.
 
-### 2. Decide how releases survive a missing Apple Silicon runner
+### 2. Let releases survive a missing Apple Silicon runner
 
-This changes a binding decision, so Steve decides. Options:
+Steve chose the simplest, fastest option (2 November 2026): drop the separate
+`Verify source lock` jobs for every platform. Each producer already verifies
+its own archives natively before upload, so a release needs one runner per
+platform, not two, and `gh run rerun --failed` works because producer and
+verifier share an attempt. Build failures can still happen; a partial retry
+now recovers from them without rebuilding every platform.
 
-- **A. Qualify Apple Silicon in the producer job.** The producer already runs
-  on `macos-15`. Verifying its own archives there removes the second queue,
-  but the check is then no longer independent of the producer, which is what
-  the decision asks for.
-- **B. Keep the independent check, and stop it failing on a queue
-  timeout.** If task 1 finds a limit we control, raise it, so the run waits
-  for a runner instead of failing. Retries stay full rebuilds.
-- **C. Keep both, and make retries cheaper.** For example, upload the
-  producer receipts so that a later attempt can be checked against them.
-  The decision explicitly forbids relaxing the same-attempt rule, so this
-  needs the most rethinking.
-
-Task 1 found no limit we control, so B is out, and I recommend A. The
-change goes to `producer-source-locks.md` first.
-
-- **Verified by:** for B, a tag dry run (or a PR run of the same jobs) whose
-  Apple Silicon job queues longer than the old limit and still passes. For
-  A, `python scripts/test_source_lock.py` with a case where the producer's
-  own check rejects a changed archive.
+- `.github/workflows/qualify-packages.yml`: remove the `source-lock` job;
+  keep `linux-install`. `release.yml` is unchanged.
+- `scripts/test_source_lock.py`: fail if a verifier returns to the qualify
+  workflow.
+- `knowledge/decisions/producer-source-locks.md`: "Producers verify
+  themselves".
+- **Verified by:** `python scripts/test_source_lock.py` passes, and fails
+  against the old workflow; `actionlint` is clean; the PR's own release
+  packaging run passes; the next tag run hosts with no qualify source-lock
+  jobs.
 
 ### 3. Give every extracted crate repo a working Release-plz
 
