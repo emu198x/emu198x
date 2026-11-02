@@ -6093,6 +6093,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "twox-hash",
+ "zip",
 ]
 
 [[package]]
