@@ -1,0 +1,24 @@
+[package]
+name = "emu198x-runtime-coleco-colecovision"
+description = "Coleco ColecoVision family metadata and headless runtime wrapper around concrete ColecoVision boards"
+edition.workspace = true
+# Published, and versioned on its own, since 2026-11-02, when the
+# ColecoVision became the first family to move to its own repository
+# (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
+version = "0.46.2"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { workspace = true }
+emu198x-ti-tms9918 = "0.1.0"
+emu198x-common-coleco-colecovision = { path = "../emu198x-common-coleco-colecovision", version = "0.46.0" }
+emu198x-machine-coleco-colecovision-ntsc = { path = "../emu198x-machine-coleco-colecovision-ntsc", version = "0.46.0" }
+emu198x-machine-coleco-colecovision-pal = { path = "../emu198x-machine-coleco-colecovision-pal", version = "0.46.0" }
+emu198x-zilog-z80 = "0.8.0"
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

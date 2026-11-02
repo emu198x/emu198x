@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
+use emu198x_runtime_coleco_colecovision::{CvRuntime, CvSessionQueryProvider, Model};
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
 use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant, build_variant_or_blank};
-use runtime_coleco_colecovision::{CvRuntime, CvSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
 /// Parsed launch options; the runtime owns model and firmware definitions.
@@ -53,7 +53,7 @@ impl MachineApp for ColecoVision {
         match flag {
             "--bios" => {
                 self.firmware.by_id.insert(
-                    runtime_coleco_colecovision::BIOS_FIRMWARE_ID.to_owned(),
+                    emu198x_runtime_coleco_colecovision::BIOS_FIRMWARE_ID.to_owned(),
                     args.path(flag)?,
                 );
             }
@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(
             app.firmware
                 .by_id
-                .get(runtime_coleco_colecovision::BIOS_FIRMWARE_ID)
+                .get(emu198x_runtime_coleco_colecovision::BIOS_FIRMWARE_ID)
                 .map(PathBuf::as_path),
             Some(Path::new("/tmp/bios"))
         );
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(
             app.firmware
                 .by_id
-                .get(runtime_coleco_colecovision::BIOS_FIRMWARE_ID),
+                .get(emu198x_runtime_coleco_colecovision::BIOS_FIRMWARE_ID),
             Some(&PathBuf::from("coleco.rom"))
         );
         assert_eq!(app.cart, Some(PathBuf::from("dk.col")));

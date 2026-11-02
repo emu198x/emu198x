@@ -16,16 +16,16 @@ use emu198x_shell::{
 use std::borrow::Cow;
 use std::time::Duration;
 
+use emu198x_runtime_coleco_colecovision::{CvRuntime, Model};
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
-use runtime_coleco_colecovision::{CvRuntime, Model};
 
 use crate::app::ColecoVision;
 
 const DEFAULT_SCALE: u32 = 3;
 
 /// Player-1 controller: joystick directions plus the two fire buttons.
-/// `south`/`east` are the names `runtime-coleco-colecovision`'s `apply_button`
+/// `south`/`east` are the names `emu198x-runtime-coleco-colecovision`'s `apply_button`
 /// maps to the controller's left / right fire buttons. A real gamepad reaches
 /// these through the same map; the keyboard does via [`UiSystem::map_key`].
 const COLECO_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
@@ -178,7 +178,7 @@ mod tests {
                 std::fs::write(&bios, vec![0; 8192]).expect("BIOS");
                 let mut firmware = FirmwareOverrides::none();
                 firmware.by_id.insert(
-                    runtime_coleco_colecovision::BIOS_FIRMWARE_ID.to_owned(),
+                    emu198x_runtime_coleco_colecovision::BIOS_FIRMWARE_ID.to_owned(),
                     bios,
                 );
                 firmware

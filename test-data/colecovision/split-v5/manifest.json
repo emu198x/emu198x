@@ -1,6 +1,6 @@
 {
   "source_revision": "94564bea324f87b8895bf0c3738bcb2551d6c953",
-  "firmware": "Original synthetic Z80 guest; capture source is runtime-coleco-colecovision/examples/board_baseline.rs",
+  "firmware": "Original synthetic Z80 guest; capture source is emu198x-runtime-coleco-colecovision/examples/board_baseline.rs",
   "files": {
     "coleco-colecovision-ntsc.after.state": "d5fae2d090ca548a69ad8410df1b95f03b7e769e9d7d3b6839097ad032ee2b88",
     "coleco-colecovision-ntsc.audio": "1125148b10942dabac6876df617fe7b485cfb9a9f3c7ab45834e2aebdc76c38f",

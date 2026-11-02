@@ -34,7 +34,9 @@ pub(super) fn create(
         #[cfg(feature = "atari-st")]
         "atari-st" => build::<runtime_atari_st::AtariStRuntime>(variant, firmware),
         #[cfg(feature = "coleco-colecovision")]
-        "coleco-colecovision" => build::<runtime_coleco_colecovision::CvRuntime>(variant, firmware),
+        "coleco-colecovision" => {
+            build::<emu198x_runtime_coleco_colecovision::CvRuntime>(variant, firmware)
+        }
         #[cfg(feature = "commodore-amiga")]
         "commodore-amiga" => build::<runtime_commodore_amiga::AmigaRuntimeKind>(variant, firmware),
         #[cfg(feature = "commodore-c64")]
@@ -151,7 +153,7 @@ pub(super) fn catalogue() -> Vec<Value> {
     #[cfg(feature = "atari-st")]
     result.extend(profiles::<runtime_atari_st::AtariStRuntime>("atari-st"));
     #[cfg(feature = "coleco-colecovision")]
-    result.extend(profiles::<runtime_coleco_colecovision::CvRuntime>(
+    result.extend(profiles::<emu198x_runtime_coleco_colecovision::CvRuntime>(
         "coleco-colecovision",
     ));
     #[cfg(feature = "commodore-amiga")]

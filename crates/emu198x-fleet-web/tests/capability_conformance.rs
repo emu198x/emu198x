@@ -254,7 +254,7 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
         ("atari-st", observe::<runtime_atari_st::AtariStRuntime>()),
         (
             "coleco-colecovision",
-            observe::<runtime_coleco_colecovision::CvRuntime>(),
+            observe::<emu198x_runtime_coleco_colecovision::CvRuntime>(),
         ),
         (
             "commodore-amiga",

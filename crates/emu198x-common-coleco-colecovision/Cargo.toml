@@ -1,0 +1,24 @@
+[package]
+name = "emu198x-common-coleco-colecovision"
+description = "Shared ColecoVision wiring bound to a concrete board at compile time"
+# Published, and versioned on its own, since 2026-11-02, when the
+# ColecoVision became the first family to move to its own repository
+# (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
+version = "0.46.2"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-ti-sn76489 = "0.1.0"
+emu198x-ti-tms9918 = "0.1.0"
+emu198x-z80-cadence = "0.1.0"
+emu198x-zilog-z80 = "0.8.0"
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true

@@ -548,19 +548,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common-coleco-colecovision"
-version = "0.46.2"
-dependencies = [
- "emu198x-ti-sn76489",
- "emu198x-ti-tms9918",
- "emu198x-z80-cadence",
- "emu198x-zilog-z80",
- "postcard",
- "serde",
- "serde-big-array",
-]
-
-[[package]]
 name = "common-commodore-amiga"
 version = "0.46.2"
 dependencies = [
@@ -1593,11 +1580,11 @@ name = "emu198x-colecovision"
 version = "0.46.2"
 dependencies = [
  "emu198x-app-icon",
+ "emu198x-runtime-coleco-colecovision",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-ui",
  "png",
- "runtime-coleco-colecovision",
  "serde_json",
 ]
 
@@ -1719,6 +1706,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-common-coleco-colecovision"
+version = "0.46.2"
+dependencies = [
+ "emu198x-ti-sn76489",
+ "emu198x-ti-tms9918",
+ "emu198x-z80-cadence",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "emu198x-dragon"
 version = "0.46.2"
 dependencies = [
@@ -1764,6 +1764,7 @@ version = "0.46.2"
 dependencies = [
  "emu198x-fleet-web",
  "emu198x-pointer",
+ "emu198x-runtime-coleco-colecovision",
  "emu198x-shell",
  "emu198x-spectrum-web",
  "emu198x-test-skip",
@@ -1777,7 +1778,6 @@ dependencies = [
  "runtime-atari-7800",
  "runtime-atari-800xl",
  "runtime-atari-st",
- "runtime-coleco-colecovision",
  "runtime-commodore-amiga",
  "runtime-commodore-c64",
  "runtime-commodore-pet",
@@ -1886,6 +1886,22 @@ name = "emu198x-konami-scc"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-machine-coleco-colecovision-ntsc"
+version = "0.46.2"
+dependencies = [
+ "emu198x-common-coleco-colecovision",
+ "emu198x-zilog-z80",
+]
+
+[[package]]
+name = "emu198x-machine-coleco-colecovision-pal"
+version = "0.46.2"
+dependencies = [
+ "emu198x-common-coleco-colecovision",
+ "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -2303,6 +2319,21 @@ name = "emu198x-ricoh-rp5c01"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-runtime-coleco-colecovision"
+version = "0.46.2"
+dependencies = [
+ "emu198x-common-coleco-colecovision",
+ "emu198x-machine-coleco-colecovision-ntsc",
+ "emu198x-machine-coleco-colecovision-pal",
+ "emu198x-shell",
+ "emu198x-ti-tms9918",
+ "emu198x-zilog-z80",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4059,22 +4090,6 @@ name = "machine-atari-800xl-pal"
 version = "0.46.2"
 dependencies = [
  "common-atari-800xl",
-]
-
-[[package]]
-name = "machine-coleco-colecovision-ntsc"
-version = "0.46.2"
-dependencies = [
- "common-coleco-colecovision",
- "emu198x-zilog-z80",
-]
-
-[[package]]
-name = "machine-coleco-colecovision-pal"
-version = "0.46.2"
-dependencies = [
- "common-coleco-colecovision",
- "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -6098,21 +6113,6 @@ dependencies = [
  "machine-atari-520st-ntsc",
  "machine-atari-520st-pal",
  "motorola-68000",
- "postcard",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "runtime-coleco-colecovision"
-version = "0.46.2"
-dependencies = [
- "common-coleco-colecovision",
- "emu198x-shell",
- "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
- "machine-coleco-colecovision-ntsc",
- "machine-coleco-colecovision-pal",
  "postcard",
  "serde",
  "serde_json",
