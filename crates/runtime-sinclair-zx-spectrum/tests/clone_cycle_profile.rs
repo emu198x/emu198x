@@ -274,7 +274,18 @@ fn pentagon_banks_and_scorpion_base_roms_remain_distinct() {
         conserved(&counts);
         assert_eq!(counts.mapped_addresses[0].mapping.page, u16::from(bank));
         let profile = counts.with_symbols(runtime.profile().clock.clone(), Some(&sources()));
-        assert_eq!(profile.clock.rate.numerator_hz, 14_336_000);
+        // The original's 3.5 MHz CPU from a 14 MHz master clock, so a 71,680
+        // T-state frame lasts 20.48 ms: 48.83 Hz (emu198x/emu198x#2231).
+        assert_eq!(profile.clock.rate.numerator_hz / 4, 3_500_000);
+        // The profile's clock and the bus crate's timing, which the machine's
+        // audio and pixel clock read, must be the same clock, and together
+        // give the frame its real length.
+        let timing = common_sinclair_zx_spectrum::timing::TIMING_PENTAGON;
+        assert_eq!(timing.master_hz, profile.clock.rate.numerator_hz);
+        assert_eq!(
+            u64::from(timing.halfcycles_per_frame) * 1_000_000 / timing.master_hz,
+            20_480
+        );
         assert_eq!(profile.lines[0].source.line, u32::from(bank) + 1);
     }
     // ROM 3 is reachable only as the Beta overlay, never as a base ROM.

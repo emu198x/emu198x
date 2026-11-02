@@ -1520,9 +1520,9 @@ dependencies = [
 
 [[package]]
 name = "emu198x-bus-sinclair-zx-spectrum"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e456e2d4a19ed245be1fc288583b21ae7413645ddda8399b85806b0d536f552"
+checksum = "47655193f66d0286491d3f3d8e7155c1e3c01451d3b924aae70bbea5896c3af5"
 
 [[package]]
 name = "emu198x-c64"
@@ -2167,9 +2167,9 @@ dependencies = [
 
 [[package]]
 name = "emu198x-pentagon-ula"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b371d70c36366b3b4adc8b295bd57ffb5678c25376b4efa3b3d6916670852731"
+checksum = "581e4fb1f0ac3b28f889ece3607eb0d572550e46d0e8e6841934650cd916353d"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
  "emu198x-sinclair-zx-spectrum-ula",

@@ -5,8 +5,9 @@
 //! - Adapted from `../Emu198x-Older/crates/machine-pentagon-128/src/lib.rs`
 //!
 //! Hardware:
-//! - Z80 @ 3.584 MHz (master / 4)
-//! - Pentagon ULA — no contention, 14.336 MHz crystal, 320 lines/frame
+//! - Z80 @ 3.5 MHz (14 MHz master / 4), as the 48K
+//! - Pentagon ULA — no contention, 320 lines/frame: 71,680 T-states, a
+//!   20.48 ms (48.83 Hz) frame (emu198x/emu198x#2231)
 //! - 128 KB RAM in 8 × 16 KB banks (same `$7FFD` paging as the 128K)
 //! - Two 16 KB ROMs (128 editor + 48 BASIC, or Pentagon-specific ROMs)
 //! - General Instrument AY-3-8912 PSG

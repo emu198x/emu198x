@@ -295,7 +295,7 @@ impl SpectrumRuntimeKind {
     /// Spectrum classes run at different master clocks: the 48K family
     /// at 14 MHz / 69888 hc/frame, the 128K family at 14.16 MHz / 70908,
     /// the +2A/+2B/+3 family at 17.7 MHz / 70908, the Pentagon at
-    /// 14.336 MHz / 71680, the Scorpion at 14 MHz / 71680, the TC2048
+    /// 14 MHz / 71680, the Scorpion at 14 MHz / 71680, the TC2048
     /// at the 48K rate, and the TC2068/TS2068 at their SCLD rate.
     /// Framebuffer pixels emitted per second for the active variant.
     ///
