@@ -68,3 +68,26 @@ impl Originals {
         bytes
     }
 }
+
+/// Only the new envelope version and, where fitted, the A2000 clock flag change.
+pub fn assert_migrated_save(old: &[u8], current: &[u8], rtc_added: bool) {
+    assert_eq!(old.first(), Some(&67), "immutable original v67 envelope");
+    assert_eq!(current.first(), Some(&68), "new writer emits v68");
+    assert_eq!(old.len(), current.len(), "field layout is unchanged");
+    let changes: Vec<_> = old
+        .iter()
+        .zip(current)
+        .enumerate()
+        .filter(|(_, (old, new))| old != new)
+        .collect();
+    assert_eq!(
+        changes.len(),
+        if rtc_added { 2 } else { 1 },
+        "only version and fitted A2000 RTC-presence flag may change"
+    );
+    assert_eq!(changes[0].0, 0);
+    if rtc_added {
+        assert_eq!(*changes[1].1.0, 0, "legacy clock was not decoded");
+        assert_eq!(*changes[1].1.1, 1, "fitted clock is decoded");
+    }
+}

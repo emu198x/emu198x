@@ -408,9 +408,11 @@ fn original_v67_native_and_boot_phase_continuations_remain_exact() {
                     )
                     .expect("selected profile");
                     restored.restore(&original).expect("original v67 restore");
-                    assert!(
-                        restored.snapshot().expect("re-encode original") == original,
-                        "{name}: every original saved byte before correction"
+                    let rtc_added = matches!(model, Model::A2000OcsPal | Model::A2000OcsNtsc);
+                    legacy_v67::assert_migrated_save(
+                        &original,
+                        &restored.snapshot().expect("reencoded v68"),
+                        rtc_added,
                     );
                     assert_eq!(
                         restored.scheduler_diagnostic_snapshot().cck_phase,
@@ -420,16 +422,19 @@ fn original_v67_native_and_boot_phase_continuations_remain_exact() {
                     let (_, expected_final_hash): (Vec<Field>, [u8; 32]) =
                         postcard::from_bytes(&expected).expect("original packets");
                     assert_eq!(digest(&final_state), expected_final_hash);
-                    assert!(
-                        restored.snapshot().expect("complete resumed save") == final_state,
-                        "{name}: every final saved byte before correction"
-                    );
-                    if actual != expected {
+                    let current_final = restored.snapshot().expect("complete resumed save");
+                    legacy_v67::assert_migrated_save(&final_state, &current_final, rtc_added);
+                    let (actual_fields, actual_hash): (Vec<Field>, [u8; 32]) =
+                        postcard::from_bytes(&actual).expect("current packets");
+                    assert_eq!(digest(&current_final), actual_hash);
+                    let actual_fields_bytes =
+                        postcard::to_allocvec(&actual_fields).expect("current fields");
+                    if actual_fields_bytes != original_fields_bytes {
                         diagnose(&name, &actual, &expected);
                     }
                     assert!(
-                        actual == expected,
-                        "{name}: all original video/audio/clock packets"
+                        actual_fields_bytes == original_fields_bytes,
+                        "{name}: every original video/audio/clock packet"
                     );
                     cases += 1;
                     eprintln!("original case {cases}: {name} exact");

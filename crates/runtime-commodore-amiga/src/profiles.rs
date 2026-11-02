@@ -393,10 +393,10 @@ impl Model {
             // is reachable through with_ram_config). No slow, no
             // fast Zorro — A600 has no Zorro slots.
             Self::A600EcsPal | Self::A600EcsNtsc => RamConfig::a500_plus(),
-            // Canonical A2000 Rev B profile: Fat Agnus 8372A jumpered
-            // for its 1 MiB chip-RAM maximum. The base machine shipped
-            // with 512 KiB; no slow trapdoor is present, and additional
-            // RAM is normally provided by a Zorro-II board.
+            // Canonical A2000CR rev-6 profile: Fat Agnus 8372A, factory
+            // jumpered for 1 MiB chip RAM (service update 25/3-2.1).
+            // No slow trapdoor is present; additional RAM is normally
+            // provided by a Zorro-II board.
             Self::A2000OcsPal | Self::A2000OcsNtsc => RamConfig::a500_plus(),
         }
     }

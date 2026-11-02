@@ -6,28 +6,30 @@ use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 fn already_valid_v66_payloads_restore_for_every_existing_profile() {
     for model in Model::VARIANTS {
         let source = AmigaRuntimeKind::blank(model);
-        let current = source.snapshot().expect("v67 state");
-        assert_eq!(current[0], 67);
+        let current = source.snapshot().expect("v68 state");
+        assert_eq!(current[0], 68);
         let mut old = current.clone();
         old[0] = 66;
         let mut restored = AmigaRuntimeKind::blank(model);
         restored.restore(&old).expect("explicit v66 reader");
         assert!(
-            restored.snapshot().expect("resaved v67") == current,
+            restored.snapshot().expect("resaved v68") == current,
             "{model:?}: every payload byte"
         );
     }
 }
 
 #[test]
-fn v67_refuses_legacy_missing_onboard_rtc_atomically() {
+fn v67_and_v68_refuse_legacy_missing_a500_plus_clock_atomically() {
     let mut bytes = include_bytes!("../../../test-data/commodore-amiga/ecs-v66/commodore-amiga-a500-plus-ecs-pal-progressive.state").to_vec();
     assert_eq!(bytes[0], 66);
-    bytes[0] = 67;
-    let mut runtime = AmigaRuntimeKind::blank(Model::A500PlusEcsPal);
-    let before = runtime.snapshot().expect("before");
-    assert!(runtime.restore(&bytes).is_err());
-    assert!(runtime.snapshot().expect("after") == before);
+    for version in [67, 68] {
+        bytes[0] = version;
+        let mut runtime = AmigaRuntimeKind::blank(Model::A500PlusEcsPal);
+        let before = runtime.snapshot().expect("before");
+        assert!(runtime.restore(&bytes).is_err());
+        assert!(runtime.snapshot().expect("after") == before);
+    }
 }
 
 #[test]
