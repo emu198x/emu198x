@@ -486,10 +486,73 @@ jobs:
   # Not instrumented. `cargo llvm-cov` used to serve as both the test
   # run and the coverage measurement; separating them means a PR
   # answers "did it pass" without paying for "how much is covered".
-  test:
-    name: Test
-    timeout-minutes: 120
+  # A pull request tests the crates its change can reach; pushes to main and
+  # the release PR test everything, so every test still runs on every change,
+  # just not always before merge (scripts/ci/affected_packages.py). Either way
+  # the work is split across four shards, and `Test`, the check main
+  # requires, merges their results into one evidence ledger.
+  test-plan:
+    name: Test plan
+    timeout-minutes: 10
     runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      packages: ${{ steps.plan.outputs.packages }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Check the test selection never skips a reachable crate
+        run: python3 scripts/ci/test_affected_packages.py
+
+      - name: Choose what to test
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ] && [ "$HEAD_REF" != release/next ]; then
+            plan=$(python3 scripts/ci/affected_packages.py "$BASE" HEAD)
+          else
+            plan='{"mode": "all", "packages": [], "why": "not a feature pull request"}'
+          fi
+          mode=$(jq -r .mode <<<"$plan")
+          packages=$(jq -r '[.packages[] | "--package " + .] | join(" ")' <<<"$plan")
+          # Package names reach a shell below; refuse anything but a name.
+          if [[ ! "$packages" =~ ^[-a-z0-9_\ ]*$ ]]; then
+            echo "::error::unexpected package names: $packages"
+            exit 1
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "### Test plan: $mode" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.why' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
+
+  test-shard:
+    name: Test shard (${{ matrix.shard }}/4)
+    needs: test-plan
+    if: needs.test-plan.outputs.mode != 'none'
+    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     # This job links the whole fleet. Incremental objects and debug symbols
     # exhaust the hosted runner before the evidence ledger can be written.
     env:
@@ -550,18 +613,14 @@ jobs:
       - name: Measure free disk after restoring test artifacts
         run: df -h .
 
-      - name: Run the workspace test suite and collect evidence
-        # Replaces `cargo test --workspace --no-fail-fast`, and is the same
-        # work: the same build, the same binaries, and no-fail-fast by
-        # construction since every binary runs regardless of its
-        # neighbours. What it adds is a record of what ran, so a green tick
-        # stops being the only thing this job produces.
-        #
-        # Deliberately not a second pass. Coverage was removed on
-        # 2026-08-13 for costing ~5 minutes on every PR's critical path,
-        # and a status canon that repeated the suite to measure it would
-        # earn the same fate. One run, all the data.
-        run: python3 scripts/status/collect_evidence.py --out target/status-evidence.json
+      - name: Run this shard's test binaries
+        # Every shard builds the same binaries and runs a stable quarter of
+        # them; `Test` refuses a merge that is missing any.
+        run: >-
+          python3 scripts/status/collect_evidence.py
+          --shard ${{ matrix.shard }}/4
+          --results-out target/test-shard.json
+          ${{ needs.test-plan.outputs.packages }}
 
       - name: Measure remaining test disk
         if: always()
@@ -570,26 +629,95 @@ jobs:
       - name: Run doctests
         # The collector runs test binaries; rustdoc runs doctests, which are
         # outside executable-level attribution and would otherwise stop
-        # being checked. Reuses the build the step above already paid for.
-        run: cargo test --workspace --doc
+        # being checked. Once, in the first shard, reusing its build.
+        if: matrix.shard == 1
+        run: >-
+          cargo test --doc
+          ${{ needs.test-plan.outputs.packages || '--workspace' }}
+
+      - name: Upload this shard's results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-shard-${{ matrix.shard }}
+          path: target/test-shard.json
+          if-no-files-found: warn
+
+  test:
+    name: Test
+    needs: [test-plan, test-shard]
+    if: always()
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: Nothing a test reads changed
+        if: needs.test-plan.result == 'success' && needs.test-plan.outputs.mode == 'none'
+        run: echo "No crate, fixture or build file changed; no tests to run." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out repository
+        if: needs.test-plan.outputs.mode != 'none'
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        if: needs.test-plan.outputs.mode != 'none'
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        if: needs.test-plan.outputs.mode != 'none'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Fetch every shard's results
+        if: needs.test-plan.outputs.mode != 'none'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-shard-*
+          path: target/shards
+
+      - name: Merge the shards into the evidence ledger
+        # Refuses a missing shard, a repeated one, or results that don't
+        # cover every binary the shards discovered.
+        if: needs.test-plan.outputs.mode != 'none'
+        run: >-
+          python3 scripts/status/collect_evidence.py
+          --out target/status-evidence.json
+          --merge target/shards/*/test-shard.json
 
       - name: Publish the evidence summary
         # Runs even when the suite fails — a failing run is exactly when
-        # you want to know how much of it never executed. The collector
-        # writes its ledger before judging anything, so there is something
-        # to summarise either way.
-        if: always()
+        # you want to know how much of it never executed.
+        if: always() && needs.test-plan.outputs.mode != 'none' && hashFiles('target/status-evidence.json') != ''
+        env:
+          MODE: ${{ needs.test-plan.outputs.mode }}
         run: |
+          if [ "$MODE" = some ]; then
+            echo "**Affected crates only.** Pushes to main test the whole workspace." >> "${GITHUB_STEP_SUMMARY}"
+          fi
           python3 scripts/status/summarise_evidence.py \
             target/status-evidence.json >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload the evidence ledger
-        if: always()
+        if: always() && needs.test-plan.outputs.mode != 'none'
         uses: actions/upload-artifact@v7
         with:
           name: status-evidence
           path: target/status-evidence.json
           if-no-files-found: warn
+
+      - name: Fail unless the plan and every shard passed
+        if: always()
+        env:
+          PLAN: ${{ needs.test-plan.result }}
+          MODE: ${{ needs.test-plan.outputs.mode }}
+          SHARDS: ${{ needs.test-shard.result }}
+        run: |
+          echo "plan=$PLAN mode=$MODE shards=$SHARDS"
+          [ "$PLAN" = success ] || exit 1
+          [ "$MODE" = none ] || [ "$SHARDS" = success ]
 
   # The Coverage job is disabled. It cost ~5 minutes on the critical path
   # of every PR (it gated on fmt + clippy) and had not failed in any
