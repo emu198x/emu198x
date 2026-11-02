@@ -1,0 +1,718 @@
+{
+  "baseline": "c06321677cde6b4aea0211197eb8436ceae0a1a7",
+  "cases": 56,
+  "files": {
+    "bootstrap-active-interlaced.rom": {
+      "bytes": 65536,
+      "sha256": "0ac6cf328e3dd68100da3ee5e6823eb1834ba343efcfba2fcb2166cedc595d96"
+    },
+    "bootstrap-active-progressive.rom": {
+      "bytes": 65536,
+      "sha256": "a879ac382ff1098007d1c7d06933a77f719e96a234f74448154f1e119ff2a671"
+    },
+    "bootstrap-inactive.rom": {
+      "bytes": 65536,
+      "sha256": "4b32dab605c96767cd92d4bd811f41ad5564e8e0ee968443079c4042c6d31fc4"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-interlaced-debug-cut.final-state": {
+      "bytes": 9373837,
+      "sha256": "3955437a0ddf197d00ed881b59c22e1f037623037b1ad30f8beb9ca477e83b3f"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "a1a9a69df59f4e10750f33ebb286174c370a78bc4b024044f9e7ce74b027f9ac"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-interlaced-debug-cut.state": {
+      "bytes": 9373836,
+      "sha256": "67b095d455ac1f17587ebc2a6e158eabcc3e294a6d69f8aa3ad0e0c2815f0cf4"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-interlaced.final-state": {
+      "bytes": 9373837,
+      "sha256": "92cfe0be6be638f09c8782ca4fbdc8d8fd6a5891b3770ea3a850257763cf8cc2"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "a329c7d805bc9a363f7ed4a4456c138ec97f0e601dab1e2895128171625a8fcd"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-interlaced.state": {
+      "bytes": 9373839,
+      "sha256": "58865d3cb3590e6ec2dcb742bd79cd59ac7f52fe2353b206b0637bb02f53a6a6"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-progressive-debug-cut.final-state": {
+      "bytes": 9373848,
+      "sha256": "945bd79106341ff43435c3bf52a780e85561d1c6feb251a9d8bcb4f97e9c57e6"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "9c4737b0b6aca9d0a8a9184455d134714aed5149a51cabe02c8856fb3e65a52c"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-progressive-debug-cut.state": {
+      "bytes": 9373845,
+      "sha256": "9835988ce1998c36aa1033a1ca66e31fd12a61fa72e3a057dd61598ee104f59f"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-progressive.final-state": {
+      "bytes": 9373848,
+      "sha256": "945bd79106341ff43435c3bf52a780e85561d1c6feb251a9d8bcb4f97e9c57e6"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-progressive.output": {
+      "bytes": 14556,
+      "sha256": "9612f31bb65f05037defea8932b8ddf5507b8aa85d46f86606d39753573878dc"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-bootstrap-progressive.state": {
+      "bytes": 9373833,
+      "sha256": "20c087c5fa3d70e02d6142aafaac197dd1b5e8e0f06e5a0a9d50a3f5f6d81f8e"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-interlaced-debug-cut.final-state": {
+      "bytes": 9373847,
+      "sha256": "de02cbec341cb10c663d9002fd724df6df6ee7443cda3cd151f91adc871ac76b"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "ded7415bcbfb1cb2b2cb514872fae9f31f6aa7b5b4d8bd261d5dc36e1f78689d"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-interlaced-debug-cut.state": {
+      "bytes": 9373842,
+      "sha256": "39e19e1546c0e68285c6b1e5e8796d2c98bb9cb1fc185d8b2b99369e88c2fcab"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-interlaced.final-state": {
+      "bytes": 9373847,
+      "sha256": "de02cbec341cb10c663d9002fd724df6df6ee7443cda3cd151f91adc871ac76b"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "7449732440b5c32aa206bdfc45d814b274649b8bc4b1c3ed5fc18a07cf119653"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-interlaced.state": {
+      "bytes": 9373836,
+      "sha256": "ea268dae2655560702662e5d83490fe2536d04b44a5a60471b4d42b1eba8b7f3"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-progressive-debug-cut.final-state": {
+      "bytes": 9373842,
+      "sha256": "4eb532ff0b20dd2a170e35af1a1fb31a1518169718173b8d3e9bdeeaaa4432c2"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "f8e44c6abd6842361a09727aadf931868c36aac60c27efcc7d40d28b448fb9c0"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-progressive-debug-cut.state": {
+      "bytes": 9373845,
+      "sha256": "3b79e54090d74342640ecd5682015e835ff8817269b62d589ab1bd4fa30c6afb"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-progressive.final-state": {
+      "bytes": 9373842,
+      "sha256": "c4f927434bf46260d8e623b0a0a8608c6085d5f74652366880b6dc5a9f4a04ca"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-progressive.output": {
+      "bytes": 14556,
+      "sha256": "46e19a96d42d94bd4fbf2a61bfbb4865b4ce5df74064759ba5de559940567b92"
+    },
+    "commodore-amiga-a1000-ocs-ntsc-wom-locked-progressive.state": {
+      "bytes": 9373849,
+      "sha256": "546349c2685624ca1bae79ea6854b2a603ce5de0ec41461363a468338e36422d"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-interlaced-debug-cut.final-state": {
+      "bytes": 9373850,
+      "sha256": "6087578f7a4264d70d71e48788fa0cfbdcf9968bff51533fb1270321b3e5e3d0"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "c8082c0d038a4ccc62d93af269429aa8614914dc6083543675b8bd7d75bd6d6a"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-interlaced-debug-cut.state": {
+      "bytes": 9373844,
+      "sha256": "c0c2f6b518057f2c6eaaf1796fe86814e95bed5a39a20662cea635e546f93e71"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-interlaced.final-state": {
+      "bytes": 9373850,
+      "sha256": "41a4b675f4c9b45582e14e9640897b588c5d7b4d5c382037b98a309697379804"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "1875634b18cdef56b134b008ed5c01004d0f4d1b6f2a902598e76ed751288213"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-interlaced.state": {
+      "bytes": 9373841,
+      "sha256": "a5a7b085b0ae6f6460758f3bc9b1caa85f22110d41864ca3f5c3ad335d56ef73"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-progressive-debug-cut.final-state": {
+      "bytes": 9373838,
+      "sha256": "fb8655acb92c3199fe2d5f107a2a6c443e0185f4511a000c8e4ec43931aec841"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "bd3ff9a78469ae4f67af23dcd5263fb13e9e206799f2b415172a7093796af398"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-progressive-debug-cut.state": {
+      "bytes": 9373841,
+      "sha256": "faa8884f28b0d27d007c08695a778d424b3ac2c131dc447ad8073c7c635b0efb"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-progressive.final-state": {
+      "bytes": 9373838,
+      "sha256": "84b1d8097880ff378221833b18534cf5ce0cad599386c6ad6e0786b8e1094099"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-progressive.output": {
+      "bytes": 17418,
+      "sha256": "c044677fa1147fd82f08ef802428b8dd8e563d893cebb5b6dbfa1b59cdc92d47"
+    },
+    "commodore-amiga-a1000-ocs-pal-bootstrap-progressive.state": {
+      "bytes": 9373841,
+      "sha256": "cbf48ac1e0a77981e6dd1e077643479042670140bfd955f76ba3688941266bd9"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-interlaced-debug-cut.final-state": {
+      "bytes": 9373843,
+      "sha256": "1e2843fc661be2604431df4386bc0d9ed0bd498f6e38125524a20e1a9fc49ea6"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "2359dd0d5262da0a4402f92c8db4546139b0c7e9c218af0c5e9d2313bfae20a9"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-interlaced-debug-cut.state": {
+      "bytes": 9373844,
+      "sha256": "c19d028b5d4ed4d3be5b2a34afb6de5430f24c152cdfcd6a64f1f8fcf62a836b"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-interlaced.final-state": {
+      "bytes": 9373843,
+      "sha256": "13d80cdfdc4710deb63745c5b4e5f8caeb713c9449019d2a7e2268a7abb344d9"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "15108cdeb51e9d191faac1b47e36193e99c81458be14940c9406c15444b75ee2"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-interlaced.state": {
+      "bytes": 9373831,
+      "sha256": "ef9e7a90932eea4fad48917a5e28072a04f22fd2b5c2576e1c949a062e46dab4"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-progressive-debug-cut.final-state": {
+      "bytes": 9373855,
+      "sha256": "24ae2a45323fd625e9b35e2bb994f058d64d5b64f6e54d32612c7240bf088805"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "4b50a4596c38f9c22698c3e4e455f61e29f978c1e402827e73cb85d9a8f6fd85"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-progressive-debug-cut.state": {
+      "bytes": 9373843,
+      "sha256": "0df573ff6bddf8bd9d62d66a140df3f4af968413ae8a1705fb2900435f4e55e4"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-progressive.final-state": {
+      "bytes": 9373855,
+      "sha256": "f44dc1c1bc10c656608c695d317797d5aa99cd48cb073520138ad758dd38bda9"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-progressive.output": {
+      "bytes": 17418,
+      "sha256": "76fc3a583c9f61decac8087411fe6eef8bbcc6d2ebc9c8fc5eec02119bf42035"
+    },
+    "commodore-amiga-a1000-ocs-pal-wom-locked-progressive.state": {
+      "bytes": 9373833,
+      "sha256": "f33b4aba984b87eaff5587d352d743de1aa8ebd062d64320c4778e865019231a"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 10356904,
+      "sha256": "2a7378c266d5f6ae60c68b9fb7d43b4acd0db8f9171fceb361b38a6385fdca9a"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "8899cd1a42172ac110292597fae674cdc531bdd822a03a019514d9cb3127b9c4"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-interlaced-debug-cut.state": {
+      "bytes": 10356900,
+      "sha256": "adc87b22a01e40705720e7bbba0f31b18a958f641f81c205c4cdba8b08b7f528"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-interlaced.final-state": {
+      "bytes": 10356904,
+      "sha256": "fc478d9aa8cb7e978243a4288720035cfb36a31347b5962417c45f54afa40b48"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "0d8f6e4d34bf9a83a59d31f9a782c34b938bb791bf3c86ce9f88516f3b01ca4e"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-interlaced.state": {
+      "bytes": 10356906,
+      "sha256": "0da8d00676b6e34bd3e4be1c9a837ce18edf23bb1a69e6cf0637529a61d601e8"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 10356915,
+      "sha256": "81699b18fa4077daedc9885b7eaece693ca040403c4fb842783fb61829b510c1"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "a8ac535b341a4478604885d2185963bdcc06e37a171054fa90586a1341261349"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-progressive-debug-cut.state": {
+      "bytes": 10356912,
+      "sha256": "3b9197f911f20b283e8ac8a90868465c0b7e6e19c299045bdf1f87c26678b57b"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-progressive.final-state": {
+      "bytes": 10356915,
+      "sha256": "f08d12c025b853b412827af64549719ec6a122fc586bba97f3296904be691040"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-progressive.output": {
+      "bytes": 14556,
+      "sha256": "2ad5aaf86060935e9d1da682f637dd5efedf342ae8d03408aee0dabaa28b2f59"
+    },
+    "commodore-amiga-a2000-ocs-ntsc-kickstart-progressive.state": {
+      "bytes": 10356900,
+      "sha256": "5dd3088a4f5e222b9433074d6410061f562f9c86ab05534fd5894c926bcc8f51"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 10356917,
+      "sha256": "2179efb75ff5f0b99d5ca5a9ef81450ede7586bef0c20ccba6ba617091c41a4d"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "72ec60f0a1e450248c3ef0adef21a19d83a0b996008ed3fe7a08917b0a82f40b"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-interlaced-debug-cut.state": {
+      "bytes": 10356909,
+      "sha256": "a2093de2a045558cc05828c22acc1e0f6aa21cedf866c69201046860b3af10fd"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-interlaced.final-state": {
+      "bytes": 10356917,
+      "sha256": "2179efb75ff5f0b99d5ca5a9ef81450ede7586bef0c20ccba6ba617091c41a4d"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "f1bcd1135c8ec9d1d974c5f8e11a58dd91e51e07d250beec1ac33ab6ebdee27d"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-interlaced.state": {
+      "bytes": 10356909,
+      "sha256": "379a21019e3f006beba65e4851d56f6b8b76121b457d54a5a586afb203790a71"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 10356905,
+      "sha256": "9ce4ecf8b37ecf0d6adac08031295df8769c0a8cd97a8a765aac8adf6e14ce58"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "775c62742d9543f50987707fa31f30a1f2936b4acb118f704e9681039dc9bb0d"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-progressive-debug-cut.state": {
+      "bytes": 10356909,
+      "sha256": "b66daddf11cede99a249d6915c08b5c3beb7238bd25f09f574abffae2e1b5e1e"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-progressive.final-state": {
+      "bytes": 10356905,
+      "sha256": "e7f5813fc3b1f43965906238fcd691b1ff417ad52bf0b9654aaa982fac5dcf18"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-progressive.output": {
+      "bytes": 17418,
+      "sha256": "a5b545820918594b4bec1c9edc7731d8c9264d0cdcb416c50a3cfb74caab1c79"
+    },
+    "commodore-amiga-a2000-ocs-pal-kickstart-progressive.state": {
+      "bytes": 10356909,
+      "sha256": "c604b895171ded77c25f9ddb553c2fc6ad0abc9dde0dde8f1be033f4ecd7ec88"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 10356874,
+      "sha256": "ea16bada48e8bae00ae6009148a2f3a2d24499352f7409770da3611a25ec31af"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "0a112ed301bdf778fa76cca8b790920727b1194cd77c8ce19ffc4fdc0ed58dda"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-interlaced-debug-cut.state": {
+      "bytes": 10356873,
+      "sha256": "1fe219272aff0678d73fee5b8ae24272244f337cab203cbd198b92dfa1d88db6"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-interlaced.final-state": {
+      "bytes": 10356874,
+      "sha256": "5c70450908187a64c70371ce5d6e5f53ca1d382e60bb356627c903682124f155"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "295af9b012778f86ecdb9a2dc1d9f2686004a5f24247cf22628bf367f280766e"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-interlaced.state": {
+      "bytes": 10356876,
+      "sha256": "2579af2b23601f26d499118e0d11462b88aba24bc068ac35d0983018075b006e"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 10356885,
+      "sha256": "fa2b514f9517673787fc376cafdd64705a3950dc689dcbfb65085f34e9d32eba"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "9e6c1d17b10334f1b1970c3ebd61555b3c48a4452989572cc185492d3dde3581"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-progressive-debug-cut.state": {
+      "bytes": 10356882,
+      "sha256": "285639dc3be2c9b0691ff94a0455486c85c83dd49c2d5e490469a9c849fbd614"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-progressive.final-state": {
+      "bytes": 10356885,
+      "sha256": "8fe73cc2ee592b8de60cce44222a04b9661a6c010e7bc0f4887e977da5db23cc"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-progressive.output": {
+      "bytes": 14556,
+      "sha256": "c6fec4df400fd4c8e9b459dc8cc9063781bb3d44a09a882a93092b0e2e10dcff"
+    },
+    "commodore-amiga-a500-ocs-ntsc-a501-kickstart-progressive.state": {
+      "bytes": 10356870,
+      "sha256": "a348fece1cfea94b71c282d2e3a956a2fa628d0d3f1a5c9d4cf45c4f80aef211"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 10881523,
+      "sha256": "b599cb4e1cd9d76bd571aca3d02ff52a39bca594966027afcc528eeca9645915"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "82d512a4403ce7bf4cd02e98f8265a26c8c572b95bbbadfc88a67bf487bec4f7"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-interlaced-debug-cut.state": {
+      "bytes": 10881512,
+      "sha256": "267a0b90160fdf4e61fd1edbc964818e65c17eea2394395f7f48d9b6b0d60a46"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-interlaced.final-state": {
+      "bytes": 10881523,
+      "sha256": "3f7d5a2fab623a829564a60e82da63b662ece75bfa95f4e1649628ca1e140878"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "365368dddada9c90973f2a871b812e5ce9dccd2932bbd751bcca244452d11f87"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-interlaced.state": {
+      "bytes": 10881521,
+      "sha256": "55cfbc3b5e2c51300e3adba353fb2c8418e428f0af39235028697d25b57dbafa"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 10881522,
+      "sha256": "f00e9274cc1b0fc2ab863e0146f88bf71cf30ff85f39a640d1b943390a37d071"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "c0113d8cbbec3eaf85c2e800a9e86dfc29ecb60e31bdf5fe0b2ce2be0ca05180"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-progressive-debug-cut.state": {
+      "bytes": 10881511,
+      "sha256": "e2857eb3c8a85e0aae7a163a0b3f97e5394b5c975f0d640502af19b989b695f9"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-progressive.final-state": {
+      "bytes": 10881522,
+      "sha256": "c86d66651f011702bda937815c86c4f252f0551d61c64a349eb3c909871cbfef"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-progressive.output": {
+      "bytes": 14556,
+      "sha256": "4144239cba07cbbdfa6d2158d16c6d0488f1c6a59a4b6dbb557905fc0052c68c"
+    },
+    "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m-kickstart-progressive.state": {
+      "bytes": 10881520,
+      "sha256": "4e841eda1cb7a370f102ec94f84419b5a5f83333634743cc4d6903e99fc06ac5"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 9832583,
+      "sha256": "a044472d2e8aedec3da40c98c981c17e5939543fc69bc05aab989cd836ecdf66"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "9a6d5cd56f492bbece068644fbc3d48aecb227cc18c44b952a4cd00bb525551d"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-interlaced-debug-cut.state": {
+      "bytes": 9832582,
+      "sha256": "b9b8818a786f3b2e2e74db20281427c2226334eeeddd6c767b3cbc827f71619f"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-interlaced.final-state": {
+      "bytes": 9832583,
+      "sha256": "330365a14b2253f5572224b75a44867d889635e1f2c00903881b61f8e8d87d91"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "ca951449d672d9f88070dbcac021e6d37d060273ee856f92918fe08b56a0621a"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-interlaced.state": {
+      "bytes": 9832585,
+      "sha256": "cfea8038858c54802425b6a9fec81fd219f4d22c8a83a68c652404fa68a0b685"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 9832594,
+      "sha256": "1092022f8ee2d489c2f7a530640366f3b547303110d87314e3abd6cefe74a078"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "92e61fd642971488e6e2983ad570038d0557f0d83396a53f31148b78bf3d3539"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-progressive-debug-cut.state": {
+      "bytes": 9832591,
+      "sha256": "933c7df641e7f561cd5b9d7ecfbbf0a73f1936b6dc6aacc4fa7c938d196c5eec"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-progressive.final-state": {
+      "bytes": 9832594,
+      "sha256": "e92b083602323013fe229b511421738d42f7aa75152414e7ae5e550c7f9eeee9"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-progressive.output": {
+      "bytes": 14556,
+      "sha256": "e13457d758e186063b6103233ced196b410540dba32d2b093031bf5a99e4aa50"
+    },
+    "commodore-amiga-a500-ocs-ntsc-kickstart-progressive.state": {
+      "bytes": 9832579,
+      "sha256": "d43838c5e4f16c5488d4679b1296ec6c7777c5beef308d494ae08eae59b316ba"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 19269815,
+      "sha256": "1ac5bd0301f7d26cceaffcda14572ddd43a61a790a76483f0286bd12a06190cc"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-interlaced-debug-cut.output": {
+      "bytes": 14592,
+      "sha256": "61b5d8b950255169f1cc031d2130d5ee44771e848f977f162d8d17182f4f6c46"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-interlaced-debug-cut.state": {
+      "bytes": 19269811,
+      "sha256": "ef8299c85f145ae9ecd97009a94230c4e984f2b5acae39c133f579b81b84e93a"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-interlaced.final-state": {
+      "bytes": 19269815,
+      "sha256": "1ac5bd0301f7d26cceaffcda14572ddd43a61a790a76483f0286bd12a06190cc"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-interlaced.output": {
+      "bytes": 14592,
+      "sha256": "2cca70792de4315a49288eee5985f9c07e99d646f01bc2c403278070b06eb48e"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-interlaced.state": {
+      "bytes": 19269817,
+      "sha256": "1794741a9fca8b9c06aa545b92774197b4eebe8fa579889faf96dd4ec3380ca2"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 19269826,
+      "sha256": "cf6bca0708bba7ae61c926c900a7dde3dbb0a0f03343612ed6bcf64c7e2e0af1"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-progressive-debug-cut.output": {
+      "bytes": 14556,
+      "sha256": "886642508acd636719d4c93a6e934e2b50225ff0a0e99c5b1a2fe9dc2126cc74"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-progressive-debug-cut.state": {
+      "bytes": 19269823,
+      "sha256": "7247ea9b2ce6a14257b09bb72dee31230c7a7ebc1250d3d502c62d9524603ab9"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-progressive.final-state": {
+      "bytes": 19269826,
+      "sha256": "ae26ba4b96da61c6bfc7e3a1195a7e7bb4215aa8aabd1b98b03adda8dae484a2"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-progressive.output": {
+      "bytes": 14556,
+      "sha256": "e3fe18cae5bc7c682a7d37cdbf30ce321b29eeff08a5383fbcf6fd5549cda923"
+    },
+    "commodore-amiga-a500-ocs-ntsc-maxed-kickstart-progressive.state": {
+      "bytes": 19269811,
+      "sha256": "98db6e5b927c81ce43f83ba191a9a90e220f42528081b9fdda07077a91f3d054"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 10356887,
+      "sha256": "25001aecbe214440c9920d8e3eb83a5ad6d60f0f5a54206592e0aad74dd9d276"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "3dc47966c6644bb034f22603582b9b63592965f28afc0d62240c7fde3af0f521"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-interlaced-debug-cut.state": {
+      "bytes": 10356881,
+      "sha256": "64b96bc08abce7191b1be1a4c78893a9eb4bc184f2e9cb17141a2c1752d0da4f"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-interlaced.final-state": {
+      "bytes": 10356887,
+      "sha256": "18eae914f50a5e2ab30b6c219f9c5f7c390acfdd44a07be89a6a86ef1f013a62"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "bd150ecdf9f36854aadf514d73330374c321ca46646134024bc154de6a86385f"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-interlaced.state": {
+      "bytes": 10356878,
+      "sha256": "ecf8ee017e488383c9c8ad829ba20fe4256b09afdd68297b80e1f9ea1a9a7e18"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 10356875,
+      "sha256": "3558ab95963f2439b2d2070d24aaa403e6260d00c9a7f319f5a368b21c4f42f5"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "f44ab2ceb14c590062a2e8b6f8361954e2a2353a036eb80fa5760d9d5ef24ea3"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-progressive-debug-cut.state": {
+      "bytes": 10356878,
+      "sha256": "1681421eecebc1626fa51809bfca19cd98b9a5b960b881c1823121a8fd80486d"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-progressive.final-state": {
+      "bytes": 10356875,
+      "sha256": "39d2da65513a1aa47c316161d9a4b772464b5b233e804589d96fc65a5a9f253a"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-progressive.output": {
+      "bytes": 17418,
+      "sha256": "f74ebef92191637cb287d0fe730816f0c3085eb5d6ffde63d08ce8ed5a405413"
+    },
+    "commodore-amiga-a500-ocs-pal-a501-kickstart-progressive.state": {
+      "bytes": 10356878,
+      "sha256": "af7ffd3331916ce4cffb9b3eb14d4b238609461708b43d5fb7c0fbb020006a57"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 10881525,
+      "sha256": "0b10baa30268493549b2872980975319f3867a01865bd61357948b9d5823631f"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "85ee98bd2d8474daa276eec64870e66760a9f53399c3701b194ded8c02319352"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-interlaced-debug-cut.state": {
+      "bytes": 10881510,
+      "sha256": "9e6a669e740a8804230416f13f4deafb83723206677188f7ab8e52c0dc7dd25e"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-interlaced.final-state": {
+      "bytes": 10881525,
+      "sha256": "119e3d5724ca136f9b8a963b77860f99a26e8534bd948b3c155d2d3364d4d511"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "eecca9d16a07546413bc11bc74be81aad51c4949b80adfaac72ef7f7295bbc68"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-interlaced.state": {
+      "bytes": 10881518,
+      "sha256": "b4affd7a1dbe90da0e4d7bbe89e8a603e50dd10e3c374b5290a889065e3f32d2"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 10881519,
+      "sha256": "0db17c52a09f1c491ed0e0ac814e657350aee20e85e487bbdea25025e2ee492a"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "a5857d9c8bac76803403692e803650829f2202ea8d375c58de9d4bdaf8eb5fbd"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-progressive-debug-cut.state": {
+      "bytes": 10881510,
+      "sha256": "9fb5d68a78c724c4d092f12089545832fb1e7ee3776c1d51c91868068848e0b1"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-progressive.final-state": {
+      "bytes": 10881519,
+      "sha256": "73be48af546f869faefa332c4e3321df42e468af8d9b80c55999345511376cf7"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-progressive.output": {
+      "bytes": 17418,
+      "sha256": "0623516788e48b0232ad81a78fe958388ce3c126e04c0aaf287e251117826305"
+    },
+    "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m-kickstart-progressive.state": {
+      "bytes": 10881522,
+      "sha256": "9561ce4e80f11124650099753c40e3e97ce60acc392842051ba3101a47f28328"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 9832596,
+      "sha256": "87b3e36abaf68a49e7a5a31cae4aad0f1477c39015b9d2c853c44adbe6ffbe73"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "033494a255c2a56a5f2326692ccc3b63e9aac55ae65c0cc50979939de7668468"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-interlaced-debug-cut.state": {
+      "bytes": 9832590,
+      "sha256": "c99c40e56ad60b17c1fc6238a8de4008985e34e74ae54cf8a898d65ab15f6e07"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-interlaced.final-state": {
+      "bytes": 9832596,
+      "sha256": "87b3e36abaf68a49e7a5a31cae4aad0f1477c39015b9d2c853c44adbe6ffbe73"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "c8f04fdb59028f48870a6ec52e376739a152927e480ac1461b5d13edf975f46c"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-interlaced.state": {
+      "bytes": 9832587,
+      "sha256": "4cbe3e382456dec2e3fd04fce97aa4e7d017f2f5da52453e0e4b7773aad9eeae"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 9832584,
+      "sha256": "f2341e81f99bfd2791c38c2c25828f7d51718bc427794c81c1d47411bd9ba49b"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "569ec54cc2bbac86d4b5b737f92060e3774ab76006837819d8a62eeb4c07e5c6"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-progressive-debug-cut.state": {
+      "bytes": 9832587,
+      "sha256": "3d30e07bae10e1c783e767da74c81240f999320d0b29dba1392f9b8dd201d158"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-progressive.final-state": {
+      "bytes": 9832584,
+      "sha256": "f2341e81f99bfd2791c38c2c25828f7d51718bc427794c81c1d47411bd9ba49b"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-progressive.output": {
+      "bytes": 17418,
+      "sha256": "6cd42e5ab2ca3229884108dd6f3f0b5bcbc5261a0feb438aee81a2ec9534c91f"
+    },
+    "commodore-amiga-a500-ocs-pal-kickstart-progressive.state": {
+      "bytes": 9832587,
+      "sha256": "5ad6f3a58465801be9fc8beae6b6d2dadd08c2e5eaa34d8ea8a94c6f3cbd2017"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-interlaced-debug-cut.final-state": {
+      "bytes": 19269828,
+      "sha256": "0ec563cb30b28cd44b0cad1ea773ad5b0772da4bbb54ae3ef14120432b9e339c"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-interlaced-debug-cut.output": {
+      "bytes": 17454,
+      "sha256": "20d5cf86d643c70a088199adc3d019b8e6fd02d2e50eb770a29c9a089b83eb97"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-interlaced-debug-cut.state": {
+      "bytes": 19269820,
+      "sha256": "5a76c43bf81822c54dd4499d2a3b197845a04a984ebc53ad8bdbadf1db0ffda5"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-interlaced.final-state": {
+      "bytes": 19269828,
+      "sha256": "8629e485db2bfb250bcb9244c7803738e945904deca3512a2d082bc80b1241e9"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-interlaced.output": {
+      "bytes": 17454,
+      "sha256": "a3f8879a5784cc25f6d8a12c2223843d536dbdea81cac3b987e16feeb91d3c4b"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-interlaced.state": {
+      "bytes": 19269820,
+      "sha256": "a85857139908d0f86ed1c6ac290d001a31d167c2cfdf5e2e38d9deb477ecac54"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-progressive-debug-cut.final-state": {
+      "bytes": 19269816,
+      "sha256": "6f32082aada9369d4abcc6ac7463ad46593f5b57872d84b8bbb580c1e3258df4"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-progressive-debug-cut.output": {
+      "bytes": 17418,
+      "sha256": "bd8f32e1bb7ac004f239193a203026257d4b406fb76068e8345d1ccf6cccc5d1"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-progressive-debug-cut.state": {
+      "bytes": 19269820,
+      "sha256": "a3fc06b5c915f8ff121747c356a25e15faf387f00f93c7d6cdc0bb80d0d67a79"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-progressive.final-state": {
+      "bytes": 19269816,
+      "sha256": "48cac92d1858558d19ad2dc782736ffc72343056251a879630643721089eadb7"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-progressive.output": {
+      "bytes": 17418,
+      "sha256": "2660fa03f87780704ec5c180648adf63b0c5b5752d76c2ef1bc2c6a0e678ebe7"
+    },
+    "commodore-amiga-a500-ocs-pal-maxed-kickstart-progressive.state": {
+      "bytes": 19269820,
+      "sha256": "1d34b1036b38c2abed7f605e3ac2f723d45b4dd4d982152467777eb263a2b585"
+    },
+    "handoff-active-interlaced.rom": {
+      "bytes": 65536,
+      "sha256": "6f994f3c6426eaa67428c3e307884e64ac38e5ae4b16124e94a0b723ceb84d6b"
+    },
+    "handoff-active-progressive.rom": {
+      "bytes": 65536,
+      "sha256": "288052a0e0133edfc08a41b2e631f86a4d65572087787fef25e05b4283de1444"
+    },
+    "handoff-inactive.rom": {
+      "bytes": 65536,
+      "sha256": "39e721fd7ebf73bcd6046fa3f8a2420559e0ef141336c61fb71d17566f1b75b0"
+    },
+    "kickstart-active-interlaced.rom": {
+      "bytes": 524288,
+      "sha256": "c16381613d92de54e19839392a31c3ae1ac033c58d523411af79095c52bb894c"
+    },
+    "kickstart-active-progressive.rom": {
+      "bytes": 524288,
+      "sha256": "f3343b4f7fd89fce7418d43c5abd07ac94f878abf7ba49d61f220d2fcd5d62cd"
+    },
+    "kickstart-inactive.rom": {
+      "bytes": 524288,
+      "sha256": "dd2869e9b661dd02b0b10db55f58ac9715d3ef2b1b5624033cf2396ea96be0c9"
+    }
+  },
+  "archive_sha256": "cb62592f3ff6b19a743c0a1bb42a8c2f6c3264c1a78d610d3203988a2bc55f04",
+  "archive_bytes": 2752799,
+  "original_bytes": 1273988733,
+  "capture_source": "untouched v67 production; project-owned guest firmware only"
+}

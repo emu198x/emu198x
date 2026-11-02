@@ -33,6 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+zip = { workspace = true }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 png = { workspace = true }
 sha2 = { workspace = true }
