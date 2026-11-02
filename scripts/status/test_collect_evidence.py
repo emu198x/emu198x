@@ -189,6 +189,21 @@ class CollectorTest(unittest.TestCase):
         self.assertIn("compiler diagnostic", output.getvalue())
         self.assertIn("compile broken", output.getvalue())
 
+    def test_named_packages_replace_the_workspace(self) -> None:
+        for packages, expected in (
+            (None, ["--workspace"]),
+            (["a", "b"], ["--package", "a", "--package", "b"]),
+        ):
+            with patch.object(
+                collector,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ) as run:
+                collector.test_executables({}, packages)
+            argv = run.call_args.args[0]
+            self.assertEqual(argv[2 : 2 + len(expected)], expected, packages)
+            self.assertEqual(argv.count("--workspace"), int(packages is None))
+
     def test_unparsed_nonzero_test_exit_is_still_failure(self) -> None:
         result = self.run_binary("raise SystemExit(101)\n")
         self.assertTrue(result["crashed"])
@@ -252,6 +267,124 @@ class CollectorTest(unittest.TestCase):
         self.assertIn("1 active [package (hang):", progress.getvalue())
         self.assertIn("1 queued", progress.getvalue())
         self.assertIn("Host deadline exceeded", progress.getvalue())
+
+
+class ShardTest(unittest.TestCase):
+    """Sharded CI must produce the ledger an unsharded run would."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory(prefix="emu-shard-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.registry = self.root / "systems.toml"
+        self.registry.write_text(
+            '[[system]]\nmachine_id="one"\ncrate="one"\n'
+            '[[system]]\nmachine_id="two"\ncrate="two"\n'
+        )
+        self.binaries = []
+        for package in ("one", "two", "shared"):
+            for target in ("lib", "a", "b"):
+                path = self.root / f"{package}-{target}"
+                path.write_text(
+                    f"#!{sys.executable}\n"
+                    f"print('test {target}_passes ... ok')\n"
+                    f"print('test {target}_waits ... ignored, needs a ROM')\n"
+                )
+                path.chmod(0o755)
+                self.binaries.append((package, target, path))
+
+    def main(self, *argv: str) -> int:
+        with (
+            patch.object(collector, "REGISTRY", self.registry),
+            patch.object(
+                collector,
+                "workspace_metadata",
+                return_value=(
+                    {
+                        "one": {"one", "shared"},
+                        "two": {"two", "shared"},
+                        "shared": {"shared"},
+                    },
+                    {},
+                    {name: str(self.root) for name in ("one", "two", "shared")},
+                ),
+            ),
+            patch.object(collector, "test_executables", return_value=self.binaries),
+            patch.object(sys, "argv", ["collector", *argv]),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            return collector.main()
+
+    def shard_files(self, count: int) -> list[Path]:
+        paths = []
+        for index in range(1, count + 1):
+            path = self.root / f"shard-{index}.json"
+            self.assertEqual(
+                self.main("--shard", f"{index}/{count}", "--results-out", str(path)),
+                0,
+            )
+            paths.append(path)
+        return paths
+
+    def test_merged_shards_give_the_unsharded_ledger(self) -> None:
+        whole = self.root / "whole.json"
+        self.assertEqual(self.main("--out", str(whole)), 0)
+        for count in (1, 2, 4):
+            merged = self.root / f"merged-{count}.json"
+            files = self.shard_files(count)
+            self.assertEqual(self.main("--out", str(merged), "--merge", *map(str, files)), 0)
+            self.assertEqual(merged.read_text(), whole.read_text(), count)
+
+    def test_every_binary_lands_in_exactly_one_shard(self) -> None:
+        files = self.shard_files(4)
+        ran = [
+            (r["package"], r["target"])
+            for path in files
+            for r in json.loads(path.read_text())["results"]
+        ]
+        self.assertEqual(sorted(ran), sorted((p, t) for p, t, _ in self.binaries))
+
+    def test_merge_refuses_a_missing_shard(self) -> None:
+        files = self.shard_files(2)
+        with self.assertRaisesRegex(SystemExit, r"expected shards 1\.\.2"):
+            self.main("--out", str(self.root / "x.json"), "--merge", str(files[0]))
+
+    def test_merge_refuses_a_repeated_shard(self) -> None:
+        files = self.shard_files(2)
+        with self.assertRaisesRegex(SystemExit, r"expected shards 1\.\.2"):
+            self.main("--out", str(self.root / "x.json"), "--merge", *map(str, [files[0], files[0], files[1]]))
+
+    def test_merge_refuses_results_that_miss_a_binary(self) -> None:
+        files = self.shard_files(2)
+        data = json.loads(files[1].read_text())
+        data["results"] = data["results"][1:]
+        files[1].write_text(json.dumps(data))
+        with self.assertRaisesRegex(SystemExit, "do not cover the workspace"):
+            self.main("--out", str(self.root / "x.json"), "--merge", *map(str, files))
+
+    def test_merge_refuses_shards_that_discovered_different_binaries(self) -> None:
+        files = self.shard_files(2)
+        data = json.loads(files[1].read_text())
+        data["discovered"] = data["discovered"][:-1]
+        files[1].write_text(json.dumps(data))
+        with self.assertRaisesRegex(SystemExit, "discovered different"):
+            self.main("--out", str(self.root / "x.json"), "--merge", *map(str, files))
+
+    def test_a_failing_shard_fails(self) -> None:
+        path = self.root / "broken"
+        path.write_text(f"#!{sys.executable}\nprint('test no ... FAILED')\nraise SystemExit(101)\n")
+        path.chmod(0o755)
+        self.binaries = [("one", "broken", path)]
+        out = self.root / "shard.json"
+        self.assertEqual(self.main("--shard", "1/1", "--results-out", str(out)), 1)
+        self.assertTrue(out.exists())
+
+    def test_shard_argument_is_checked(self) -> None:
+        for bad in ("0/2", "3/2", "2", "a/b"):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                self.main("--shard", bad, "--results-out", str(self.root / "x.json"))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            self.main("--shard", "1/2")
 
 
 if __name__ == "__main__":

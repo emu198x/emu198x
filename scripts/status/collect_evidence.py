@@ -86,6 +86,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 from pathlib import Path
 
 import tomllib
@@ -290,8 +291,13 @@ def workspace_metadata() -> tuple[dict[str, set[str]], dict[str, str], dict[str,
     return {name: closure(name) for name in names}, ids, roots
 
 
-def test_executables(ids: dict[str, str]) -> list[tuple[str, str, Path]]:
+def test_executables(
+    ids: dict[str, str], packages: list[str] | None = None
+) -> list[tuple[str, str, Path]]:
     """Every test binary cargo would run, as (package, target, path).
+
+    With `packages`, only those packages' binaries: a pull request's run
+    covers the crates its change can reach (scripts/ci/affected_packages.py).
 
     `--no-run` builds them and reports each one's package, which is the
     only reliable way to attribute an integration test: the file name of
@@ -302,7 +308,11 @@ def test_executables(ids: dict[str, str]) -> list[tuple[str, str, Path]]:
         [
             "cargo",
             "test",
-            "--workspace",
+            *(
+                [flag for name in packages for flag in ("--package", name)]
+                if packages
+                else ["--workspace"]
+            ),
             "--no-run",
             "--message-format",
             "json",
@@ -455,10 +465,36 @@ def main() -> int:
         default=min(8, os.cpu_count() or 4),
         help="test binaries to run at once",
     )
+    parser.add_argument(
+        "--package",
+        action="append",
+        dest="packages",
+        help="test only this package (repeatable); default: the workspace",
+    )
+    parser.add_argument(
+        "--shard",
+        type=parse_shard,
+        help="run only shard I of N (I/N) and write its results to --results-out",
+    )
+    parser.add_argument(
+        "--results-out",
+        type=Path,
+        help="where a shard writes its raw results, for --merge",
+    )
+    parser.add_argument(
+        "--merge",
+        type=Path,
+        nargs="+",
+        help="write the ledger from every shard's results instead of running",
+    )
     args = parser.parse_args()
 
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    if bool(args.shard) != bool(args.results_out):
+        parser.error("--shard and --results-out go together")
+    if args.merge and args.shard:
+        parser.error("--merge does not run tests")
 
     registry = tomllib.loads(REGISTRY.read_text())["system"]
     closures, ids, roots = workspace_metadata()
@@ -475,7 +511,19 @@ def main() -> int:
         for member in closures[crate]:
             reach.setdefault(member, set()).add(crate)
 
-    binaries = test_executables(ids)
+    if args.merge:
+        results = merge_shards(args.merge)
+        return write_ledger(results, registry, closures, reach, args.out)
+
+    binaries = test_executables(ids, args.packages)
+    discovered = [binary_name(package, target) for package, target, _ in binaries]
+    if args.shard:
+        index, count = args.shard
+        binaries = [
+            binary
+            for binary in binaries
+            if shard_of(binary_name(binary[0], binary[1]), count) == index
+        ]
     progress(f"running {len(binaries)} test binaries")
 
     with tempfile.TemporaryDirectory(prefix="emu198x-evidence-") as tmp:
@@ -532,6 +580,84 @@ def main() -> int:
         }
         results.sort(key=lambda result: order[(result["package"], result["target"])])
 
+    if args.shard:
+        index, count = args.shard
+        args.results_out.parent.mkdir(parents=True, exist_ok=True)
+        args.results_out.write_text(
+            json.dumps(
+                {
+                    "shard": index,
+                    "shards": count,
+                    "discovered": discovered,
+                    "results": results,
+                }
+            )
+            + "\n"
+        )
+        print(f"wrote {args.results_out}", file=sys.stderr)
+        return judge(results)
+    return write_ledger(results, registry, closures, reach, args.out)
+
+
+def binary_name(package: str, target: str) -> str:
+    return f"{package} ({target})"
+
+
+def parse_shard(text: str) -> tuple[int, int]:
+    """`I/N`, counting from 1, as GitHub's matrix writes it."""
+    try:
+        index, count = (int(part) for part in text.split("/"))
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected I/N") from None
+    if not 1 <= index <= count:
+        raise argparse.ArgumentTypeError("expected 1 <= I <= N")
+    return index, count
+
+
+def shard_of(name: str, count: int) -> int:
+    """A binary's shard, stable across runs and machines (unlike `hash`)."""
+    return zlib.crc32(name.encode()) % count + 1
+
+
+def merge_shards(paths: list[Path]) -> list[dict]:
+    """Every shard's results, refusing a set that is missing anything.
+
+    A shard that never uploaded, or two shards that disagree about which
+    binaries exist, would otherwise produce a smaller ledger that still
+    looks complete.
+    """
+    shards = [json.loads(path.read_text()) for path in paths]
+    counts = {shard["shards"] for shard in shards}
+    if len(counts) != 1:
+        raise SystemExit(f"shards disagree about their count: {sorted(counts)}")
+    count = counts.pop()
+    indices = sorted(shard["shard"] for shard in shards)
+    if indices != list(range(1, count + 1)):
+        raise SystemExit(f"expected shards 1..{count}, got {indices}")
+    discovered = shards[0]["discovered"]
+    if any(shard["discovered"] != discovered for shard in shards):
+        raise SystemExit("shards discovered different test binaries")
+    results = [result for shard in shards for result in shard["results"]]
+    ran = [binary_name(r["package"], r["target"]) for r in results]
+    if sorted(ran) != sorted(discovered):
+        missing = sorted(set(discovered) - set(ran))
+        extra = sorted(set(ran) - set(discovered))
+        raise SystemExit(
+            f"shard results do not cover the workspace: missing {missing}, "
+            f"unexpected or repeated {extra or 'duplicates'}"
+        )
+    order = {name: i for i, name in enumerate(discovered)}
+    results.sort(key=lambda r: order[binary_name(r["package"], r["target"])])
+    return results
+
+
+def write_ledger(
+    results: list[dict],
+    registry: list[dict],
+    closures: dict[str, set[str]],
+    reach: dict[str, set[str]],
+    out: Path,
+) -> int:
     by_package: dict[str, dict] = {}
     for result in results:
         tally = by_package.setdefault(
@@ -594,18 +720,25 @@ def main() -> int:
         ],
         "unattributed_packages": orphans,
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    print(f"wrote {args.out}", file=sys.stderr)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    print(f"wrote {out}", file=sys.stderr)
 
     # The ledger is written before anything is judged: a run that fails
     # must still say what it managed to establish.
+    return judge(results)
+
+
+def judge(results: list[dict]) -> int:
     broken = [r for r in results if r["failed"] or r["crashed"]]
     if not broken:
         totals = {
-            key: sum(t[key] for t in by_package.values())
-            for key in ("passed", "ignored", "skipped", "unexplained_ignored")
+            key: sum(len(r[key]) for r in results)
+            for key in ("passed", "ignored", "skipped")
         }
+        totals["unexplained_ignored"] = sum(
+            1 for r in results for entry in r["ignored"] if not entry["reason"]
+        )
         print(
             f"{totals['passed']} passed, {totals['ignored']} ignored "
             f"({totals['unexplained_ignored']} without a stated reason), "

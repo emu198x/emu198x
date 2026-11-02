@@ -9,7 +9,7 @@ Every machine this repository ships, and where the evidence for each one lives. 
 
 **Own crates** are exclusive to one shipping crate, or to an explicit concrete board when siblings share a binary. Their tests provide evidence about that owner. Family runtime and common wiring remain shared when board owners are explicit. **Shared crates** are common to several machines — `emu198x-zilog-z80` passing says nothing about whether the Einstein boots. A machine with few own crates has little that can be said about it specifically, however green the suite looks.
 
-**There are no test counts on this page.** They would be stale within a day, and a page that is usually wrong trains people to stop reading it. Counts are published as the `status-evidence` artifact on every CI run, where being a snapshot is the point. See [the evidence decision](../../knowledge/decisions/evidence-is-what-ran-not-what-was-claimed.md).
+**There are no test counts on this page.** They would be stale within a day, and a page that is usually wrong trains people to stop reading it. Counts are published as the `status-evidence` artifact on every CI run, where being a snapshot is the point; a pull request's run covers only the crates its change can reach, and a push to main's covers the workspace. See [the evidence decision](../../knowledge/decisions/evidence-is-what-ran-not-what-was-claimed.md).
 
 **Milestones are claims, not verification.** A closed `<machine> 100%` milestone says its issues were closed. It says nothing about the machine.
 

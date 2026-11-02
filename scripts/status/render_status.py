@@ -146,7 +146,9 @@ def _usability(rows) -> str:
             "**There are no test counts on this page.** They would be stale within "
             "a day, and a page that is usually wrong trains people to stop reading "
             "it. Counts are published as the `status-evidence` artifact on every "
-            "CI run, where being a snapshot is the point. See "
+            "CI run, where being a snapshot is the point; a pull request's run "
+            "covers only the crates its change can reach, and a push to main's "
+            "covers the workspace. See "
             "[the evidence decision](../../knowledge/decisions/"
             "evidence-is-what-ran-not-what-was-claimed.md)."
         ),

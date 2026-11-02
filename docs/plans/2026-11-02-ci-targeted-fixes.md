@@ -87,6 +87,32 @@ now recovers from them without rebuilding every platform.
   no failed checks, and Release-plz in that repo then says "already up to
   date".
 
+### 4. Make a pull request's tests faster
+
+Steve chose this on 2 November 2026 (option A): pull requests test the crates
+their change can reach; pushes to main and the release PR test everything.
+Every test still runs on every change, just not always before merge.
+
+Measured on #2235: the required `Test` job took 27 minutes, 5 compiling and
+21 running 1,141 test binaries on a 4-CPU runner. Two binaries set a floor:
+`runtime-sinclair-zx-spectrum` (9.4 minutes) and `runtime-commodore-amiga`
+(7).
+
+- `scripts/ci/affected_packages.py` picks the packages: a crate's directory
+  reaches it and its dependents (all dependency kinds); `Cargo.lock` and
+  root `Cargo.toml` changes are traced to the packages they reach where
+  possible; prose runs nothing; anything else runs everything.
+- `scripts/status/collect_evidence.py` gains `--package`, `--shard I/N`,
+  `--results-out` and `--merge`.
+- `.github/workflows/ci.yml`: `Test plan`, four `Test shard (i/4)` jobs, and
+  `Test`, the required check, which merges them into the same ledger.
+- **Verified by:** `test_affected_packages.py` (18 tests, including the real
+  309-crate graph) and `test_collect_evidence.py` (21 tests). The merged
+  ledger equals an unsharded run's, and that test fails when the merge drops
+  a result. Over the last 60 commits on main, 19 would have run a subset,
+  often under ten crates; the rest touch `test-data/`, workflows or release
+  versions. Next: this PR's own CI run, and a crate-only PR.
+
 ## Not in scope
 
 - The release PR going stale (problem 3). It recovers on its own, and fixing
