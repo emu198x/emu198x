@@ -557,14 +557,15 @@ class WorkflowTests(unittest.TestCase):
             "metadata"
         ]["dist"]
         text = (ROOT / ".github/workflows/qualify-packages.yml").read_text()
-        matrix = re.findall(r"^            target: ([\w-]+)$", text, re.MULTILINE)
-        self.assertEqual(sorted(matrix), sorted(TARGETS))
         self.assertEqual(sorted(config["targets"]), sorted(TARGETS))
         self.assertEqual(config["pr-run-mode"], "upload")
         self.assertEqual(config["global-artifacts-jobs"], ["./qualify-packages"])
         self.assertNotIn("host-jobs", config)
-        self.assertIn("python scripts/source_lock.py verify", text)
-        self.assertIn("target/distrib/plan-dist-manifest.json", text)
+        # Producers verify their own receipts. A verifier in another job can
+        # run in a later attempt than the producer it checks, which fails a
+        # `rerun --failed` retry, and it needs a second scarce runner.
+        self.assertNotIn("source_lock.py verify", text)
+        self.assertNotIn("runs-on:", text)
         self.assertNotIn("secrets:", text)
         self.assertIn("uses: ./.github/workflows/test-linux-packages.yml", text)
         linux = (ROOT / ".github/workflows/test-linux-packages.yml").read_text()
