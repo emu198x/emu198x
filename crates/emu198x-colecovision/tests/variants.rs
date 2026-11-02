@@ -100,7 +100,7 @@ fn tool_body(response: &Value) -> Value {
 #[test]
 fn launch_and_script_select_both_regions_without_losing_the_cartridge() {
     let fixture = Fixture::new();
-    for model in runtime_coleco_colecovision::Model::ALL {
+    for model in emu198x_runtime_coleco_colecovision::Model::ALL {
         let report = output(
             fixture
                 .script(json!([
@@ -153,7 +153,7 @@ fn mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches() {
         assert_eq!(tool_body(&responses[1])["bytes"], json!([0x5a]));
         assert_eq!(
             tool_body(&responses[2])["profile_id"],
-            runtime_coleco_colecovision::Model::CvPal.profile_id()
+            emu198x_runtime_coleco_colecovision::Model::CvPal.profile_id()
         );
         assert_eq!(responses[3]["result"]["isError"], true);
         assert_eq!(tool_body(&responses[4])["bytes"], json!([0x5a]));
@@ -195,7 +195,7 @@ fn mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed() {
     stdout.read_line(&mut line).expect("switch response");
     assert_eq!(
         tool_body(&serde_json::from_str(&line).expect("response"))["profile_id"],
-        runtime_coleco_colecovision::Model::CvPal.profile_id()
+        emu198x_runtime_coleco_colecovision::Model::CvPal.profile_id()
     );
     line.clear();
     stdout.read_line(&mut line).expect("read response");
@@ -258,7 +258,7 @@ fn firmware_options_and_errors_use_the_shared_resolver() {
         fixture.0.join("monitor.rom").display().to_string(),
         format!(
             "{}={}",
-            runtime_coleco_colecovision::BIOS_FIRMWARE_ID,
+            emu198x_runtime_coleco_colecovision::BIOS_FIRMWARE_ID,
             fixture.0.join("monitor.rom").display()
         ),
     ] {

@@ -25,7 +25,8 @@ def partitions(
     board_reach: dict[str, set[str]] = defaultdict(set)
     for row in board_rows:
         root = row["machine_crate"]
-        if not root.startswith("machine-") or root not in closures:
+        # A published machine crate keeps its category after the prefix.
+        if not root.removeprefix("emu198x-").startswith("machine-") or root not in closures:
             raise ValueError(f"unknown concrete machine crate: {root}")
         if root not in closures[row["crate"]]:
             raise ValueError(f"{root} is not reachable from {row['crate']}")

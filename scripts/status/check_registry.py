@@ -64,6 +64,16 @@ def shipping_crates() -> set[str]:
     }
 
 
+def category(name: str) -> str:
+    """A crate's name without the `emu198x-` a published crate carries.
+
+    Publishing adds the prefix and keeps the category word
+    (knowledge/decisions/crate-naming.md), so `emu198x-machine-…` is still a
+    machine crate.
+    """
+    return name.removeprefix("emu198x-")
+
+
 def opts_out_of_release(crate: pathlib.Path) -> bool:
     manifest = tomllib.loads((crate / "Cargo.toml").read_text())
     dist = manifest.get("package", {}).get("metadata", {}).get("dist", {})
@@ -79,7 +89,11 @@ def declared_machines() -> set[str]:
     outcome for a real machine nobody registered.
     """
     found = set()
-    for f in (ROOT / "crates").glob("runtime-*/src/*.rs"):
+    runtimes = [
+        *(ROOT / "crates").glob("runtime-*/src/*.rs"),
+        *(ROOT / "crates").glob("emu198x-runtime-*/src/*.rs"),
+    ]
+    for f in runtimes:
         found |= set(
             re.findall(
                 r'MachineId::from\("([a-z0-9-]+)"\)', f.read_text(errors="ignore")
@@ -101,7 +115,7 @@ def machine_dependency_problems(root: pathlib.Path) -> list[str]:
     for path in sorted((root / "crates").glob("*/Cargo.toml")):
         manifest = tomllib.loads(path.read_text())
         name = manifest["package"]["name"]
-        if not name.startswith("machine-"):
+        if not category(name).startswith("machine-"):
             continue
         machines += 1
         scopes = [("package", manifest)]
@@ -114,7 +128,7 @@ def machine_dependency_problems(root: pathlib.Path) -> list[str]:
                         shared = inherited[alias]
                         spec = shared if isinstance(shared, dict) else {}
                     dependency = spec.get("package", alias)
-                    if dependency.startswith("machine-"):
+                    if category(dependency).startswith("machine-"):
                         problems.append(
                             f"{name}: {scope} {kind} depends on {dependency}; "
                             "shared hardware belongs in common-* (rule 34)"
@@ -150,7 +164,7 @@ def main() -> int:
     for system in systems:
         if owner := system.get("machine_crate"):
             manifest = ROOT / "crates" / owner / "Cargo.toml"
-            if not owner.startswith("machine-") or not manifest.is_file():
+            if not category(owner).startswith("machine-") or not manifest.is_file():
                 problems.append(
                     f"{system['machine_id']}: unknown machine_crate {owner}"
                 )

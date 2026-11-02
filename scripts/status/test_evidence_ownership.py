@@ -47,6 +47,20 @@ class BoardEvidenceTests(unittest.TestCase):
                     },
                 )
 
+    def test_a_published_machine_crate_is_still_a_concrete_owner(self) -> None:
+        systems = [
+            {"machine_id": "ntsc", "machine_crate": "emu198x-machine-ntsc", "crate": "app"},
+        ]
+        closures = {
+            "app": {"app", "emu198x-machine-ntsc", "chip"},
+            "emu198x-machine-ntsc": {"emu198x-machine-ntsc", "chip"},
+        }
+        self.assertEqual(
+            partitions(systems, closures)["ntsc"],
+            # Nothing else reaches `chip`, so it is this board's own.
+            (["chip", "emu198x-machine-ntsc"], ["app"], []),
+        )
+
     def test_two_machine_ids_cannot_claim_the_same_concrete_crate(self) -> None:
         with self.assertRaises(ValueError):
             partitions(

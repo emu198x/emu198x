@@ -41,6 +41,27 @@ class MachineDependenciesTest(unittest.TestCase):
                 self.assertIn("machine-other", failures[0])
                 self.assertIn(kind, failures[0])
 
+    def test_published_names_keep_their_category(self) -> None:
+        # Publishing adds `emu198x-` and keeps the category word
+        # (knowledge/decisions/crate-naming.md), on either side of the edge.
+        failures = self.check(
+            '[dependencies]\nemu198x-machine-other = { path = "../other" }\n'
+        )
+        self.assertEqual(len(failures), 1)
+        self.assertIn("emu198x-machine-other", failures[0])
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "Cargo.toml").write_text("[workspace]\n")
+            machine = root / "crates" / "emu198x-machine-example"
+            machine.mkdir(parents=True)
+            (machine / "Cargo.toml").write_text(
+                '[package]\nname = "emu198x-machine-example"\n'
+                '[dependencies]\nmachine-other = { path = "../other" }\n'
+            )
+            failures = machine_dependency_problems(root)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("emu198x-machine-example", failures[0])
+
     def test_empty_scan_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
