@@ -220,6 +220,14 @@ impl AmstradCpc {
         dispatch!(self, m => m.run_native_frame())
     }
     /// Delegate to the selected physical owner.
+    pub fn monitor_scan(&self) -> MonitorScan {
+        dispatch!(self, m => m.monitor_scan())
+    }
+    /// Delegate to the selected physical owner.
+    pub fn set_monitor_scan(&mut self, scan: MonitorScan) {
+        dispatch!(self, m => m.set_monitor_scan(scan));
+    }
+    /// Delegate to the selected physical owner.
     pub fn run_frame(&mut self) -> u64 {
         dispatch!(self, m => m.run_frame())
     }

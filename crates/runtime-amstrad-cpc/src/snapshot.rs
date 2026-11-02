@@ -6,11 +6,17 @@
 //! envelope for encode (no clone), an owning envelope for decode.
 
 use crate::machine::AmstradCpc;
+use common_amstrad_cpc::MonitorScan;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::AmstradCpcRuntime;
 
+// Bumped to 5: the envelope carries the monitor's scan beside the machine
+// (emu198x/emu198x#2229), so a restore resumes mid-scan as the live machine
+// would. A version 4 save still loads; its monitor re-locks at the next
+// vertical sync.
+//
 // Bumped to 4: the machine carries the 664 and 6128's µPD765A and drive-motor
 // latch.
 //
@@ -19,18 +25,31 @@ use crate::runtime::AmstradCpcRuntime;
 // Bumped to 2: the 6845 now carries its interlace field (#163). postcard is
 // not self-describing, so a field added to the CRTC shifts every byte after
 // it.
-const SNAPSHOT_VERSION: u16 = 4;
+const SNAPSHOT_VERSION: u16 = 5;
+/// The version before the monitor's scan joined the envelope.
+const SNAPSHOT_VERSION_WITHOUT_MONITOR: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct CpcRuntimeSnapshotRefV1<'a> {
+struct CpcRuntimeSnapshotRefV2<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
     machine: Option<&'a AmstradCpc>,
+    monitor: Option<MonitorScan>,
 }
 
 /// Owning envelope used during decode.
+#[derive(Deserialize)]
+struct CpcRuntimeSnapshotV2 {
+    version: u16,
+    time: u64,
+    model_id: String,
+    machine: Option<common_amstrad_cpc::AmstradCpc>,
+    monitor: Option<MonitorScan>,
+}
+
+/// A version 4 save, from before the monitor's scan joined the envelope.
 #[derive(Deserialize)]
 struct CpcRuntimeSnapshotV1 {
     version: u16,
@@ -40,11 +59,12 @@ struct CpcRuntimeSnapshotV1 {
 }
 
 pub(crate) fn encode(runtime: &AmstradCpcRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = CpcRuntimeSnapshotRefV1 {
+    let snapshot = CpcRuntimeSnapshotRefV2 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        monitor: runtime.machine().map(AmstradCpc::monitor_scan),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -59,16 +79,32 @@ pub(crate) fn decode(runtime: &mut AmstradCpcRuntime, bytes: &[u8]) -> Result<()
             reason: format!("decode failed: {reason}"),
         }
     })?;
-    if version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
-        });
-    }
-    let snapshot: CpcRuntimeSnapshotV1 =
-        postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-            reason: format!("decode failed: {reason}"),
-        })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    let undecodable = |reason: postcard::Error| MachineError::InvalidSnapshot {
+        reason: format!("decode failed: {reason}"),
+    };
+    let snapshot = match version {
+        SNAPSHOT_VERSION => {
+            postcard::from_bytes::<CpcRuntimeSnapshotV2>(bytes).map_err(undecodable)?
+        }
+        SNAPSHOT_VERSION_WITHOUT_MONITOR => {
+            let old = postcard::from_bytes::<CpcRuntimeSnapshotV1>(bytes).map_err(undecodable)?;
+            CpcRuntimeSnapshotV2 {
+                version: old.version,
+                time: old.time,
+                model_id: old.model_id,
+                machine: old.machine,
+                monitor: None,
+            }
+        }
+        _ => {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"
+                ),
+            });
+        }
+    };
+    debug_assert_eq!(snapshot.version, version);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -78,13 +114,18 @@ pub(crate) fn decode(runtime: &mut AmstradCpcRuntime, bytes: &[u8]) -> Result<()
             ),
         });
     }
-    let machine = snapshot
+    let mut machine = snapshot
         .machine
         .map(|state| {
             AmstradCpc::from_state(state, runtime.model().machine_model())
                 .map_err(|reason| MachineError::InvalidSnapshot { reason })
         })
         .transpose()?;
+    // Without a saved scan the monitor's phase is unknown, and it re-locks at
+    // the next vertical sync.
+    if let (Some(machine), Some(scan)) = (machine.as_mut(), snapshot.monitor) {
+        machine.set_monitor_scan(scan);
+    }
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
     Ok(())
@@ -132,11 +173,12 @@ mod board_payload_tests {
                 }
                 let board = AmstradCpc::with_model(&[0x22; 32768], foreign.machine_model())
                     .expect("foreign");
-                let bytes = postcard::to_allocvec(&CpcRuntimeSnapshotRefV1 {
+                let bytes = postcard::to_allocvec(&CpcRuntimeSnapshotRefV2 {
                     version: SNAPSHOT_VERSION,
                     time: 1234,
                     model_id: selected.model_id(),
                     machine: Some(&board),
+                    monitor: None,
                 })
                 .expect("forged envelope");
                 assert!(live.restore(&bytes).is_err());

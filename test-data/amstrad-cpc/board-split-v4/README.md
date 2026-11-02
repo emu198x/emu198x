@@ -12,3 +12,12 @@ runtime snapshot. `runtime-amstrad-cpc/src/board_baseline_tests.rs` compares
 both direct and restored execution with these original bytes. The capture
 mode refuses to overwrite files. Runtime-only reset-cache repair does not
 change any of these serialized bytes.
+
+## Since 2 November 2026
+
+These are now the evidence that older saves still load. Frames end where the
+monitor retraces (emu198x/emu198x#2229), and a version 4 save carries no
+monitor scan, so the outputs here no longer describe the machine and the
+specimen no longer reproduces these states. `original_v4_saves_still_restore_and_run`
+restores each state, and checks that once saved again as version 5 it resumes
+exactly. The full baseline moved to `../save-v5`.

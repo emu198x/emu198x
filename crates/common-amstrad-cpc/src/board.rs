@@ -229,6 +229,14 @@ impl<B: CpcBoard> CpcCore<B> {
         self.state.run_native_frame()
     }
     /// Delegate to this board’s shared hardware.
+    pub const fn monitor_scan(&self) -> crate::MonitorScan {
+        self.state.monitor_scan()
+    }
+    /// Delegate to this board’s shared hardware.
+    pub const fn set_monitor_scan(&mut self, scan: crate::MonitorScan) {
+        self.state.set_monitor_scan(scan);
+    }
+    /// Delegate to this board’s shared hardware.
     pub fn run_frame(&mut self) -> u64 {
         self.state.run_frame()
     }

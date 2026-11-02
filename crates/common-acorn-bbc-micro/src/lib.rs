@@ -137,6 +137,29 @@ const CYCLES_PER_FRAME: u64 = 39_936; // 312 lines × 64 µs × 2 MHz
 const SCANLINES_PER_FRAME: u16 = 312;
 const CYCLES_PER_LINE: u64 = 128;
 
+/// The monitor's vertical scan, which decides where one frame ends and the
+/// next begins. It runs on its own oscillator; the CRTC's vertical sync can
+/// only bring the retrace forward, and only by so much. Modelled on the
+/// TDA1170, a common TV vertical deflection chip: free-running at 48.5 Hz
+/// (the datasheet's 260 kΩ, 0.1 µF configuration) with a synchronization
+/// range of at least 14 Hz (SGS-Thomson TDA1170S datasheet, electrical
+/// characteristics; application note AN373, "Vertical deflection circuits
+/// for TV & monitor"). So a sync pulse is accepted no sooner than 1/62.5 s
+/// after the last retrace, and with none the scan retraces by itself after
+/// 1/48.5 s. Times are in 2 MHz master ticks.
+const MONITOR_EARLIEST_SYNC: u64 = 2_000_000 * 2 / 125; // 1/62.5 s
+const MONITOR_FREE_RUN: u64 = 2_000_000 * 10 / 485; // 1/48.5 s
+
+/// Where the monitor is in its vertical scan: when it last retraced, in master
+/// ticks, and whether it's re-locking. A monitor whose phase is unknown, after
+/// a save that didn't carry this, is taken as locked: the next vertical sync is
+/// accepted whenever it comes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MonitorScan {
+    pub last_retrace: u64,
+    pub relocking: bool,
+}
+
 const SN76489_CLOCK_HZ: u32 = 4_000_000;
 
 /// Video ULA — palette + control register (Advanced User Guide §19).
@@ -751,6 +774,11 @@ pub struct BbcState {
     frame_count: u64,
     #[serde(skip)]
     native_frame_ready: bool,
+    /// The monitor's scan; see [`MonitorScan`]. The monitor isn't part of the
+    /// machine, so the machine's own state doesn't carry it: the runtime's
+    /// save does, beside it.
+    #[serde(skip)]
+    monitor: MonitorScan,
     /// Tick at which the current frame started, and the line within it.
     ///
     /// Line boundaries used to be local to `run_frame`, so the work done at
@@ -877,6 +905,7 @@ impl<B: Board> BbcCore<B> {
                 master_ticks: 0,
                 frame_count: 0,
                 native_frame_ready: false,
+                monitor: MonitorScan::default(),
                 frame_base: 0,
                 scanline: 0,
                 fire: [false; 2],
@@ -1166,20 +1195,54 @@ impl<B: Board> BbcCore<B> {
             .count()
     }
 
+    /// Where the monitor is in its scan, for a save.
+    #[must_use]
+    pub const fn monitor_scan(&self) -> MonitorScan {
+        self.state.monitor
+    }
+
+    /// Restore where the monitor is in its scan.
+    pub const fn set_monitor_scan(&mut self, scan: MonitorScan) {
+        self.state.monitor = scan;
+    }
+
     /// Run one PAL frame.
     /// Advance to the CRTC field event; the safety budget is not a frame.
+    ///
+    /// A frame is one scan of the monitor: it ends when the monitor retraces,
+    /// either at a vertical sync it accepts or, with none in range, by itself.
+    /// A CRTC the OS is still programming raises vertical sync every few
+    /// characters; counting each as a frame made a script's frames a few
+    /// ticks long (emu198x/emu198x#2229).
     pub fn run_native_frame(&mut self) -> (u64, bool) {
         let start = self.state.master_ticks;
+        // After a restore, or a long run outside this loop, the monitor's
+        // phase is unknown: take it as locked, so the next sync is accepted
+        // whenever it comes, and it free-runs only if none comes in a scan.
+        if start - self.state.monitor.last_retrace >= MONITOR_FREE_RUN {
+            self.state.monitor.last_retrace = start;
+            self.state.monitor.relocking = true;
+        }
         self.state.native_frame_ready = false;
-        while (!self.state.native_frame_ready || self.state.video_frame_ended)
-            && self.state.master_ticks - start < 2 * CYCLES_PER_FRAME
-        {
+        while !self.state.native_frame_ready {
+            if self.state.master_ticks - self.state.monitor.last_retrace >= MONITOR_FREE_RUN {
+                self.state.monitor.last_retrace = self.state.master_ticks;
+                self.state.monitor.relocking = false;
+                self.state.native_frame_ready = true;
+                break;
+            }
             self.tick_cpu_cycle();
         }
-        (
-            self.state.master_ticks - start,
-            self.state.native_frame_ready && !self.state.video_frame_ended,
-        )
+        // A field the 6845 has just ended is presented when its next line
+        // starts. Run to that swap, not until the flag clears: a CRTC that
+        // ends a field every character sets it again straight away.
+        if self.state.video_frame_ended {
+            let shown = self.state.framebuffer.as_ptr();
+            while self.state.framebuffer.as_ptr() == shown {
+                self.tick_cpu_cycle();
+            }
+        }
+        (self.state.master_ticks - start, true)
     }
 
     pub fn run_frame(&mut self) -> u64 {
@@ -1636,7 +1699,20 @@ impl<B: Board> BbcCore<B> {
     fn clock_video(&mut self) {
         // Read the column first: it names the character this tick puts out.
         let column = self.state.crtc.horizontal_counter();
+        let vsync_before = self.state.crtc.vsync;
         let frame_ended = self.state.crtc.tick();
+        // The monitor retraces at a vertical sync it's far enough into its
+        // scan to accept; see [`MONITOR_FREE_RUN`].
+        if self.state.crtc.vsync
+            && !vsync_before
+            && (self.state.monitor.relocking
+                || self.state.master_ticks - self.state.monitor.last_retrace
+                    >= MONITOR_EARLIEST_SYNC)
+        {
+            self.state.monitor.last_retrace = self.state.master_ticks;
+            self.state.monitor.relocking = false;
+            self.state.native_frame_ready = true;
+        }
         // The SAA5050 counts lines on DISPTMG and fields on VSYNC whatever
         // mode the Video ULA is in. R8 bits 4-5 = `11` hold DISPTMG off.
         let disptmg = self.state.crtc.display_enable && self.state.crtc.regs()[8] & 0x30 != 0x30;
@@ -1650,7 +1726,6 @@ impl<B: Board> BbcCore<B> {
         self.draw_cursor(column);
         if frame_ended {
             self.state.video_frame_ended = true;
-            self.state.native_frame_ready = true;
         }
     }
 

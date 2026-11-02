@@ -114,6 +114,14 @@ impl BbcMachine {
         dispatch!(self,m=>m.run_native_frame())
     }
     /// Forward this operation to the active BBC board.
+    pub fn monitor_scan(&self) -> common_acorn_bbc_micro::MonitorScan {
+        dispatch!(self,m=>m.monitor_scan())
+    }
+    /// Forward this operation to the active BBC board.
+    pub fn set_monitor_scan(&mut self, scan: common_acorn_bbc_micro::MonitorScan) {
+        dispatch!(self,m=>m.set_monitor_scan(scan));
+    }
+    /// Forward this operation to the active BBC board.
     pub fn run_frame(&mut self) -> u64 {
         dispatch!(self,m=>m.run_frame())
     }

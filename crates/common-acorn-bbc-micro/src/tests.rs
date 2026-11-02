@@ -30,29 +30,61 @@ type BbcMicro = BbcCore<TestB>;
 type BPlus = BbcCore<TestBPlus>;
 type Master = BbcCore<TestMaster>;
 
-#[test]
-fn native_frame_follows_the_programmed_crtc_field_length() {
-    let mut durations = Vec::new();
-    for rows in [38, 19] {
-        let mut machine = BbcMicro::new(trap_rom());
-        let mut regs = MODE0_CRTC;
-        regs[4] = rows;
-        program_mode(&mut machine, regs, 0x9C);
-        for _ in 0..37 {
-            machine.tick_cpu_cycle();
-        }
-        assert!(machine.run_native_frame().1);
-        let (ticks, completed) = machine.run_native_frame();
-        assert!(completed && ticks > 0);
-        assert!(
-            !machine.state.video_frame_ended,
-            "completed field must have been presented"
-        );
-        durations.push(ticks);
+/// Mode 0's CRTC with `rows` character rows (R4 + 1) and vertical sync at
+/// row R7.
+fn programmed(rows: u8, sync_row: u8) -> BbcMicro {
+    let mut machine = BbcMicro::new(trap_rom());
+    let mut regs = MODE0_CRTC;
+    regs[4] = rows - 1;
+    regs[7] = sync_row;
+    program_mode(&mut machine, regs, 0x9C);
+    machine
+}
+
+/// Frames once the monitor has had time to lock: its free-running scan
+/// drifts against a 50 Hz sync until a pulse arrives late enough in the scan
+/// to take, as a television rolls briefly before it settles.
+fn settled_frames(machine: &mut BbcMicro) -> [u64; 3] {
+    for _ in 0..40 {
+        machine.run_native_frame();
     }
-    assert!(
-        durations[1] < durations[0] * 3 / 4,
-        "R4 must change the boundary, not merely a host budget: {durations:?}"
+    [
+        machine.run_native_frame().0,
+        machine.run_native_frame().0,
+        machine.run_native_frame().0,
+    ]
+}
+
+fn field(rows: u64) -> u64 {
+    rows * 8 * CYCLES_PER_LINE
+}
+
+/// A 50 Hz field is inside the monitor's lock range, so each frame is one
+/// field, and a shorter field still in range gives a shorter frame.
+#[test]
+fn native_frames_follow_a_field_the_monitor_locks_to() {
+    assert_eq!(
+        settled_frames(&mut programmed(39, 34)),
+        [CYCLES_PER_FRAME; 3]
+    );
+    assert_eq!(settled_frames(&mut programmed(34, 30)), [field(34); 3]);
+}
+
+/// A field too short for the monitor to follow: it accepts every second
+/// vertical sync, the first one late enough in its scan.
+#[test]
+fn sync_too_fast_to_follow_is_taken_every_other_field() {
+    assert_eq!(settled_frames(&mut programmed(20, 10)), [2 * field(20); 3]);
+}
+
+/// With no vertical sync at all (R7 beyond the last row), the monitor's scan
+/// free-runs. Counting the CRTC's own frame wrap instead paced scripts at a
+/// few ticks a frame while the OS set the CRTC up (emu198x/emu198x#2229).
+#[test]
+fn without_vertical_sync_the_monitor_free_runs() {
+    assert_eq!(
+        settled_frames(&mut programmed(39, 60)),
+        [MONITOR_FREE_RUN; 3]
     );
 }
 

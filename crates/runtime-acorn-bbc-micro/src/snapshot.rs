@@ -7,6 +7,7 @@
 //! envelope for decode.
 
 use crate::machine::BbcMachine as BbcMicro;
+use common_acorn_bbc_micro::MonitorScan;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
 use serde::{Deserialize, Serialize};
 
@@ -24,18 +25,35 @@ use crate::runtime::BbcMicroRuntime;
 // Version 9 carries the model and the B+'s paged RAM, shadow screen, WD1770
 // and drive latch.
 // Version 10 carries the Master's ACCCON, sideways RAM banks and CMOS clock.
-const SNAPSHOT_VERSION: u16 = 10;
+// Version 11 carries the monitor's scan beside the machine
+// (emu198x/emu198x#2229), so a restore resumes mid-scan as the live machine
+// would. A version 10 save still loads; its monitor re-locks at the next
+// vertical sync.
+const SNAPSHOT_VERSION: u16 = 11;
+/// The version before the monitor's scan joined the envelope.
+const SNAPSHOT_VERSION_WITHOUT_MONITOR: u16 = 10;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct BbcMicroRuntimeSnapshotRefV2<'a> {
+struct BbcMicroRuntimeSnapshotRefV3<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
     machine: Option<&'a BbcMicro>,
+    monitor: Option<MonitorScan>,
 }
 
 /// Owning envelope used during decode.
+#[derive(Deserialize)]
+struct BbcMicroRuntimeSnapshotV3 {
+    version: u16,
+    time: u64,
+    model_id: String,
+    machine: Option<BbcMicro>,
+    monitor: Option<MonitorScan>,
+}
+
+/// A version 10 save, from before the monitor's scan joined the envelope.
 #[derive(Deserialize)]
 struct BbcMicroRuntimeSnapshotV2 {
     version: u16,
@@ -45,11 +63,12 @@ struct BbcMicroRuntimeSnapshotV2 {
 }
 
 pub(crate) fn encode(runtime: &BbcMicroRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = BbcMicroRuntimeSnapshotRefV2 {
+    let snapshot = BbcMicroRuntimeSnapshotRefV3 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        monitor: runtime.machine().map(BbcMicro::monitor_scan),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -58,26 +77,61 @@ pub(crate) fn encode(runtime: &BbcMicroRuntime) -> Result<Vec<u8>, MachineError>
 
 pub(crate) fn decode(runtime: &mut BbcMicroRuntime, bytes: &[u8]) -> Result<(), MachineError> {
     // Reject an incompatible layout before postcard reads its chip state.
-    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
-        MachineError::InvalidSnapshot {
-            reason: format!("decode failed: {reason}"),
-        }
-    })?;
-    if version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(undecodable)?;
+    match version {
+        SNAPSHOT_VERSION => decode_with_monitor(runtime, bytes),
+        SNAPSHOT_VERSION_WITHOUT_MONITOR => decode_without_monitor(runtime, bytes),
+        _ => Err(MachineError::InvalidSnapshot {
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
-        });
+        }),
     }
-    let snapshot: BbcMicroRuntimeSnapshotV2 =
-        postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-            reason: format!("decode failed: {reason}"),
-        })?;
+}
+
+fn undecodable(reason: postcard::Error) -> MachineError {
+    MachineError::InvalidSnapshot {
+        reason: format!("decode failed: {reason}"),
+    }
+}
+
+// Each version decodes in a function of its own, so only one machine is on the
+// stack at a time: a whole BBC is large enough that two overflow a test
+// thread's stack in a debug build.
+#[inline(never)]
+fn decode_with_monitor(runtime: &mut BbcMicroRuntime, bytes: &[u8]) -> Result<(), MachineError> {
+    let mut snapshot =
+        postcard::from_bytes::<BbcMicroRuntimeSnapshotV3>(bytes).map_err(undecodable)?;
     debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
-    if snapshot.model_id != runtime.model().model_id() {
+    check_board(runtime, &snapshot.model_id, snapshot.machine.as_ref())?;
+    if let (Some(machine), Some(scan)) = (snapshot.machine.as_mut(), snapshot.monitor) {
+        machine.set_monitor_scan(scan);
+    }
+    runtime.set_time(MachineTime::new(snapshot.time));
+    runtime.set_machine(snapshot.machine);
+    Ok(())
+}
+
+/// A version 10 save: the monitor's phase is unknown, and it re-locks at the
+/// next vertical sync.
+#[inline(never)]
+fn decode_without_monitor(runtime: &mut BbcMicroRuntime, bytes: &[u8]) -> Result<(), MachineError> {
+    let snapshot = postcard::from_bytes::<BbcMicroRuntimeSnapshotV2>(bytes).map_err(undecodable)?;
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION_WITHOUT_MONITOR);
+    check_board(runtime, &snapshot.model_id, snapshot.machine.as_ref())?;
+    runtime.set_time(MachineTime::new(snapshot.time));
+    runtime.set_machine(snapshot.machine);
+    Ok(())
+}
+
+fn check_board(
+    runtime: &BbcMicroRuntime,
+    model_id: &str,
+    machine: Option<&BbcMicro>,
+) -> Result<(), MachineError> {
+    if model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
                 "snapshot model {} does not match runtime model {}",
-                snapshot.model_id,
+                model_id,
                 runtime.model().model_id()
             ),
         });
@@ -87,23 +141,17 @@ pub(crate) fn decode(runtime: &mut BbcMicroRuntime, bytes: &[u8]) -> Result<(), 
         crate::Model::BbcBPlus => common_acorn_bbc_micro::BbcModel::ModelBPlus,
         crate::Model::Master128 => common_acorn_bbc_micro::BbcModel::Master128,
     };
-    if snapshot
-        .machine
-        .as_ref()
-        .is_some_and(|m| m.model() != expected)
-    {
+    if machine.is_some_and(|m| m.model() != expected) {
         return Err(MachineError::InvalidSnapshot {
             reason: "snapshot board does not match runtime profile".to_owned(),
         });
     }
-    runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_machine(snapshot.machine);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BbcMicroRuntimeSnapshotRefV2, decode};
+    use super::{BbcMicroRuntimeSnapshotRefV3, decode};
     use crate::profiles::Model;
     use crate::runtime::BbcMicroRuntime;
     use emu198x_shell::MachineError;
@@ -112,11 +160,12 @@ mod tests {
     #[test]
     fn decode_rejects_unsupported_version() {
         let mut runtime = BbcMicroRuntime::blank(Model::BbcModelB);
-        let bytes = postcard::to_allocvec(&BbcMicroRuntimeSnapshotRefV2 {
+        let bytes = postcard::to_allocvec(&BbcMicroRuntimeSnapshotRefV3 {
             version: 999,
             time: 0,
             model_id: runtime.model().model_id(),
             machine: None,
+            monitor: None,
         })
         .expect("synthetic envelope should encode");
 
@@ -136,12 +185,15 @@ mod tests {
     fn decode_rejects_old_schema_before_reading_payload() {
         let mut runtime = BbcMicroRuntime::blank(Model::BbcModelB);
         let before = super::encode(&runtime).expect("snapshot");
-        // Deliberately no payload: full deserialisation would fail first.
-        let bytes = postcard::to_allocvec(&(super::SNAPSHOT_VERSION - 1)).expect("version");
+        // Deliberately no payload: full deserialisation would fail first. The
+        // version before the monitor's scan still loads, so the oldest
+        // rejected one is the version before that.
+        let old = super::SNAPSHOT_VERSION_WITHOUT_MONITOR - 1;
+        let bytes = postcard::to_allocvec(&old).expect("version");
         let err = decode(&mut runtime, &bytes).expect_err("old schema must reject");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
             if reason == format!("unsupported snapshot version {}; expected {}",
-                super::SNAPSHOT_VERSION - 1, super::SNAPSHOT_VERSION)));
+                old, super::SNAPSHOT_VERSION)));
         assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
     }
 }
