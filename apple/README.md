@@ -58,6 +58,9 @@ firmware is needed. A test that boots the real 48K ROM runs when one is
 at `EMU198X_SPECTRUM_48K_ROM` or `~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`,
 and is reported as skipped otherwise.
 
-CI runs all of this on a macOS runner in the `Apple hosts` job of
-`.github/workflows/ci.yml`, and also builds the Swift package for tvOS and
-both apps.
+CI doesn't run any of this. The `Apple hosts` job was removed on 2 November
+2026, because it took one of GitHub's scarce Apple Silicon runners on every
+change. Run it locally before a change that touches `apple/`,
+`crates/emu198x-apple` or a runtime the apps link: package the bridge with
+`scripts/build-apple-xcframework.sh`, run `swift test` in `apple/Emu198xKit`,
+and build the Swift package for tvOS and both apps with `xcodebuild`.
