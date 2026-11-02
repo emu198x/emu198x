@@ -9,11 +9,11 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
+use common_commodore_amiga_ocs::RTC_BASE;
 use emu198x_peripheral_commodore_amiga_floppy::Adf;
-use machine_commodore_amiga_ocs::RTC_BASE;
 use png::{BitDepth, ColorType, Encoder};
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaA500Rev5PalRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 fn load_artifact(path: &Path) -> Option<Vec<u8>> {
@@ -24,7 +24,7 @@ fn load_artifact(path: &Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
-fn snapshot_to_png(rt: &AmigaOcsRuntime, path: &Path) {
+fn snapshot_to_png(rt: &AmigaA500Rev5PalRuntime, path: &Path) {
     let fb = rt.machine().denise().framebuffer();
     assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
 
@@ -56,7 +56,7 @@ fn trace_wb13_setclock_rtc_accesses() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
 
-    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPalA501, rom)?;
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 

@@ -17,7 +17,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaA500Rev5PalRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 fn load_ks13() -> Option<Vec<u8>> {
@@ -33,7 +33,7 @@ fn load_ks13() -> Option<Vec<u8>> {
     std::fs::read(&path).ok()
 }
 
-fn snapshot_to_png(rt: &AmigaOcsRuntime, path: &Path) {
+fn snapshot_to_png(rt: &AmigaA500Rev5PalRuntime, path: &Path) {
     let fb = rt.machine().denise().framebuffer();
     assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
     let mut rgb = Vec::with_capacity(fb.len() * 3);
@@ -50,7 +50,7 @@ fn snapshot_to_png(rt: &AmigaOcsRuntime, path: &Path) {
     writer.write_image_data(&rgb).expect("png data");
 }
 
-fn summarise(rt: &AmigaOcsRuntime) -> (u32, u32, u32) {
+fn summarise(rt: &AmigaA500Rev5PalRuntime) -> (u32, u32, u32) {
     let fb = rt.machine().denise().framebuffer();
     let mut white = 0u32;
     let mut black = 0u32;
@@ -74,7 +74,7 @@ fn sample_framebuffer_across_boot() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());
     };
-    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPalA501, rom)?;
     let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/goldens");
     std::fs::create_dir_all(&out_dir).ok();
 

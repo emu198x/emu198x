@@ -188,7 +188,57 @@ label = "system:colecovision"
 milestone = "ColecoVision 100%"
 
 [[system]]
-machine_id = "commodore-amiga"
+machine_id = "commodore-amiga-a1000-pal"
+machine_crate = "machine-commodore-amiga-a1000-pal"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a1000-ntsc"
+machine_crate = "machine-commodore-amiga-a1000-ntsc"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a500-rev5-pal"
+machine_crate = "machine-commodore-amiga-a500-rev5-pal"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a500-rev5-ntsc"
+machine_crate = "machine-commodore-amiga-a500-rev5-ntsc"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a500-rev6a-pal"
+machine_crate = "machine-commodore-amiga-a500-rev6a-pal"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a500-rev6a-ntsc"
+machine_crate = "machine-commodore-amiga-a500-rev6a-ntsc"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a2000cr-rev6-pal"
+machine_crate = "machine-commodore-amiga-a2000cr-rev6-pal"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-amiga-a2000cr-rev6-ntsc"
+machine_crate = "machine-commodore-amiga-a2000cr-rev6-ntsc"
 crate = "emu198x-amiga"
 label = "system:amiga"
 milestone = "Amiga 100%"

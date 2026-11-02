@@ -1,0 +1,14 @@
+[package]
+name = "machine-commodore-amiga-a2000cr-rev6-pal"
+description = "Fixed Commodore Amiga a2000cr-rev6 PAL configuration owner."
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-commodore-amiga-ocs = { path = "../common-commodore-amiga-ocs", version = "0.46.1" }
+
+[lints]
+workspace = true

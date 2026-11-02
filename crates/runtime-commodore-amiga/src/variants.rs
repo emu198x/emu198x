@@ -1,11 +1,10 @@
 //! Per-variant trait + impls for the Amiga family.
 //!
-//! OCS configurations retain their existing grouped engine. A500+, A600
-//! and A1200 regions have fixed owners over shared ECS/AGA wiring. RAM,
+//! Every implemented board and region has a fixed owner over shared
+//! OCS-shaped, ECS or AGA wiring. RAM,
 //! firmware and add-ons remain configurations of their selected board.
 //! The generic runtime keeps the rich debug and query surfaces shared.
-//! See `knowledge/decisions/amiga-ecs-board-owners.md` and
-//! `knowledge/decisions/a1200-regional-board-owners.md`.
+//! See `knowledge/decisions/amiga-remaining-board-owners.md`.
 
 use common_commodore_amiga_aga::{
     A1200Core, AmigaA1200Snapshot, Configuration as A1200Configuration,
@@ -18,11 +17,12 @@ use machine_commodore_amiga_a1200_ntsc::AmigaA1200 as AmigaA1200Ntsc;
 use machine_commodore_amiga_a1200_pal::AmigaA1200 as AmigaA1200Pal;
 // `CiaExt::power_led` — the LED-filter gate. The trait is re-exported
 // identically by every Amiga machine crate (it originates in
-// `common_commodore_amiga::cia`); one import covers all three variants.
+// `common_commodore_amiga::cia`); one import covers every board.
 use common_commodore_amiga_ecs::AmigaEcsSnapshot;
 use common_commodore_amiga_ecs::CiaExt;
-use machine_commodore_amiga_ocs::{
-    AgnusRegion, AmigaOcs, AmigaOcsSnapshot, AutoconfigBoard, AutoconfigState, FB_HEIGHT, FB_WIDTH,
+use common_commodore_amiga_ocs::{
+    AgnusRegion, AutoconfigBoard, AutoconfigState, Configuration as OcsConfiguration, FB_HEIGHT,
+    FB_WIDTH, OcsCore, OcsSnapshot,
 };
 use motorola_68000::CpuModel;
 use serde::Serialize;
@@ -467,7 +467,7 @@ const fn greatest_common_divisor(mut lhs: u64, mut rhs: u64) -> u64 {
 }
 
 // ===================================================================
-// AmigaOcs impl — covers A1000 + A500 family + A500+ + maxed-A500.
+// OcsCore<C> impl — fixed A1000, A500 and A2000 owners.
 // ===================================================================
 
 macro_rules! amiga_variant_query_paths {
@@ -1337,11 +1337,11 @@ macro_rules! amiga_variant_query_paths {
 const OCS_VARIANT_QUERY_PATHS: &[&str] =
     amiga_variant_query_paths!("a1000.boot_rom_visible", "a1000.wom_locked",);
 
-impl AmigaMachine for AmigaOcs {
+impl<C: OcsConfiguration> AmigaMachine for OcsCore<C> {
     const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
     const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
 
-    type Snapshot = AmigaOcsSnapshot;
+    type Snapshot = OcsSnapshot<C>;
 
     fn migrate_v67_snapshot(state: &mut Self::Snapshot, config: AmigaConfig) {
         if matches!(config.model(), Model::A2000OcsPal | Model::A2000OcsNtsc) {
@@ -1350,19 +1350,19 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn build(firmware: &[u8], config: AmigaConfig) -> Self {
-        crate::runtime::build_amiga_ocs(config, firmware)
+        crate::runtime::build_amiga_ocs::<C>(config, firmware)
     }
 
     fn tick(&mut self) {
-        AmigaOcs::tick(self);
+        OcsCore::<C>::tick(self);
     }
 
     fn advance_to_cpu_boundary(&mut self) -> bool {
-        AmigaOcs::advance_to_cpu_boundary(self)
+        OcsCore::<C>::advance_to_cpu_boundary(self)
     }
 
     fn drain_cpu_boundaries(&mut self) -> impl Iterator<Item = CpuTraceEntry> {
-        AmigaOcs::drain_cpu_boundaries(self).map(|boundary| {
+        OcsCore::<C>::drain_cpu_boundaries(self).map(|boundary| {
             (
                 boundary.system_tick,
                 boundary.instr_start_pc,
@@ -1408,19 +1408,19 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn key_event(&mut self, code: u8, pressed: bool) {
-        AmigaOcs::key_event(self, code, pressed);
+        OcsCore::<C>::key_event(self, code, pressed);
     }
 
     fn move_mouse_port0(&mut self, dx: i32, dy: i32) {
-        AmigaOcs::move_mouse_port0(self, dx, dy);
+        OcsCore::<C>::move_mouse_port0(self, dx, dy);
     }
 
     fn set_mouse_button_port0(&mut self, button: &str, pressed: bool) {
-        AmigaOcs::set_mouse_button_port0(self, button, pressed);
+        OcsCore::<C>::set_mouse_button_port0(self, button, pressed);
     }
 
     fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool) {
-        let _ = AmigaOcs::set_joystick_control(self, port, name, pressed);
+        let _ = OcsCore::<C>::set_joystick_control(self, port, name, pressed);
     }
 
     fn fit_floppy_drive(&mut self, unit: usize) -> bool {
@@ -1461,12 +1461,11 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
-        AmigaOcs::snapshot_state(self)
+        OcsCore::<C>::snapshot_state(self)
     }
 
     fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) -> Result<(), String> {
-        AmigaOcs::restore_snapshot_state(self, snapshot);
-        Ok(())
+        OcsCore::<C>::restore_snapshot_state(self, snapshot)
     }
 
     fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
@@ -1555,7 +1554,20 @@ impl AmigaMachine for AmigaOcs {
 /// in this arm because they retain OCS Denise, while Agnus-side
 /// capabilities are selected independently from the installed chip
 /// RAM layout.
-pub type AmigaOcsRuntime = AmigaRuntime<AmigaOcs>;
+pub type AmigaA1000PalRuntime = AmigaRuntime<machine_commodore_amiga_a1000_pal::AmigaA1000>;
+pub type AmigaA1000NtscRuntime = AmigaRuntime<machine_commodore_amiga_a1000_ntsc::AmigaA1000>;
+pub type AmigaA500Rev5PalRuntime =
+    AmigaRuntime<machine_commodore_amiga_a500_rev5_pal::AmigaA500Rev5>;
+pub type AmigaA500Rev5NtscRuntime =
+    AmigaRuntime<machine_commodore_amiga_a500_rev5_ntsc::AmigaA500Rev5>;
+pub type AmigaA500Rev6APalRuntime =
+    AmigaRuntime<machine_commodore_amiga_a500_rev6a_pal::AmigaA500Rev6A>;
+pub type AmigaA500Rev6ANtscRuntime =
+    AmigaRuntime<machine_commodore_amiga_a500_rev6a_ntsc::AmigaA500Rev6A>;
+pub type AmigaA2000CrRev6PalRuntime =
+    AmigaRuntime<machine_commodore_amiga_a2000cr_rev6_pal::AmigaA2000CrRev6>;
+pub type AmigaA2000CrRev6NtscRuntime =
+    AmigaRuntime<machine_commodore_amiga_a2000cr_rev6_ntsc::AmigaA2000CrRev6>;
 
 // ===================================================================
 // Fixed ECS owners — shared A500+ and A600 wiring. Future A3000 hardware
@@ -2034,7 +2046,7 @@ pub type AmigaA1200NtscRuntime = AmigaRuntime<AmigaA1200Ntsc>;
 //
 // Verifier binaries (emu198x-amiga) take a
 // `--model` argument that may pick either an OCS or an ECS variant.
-// Storing a concrete `AmigaOcsRuntime` field in the binary forces
+// Storing a concrete `AmigaA500Rev5PalRuntime` field in the binary forces
 // every model through OCS chips even when the Model is ECS-flavoured
 // (e.g. `A500PlusEcsPal`). `AmigaRuntimeKind` is the dispatcher: it
 // wraps the active chipset-tier runtime and forwards the `MachineCore`
@@ -2050,15 +2062,20 @@ pub type AmigaA1200NtscRuntime = AmigaRuntime<AmigaA1200Ntsc>;
 // variant would only add heap indirection to the hot per-tick
 // `MachineCore` forwarding path.
 //
-// OCS retains its grouped engine. ECS and AGA regions have
-// distinct fixed owner types and therefore distinct dispatch arms. See
-// `knowledge/decisions/amiga-ecs-board-owners.md` for the narrow override
-// of the older three-tier Amiga grouping in `runtime-internal-shape.md`.
+// Each regional motherboard has its own fixed type and dispatch arm.
+// See `knowledge/decisions/amiga-remaining-board-owners.md` for the override
+// of the historical chipset-only grouping.
 #[allow(clippy::large_enum_variant)]
 pub enum AmigaRuntimeKind {
-    /// OCS-shaped stack — A1000, A500 family and A2000B. The A2000B
-    /// combines Fat Agnus 8372A with OCS Denise.
-    Ocs(AmigaOcsRuntime),
+    /// Fixed PAL A1000 bootstrap/WOM owner.
+    A1000Pal(AmigaA1000PalRuntime),
+    A1000Ntsc(AmigaA1000NtscRuntime),
+    A500Rev5Pal(AmigaA500Rev5PalRuntime),
+    A500Rev5Ntsc(AmigaA500Rev5NtscRuntime),
+    A500Rev6APal(AmigaA500Rev6APalRuntime),
+    A500Rev6ANtsc(AmigaA500Rev6ANtscRuntime),
+    A2000CrRev6Pal(AmigaA2000CrRev6PalRuntime),
+    A2000CrRev6Ntsc(AmigaA2000CrRev6NtscRuntime),
     /// ECS chip stack — A500+ and A600 today; A3000 follows once its
     /// machine-specific chips are ported.
     /// Fixed A500Plus Pal owner.
@@ -2083,30 +2100,69 @@ impl AmigaRuntimeKind {
     /// Returns the underlying `MachineError` from the dispatched
     /// runtime constructor.
     pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, emu198x_shell::MachineError> {
+        Self::with_config(model.config(), firmware_rom)
+    }
+
+    /// Construct the selected fixed owner with explicit RAM and add-ons.
+    pub fn with_config(
+        config: AmigaConfig,
+        firmware_rom: Vec<u8>,
+    ) -> Result<Self, emu198x_shell::MachineError> {
+        let model = config.model();
         if model.is_aga() {
             if model.is_ntsc() {
-                AmigaA1200NtscRuntime::new(model, firmware_rom).map(Self::AgaNtsc)
+                AmigaA1200NtscRuntime::with_config(config, firmware_rom).map(Self::AgaNtsc)
             } else {
-                AmigaA1200PalRuntime::new(model, firmware_rom).map(Self::AgaPal)
+                AmigaA1200PalRuntime::with_config(config, firmware_rom).map(Self::AgaPal)
             }
         } else if model.is_ecs() {
             match model {
-                Model::A500PlusEcsPal => {
-                    AmigaA500PlusPalRuntime::new(model, firmware_rom).map(Self::A500PlusPal)
-                }
+                Model::A500PlusEcsPal => AmigaA500PlusPalRuntime::with_config(config, firmware_rom)
+                    .map(Self::A500PlusPal),
                 Model::A500PlusEcsNtsc => {
-                    AmigaA500PlusNtscRuntime::new(model, firmware_rom).map(Self::A500PlusNtsc)
+                    AmigaA500PlusNtscRuntime::with_config(config, firmware_rom)
+                        .map(Self::A500PlusNtsc)
                 }
                 Model::A600EcsPal => {
-                    AmigaA600PalRuntime::new(model, firmware_rom).map(Self::A600Pal)
+                    AmigaA600PalRuntime::with_config(config, firmware_rom).map(Self::A600Pal)
                 }
                 Model::A600EcsNtsc => {
-                    AmigaA600NtscRuntime::new(model, firmware_rom).map(Self::A600Ntsc)
+                    AmigaA600NtscRuntime::with_config(config, firmware_rom).map(Self::A600Ntsc)
                 }
                 _ => unreachable!("ECS model branch"),
             }
         } else {
-            AmigaOcsRuntime::new(model, firmware_rom).map(Self::Ocs)
+            match model {
+                Model::A1000OcsPal => {
+                    AmigaA1000PalRuntime::with_config(config, firmware_rom).map(Self::A1000Pal)
+                }
+                Model::A1000OcsNtsc => {
+                    AmigaA1000NtscRuntime::with_config(config, firmware_rom).map(Self::A1000Ntsc)
+                }
+                Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalGvpA530 => {
+                    AmigaA500Rev5PalRuntime::with_config(config, firmware_rom)
+                        .map(Self::A500Rev5Pal)
+                }
+                Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500OcsNtscGvpA530 => {
+                    AmigaA500Rev5NtscRuntime::with_config(config, firmware_rom)
+                        .map(Self::A500Rev5Ntsc)
+                }
+                Model::A500OcsPalMaxed => {
+                    AmigaA500Rev6APalRuntime::with_config(config, firmware_rom)
+                        .map(Self::A500Rev6APal)
+                }
+                Model::A500OcsNtscMaxed => {
+                    AmigaA500Rev6ANtscRuntime::with_config(config, firmware_rom)
+                        .map(Self::A500Rev6ANtsc)
+                }
+                Model::A2000OcsPal => AmigaA2000CrRev6PalRuntime::with_config(config, firmware_rom)
+                    .map(Self::A2000CrRev6Pal),
+                Model::A2000OcsNtsc => {
+                    AmigaA2000CrRev6NtscRuntime::with_config(config, firmware_rom)
+                        .map(Self::A2000CrRev6Ntsc)
+                }
+                _ => unreachable!("OCS-shaped branch"),
+            }
         }
     }
 
@@ -2129,7 +2185,45 @@ impl AmigaRuntimeKind {
                 _ => unreachable!("ECS model branch"),
             }
         } else {
-            Self::Ocs(AmigaOcsRuntime::blank(model))
+            match model {
+                Model::A1000OcsPal => Self::A1000Pal(
+                    AmigaA1000PalRuntime::blank_with_config(model.config())
+                        .expect("matching fixed profile"),
+                ),
+                Model::A1000OcsNtsc => Self::A1000Ntsc(
+                    AmigaA1000NtscRuntime::blank_with_config(model.config())
+                        .expect("matching fixed profile"),
+                ),
+                Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalGvpA530 => {
+                    Self::A500Rev5Pal(
+                        AmigaA500Rev5PalRuntime::blank_with_config(model.config())
+                            .expect("matching fixed profile"),
+                    )
+                }
+                Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500OcsNtscGvpA530 => {
+                    Self::A500Rev5Ntsc(
+                        AmigaA500Rev5NtscRuntime::blank_with_config(model.config())
+                            .expect("matching fixed profile"),
+                    )
+                }
+                Model::A500OcsPalMaxed => Self::A500Rev6APal(
+                    AmigaA500Rev6APalRuntime::blank_with_config(model.config())
+                        .expect("matching fixed profile"),
+                ),
+                Model::A500OcsNtscMaxed => Self::A500Rev6ANtsc(
+                    AmigaA500Rev6ANtscRuntime::blank_with_config(model.config())
+                        .expect("matching fixed profile"),
+                ),
+                Model::A2000OcsPal => Self::A2000CrRev6Pal(
+                    AmigaA2000CrRev6PalRuntime::blank_with_config(model.config())
+                        .expect("matching fixed profile"),
+                ),
+                Model::A2000OcsNtsc => Self::A2000CrRev6Ntsc(
+                    AmigaA2000CrRev6NtscRuntime::blank_with_config(model.config())
+                        .expect("matching fixed profile"),
+                ),
+                _ => unreachable!("OCS-shaped branch"),
+            }
         }
     }
 
@@ -2137,7 +2231,14 @@ impl AmigaRuntimeKind {
     #[must_use]
     pub fn model(&self) -> Model {
         match self {
-            Self::Ocs(rt) => rt.model(),
+            Self::A1000Pal(rt) => rt.model(),
+            Self::A1000Ntsc(rt) => rt.model(),
+            Self::A500Rev5Pal(rt) => rt.model(),
+            Self::A500Rev5Ntsc(rt) => rt.model(),
+            Self::A500Rev6APal(rt) => rt.model(),
+            Self::A500Rev6ANtsc(rt) => rt.model(),
+            Self::A2000CrRev6Pal(rt) => rt.model(),
+            Self::A2000CrRev6Ntsc(rt) => rt.model(),
             Self::A500PlusPal(rt) => rt.model(),
             Self::A500PlusNtsc(rt) => rt.model(),
             Self::A600Pal(rt) => rt.model(),
@@ -2174,7 +2275,14 @@ impl AmigaRuntimeKind {
     /// Returns an error when `count` is outside 1 to 4.
     pub fn fit_floppy_drives(&mut self, count: usize) -> Result<(), emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.fit_floppy_drives(count),
+            Self::A1000Pal(rt) => rt.fit_floppy_drives(count),
+            Self::A1000Ntsc(rt) => rt.fit_floppy_drives(count),
+            Self::A500Rev5Pal(rt) => rt.fit_floppy_drives(count),
+            Self::A500Rev5Ntsc(rt) => rt.fit_floppy_drives(count),
+            Self::A500Rev6APal(rt) => rt.fit_floppy_drives(count),
+            Self::A500Rev6ANtsc(rt) => rt.fit_floppy_drives(count),
+            Self::A2000CrRev6Pal(rt) => rt.fit_floppy_drives(count),
+            Self::A2000CrRev6Ntsc(rt) => rt.fit_floppy_drives(count),
             Self::A500PlusPal(rt) => rt.fit_floppy_drives(count),
             Self::A500PlusNtsc(rt) => rt.fit_floppy_drives(count),
             Self::A600Pal(rt) => rt.fit_floppy_drives(count),
@@ -2188,7 +2296,14 @@ impl AmigaRuntimeKind {
     #[must_use]
     pub fn floppy_drive_fitted(&self, unit: usize) -> bool {
         match self {
-            Self::Ocs(rt) => rt.floppy_drive_fitted(unit),
+            Self::A1000Pal(rt) => rt.floppy_drive_fitted(unit),
+            Self::A1000Ntsc(rt) => rt.floppy_drive_fitted(unit),
+            Self::A500Rev5Pal(rt) => rt.floppy_drive_fitted(unit),
+            Self::A500Rev5Ntsc(rt) => rt.floppy_drive_fitted(unit),
+            Self::A500Rev6APal(rt) => rt.floppy_drive_fitted(unit),
+            Self::A500Rev6ANtsc(rt) => rt.floppy_drive_fitted(unit),
+            Self::A2000CrRev6Pal(rt) => rt.floppy_drive_fitted(unit),
+            Self::A2000CrRev6Ntsc(rt) => rt.floppy_drive_fitted(unit),
             Self::A500PlusPal(rt) => rt.floppy_drive_fitted(unit),
             Self::A500PlusNtsc(rt) => rt.floppy_drive_fitted(unit),
             Self::A600Pal(rt) => rt.floppy_drive_fitted(unit),
@@ -2215,7 +2330,14 @@ impl AmigaRuntimeKind {
 
     pub(crate) fn resync_debug_output(&mut self) {
         match self {
-            Self::Ocs(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A1000Pal(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A1000Ntsc(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A500Rev5Pal(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A500Rev5Ntsc(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A500Rev6APal(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A500Rev6ANtsc(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A2000CrRev6Pal(runtime) => runtime.refresh_rgba_framebuffer(),
+            Self::A2000CrRev6Ntsc(runtime) => runtime.refresh_rgba_framebuffer(),
             Self::A500PlusPal(runtime) => runtime.refresh_rgba_framebuffer(),
             Self::A500PlusNtsc(runtime) => runtime.refresh_rgba_framebuffer(),
             Self::A600Pal(runtime) => runtime.refresh_rgba_framebuffer(),
@@ -2235,7 +2357,14 @@ impl AmigaRuntimeKind {
             && completed_ticks < tick_limit
         {
             let crossed_boundary = match self {
-                Self::Ocs(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A1000Pal(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A1000Ntsc(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A500Rev5Pal(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A500Rev5Ntsc(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A500Rev6APal(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A500Rev6ANtsc(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A2000CrRev6Pal(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::A2000CrRev6Ntsc(runtime) => runtime.advance_to_cpu_boundary_traced(),
                 Self::A500PlusPal(runtime) => runtime.advance_to_cpu_boundary_traced(),
                 Self::A500PlusNtsc(runtime) => runtime.advance_to_cpu_boundary_traced(),
                 Self::A600Pal(runtime) => runtime.advance_to_cpu_boundary_traced(),
@@ -2291,7 +2420,32 @@ impl emu198x_shell::FamilyRuntime for AmigaRuntimeKind {
                 _ => unreachable!("ECS model branch"),
             }
         } else {
-            AmigaOcsRuntime::from_firmware(model, firmware).map(Self::Ocs)
+            match model {
+                Model::A1000OcsPal => {
+                    AmigaA1000PalRuntime::from_firmware(model, firmware).map(Self::A1000Pal)
+                }
+                Model::A1000OcsNtsc => {
+                    AmigaA1000NtscRuntime::from_firmware(model, firmware).map(Self::A1000Ntsc)
+                }
+                Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalGvpA530 => {
+                    AmigaA500Rev5PalRuntime::from_firmware(model, firmware).map(Self::A500Rev5Pal)
+                }
+                Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500OcsNtscGvpA530 => {
+                    AmigaA500Rev5NtscRuntime::from_firmware(model, firmware).map(Self::A500Rev5Ntsc)
+                }
+                Model::A500OcsPalMaxed => {
+                    AmigaA500Rev6APalRuntime::from_firmware(model, firmware).map(Self::A500Rev6APal)
+                }
+                Model::A500OcsNtscMaxed => {
+                    AmigaA500Rev6ANtscRuntime::from_firmware(model, firmware)
+                        .map(Self::A500Rev6ANtsc)
+                }
+                Model::A2000OcsPal => AmigaA2000CrRev6PalRuntime::from_firmware(model, firmware)
+                    .map(Self::A2000CrRev6Pal),
+                Model::A2000OcsNtsc => AmigaA2000CrRev6NtscRuntime::from_firmware(model, firmware)
+                    .map(Self::A2000CrRev6Ntsc),
+                _ => unreachable!("OCS-shaped branch"),
+            }
         }
     }
 
@@ -2301,7 +2455,14 @@ impl emu198x_shell::FamilyRuntime for AmigaRuntimeKind {
     /// the PAL-OCS constant.
     fn native_frame_ticks(&self) -> u64 {
         match self {
-            Self::Ocs(rt) => rt.machine().frame_ticks(),
+            Self::A1000Pal(rt) => rt.machine().frame_ticks(),
+            Self::A1000Ntsc(rt) => rt.machine().frame_ticks(),
+            Self::A500Rev5Pal(rt) => rt.machine().frame_ticks(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().frame_ticks(),
+            Self::A500Rev6APal(rt) => rt.machine().frame_ticks(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().frame_ticks(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().frame_ticks(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().frame_ticks(),
             Self::A500PlusPal(rt) => rt.machine().frame_ticks(),
             Self::A500PlusNtsc(rt) => rt.machine().frame_ticks(),
             Self::A600Pal(rt) => rt.machine().frame_ticks(),
@@ -2342,7 +2503,14 @@ impl emu198x_shell::FamilyRuntime for AmigaRuntimeKind {
 impl emu198x_shell::MachineCore for AmigaRuntimeKind {
     fn profile(&self) -> &emu198x_shell::MachineProfile {
         match self {
-            Self::Ocs(rt) => rt.profile(),
+            Self::A1000Pal(rt) => rt.profile(),
+            Self::A1000Ntsc(rt) => rt.profile(),
+            Self::A500Rev5Pal(rt) => rt.profile(),
+            Self::A500Rev5Ntsc(rt) => rt.profile(),
+            Self::A500Rev6APal(rt) => rt.profile(),
+            Self::A500Rev6ANtsc(rt) => rt.profile(),
+            Self::A2000CrRev6Pal(rt) => rt.profile(),
+            Self::A2000CrRev6Ntsc(rt) => rt.profile(),
             Self::A500PlusPal(rt) => rt.profile(),
             Self::A500PlusNtsc(rt) => rt.profile(),
             Self::A600Pal(rt) => rt.profile(),
@@ -2361,7 +2529,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
 
     fn time(&self) -> emu198x_shell::MachineTime {
         match self {
-            Self::Ocs(rt) => rt.time(),
+            Self::A1000Pal(rt) => rt.time(),
+            Self::A1000Ntsc(rt) => rt.time(),
+            Self::A500Rev5Pal(rt) => rt.time(),
+            Self::A500Rev5Ntsc(rt) => rt.time(),
+            Self::A500Rev6APal(rt) => rt.time(),
+            Self::A500Rev6ANtsc(rt) => rt.time(),
+            Self::A2000CrRev6Pal(rt) => rt.time(),
+            Self::A2000CrRev6Ntsc(rt) => rt.time(),
             Self::A500PlusPal(rt) => rt.time(),
             Self::A500PlusNtsc(rt) => rt.time(),
             Self::A600Pal(rt) => rt.time(),
@@ -2373,7 +2548,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
 
     fn reset(&mut self, kind: emu198x_shell::ResetKind) {
         match self {
-            Self::Ocs(rt) => rt.reset(kind),
+            Self::A1000Pal(rt) => rt.reset(kind),
+            Self::A1000Ntsc(rt) => rt.reset(kind),
+            Self::A500Rev5Pal(rt) => rt.reset(kind),
+            Self::A500Rev5Ntsc(rt) => rt.reset(kind),
+            Self::A500Rev6APal(rt) => rt.reset(kind),
+            Self::A500Rev6ANtsc(rt) => rt.reset(kind),
+            Self::A2000CrRev6Pal(rt) => rt.reset(kind),
+            Self::A2000CrRev6Ntsc(rt) => rt.reset(kind),
             Self::A500PlusPal(rt) => rt.reset(kind),
             Self::A500PlusNtsc(rt) => rt.reset(kind),
             Self::A600Pal(rt) => rt.reset(kind),
@@ -2388,7 +2570,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         media: &emu198x_shell::MediaSet<'_>,
     ) -> Result<(), emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.load_media(media),
+            Self::A1000Pal(rt) => rt.load_media(media),
+            Self::A1000Ntsc(rt) => rt.load_media(media),
+            Self::A500Rev5Pal(rt) => rt.load_media(media),
+            Self::A500Rev5Ntsc(rt) => rt.load_media(media),
+            Self::A500Rev6APal(rt) => rt.load_media(media),
+            Self::A500Rev6ANtsc(rt) => rt.load_media(media),
+            Self::A2000CrRev6Pal(rt) => rt.load_media(media),
+            Self::A2000CrRev6Ntsc(rt) => rt.load_media(media),
             Self::A500PlusPal(rt) => rt.load_media(media),
             Self::A500PlusNtsc(rt) => rt.load_media(media),
             Self::A600Pal(rt) => rt.load_media(media),
@@ -2400,7 +2589,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
 
     fn eject_media(&mut self, slot: &str) -> Result<(), emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.eject_media(slot),
+            Self::A1000Pal(rt) => rt.eject_media(slot),
+            Self::A1000Ntsc(rt) => rt.eject_media(slot),
+            Self::A500Rev5Pal(rt) => rt.eject_media(slot),
+            Self::A500Rev5Ntsc(rt) => rt.eject_media(slot),
+            Self::A500Rev6APal(rt) => rt.eject_media(slot),
+            Self::A500Rev6ANtsc(rt) => rt.eject_media(slot),
+            Self::A2000CrRev6Pal(rt) => rt.eject_media(slot),
+            Self::A2000CrRev6Ntsc(rt) => rt.eject_media(slot),
             Self::A500PlusPal(rt) => rt.eject_media(slot),
             Self::A500PlusNtsc(rt) => rt.eject_media(slot),
             Self::A600Pal(rt) => rt.eject_media(slot),
@@ -2415,7 +2611,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         host: &mut emu198x_shell::HostIo<'_>,
     ) -> Result<emu198x_shell::RunResult, emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.run_frame(host),
+            Self::A1000Pal(rt) => rt.run_frame(host),
+            Self::A1000Ntsc(rt) => rt.run_frame(host),
+            Self::A500Rev5Pal(rt) => rt.run_frame(host),
+            Self::A500Rev5Ntsc(rt) => rt.run_frame(host),
+            Self::A500Rev6APal(rt) => rt.run_frame(host),
+            Self::A500Rev6ANtsc(rt) => rt.run_frame(host),
+            Self::A2000CrRev6Pal(rt) => rt.run_frame(host),
+            Self::A2000CrRev6Ntsc(rt) => rt.run_frame(host),
             Self::A500PlusPal(rt) => rt.run_frame(host),
             Self::A500PlusNtsc(rt) => rt.run_frame(host),
             Self::A600Pal(rt) => rt.run_frame(host),
@@ -2431,7 +2634,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         host: &mut emu198x_shell::HostIo<'_>,
     ) -> Result<emu198x_shell::RunResult, emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.run_until(target, host),
+            Self::A1000Pal(rt) => rt.run_until(target, host),
+            Self::A1000Ntsc(rt) => rt.run_until(target, host),
+            Self::A500Rev5Pal(rt) => rt.run_until(target, host),
+            Self::A500Rev5Ntsc(rt) => rt.run_until(target, host),
+            Self::A500Rev6APal(rt) => rt.run_until(target, host),
+            Self::A500Rev6ANtsc(rt) => rt.run_until(target, host),
+            Self::A2000CrRev6Pal(rt) => rt.run_until(target, host),
+            Self::A2000CrRev6Ntsc(rt) => rt.run_until(target, host),
             Self::A500PlusPal(rt) => rt.run_until(target, host),
             Self::A500PlusNtsc(rt) => rt.run_until(target, host),
             Self::A600Pal(rt) => rt.run_until(target, host),
@@ -2443,7 +2653,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
 
     fn snapshot(&self) -> Result<Vec<u8>, emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.snapshot(),
+            Self::A1000Pal(rt) => rt.snapshot(),
+            Self::A1000Ntsc(rt) => rt.snapshot(),
+            Self::A500Rev5Pal(rt) => rt.snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.snapshot(),
+            Self::A500Rev6APal(rt) => rt.snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.snapshot(),
             Self::A500PlusPal(rt) => rt.snapshot(),
             Self::A500PlusNtsc(rt) => rt.snapshot(),
             Self::A600Pal(rt) => rt.snapshot(),
@@ -2455,7 +2672,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.restore(bytes),
+            Self::A1000Pal(rt) => rt.restore(bytes),
+            Self::A1000Ntsc(rt) => rt.restore(bytes),
+            Self::A500Rev5Pal(rt) => rt.restore(bytes),
+            Self::A500Rev5Ntsc(rt) => rt.restore(bytes),
+            Self::A500Rev6APal(rt) => rt.restore(bytes),
+            Self::A500Rev6ANtsc(rt) => rt.restore(bytes),
+            Self::A2000CrRev6Pal(rt) => rt.restore(bytes),
+            Self::A2000CrRev6Ntsc(rt) => rt.restore(bytes),
             Self::A500PlusPal(rt) => rt.restore(bytes),
             Self::A500PlusNtsc(rt) => rt.restore(bytes),
             Self::A600Pal(rt) => rt.restore(bytes),
@@ -2470,7 +2694,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         command: &emu198x_shell::ControlCommand,
     ) -> Result<(), emu198x_shell::MachineError> {
         match self {
-            Self::Ocs(rt) => rt.command(command),
+            Self::A1000Pal(rt) => rt.command(command),
+            Self::A1000Ntsc(rt) => rt.command(command),
+            Self::A500Rev5Pal(rt) => rt.command(command),
+            Self::A500Rev5Ntsc(rt) => rt.command(command),
+            Self::A500Rev6APal(rt) => rt.command(command),
+            Self::A500Rev6ANtsc(rt) => rt.command(command),
+            Self::A2000CrRev6Pal(rt) => rt.command(command),
+            Self::A2000CrRev6Ntsc(rt) => rt.command(command),
             Self::A500PlusPal(rt) => rt.command(command),
             Self::A500PlusNtsc(rt) => rt.command(command),
             Self::A600Pal(rt) => rt.command(command),
@@ -2482,7 +2713,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
 
     fn capabilities(&self) -> emu198x_shell::CapabilitySet {
         match self {
-            Self::Ocs(rt) => rt.capabilities(),
+            Self::A1000Pal(rt) => rt.capabilities(),
+            Self::A1000Ntsc(rt) => rt.capabilities(),
+            Self::A500Rev5Pal(rt) => rt.capabilities(),
+            Self::A500Rev5Ntsc(rt) => rt.capabilities(),
+            Self::A500Rev6APal(rt) => rt.capabilities(),
+            Self::A500Rev6ANtsc(rt) => rt.capabilities(),
+            Self::A2000CrRev6Pal(rt) => rt.capabilities(),
+            Self::A2000CrRev6Ntsc(rt) => rt.capabilities(),
             Self::A500PlusPal(rt) => rt.capabilities(),
             Self::A500PlusNtsc(rt) => rt.capabilities(),
             Self::A600Pal(rt) => rt.capabilities(),
@@ -2498,7 +2736,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
     // inner runtime states one, and the harness falls back to square pixels.
     fn display(&self) -> Option<emu198x_shell::display::Display> {
         match self {
-            Self::Ocs(rt) => rt.display(),
+            Self::A1000Pal(rt) => rt.display(),
+            Self::A1000Ntsc(rt) => rt.display(),
+            Self::A500Rev5Pal(rt) => rt.display(),
+            Self::A500Rev5Ntsc(rt) => rt.display(),
+            Self::A500Rev6APal(rt) => rt.display(),
+            Self::A500Rev6ANtsc(rt) => rt.display(),
+            Self::A2000CrRev6Pal(rt) => rt.display(),
+            Self::A2000CrRev6Ntsc(rt) => rt.display(),
             Self::A500PlusPal(rt) => rt.display(),
             Self::A500PlusNtsc(rt) => rt.display(),
             Self::A600Pal(rt) => rt.display(),
@@ -2631,9 +2876,16 @@ impl emu198x_shell::WatchTarget for AmigaRuntimeKind {
 // so the wrapper just dispatches.
 impl AmigaRuntimeKind {
     #[must_use]
-    pub fn audio_controls(&self) -> machine_commodore_amiga_ocs::AudioControls {
+    pub fn audio_controls(&self) -> common_commodore_amiga_ocs::AudioControls {
         match self {
-            Self::Ocs(rt) => rt.audio_controls(),
+            Self::A1000Pal(rt) => rt.audio_controls(),
+            Self::A1000Ntsc(rt) => rt.audio_controls(),
+            Self::A500Rev5Pal(rt) => rt.audio_controls(),
+            Self::A500Rev5Ntsc(rt) => rt.audio_controls(),
+            Self::A500Rev6APal(rt) => rt.audio_controls(),
+            Self::A500Rev6ANtsc(rt) => rt.audio_controls(),
+            Self::A2000CrRev6Pal(rt) => rt.audio_controls(),
+            Self::A2000CrRev6Ntsc(rt) => rt.audio_controls(),
             Self::A500PlusPal(rt) => rt.audio_controls(),
             Self::A500PlusNtsc(rt) => rt.audio_controls(),
             Self::A600Pal(rt) => rt.audio_controls(),
@@ -2643,9 +2895,16 @@ impl AmigaRuntimeKind {
         }
     }
 
-    pub fn set_audio_controls(&mut self, controls: machine_commodore_amiga_ocs::AudioControls) {
+    pub fn set_audio_controls(&mut self, controls: common_commodore_amiga_ocs::AudioControls) {
         match self {
-            Self::Ocs(rt) => rt.set_audio_controls(controls),
+            Self::A1000Pal(rt) => rt.set_audio_controls(controls),
+            Self::A1000Ntsc(rt) => rt.set_audio_controls(controls),
+            Self::A500Rev5Pal(rt) => rt.set_audio_controls(controls),
+            Self::A500Rev5Ntsc(rt) => rt.set_audio_controls(controls),
+            Self::A500Rev6APal(rt) => rt.set_audio_controls(controls),
+            Self::A500Rev6ANtsc(rt) => rt.set_audio_controls(controls),
+            Self::A2000CrRev6Pal(rt) => rt.set_audio_controls(controls),
+            Self::A2000CrRev6Ntsc(rt) => rt.set_audio_controls(controls),
             Self::A500PlusPal(rt) => rt.set_audio_controls(controls),
             Self::A500PlusNtsc(rt) => rt.set_audio_controls(controls),
             Self::A600Pal(rt) => rt.set_audio_controls(controls),
@@ -2657,11 +2916,18 @@ impl AmigaRuntimeKind {
 
     pub fn set_audio_channel_enabled(
         &mut self,
-        channel: machine_commodore_amiga_ocs::PaulaChannel,
+        channel: common_commodore_amiga_ocs::PaulaChannel,
         enabled: bool,
     ) {
         match self {
-            Self::Ocs(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A1000Pal(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A1000Ntsc(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A500Rev5Pal(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A500Rev5Ntsc(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A500Rev6APal(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A500Rev6ANtsc(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A2000CrRev6Pal(rt) => rt.set_audio_channel_enabled(channel, enabled),
+            Self::A2000CrRev6Ntsc(rt) => rt.set_audio_channel_enabled(channel, enabled),
             Self::A500PlusPal(rt) => rt.set_audio_channel_enabled(channel, enabled),
             Self::A500PlusNtsc(rt) => rt.set_audio_channel_enabled(channel, enabled),
             Self::A600Pal(rt) => rt.set_audio_channel_enabled(channel, enabled),
@@ -2673,11 +2939,18 @@ impl AmigaRuntimeKind {
 
     pub fn set_audio_channel_gain(
         &mut self,
-        channel: machine_commodore_amiga_ocs::PaulaChannel,
+        channel: common_commodore_amiga_ocs::PaulaChannel,
         gain: f32,
     ) {
         match self {
-            Self::Ocs(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A1000Pal(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A1000Ntsc(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A500Rev5Pal(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A500Rev5Ntsc(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A500Rev6APal(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A500Rev6ANtsc(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A2000CrRev6Pal(rt) => rt.set_audio_channel_gain(channel, gain),
+            Self::A2000CrRev6Ntsc(rt) => rt.set_audio_channel_gain(channel, gain),
             Self::A500PlusPal(rt) => rt.set_audio_channel_gain(channel, gain),
             Self::A500PlusNtsc(rt) => rt.set_audio_channel_gain(channel, gain),
             Self::A600Pal(rt) => rt.set_audio_channel_gain(channel, gain),
@@ -2691,14 +2964,14 @@ impl AmigaRuntimeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AmigaOcsRuntime, Model};
+    use crate::Model;
     use emu198x_shell::{MachineCore, ResetKind, WatchMemorySource, WatchTarget};
 
     #[test]
     fn shared_watch_maps_all_amiga_writer_sources() {
         let mut runtime = AmigaRuntimeKind::blank(Model::A500OcsPal);
         WatchTarget::start_memory_watch(&mut runtime, 0x78000, 2).expect("arm memory watch");
-        let AmigaRuntimeKind::Ocs(machine_runtime) = &mut runtime else {
+        let AmigaRuntimeKind::A500Rev5Pal(machine_runtime) = &mut runtime else {
             panic!("A500 OCS must use the OCS runtime arm");
         };
         machine_runtime
@@ -2851,7 +3124,8 @@ mod tests {
 
     #[test]
     fn configuration_validation_rejects_original_agnus_region_id_mismatch() {
-        let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let runtime = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let machine = runtime.machine();
         let error = validate_machine_configuration(
             runtime.config(),
@@ -2927,13 +3201,13 @@ mod tests {
     }
 
     #[test]
-    fn blank_dispatches_a2000_to_ocs_variant() {
+    fn blank_dispatches_a2000_to_its_fixed_owner() {
         let kind = AmigaRuntimeKind::blank(Model::A2000OcsPal);
         assert!(!kind.is_aga());
         assert!(!kind.is_ecs(), "A2000 should land in the Ocs arm");
         assert_eq!(kind.model(), Model::A2000OcsPal);
-        let AmigaRuntimeKind::Ocs(mut runtime) = kind else {
-            panic!("A2000 should use the OCS-shaped machine");
+        let AmigaRuntimeKind::A2000CrRev6Pal(mut runtime) = kind else {
+            panic!("A2000 should use its fixed rev-6 PAL owner");
         };
         assert_eq!(
             runtime.machine().agnus().agnus_id,

@@ -451,3 +451,21 @@ fn original_v67_native_and_boot_phase_continuations_remain_exact() {
         "twelve profiles, both A1000 boot phases, video modes and cuts"
     );
 }
+
+#[test]
+fn direct_owner_firmware_is_byte_identical_to_original_capture() {
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test-data/commodore-amiga/ocs-v67");
+    let mut originals = Originals::open(&root);
+    for phase in ["bootstrap", "handoff", "kickstart"] {
+        for kind in ["active-progressive", "active-interlaced", "inactive"] {
+            let name = format!("{phase}-{kind}.rom");
+            let direct =
+                std::fs::read(root.join("firmware").join(&name)).expect("direct owner firmware");
+            assert!(
+                direct == originals.read(&name),
+                "{name}: immutable guest bytes"
+            );
+        }
+    }
+}

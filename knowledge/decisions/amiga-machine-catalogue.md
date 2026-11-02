@@ -1,5 +1,9 @@
 # Decision: Amiga machine catalogue + family-MCP migration
 
+> Amiga board ownership and dispatch are superseded by
+> [the fixed-owner decision](amiga-remaining-board-owners.md). The historical
+> chipset grouping below does not override the per-machine owner rule.
+
 **Date:** 2026-05-26
 
 ## What this is

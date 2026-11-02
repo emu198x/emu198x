@@ -49,7 +49,14 @@ fn family_dispatch_and_reset_retain_the_fixed_owner() {
                     inner.machine().machine_id()
                 );
             }
-            AmigaRuntimeKind::Ocs(_)
+            AmigaRuntimeKind::A1000Pal(_)
+            | AmigaRuntimeKind::A1000Ntsc(_)
+            | AmigaRuntimeKind::A500Rev5Pal(_)
+            | AmigaRuntimeKind::A500Rev5Ntsc(_)
+            | AmigaRuntimeKind::A500Rev6APal(_)
+            | AmigaRuntimeKind::A500Rev6ANtsc(_)
+            | AmigaRuntimeKind::A2000CrRev6Pal(_)
+            | AmigaRuntimeKind::A2000CrRev6Ntsc(_)
             | AmigaRuntimeKind::A500PlusPal(_)
             | AmigaRuntimeKind::A500PlusNtsc(_)
             | AmigaRuntimeKind::A600Pal(_)

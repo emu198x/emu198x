@@ -20,3 +20,9 @@ The exact capture helper and its successful log are retained in the docs repo's
 original production commit, copy that original helper into the runtime tests,
 and use a new `EMU198X_OCS_CAPTURE` directory. The helper checks HEAD, refuses
 tracked production changes and creates every original with create-new-only.
+
+The nine small `firmware/` copies serve the direct owner tests without adding
+ZIP dependencies to those crates. The runtime fixture test compares each copy
+byte-for-byte with its independently hashed member in `original-v67.zip`.
+The archive remains the original authority; never regenerate either from the
+extracted engine.

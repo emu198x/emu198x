@@ -2,8 +2,8 @@
 //! WinUAE custom.cpp dispatches BPLxPTH/BPLxPTL for all eight planes.
 use common_commodore_amiga::AmigaDriver;
 use machine_commodore_amiga_a500_plus_pal::AmigaA500Plus as AmigaEcs;
+use machine_commodore_amiga_a500_rev5_pal::AmigaA500Rev5 as AmigaOcs;
 use machine_commodore_amiga_a1200_pal::AmigaA1200;
-use machine_commodore_amiga_ocs::AmigaOcs;
 
 const POINTERS: [u32; 8] = [
     0x012340, 0x023450, 0x034560, 0x045670, 0x056780, 0x067890, 0x0789A0, 0x089AB0,

@@ -2,8 +2,8 @@
 use common_commodore_amiga::driver::AmigaDriver;
 use emu198x_shell::MachineCore;
 use runtime_commodore_amiga::{
-    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
-    AmigaRuntime, Model,
+    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaRuntime,
+    Model,
 };
 use std::error::Error;
 
@@ -66,16 +66,16 @@ fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
                 // latches stop, and enters Idle at 11 holding the low sample.
                 let sample = if cck < 11 && cck % 2 != 0 { 0x21 } else { 0x31 };
                 // A separate constant sample verifies the audible mixer level.
-                let mut expected = machine_commodore_amiga_ocs::Paula8364::new();
+                let mut expected = common_commodore_amiga_ocs::Paula8364::new();
                 expected.write_audio(
                     target as u8,
-                    machine_commodore_amiga_ocs::AudioField::Vol,
+                    common_commodore_amiga_ocs::AudioField::Vol,
                     64,
                 );
                 let idle = expected.audio_diagnostic_snapshot().channels[target].state;
                 expected.write_audio(
                     target as u8,
-                    machine_commodore_amiga_ocs::AudioField::Dat,
+                    common_commodore_amiga_ocs::AudioField::Dat,
                     (sample as u16) << 8,
                 );
                 let playing = expected.audio_diagnostic_snapshot().channels[target].state;
@@ -103,8 +103,8 @@ fn running_target_reload_and_audio_survive_live_restore() -> Result<(), Box<dyn 
     let mut failures = 0;
     for source in 0..3 {
         failures += check(
-            AmigaOcsRuntime::new(Model::A500OcsPal, rom())?,
-            AmigaOcsRuntime::new(Model::A500OcsPal, rom())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom())?,
             source,
         )?;
         failures += check(

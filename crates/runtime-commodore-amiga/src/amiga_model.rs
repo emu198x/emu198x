@@ -15,8 +15,8 @@
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
 
 pub use crate::profiles::Model;
+use common_commodore_amiga_ocs::RamConfig;
 use gvp_a530::A530Config;
-use machine_commodore_amiga_ocs::RamConfig;
 use motorola_68000::CpuModel;
 
 // ─── Byte-size convenience constants ────────────────────────────────
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn a530_validation_configuration_is_explicit_and_non_factory() {
         let config = a500::GVP_A530_PAL.config();
-        assert_eq!(config.ram(), machine_commodore_amiga_ocs::RamConfig::bare());
+        assert_eq!(config.ram(), common_commodore_amiga_ocs::RamConfig::bare());
         assert_eq!(config.cpu(), CpuConfig::new(CpuModel::M68EC030, 40_000_000));
         let Some(Accelerator::GvpA530(a530)) = config.accelerator() else {
             panic!("A530 profile must carry its accelerator configuration");

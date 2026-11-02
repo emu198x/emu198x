@@ -296,7 +296,7 @@ const fn cpu_model_name(model: CpuModel) -> &'static str {
 
 /// Same provider, but dispatching over the runtime-time
 /// `AmigaRuntimeKind` enum so verifier binaries that store
-/// `AmigaRuntimeKind` (rather than a concrete `AmigaOcsRuntime` /
+/// `AmigaRuntimeKind` (rather than a concrete `AmigaA500Rev5PalRuntime` /
 /// `AmigaA500PlusPalRuntime`) can use this provider directly. The OCS and
 /// ECS impl blocks share the same query catalogue today, so the
 /// dispatch is trivial.
@@ -307,7 +307,14 @@ impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQue
         prefix: Option<&str>,
     ) -> Vec<String> {
         match machine {
-            crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A1000Pal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A1000Ntsc(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A500Rev5Pal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A500Rev5Ntsc(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A500Rev6APal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A500Rev6ANtsc(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A2000CrRev6Pal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A2000CrRev6Ntsc(rt) => self.query_paths(rt, prefix),
             crate::variants::AmigaRuntimeKind::A500PlusPal(rt) => self.query_paths(rt, prefix),
             crate::variants::AmigaRuntimeKind::A500PlusNtsc(rt) => self.query_paths(rt, prefix),
             crate::variants::AmigaRuntimeKind::A600Pal(rt) => self.query_paths(rt, prefix),
@@ -323,7 +330,14 @@ impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQue
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         match machine {
-            crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A1000Pal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A1000Ntsc(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A500Rev5Pal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A500Rev5Ntsc(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A500Rev6APal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A500Rev6ANtsc(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A2000CrRev6Pal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A2000CrRev6Ntsc(rt) => self.query(rt, path),
             crate::variants::AmigaRuntimeKind::A500PlusPal(rt) => self.query(rt, path),
             crate::variants::AmigaRuntimeKind::A500PlusNtsc(rt) => self.query(rt, path),
             crate::variants::AmigaRuntimeKind::A600Pal(rt) => self.query(rt, path),
@@ -657,7 +671,7 @@ fn decode_cia_interrupt_bits(value: u8) -> Value {
 }
 
 /// One CIA-8520's complete implemented register, latch and pin state.
-fn cia_fields(c: &machine_commodore_amiga_ocs::Cia) -> Value {
+fn cia_fields(c: &common_commodore_amiga_ocs::Cia) -> Value {
     let state = c.diagnostic_snapshot();
     let (cra_bits, crb_bits, timer_a_input, timer_b_input) =
         cia_control_fields(state.cra, state.crb);

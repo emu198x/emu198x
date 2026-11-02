@@ -12,9 +12,10 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
+use common_commodore_amiga_ocs::RamConfig;
 use emu198x_peripheral_commodore_amiga_floppy::Adf;
-use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
+use machine_commodore_amiga_a500_rev5_pal::AmigaA500Rev5 as AmigaOcs;
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaA500Rev5PalRuntime, Model};
 
 const KS12_ALERT_ENTRY: u32 = 0x00FC_05B4;
 const KS12_ALERT_DIRECT_ENTRY: u32 = 0x00FC_05B8;
@@ -38,13 +39,13 @@ fn load_artifact(path: PathBuf, label: &str) -> Option<Vec<u8>> {
     Some(std::fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display())))
 }
 
-fn read_long(runtime: &AmigaOcsRuntime, addr: u32) -> u32 {
+fn read_long(runtime: &AmigaA500Rev5PalRuntime, addr: u32) -> u32 {
     let hi = u32::from(runtime.machine().read_word(addr));
     let lo = u32::from(runtime.machine().read_word(addr.wrapping_add(2)));
     (hi << 16) | lo
 }
 
-fn read_word(runtime: &AmigaOcsRuntime, addr: u32) -> u16 {
+fn read_word(runtime: &AmigaA500Rev5PalRuntime, addr: u32) -> u16 {
     runtime.machine().read_word(addr)
 }
 
@@ -65,7 +66,8 @@ fn trace_a500_kick12_wb12_first_alert() {
         return;
     };
 
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom)
+        .expect("build KS 1.2 runtime");
     let adf = Adf::from_bytes(adf_bytes).expect("decode Workbench 1.2 ADF");
     runtime.machine_mut().insert_adf(adf);
 
@@ -143,7 +145,8 @@ fn trace_a500_kick12_early_boot_branch_to_alert() {
         emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom)
+        .expect("build KS 1.2 runtime");
 
     let mut prev_pc = runtime.machine().cpu().regs.pc;
     let mut cold_start_hits = 0u32;
@@ -257,7 +260,8 @@ fn trace_a500_kick12_chip_probe_instruction_flow() {
         emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom)
+        .expect("build KS 1.2 runtime");
     runtime.machine_mut().debug_watch_addr = Some((0x0000_0000, 0x0000_2000));
     runtime.machine_mut().debug_watch_writes.clear();
 
@@ -384,7 +388,8 @@ fn trace_a500_kick12_last_instructions_before_alert() {
         emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom)
+        .expect("build KS 1.2 runtime");
     let mut exec_init_seen = false;
     let mut prev_instr_start_pc = runtime.machine().cpu().instr_start_pc;
     let mut prev_instr_count = runtime.machine().cpu().instruction_starts;
@@ -450,7 +455,8 @@ fn trace_a500_kick12_cpu_detect_helper() {
         emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom)
+        .expect("build KS 1.2 runtime");
     runtime.machine_mut().debug_watch_addr = Some((0x0000_0010, 0x0000_0020));
     runtime.machine_mut().debug_watch_writes.clear();
 
@@ -537,7 +543,8 @@ fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
         emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom)
+        .expect("build KS 1.2 runtime");
     let mut exec_init_seen = false;
     let mut prev_instr_start_pc = runtime.machine().cpu().instr_start_pc;
     let mut prev_instr_count = runtime.machine().cpu().instruction_starts;
@@ -638,8 +645,8 @@ fn trace_kick12_slow_ram_probe_on_a500_variants() {
         (Model::A500OcsPalA501, "a500-a501"),
     ] {
         println!("\n=== {label} ===");
-        let mut runtime =
-            AmigaOcsRuntime::new(model, rom.clone()).unwrap_or_else(|err| panic!("{label}: {err}"));
+        let mut runtime = AmigaA500Rev5PalRuntime::new(model, rom.clone())
+            .unwrap_or_else(|err| panic!("{label}: {err}"));
         runtime.machine_mut().debug_watch_addr = Some((0x00C0_0000, 0x001C_0000));
         runtime.machine_mut().debug_watch_writes.clear();
 

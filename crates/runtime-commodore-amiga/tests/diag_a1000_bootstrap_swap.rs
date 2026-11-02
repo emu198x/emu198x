@@ -9,9 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use emu198x_shell::{HeadlessScript, HeadlessSession, ScriptStep};
-use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, Model,
-};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaSessionQueryProvider, Model};
 
 fn bootstrap_rom_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
@@ -87,7 +85,8 @@ fn script_swaps_after_a1000_wom_lock() {
 
     let rom = std::fs::read(&bootstrap_rom_path)
         .unwrap_or_else(|err| panic!("read {}: {err}", bootstrap_rom_path.display()));
-    let runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, rom).expect("build A1000 runtime");
+    let runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::new(Model::A1000OcsPal, rom)
+        .expect("build A1000 runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         A500_PAL_FRAME_TICKS,

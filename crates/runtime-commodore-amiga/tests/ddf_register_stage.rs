@@ -9,8 +9,8 @@ use motorola_68000::{
     microcode::MicroOp,
 };
 use runtime_commodore_amiga::{
-    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
-    AmigaRuntime, Model,
+    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaRuntime,
+    Model,
 };
 
 fn setup<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
@@ -139,8 +139,14 @@ fn cpu_ddf_writes_replay_at_both_phases_and_across_wrap() -> Result<(), Box<dyn 
         for phase in 0..2 {
             for wrap in [false, true] {
                 check_cpu_delivery(
-                    AmigaOcsRuntime::blank(Model::A500OcsPal),
-                    AmigaOcsRuntime::blank(Model::A500OcsPal),
+                    runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+                        Model::A500OcsPal.config(),
+                    )
+                    .expect("matching fixed owner"),
+                    runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+                        Model::A500OcsPal.config(),
+                    )
+                    .expect("matching fixed owner"),
                     reg,
                     phase,
                     wrap,
@@ -188,8 +194,14 @@ fn invalid_pending_ddf_restore_leaves_destination_untouched() -> Result<(), Box<
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
     )?;
     check(
         AmigaA500PlusPalRuntime::blank(),

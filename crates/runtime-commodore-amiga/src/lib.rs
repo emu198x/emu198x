@@ -22,6 +22,10 @@ pub use audio_filter::{
     AmigaAudioFilterDiagnosticSnapshot, OnePoleFilterDiagnosticSnapshot,
     TwoPoleFilterDiagnosticSnapshot,
 };
+pub use common_commodore_amiga_ocs::{
+    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
+};
+pub use common_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use cpu_trace::CpuTraceEntry;
 pub use gvp_a530::{A530Config, A530RamSize};
 pub use input::keys_for_char;
@@ -30,10 +34,6 @@ pub use live_access::{
     CpuSnapshot, CustomWriteEntry, DskLogEntry, EcsAgnusTimingSnapshot, EnhancedDeniseSnapshot,
     PaletteLogEntry, RegReadLogEntry, WatchLogEntry,
 };
-pub use machine_commodore_amiga_ocs::{
-    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
-};
-pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{
     A500_NTSC_CCK_HZ, A500_NTSC_FRAME_CCKS, A500_NTSC_FRAME_TICKS, A500_PAL_CCK_HZ,
     A500_PAL_FRAME_CCKS, A500_PAL_FRAME_TICKS, Model, profile_for, profiles,
@@ -45,6 +45,9 @@ pub use typing::{
     type_string,
 };
 pub use variants::{
-    AmigaA500PlusNtscRuntime, AmigaA500PlusPalRuntime, AmigaA600NtscRuntime, AmigaA600PalRuntime,
-    AmigaA1200NtscRuntime, AmigaA1200PalRuntime, AmigaMachine, AmigaOcsRuntime, AmigaRuntimeKind,
+    AmigaA500PlusNtscRuntime, AmigaA500PlusPalRuntime, AmigaA500Rev5NtscRuntime,
+    AmigaA500Rev5PalRuntime, AmigaA500Rev6ANtscRuntime, AmigaA500Rev6APalRuntime,
+    AmigaA600NtscRuntime, AmigaA600PalRuntime, AmigaA1000NtscRuntime, AmigaA1000PalRuntime,
+    AmigaA1200NtscRuntime, AmigaA1200PalRuntime, AmigaA2000CrRev6NtscRuntime,
+    AmigaA2000CrRev6PalRuntime, AmigaMachine, AmigaRuntimeKind,
 };

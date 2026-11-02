@@ -1,10 +1,10 @@
 //! Firmware-free, canvas-free C64/A500 prototype. The same binding runs natively
 //! for comparison; the browser owns file selection, presentation and workers.
+use common_commodore_amiga_ocs::ExtendedRomWindow;
 use emu198x_pointer::PointerSync;
 use emu198x_shell::{InputEvent, MediaKind};
 use emu198x_web::WebMachine;
-use machine_commodore_amiga_ocs::ExtendedRomWindow;
-use runtime_commodore_amiga::{AmigaOcsRuntime, AmigaRuntimeKind, Model as AmigaModel};
+use runtime_commodore_amiga::{AmigaA500Rev5PalRuntime, AmigaRuntimeKind, Model as AmigaModel};
 use runtime_commodore_c64::{C64Runtime, Model as C64Model};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -107,7 +107,14 @@ impl Commodore {
         let bytes = match (&self.machine, slot) {
             (Machine::C64(m), "drive-8") => m.runtime().flush_drive8_image(),
             (Machine::Amiga(m), "floppy-0") => match m.runtime() {
-                AmigaRuntimeKind::Ocs(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A1000Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A1000Ntsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev5Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev5Ntsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev6APal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev6ANtsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A2000CrRev6Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A2000CrRev6Ntsc(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::A500PlusPal(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::A500PlusNtsc(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::A600Pal(r) => r.machine().floppy0_image_bytes(),
@@ -290,15 +297,18 @@ impl Commodore {
 
 impl Commodore {
     fn build_amiga(firmware: &[u8], extended: Option<&[u8]>) -> Result<Self, String> {
-        let mut runtime = AmigaOcsRuntime::new(AmigaModel::A500OcsPalA501, firmware.to_vec())
-            .map_err(|e| e.to_string())?;
+        let mut runtime =
+            AmigaA500Rev5PalRuntime::new(AmigaModel::A500OcsPalA501, firmware.to_vec())
+                .map_err(|e| e.to_string())?;
         if let Some(image) = extended {
             runtime
                 .machine_mut()
                 .install_extended_rom(ExtendedRomWindow::E00000, image.to_vec());
         }
         Ok(Self {
-            machine: Machine::Amiga(Box::new(WebMachine::new(AmigaRuntimeKind::Ocs(runtime)))),
+            machine: Machine::Amiga(Box::new(WebMachine::new(AmigaRuntimeKind::A500Rev5Pal(
+                runtime,
+            )))),
             pointer: PointerSync::default(),
         })
     }
@@ -330,7 +340,7 @@ mod tests {
         let Machine::Amiga(web) = machine.machine else {
             panic!("Amiga binding");
         };
-        let AmigaRuntimeKind::Ocs(runtime) = web.runtime() else {
+        let AmigaRuntimeKind::A500Rev5Pal(runtime) = web.runtime() else {
             panic!("OCS model");
         };
         assert_eq!(runtime.ram_config().chip_kb, 512);
@@ -338,7 +348,7 @@ mod tests {
         assert!(runtime.machine().gary().rtc_present());
         assert_eq!(
             runtime.machine().gary().decode(0xDC0000),
-            machine_commodore_amiga_ocs::ChipSelect::Rtc
+            common_commodore_amiga_ocs::ChipSelect::Rtc
         );
     }
 
@@ -350,7 +360,7 @@ mod tests {
         let Machine::Amiga(web) = machine.machine else {
             panic!("Amiga binding");
         };
-        let AmigaRuntimeKind::Ocs(runtime) = web.runtime() else {
+        let AmigaRuntimeKind::A500Rev5Pal(runtime) = web.runtime() else {
             panic!("OCS model");
         };
         assert_eq!(runtime.machine().read_word(0xE00000), 0x5a5a);

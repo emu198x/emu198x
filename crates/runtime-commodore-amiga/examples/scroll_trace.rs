@@ -1,13 +1,16 @@
 //! Trace real guest display-register writes across a scroll wrap.
 use emu198x_shell::{HeadlessSession, InputEvent, MachineCore};
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, Model};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 2 {
         return Err("usage: scroll_trace <kickstart> <snapshot>".into());
     }
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPalA501, std::fs::read(&args[0])?)?;
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPalA501,
+        std::fs::read(&args[0])?,
+    )?;
     runtime.restore(&std::fs::read(&args[1])?)?;
     let mut session = HeadlessSession::new(runtime, A500_PAL_FRAME_TICKS);
     session.run_frames(1)?;

@@ -2,8 +2,8 @@
 use common_commodore_amiga::driver::AmigaDriver;
 use emu198x_shell::MachineCore;
 use runtime_commodore_amiga::{
-    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
-    AmigaRuntime, Model,
+    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaRuntime,
+    Model,
 };
 use std::error::Error;
 
@@ -88,8 +88,8 @@ pub fn check_all() -> Result<(), Box<dyn Error>> {
     let mut failures = 0;
     for channel in 0..4 {
         failures += check(
-            AmigaOcsRuntime::new(Model::A500OcsPal, rom())?,
-            AmigaOcsRuntime::new(Model::A500OcsPal, rom())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, rom())?,
             "OCS",
             channel,
         )?;
