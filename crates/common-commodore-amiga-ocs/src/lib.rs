@@ -1,0 +1,4447 @@
+//! Commodore Amiga (OCS chipset) machine — incremental restart.
+//!
+//! Built milestone-by-milestone per
+//! `knowledge/decisions/amiga-restart-plan.md`. Each milestone adds the
+//! minimum hardware behaviour the running ROM demands; nothing more.
+//!
+//! Current milestone: **M6 — beam counter + VBL interrupt.**
+
+mod agnus;
+mod denise;
+use std::collections::VecDeque;
+use std::marker::PhantomData;
+
+use agnus::{ExtendedBlitterWrite, InstalledAgnus};
+use common_commodore_amiga::board::{
+    BusResponse, BusTransaction, MotherboardBridgeDiagnosticSnapshot, NTSC_SYSTEM_TICK_HZ,
+    PAL_SYSTEM_TICK_HZ, SizedBusResponse, SizedBusTransaction, SynchronizedMotherboardBridge,
+    TICKS_PER_CCK, WatchingChipRamBus,
+};
+use common_commodore_amiga::driver::AmigaDriver;
+pub use common_commodore_amiga::{
+    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaInputDiagnosticSnapshot, AmigaMemoryWriteRecord,
+    AmigaMemoryWriteSource, AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
+};
+use common_commodore_amiga::{
+    ActiveCpu, CpuBoundary, CpuClock, CpuDomainPhase, cia, copper, memory, rtc,
+};
+
+pub use agnus::{
+    Agnus, AgnusEcs, AgnusRegion, BlitterCckOutcome, CckBusPlan, InstalledAgnusKind,
+    NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME, OriginalAgnusRevision,
+    PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS,
+    PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
+};
+pub use cia::{Cia, CiaExt};
+pub use copper::Copper;
+pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
+pub use emu198x_commodore_amiga_autoconfig::{
+    AutoconfigBoard, AutoconfigBoardDiagnosticSnapshot, AutoconfigState,
+};
+pub use emu198x_commodore_gary::{ChipSelect, ExtendedRomWindow, Gary};
+use emu198x_commodore_paula_8364::bits::{
+    POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
+    POTGOR_BTN_PORT1_RIGHT,
+};
+use emu198x_commodore_paula_8364::decode as paula_decode;
+pub use emu198x_commodore_paula_8364::{
+    AudioControls, AudioField, IntSource, Paula8364, PaulaChannel,
+};
+pub use emu198x_peripheral_commodore_amiga_floppy::Adf;
+pub use emu198x_peripheral_commodore_amiga_floppy::{
+    AmigaFloppyChain, AmigaFloppyDrive, DriveStatus, MAX_DRIVES,
+};
+pub use emu198x_peripheral_commodore_amiga_keyboard::AmigaKeyboard;
+pub use gvp_a530::{A530Config, A530RamSize, GvpA530};
+pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
+pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
+
+pub use motorola_68000::CpuModel;
+use motorola_68000::bus::{
+    BusStatus, FunctionCode, TransferSize, dynamic_transfer_bytes, extract_dynamic_bus_data,
+};
+use motorola_68000::cpu::State;
+use rtc::Msm6242Rtc;
+
+const CUSTOM_BASE: u32 = 0x00DF_0000;
+const CUSTOM_TOP: u32 = 0x00E0_0000;
+const SLOW_RAM_BASE: u32 = 0x00C0_0000;
+/// Zorro-II autoconfig probe window — the first unconfigured board
+/// answers here until `expansion.library` writes its base-address
+/// pair to `$E8004A` / `$E80048`.
+const AUTOCONFIG_BASE: u32 = 0x00E8_0000;
+const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
+
+pub use common_commodore_amiga::RamConfig;
+
+/// One entry in the diagnostic blit log.
+pub type BlitLogEntry = (u64, u32, u16, u16, u32, u32, u32, u32, u16);
+
+/// Convert drive status (active-high booleans) into the CIA-A PRA
+/// external-input byte Kickstart reads via `$BFE001`.
+///
+/// Non-disk bits (PA0=OVL out, PA1=/LED out, PA6=FIR0, PA7=FIR1)
+/// default high. Disk bits default high and are pulled low when the
+/// corresponding drive signal is asserted.
+fn drive_pra_byte(s: &DriveStatus) -> u8 {
+    let mut v = 0b1111_1111u8;
+    if s.disk_change {
+        v &= !(1 << 2);
+    }
+    if s.write_protect {
+        v &= !(1 << 3);
+    }
+    if s.track0 {
+        v &= !(1 << 4);
+    }
+    if s.ready {
+        v &= !(1 << 5);
+    }
+    v
+}
+
+fn joydat(x: u8, y: u8) -> u16 {
+    (u16::from(y) << 8) | u16::from(x)
+}
+
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+struct JoystickState {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+    fire: bool,
+    /// Second / third fire buttons (two-button or CD32-style pad). Read
+    /// back via POTGOR, not CIA-A PRA — see `set_joystick_control`.
+    button2: bool,
+    button3: bool,
+}
+
+impl JoystickState {
+    fn set_control(&mut self, name: &str, pressed: bool) -> bool {
+        match name.to_ascii_lowercase().as_str() {
+            "up" => self.up = pressed,
+            "down" => self.down = pressed,
+            "left" => self.left = pressed,
+            "right" => self.right = pressed,
+            "fire" | "button" | "button1" => self.fire = pressed,
+            "fire2" | "button2" => self.button2 = pressed,
+            "fire3" | "button3" => self.button3 = pressed,
+            _ => return false,
+        }
+        true
+    }
+
+    // Amiga joysticks are cross-wired into the two pot pairs: the X pair
+    // (JOYxDAT bits 1,0) carries RIGHT (both bits) and DOWN (low-bit
+    // toggle); the Y pair (bits 9,8) carries LEFT and UP. Verified
+    // against vAmiga Joystick::joydat() + HRM Appendix A:
+    //   Right = X1 · Left = Y1 · Down = X0 xor X1 · Up = Y0 xor Y1
+    fn x_bits(self) -> u8 {
+        let right = self.right && !self.left;
+        let down = self.down && !self.up;
+        (u8::from(right) << 1) | u8::from(right ^ down)
+    }
+
+    fn y_bits(self) -> u8 {
+        let left = self.left && !self.right;
+        let up = self.up && !self.down;
+        (u8::from(left) << 1) | u8::from(left ^ up)
+    }
+}
+
+const DEBUG_RTC_LOG_LIMIT: usize = 4096;
+
+// `ChipRamBus`, `BusTransaction`, `BusResponse`, `TICKS_PER_CCK`, and
+// `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
+// `common_commodore_amiga::board` (#34) and imported above.
+
+/// Implemented motherboard fitting; RAM and add-ons remain independent choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OcsBoard {
+    A1000,
+    A500Rev5,
+    A500Rev6A,
+    A2000CrRev6,
+}
+impl OcsBoard {
+    #[must_use]
+    pub const fn has_bootstrap(self) -> bool {
+        matches!(self, Self::A1000)
+    }
+    #[must_use]
+    pub const fn uses_fat_agnus(self) -> bool {
+        matches!(self, Self::A500Rev6A | Self::A2000CrRev6)
+    }
+    #[must_use]
+    pub const fn has_onboard_rtc(self) -> bool {
+        matches!(self, Self::A2000CrRev6)
+    }
+    #[must_use]
+    pub const fn default_ram(self) -> RamConfig {
+        RamConfig {
+            chip_kb: match self {
+                Self::A1000 => 256,
+                Self::A2000CrRev6 => 1024,
+                _ => 512,
+            },
+            slow_kb: 0,
+            fast_kb: 0,
+        }
+    }
+}
+/// Compile-time identity supplied by one fixed machine owner.
+pub trait Configuration: Clone + 'static {
+    const REGION: AgnusRegion;
+    const BOARD: OcsBoard;
+    const MACHINE_ID: &'static str;
+    const DEFAULT_RAM: RamConfig = Self::BOARD.default_ram();
+}
+
+/// Shared OCS-shaped wiring for one fixed motherboard configuration.
+///
+/// Raw snapshots retain their owner's type. The persisted family envelope
+/// separately validates the model, because two expanded boards can have
+/// identical chip-state bytes.
+///
+/// ```compile_fail,E0308
+/// use common_commodore_amiga_ocs::{AgnusRegion, Configuration, OcsBoard, OcsCore};
+/// #[derive(Clone)] struct Pal;
+/// impl Configuration for Pal {
+///     const REGION: AgnusRegion = AgnusRegion::Pal;
+///     const BOARD: OcsBoard = OcsBoard::A500Rev5;
+///     const MACHINE_ID: &'static str = "test-pal";
+/// }
+/// #[derive(Clone)] struct Ntsc;
+/// impl Configuration for Ntsc {
+///     const REGION: AgnusRegion = AgnusRegion::Ntsc;
+///     const BOARD: OcsBoard = OcsBoard::A500Rev5;
+///     const MACHINE_ID: &'static str = "test-ntsc";
+/// }
+/// let mut pal = OcsCore::<Pal>::new(vec![0; 512 * 1024]);
+/// let ntsc = OcsCore::<Ntsc>::new(vec![0; 512 * 1024]);
+/// pal.restore_snapshot_state(ntsc.snapshot_state()).expect("foreign owner");
+/// ```
+pub struct OcsCore<C: Configuration> {
+    _configuration: PhantomData<C>,
+    cpu: ActiveCpu,
+    /// Exact active-CPU edges emitted per Amiga system tick.
+    cpu_clock: CpuClock,
+    /// Unconsumed CPU edges when exact instruction stepping stops part-way
+    /// through one Amiga system tick.
+    cpu_domain_phase: CpuDomainPhase,
+    /// GVP A530 accelerator-local state. The processor itself remains the
+    /// machine's active CPU so chipset and CPU choice stay orthogonal.
+    gvp_a530: Option<GvpA530>,
+    /// Timing and latched-response state for the A530's synchronized
+    /// 16-bit motherboard bridge.
+    motherboard_bridge: Option<SynchronizedMotherboardBridge>,
+    /// Bounded, non-persisted instruction-boundary handoff to the runtime.
+    cpu_boundaries: VecDeque<CpuBoundary>,
+    memory: Memory,
+    /// Floppy drives DF0 to DF3 — head / motor / MFM track encoder per
+    /// drive. They respond to CIA-B PRB control pulses and feed CIA-A
+    /// PRA status bits + MFM words into Paula's disk DMA engine.
+    drives: AmigaFloppyChain,
+    /// Cached encoded MFM track for the DMA drive's current (unit, cyl,
+    /// head). Re-encoded on demand when the head moves, another drive
+    /// is selected or a new disk is inserted; `None` if no disk is present or the head is at a
+    /// cylinder we haven't encoded yet this access.
+    track_cache: Option<(usize, u32, u32, Vec<u8>)>,
+    /// Word cursor into `track_cache.3` — next word to feed to Paula.
+    track_word_cursor: usize,
+    /// CCKs remaining before the next MFM word is pushed to Paula.
+    /// One word every `DISK_BYTE_CCK_SLOW * 2` CCKs in 250 kbit/s
+    /// (ADKCON.FAST clear) mode, or `DISK_BYTE_CCK_FAST * 2` in fast.
+    track_pacer: u16,
+    /// Keyboard controller — produces $FD + $FE power-up sequence and
+    /// encoded key events, ticked at the CIA E-clock rate.
+    keyboard: AmigaKeyboard,
+    /// Last-observed CIA-A CRA bit 6 (SPMODE). The keyboard treats a
+    /// 0→1 transition as a handshake: the host has read SDR and is
+    /// ready for the next byte.
+    prev_cia_a_spmode: bool,
+    /// Address decoder — maps 24-bit CPU addresses to chip selects.
+    /// Configured once at construction (A500 + slow RAM) and read-
+    /// only thereafter.
+    gary: Gary,
+    /// Battery-backed old-address RTC (`$DC0000`) used by A500+A501-
+    /// style configurations. Advances from completed emulated system ticks.
+    rtc: Msm6242Rtc,
+    /// Zorro-II autoconfig board, present when the `RamConfig` asks
+    /// for fast RAM. `None` when `fast_kb == 0`. Answers at the probe
+    /// window `$E80000-$E8007F` until `expansion.library` writes both
+    /// halves of the base-address pair; thereafter serves RAM from
+    /// its assigned base.
+    autoconfig: Option<AutoconfigBoard>,
+    cia_a: Cia,
+    cia_b: Cia,
+    paula: Paula8364,
+    /// Mouse/joystick counter state for controller port 0 (JOY0DAT).
+    joy0_x: u8,
+    joy0_y: u8,
+    /// Mouse/joystick counter state for controller port 1 (JOY1DAT).
+    joy1_x: u8,
+    joy1_y: u8,
+    /// Active-low left mouse/fire buttons sampled through CIA-A PRA.
+    port0_left_button_pressed: bool,
+    port1_left_button_pressed: bool,
+    /// Digital joystick state for controller port 1.
+    joystick1: JoystickState,
+    agnus: InstalledAgnus,
+    copper: Copper,
+    denise: Denise,
+    tick_count: u64,
+    /// Sub-CCK phase: 0 at the first tick of a CCK (fetch/reload
+    /// events fire here), 1 at the second tick. Flips each tick.
+    cck_phase: u8,
+    /// Previous vertical-blank interval state. The transition into
+    /// blanking generates the once-per-frame `VERTB` request. Other
+    /// frame-start events use their own beam predicates.
+    prev_vertb_level: bool,
+    /// Last sampled CIA-A interrupt-input state. Retained in machine
+    /// snapshots; Paula request generation is level-sensitive.
+    prev_cia_a_irq: bool,
+    /// Last sampled CIA-B interrupt-input state.
+    prev_cia_b_irq: bool,
+    e_clock_phase: u64,
+    /// Diagnostic: count of unique custom-register read offsets seen
+    /// since reset, indexed by offset / 2.
+    pub debug_reg_read_counts: std::collections::HashMap<u16, u64>,
+    /// Diagnostic: peak INTENA value seen during boot. Bit 14 set
+    /// here would prove the boot has reached the master-enable code
+    /// path even if INTENA is later cleared.
+    pub debug_peak_intena: u16,
+    /// Diagnostic: cumulative count of CPU writes to INTENA ($DFF09A).
+    pub debug_intena_writes: u64,
+    /// Diagnostic: per-write log of every INTENA store, captured to
+    /// help trace the master-enable lifecycle. Each entry is
+    /// `(cck, pc, written_word, intena_before, intena_after)`. Only
+    /// writes that actually change INTENA are kept (purely-no-op
+    /// writes still count toward `debug_intena_writes`).
+    pub debug_intena_log: Vec<(u64, u32, u16, u16, u16)>,
+    /// Diagnostic: log of COP1LC writes (when either high or low
+    /// half is written). Entry: (cck, pc, new_cop1lc). Lets us see
+    /// who installs the strap copper list (or doesn't).
+    pub debug_cop1lc_log: Vec<(u64, u32, u32)>,
+    /// Same for COP2LC.
+    pub debug_cop2lc_log: Vec<(u64, u32, u32)>,
+    /// Diagnostic: log of Paula disk-register writes. Entry is
+    /// `(cck, pc, reg_offset, value)` where reg_offset is the
+    /// custom-register offset ($020/$022 = DSKPT, $024 = DSKLEN,
+    /// $026 = DSKDAT, $07E = DSKSYNC). Lets us see how trackdisk
+    /// pokes the disk controller before we add any behaviour.
+    pub debug_dsk_log: Vec<(u64, u32, u16, u16)>,
+    /// Diagnostic: log of DMACON writes. Entry is
+    /// `(cck, pc, raw_val, dmacon_before, dmacon_after)`. Captures
+    /// every write to $DFF096; lets us see who enables / disables
+    /// BPLEN / SPREN / etc. during boot.
+    pub debug_dmacon_log: Vec<(u64, u32, u16, u16, u16)>,
+    /// Diagnostic: count of BLTSIZE writes (every one starts a
+    /// blit). Independent of whether the blit actually touched
+    /// chip RAM — just counts the "CPU kicked a blit" events.
+    pub debug_blit_starts: u64,
+    /// Diagnostic: log of BLTSIZE writes that triggered a blit.
+    /// Entry is `(cck, pc, bltcon0, bltcon1, bltapt, bltbpt,
+    /// bltcpt, bltdpt, bltsize)`. Captures the parameters at the
+    /// moment the blit was kicked off — so we can replay any
+    /// suspicious blit and find issues with B→D copy paths.
+    pub debug_blit_log: Vec<BlitLogEntry>,
+    /// Diagnostic: log of CIA-A register writes. Entry is
+    /// `(cck, pc, reg, raw_val)` where reg is 0..=$F. Lets us see
+    /// how timer.device and other code start/stop the CIA-A timers.
+    pub debug_cia_a_cr_log: Vec<(u64, u32, u8, u8)>,
+    /// Same for CIA-B.
+    pub debug_cia_b_cr_log: Vec<(u64, u32, u8, u8)>,
+    /// Diagnostic: log of Copper MOVEs routed through the custom
+    /// register dispatcher. Entry is `(cck, vpos, hpos, reg, val)`.
+    /// Useful for confirming which BPLCON0 mode word is actually
+    /// applied during the visible desktop, rather than inferring
+    /// from the source template in RAM.
+    pub debug_copper_move_log: Vec<(u64, u16, u16, u16, u16)>,
+    /// Diagnostic: log of CPU custom-register writes. Entry is
+    /// `(cck, pc, addr24, offset, raw_val, is_word)`. Used to catch
+    /// byte-write behaviour differences against the archive machine,
+    /// especially for display registers like BPLCON0.
+    pub debug_custom_write_log: Vec<(u64, u32, u32, u16, u16, bool)>,
+    /// Diagnostic: half-open memory range observed by both the legacy
+    /// CPU-only tuple stream and the source-aware all-writer stream.
+    pub debug_watch_addr: Option<(u32, u32)>,
+    /// Source-aware write stream used by the shared runtime watch. CPU entries
+    /// mirror `debug_watch_writes`; blitter D and disk read-DMA writes appear
+    /// only here.
+    pub debug_memory_watch_writes: Vec<AmigaMemoryWriteRecord>,
+    /// Legacy CPU-only tuple stream retained for existing diagnostics.
+    pub debug_watch_writes: Vec<(u64, u32, u32, u16, bool)>,
+    /// Diagnostic: bounded log of CPU RTC bus accesses. Entry is
+    /// `(cck, pc, addr24, is_read, is_word, value)`, where `value`
+    /// is the delivered word/byte payload. Used to trace KS 1.3's
+    /// direct old-address clock probes at `$DC0000`.
+    pub debug_rtc_log: Vec<(u64, u32, u32, bool, bool, u16)>,
+    /// Diagnostic: log of every BPLCON0 (`$0100`) write. Entry is
+    /// `(cck, pc, val)`. Mirrored from the A1200 instrumentation so
+    /// the family MCP `bplcon0_log` tool surfaces data on every
+    /// chipset (not just AGA). Bounded at 8192 entries.
+    pub debug_bplcon0_log: Vec<(u64, u32, u16)>,
+    /// Diagnostic: log of palette writes — COLOR (`$0180..$01BE`),
+    /// BPLCON3 (`$0106`) and BPLCON4 (`$010C`). Entry is `(cck, pc,
+    /// reg_offset, value, bplcon3_at_write)`. On OCS the fifth
+    /// field is always `None` because BPLCON3 isn't backed by any
+    /// chip register at this address — captures the write-attempt
+    /// trace anyway so games / probes that poke $0106 / $010C on OCS
+    /// still show up.
+    pub debug_palette_log: Vec<(u64, u32, u16, u16, Option<u16>)>,
+    /// Diagnostic: log of every CPU read from a chipset register.
+    /// Entry is `(cck, pc, offset, returned_value)`. Lets us watch
+    /// what an app or KS reads back from the custom-register window —
+    /// notably how Kickstart probes the chipset for identification.
+    pub debug_reg_read_log: Vec<(u64, u32, u16, u16)>,
+}
+
+/// Persistable Amiga (OCS) machine state.
+///
+/// Captures every chip + every machine-level field whose value affects
+/// future behaviour. Diagnostic logs (`debug_*`) are deliberately
+/// excluded — they are observability, not state. Disk media is also
+/// excluded; the runtime envelope re-mounts disks separately so
+/// snapshots reference disks by source rather than embedding ~1 MiB of
+/// MFM bytes per inserted floppy.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(bound = "")]
+pub struct OcsSnapshot<C: Configuration> {
+    cpu: ActiveCpu,
+    cpu_clock: CpuClock,
+    cpu_domain_phase: CpuDomainPhase,
+    gvp_a530: Option<GvpA530>,
+    motherboard_bridge: Option<SynchronizedMotherboardBridge>,
+    memory: Memory,
+    drives: AmigaFloppyChain,
+    track_cache: Option<(usize, u32, u32, Vec<u8>)>,
+    track_word_cursor: usize,
+    track_pacer: u16,
+    keyboard: AmigaKeyboard,
+    prev_cia_a_spmode: bool,
+    gary: Gary,
+    rtc: Msm6242Rtc,
+    autoconfig: Option<AutoconfigBoard>,
+    cia_a: Cia,
+    cia_b: Cia,
+    paula: Paula8364,
+    joy0_x: u8,
+    joy0_y: u8,
+    joy1_x: u8,
+    joy1_y: u8,
+    port0_left_button_pressed: bool,
+    port1_left_button_pressed: bool,
+    joystick1: JoystickState,
+    agnus: InstalledAgnus,
+    copper: Copper,
+    denise: Denise,
+    tick_count: u64,
+    cck_phase: u8,
+    prev_vertb_level: bool,
+    prev_cia_a_irq: bool,
+    prev_cia_b_irq: bool,
+    e_clock_phase: u64,
+    #[serde(skip)]
+    _configuration: PhantomData<C>,
+}
+
+impl<C: Configuration> OcsSnapshot<C> {
+    /// Whether the persisted decoder exposes the fitted clock.
+    #[must_use]
+    pub const fn rtc_present(&self) -> bool {
+        self.gary.rtc_present()
+    }
+
+    /// Correct legacy onboard-clock decoding without changing clock history.
+    pub fn enable_onboard_rtc(&mut self) {
+        self.gary.set_rtc_present(true);
+    }
+}
+
+impl<C: Configuration> OcsCore<C> {
+    fn apply_drive_control_from_cia_b(&mut self) {
+        let prb = self.cia_b.port_b_output();
+        self.drives.update_control(prb);
+        // The selected drive drives the CIA-A status lines (HRM
+        // Appendix E), so a select change reaches them at once: software
+        // reads /DSKRDY straight after each select pulse when it reads a
+        // drive's ID.
+        self.refresh_cia_a_external_inputs();
+    }
+
+    fn refresh_cia_a_external_inputs(&mut self) {
+        let mut pra = drive_pra_byte(&self.drives.status());
+        // CIA-A PRA fire bits are active-low: PA6 = /FIR0 (controller
+        // port 0 — mouse left button), PA7 = /FIR1 (controller port 1).
+        if self.port0_left_button_pressed {
+            pra &= !(1 << 6);
+        }
+        if self.port1_left_button_pressed {
+            pra &= !(1 << 7);
+        }
+        self.cia_a.set_external_a(pra);
+    }
+
+    /// Construct the fixed board with its stock RAM fitting.
+    #[must_use]
+    pub fn new(firmware: Vec<u8>) -> Self {
+        Self::with_ram_config(firmware, C::DEFAULT_RAM)
+    }
+
+    /// Construct with RAM fitted on the same board; silicon never follows RAM size.
+    #[must_use]
+    pub fn with_ram_config(firmware: Vec<u8>, cfg: RamConfig) -> Self {
+        let ceiling = if C::BOARD.uses_fat_agnus() { 1024 } else { 512 };
+        assert!(
+            cfg.is_valid() && cfg.chip_kb <= ceiling,
+            "RamConfig out of range for selected Agnus: {cfg:?}"
+        );
+        let memory = if C::BOARD.has_bootstrap() {
+            Memory::new_a1000_bootstrap_with_ram(
+                firmware,
+                cfg.chip_kb as usize * 1024,
+                cfg.slow_kb as usize * 1024,
+            )
+        } else {
+            Memory::new_with_ram(
+                firmware,
+                cfg.chip_kb as usize * 1024,
+                cfg.slow_kb as usize * 1024,
+            )
+        };
+        let agnus = if C::BOARD.has_bootstrap() {
+            InstalledAgnus::a1000(C::REGION)
+        } else if C::BOARD.uses_fat_agnus() {
+            InstalledAgnus::fat_8372a(C::REGION)
+        } else {
+            InstalledAgnus::early_ocs(C::REGION)
+        };
+        Self::with_memory_config(memory, cfg, true, agnus)
+    }
+
+    /// Fit slow RAM without changing the board's chip-RAM default.
+    #[must_use]
+    pub fn with_slow_ram(firmware: Vec<u8>, slow_ram_bytes: usize) -> Self {
+        Self::with_ram_config(
+            firmware,
+            RamConfig {
+                slow_kb: (slow_ram_bytes / 1024) as u32,
+                ..C::DEFAULT_RAM
+            },
+        )
+    }
+
+    /// Fit the existing GVP A530 peripheral to an A500 expansion edge.
+    #[must_use]
+    pub fn with_gvp_a530_config(firmware: Vec<u8>, cfg: RamConfig, a530: A530Config) -> Self {
+        assert!(
+            matches!(C::BOARD, OcsBoard::A500Rev5 | OcsBoard::A500Rev6A),
+            "A530 requires an A500 board"
+        );
+        let mut board = Self::with_ram_config(firmware, cfg);
+        board.install_gvp_a530(a530);
+        board
+    }
+
+    /// Fixed identity, independent of RAM, firmware and add-ons.
+    #[must_use]
+    pub const fn machine_id(&self) -> &'static str {
+        C::MACHINE_ID
+    }
+    #[must_use]
+    pub const fn board_kind(&self) -> OcsBoard {
+        C::BOARD
+    }
+
+    /// Fit a second ROM in the extended-ROM window.
+    ///
+    /// A machine carrying more operating system than fits at `$F80000` puts
+    /// the rest here: `$E00000` on the CD32, `$F00000` on the CDTV. AROS
+    /// m68k reuses the CD32 window for the half of itself that does not fit
+    /// in 512 KiB, which is why supplying only `aros-amiga-m68k-rom.bin`
+    /// runs half an operating system.
+    ///
+    /// This wires both halves of the fact: the image into memory, and Gary
+    /// to decode the window. Neither alone is enough — an image nothing
+    /// selects is unreachable, and an aperture with no image behind it turns
+    /// open bus into zeroes.
+    ///
+    /// # Panics
+    ///
+    /// If the image is empty, not a power of two, or larger than 512 KiB.
+    pub fn install_extended_rom(&mut self, window: ExtendedRomWindow, image: Vec<u8>) {
+        self.memory.install_extended_rom(window.base(), image);
+        self.gary.set_extended_rom_window(Some(window));
+    }
+
+    fn with_memory_config(
+        memory: Memory,
+        cfg: RamConfig,
+        slow_ram_decode: bool,
+        agnus: InstalledAgnus,
+    ) -> Self {
+        // Autoconfig only supports the eight Zorro-II sizes; other
+        // (still-valid) fast_kb values are rounded down to the nearest
+        // supported size, dropping the remainder. In practice the
+        // preset surface only asks for supported sizes.
+        let autoconfig = if cfg.fast_kb == 0 {
+            None
+        } else {
+            let size = Self::zorro_size_for_kib(cfg.fast_kb);
+            size.map(AutoconfigBoard::fast_ram)
+        };
+        let mut cpu = ActiveCpu::from_model(CpuModel::M68000)
+            .expect("MC68000 is a supported active Amiga CPU");
+        let ssp = memory.read_long(0x000000);
+        let pc = memory.read_long(0x000004);
+        cpu.reset_to(ssp, pc);
+        // CIA-A PRA disk-subsystem input pins (per the Amiga HRM's
+        // "Disk Subsystem" table — the ROM reads /DSKCHANGE via
+        // `btst #2, $BFE001`, confirming these live on CIA-A PRA,
+        // not CIA-B). Bits are active-low — 1 = deasserted, 0 = asserted:
+        //   PA5 /DSKRDY — reflects drive-ID stream when motor off,
+        //                 otherwise motor-at-speed.
+        //   PA4 /DSKTRACK0 — low when head is at cylinder 0.
+        //   PA3 /DSKPROT — low when disk is write-protected.
+        //   PA2 /DSKCHANGE — low when disk changed since last step.
+        // The other bits (PA0=OVL output, PA1=/LED output, PA6=FIR0,
+        // PA7=FIR1) default high / inactive.
+        //
+        // Prior to the floppy port we used a static `$EB` constant
+        // here. That still matches `drive_pra_byte(drives.status())`
+        // on a fresh drive with no disk, so boot reaches the insert-
+        // disk screen identically.
+        let drives = AmigaFloppyChain::new();
+        let mut cia_a = Cia::new();
+        cia_a.set_external_a(drive_pra_byte(&drives.status()));
+        // Gary decode is model-shaped here, not hard-coded to the
+        // A500 path: even machines without installed slow RAM still
+        // need the `Cxxxxx` aperture so KS 1.x can detect the
+        // mirrored custom-register side effects in absent blocks.
+        let mut gary = Gary::new();
+        gary.set_slow_ram_present(slow_ram_decode);
+        gary.set_rtc_present(C::BOARD.has_onboard_rtc() || cfg.slow_kb > 0);
+        Self {
+            _configuration: PhantomData,
+            cpu,
+            cpu_clock: CpuClock::default(),
+            cpu_domain_phase: CpuDomainPhase::default(),
+            gvp_a530: None,
+            motherboard_bridge: None,
+            cpu_boundaries: VecDeque::new(),
+            memory,
+            drives,
+            track_cache: None,
+            track_word_cursor: 0,
+            track_pacer: 0,
+            keyboard: AmigaKeyboard::new(),
+            prev_cia_a_spmode: false,
+            gary,
+            rtc: Msm6242Rtc::new(),
+            autoconfig,
+            cia_a,
+            cia_b: Cia::new(),
+            paula: Paula8364::new(),
+            joy0_x: 0,
+            joy0_y: 0,
+            joy1_x: 0,
+            joy1_y: 0,
+            port0_left_button_pressed: false,
+            port1_left_button_pressed: false,
+            joystick1: JoystickState::default(),
+            agnus,
+            copper: Copper::new(),
+            denise: Denise::new(),
+            tick_count: 0,
+            cck_phase: 0,
+            // Initialise as `true` because at reset the beam is at
+            // vpos=0 (inside the VBL window), so the level signal is
+            // already high. A `false` initial value would fake a
+            // rising edge on the first tick and spuriously fire VERTB
+            // before the first real frame.
+            prev_vertb_level: true,
+            prev_cia_a_irq: false,
+            prev_cia_b_irq: false,
+            e_clock_phase: 0,
+            debug_reg_read_counts: std::collections::HashMap::new(),
+            debug_peak_intena: 0,
+            debug_intena_writes: 0,
+            debug_intena_log: Vec::new(),
+            debug_cop1lc_log: Vec::new(),
+            debug_cop2lc_log: Vec::new(),
+            debug_dsk_log: Vec::new(),
+            debug_dmacon_log: Vec::new(),
+            debug_blit_starts: 0,
+            debug_blit_log: Vec::new(),
+            debug_cia_a_cr_log: Vec::new(),
+            debug_cia_b_cr_log: Vec::new(),
+            debug_copper_move_log: Vec::new(),
+            debug_custom_write_log: Vec::new(),
+            debug_watch_addr: None,
+            debug_memory_watch_writes: Vec::new(),
+            debug_watch_writes: Vec::new(),
+            debug_rtc_log: Vec::new(),
+            debug_bplcon0_log: Vec::new(),
+            debug_palette_log: Vec::new(),
+            debug_reg_read_log: Vec::new(),
+        }
+    }
+
+    fn install_gvp_a530(&mut self, config: A530Config) {
+        let mut cpu = ActiveCpu::from_model(CpuModel::M68EC030)
+            .expect("MC68EC030 is a supported active Amiga CPU");
+        cpu.reset_to(
+            self.memory.read_long(0x000000),
+            self.memory.read_long(0x000004),
+        );
+        self.cpu = cpu;
+        self.cpu_clock = match self.region() {
+            AgnusRegion::Pal => CpuClock::from_ratio(40_000_000, PAL_SYSTEM_TICK_HZ),
+            AgnusRegion::Ntsc => CpuClock::from_ratio(40_000_000, NTSC_SYSTEM_TICK_HZ),
+        };
+        self.gvp_a530 = Some(GvpA530::new(config));
+        self.motherboard_bridge = Some(SynchronizedMotherboardBridge::default());
+        self.redrive_accelerator_inputs();
+    }
+
+    fn redrive_accelerator_inputs(&mut self) {
+        let cache_disabled = self
+            .gvp_a530
+            .as_ref()
+            .is_some_and(|board| !board.cache_enabled());
+        if let ActiveCpu::M68EC030(cpu) = &mut self.cpu {
+            cpu.set_cdis_asserted(cache_disabled);
+        }
+    }
+
+    fn log_rtc_access(&mut self, addr24: u32, is_read: bool, is_word: bool, value: u16) {
+        if self.debug_rtc_log.len() >= DEBUG_RTC_LOG_LIMIT {
+            return;
+        }
+        self.debug_rtc_log.push((
+            self.tick_count / TICKS_PER_CCK,
+            self.cpu.regs.pc,
+            addr24,
+            is_read,
+            is_word,
+            value,
+        ));
+    }
+
+    /// Read-only Agnus access.
+    #[must_use]
+    pub fn agnus(&self) -> &Agnus {
+        self.agnus.base()
+    }
+
+    /// Installed Agnus implementation, including mixed 8372A + OCS Denise
+    /// configurations.
+    #[must_use]
+    pub const fn installed_agnus_kind(&self) -> InstalledAgnusKind {
+        self.agnus.kind()
+    }
+
+    /// Read-only ECS extension state when Fat Agnus 8372A is installed.
+    ///
+    /// Early OCS configurations return `None`.
+    #[must_use]
+    pub const fn agnus_ecs(&self) -> Option<&AgnusEcs> {
+        self.agnus.ecs()
+    }
+
+    /// Whether this OCS-shaped machine has Fat Agnus 8372A installed.
+    ///
+    /// This is a board-level silicon choice, independent of the installed
+    /// chip-RAM amount. Denise remains OCS when this returns `true`.
+    #[must_use]
+    pub const fn uses_fat_agnus_8372a(&self) -> bool {
+        matches!(self.installed_agnus_kind(), InstalledAgnusKind::Fat8372A)
+    }
+
+    /// Active video region — PAL or NTSC. Drives runtime frame timing
+    /// and is exposed to the runtime layer so query callers and the
+    /// `AmigaMachine` impl can ask the machine which region it's
+    /// emulating without poking into Agnus directly.
+    #[must_use]
+    pub fn region(&self) -> AgnusRegion {
+        self.agnus.region
+    }
+
+    /// Read-only Copper access.
+    #[must_use]
+    pub fn copper(&self) -> &Copper {
+        &self.copper
+    }
+
+    /// Read-only Denise access.
+    #[must_use]
+    pub fn denise(&self) -> &Denise {
+        &self.denise
+    }
+
+    /// Read-only memory access (for tests inspecting OVL state etc.).
+    #[must_use]
+    pub fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    /// Read-only CIA-A access.
+    #[must_use]
+    pub fn cia_a(&self) -> &Cia {
+        &self.cia_a
+    }
+
+    /// Mutable CIA-A access. Counterpart to `cia_b_mut` — for tests
+    /// driving input-pin-level behaviour (e.g. `receive_serial_byte`
+    /// for the keyboard path). Not used by the runtime tick loop.
+    pub fn cia_a_mut(&mut self) -> &mut Cia {
+        &mut self.cia_a
+    }
+
+    /// Read-only CIA-B access.
+    #[must_use]
+    pub fn cia_b(&self) -> &Cia {
+        &self.cia_b
+    }
+
+    /// Side-effect-free state of the board's battery-backed clock.
+    #[must_use]
+    pub fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        self.rtc.diagnostic_snapshot()
+    }
+
+    /// Mutable CIA-B access. Only for tests/integrations that need to
+    /// drive input pins the machine itself doesn't yet wire — currently
+    /// the floppy index pulse via `flag_falling_edge()`. Runtime code
+    /// must not reach across this boundary.
+    pub fn cia_b_mut(&mut self) -> &mut Cia {
+        &mut self.cia_b
+    }
+
+    /// Convenience: CIA-A PRA byte (the latched data register).
+    #[must_use]
+    pub fn cia_a_pra(&self) -> u8 {
+        self.cia_a.port_a_latch()
+    }
+
+    /// Convenience: CIA-A DDRA byte.
+    #[must_use]
+    pub fn cia_a_ddra(&self) -> u8 {
+        self.cia_a.ddr_a()
+    }
+
+    /// Convenience: current INTENA value (from Paula).
+    #[must_use]
+    pub fn intena(&self) -> u16 {
+        self.paula.intena()
+    }
+
+    /// Convenience: current INTREQ value (from Paula).
+    #[must_use]
+    pub fn intreq(&self) -> u16 {
+        self.paula.intreq()
+    }
+
+    /// Convenience: current DMACON value.
+    #[must_use]
+    pub fn dmacon(&self) -> u16 {
+        self.agnus.dmacon
+    }
+
+    /// Convenience: current ADKCON value (from Paula).
+    #[must_use]
+    pub fn adkcon(&self) -> u16 {
+        self.paula.adkcon()
+    }
+
+    /// Read-only Paula access.
+    #[must_use]
+    pub fn paula(&self) -> &Paula8364 {
+        &self.paula
+    }
+
+    /// Mutable Paula access for tests / integrations that need to
+    /// drive input pins the machine itself doesn't yet wire — currently
+    /// `flag_falling_edge` via CIA-B. Runtime code must not reach
+    /// across this boundary.
+    pub fn paula_mut(&mut self) -> &mut Paula8364 {
+        &mut self.paula
+    }
+
+    /// Current host-side Paula audio controls.
+    #[must_use]
+    pub const fn audio_controls(&self) -> AudioControls {
+        self.paula.audio_controls()
+    }
+
+    /// Replace all host-side Paula audio controls.
+    pub fn set_audio_controls(&mut self, controls: AudioControls) {
+        self.paula.set_audio_controls(controls);
+    }
+
+    /// Enable or disable one Paula channel in the host mixer.
+    pub fn set_audio_channel_enabled(&mut self, channel: PaulaChannel, enabled: bool) {
+        self.paula.set_audio_channel_enabled(channel, enabled);
+    }
+
+    /// Set one Paula channel's host mixer gain.
+    pub fn set_audio_channel_gain(&mut self, channel: PaulaChannel, gain: f32) {
+        self.paula.set_audio_channel_gain(channel, gain);
+    }
+
+    /// Read-only DF0 drive access.
+    #[must_use]
+    pub fn drive(&self) -> &AmigaFloppyDrive {
+        self.drives.df0()
+    }
+
+    /// Read-only access to every drive position, DF0 to DF3.
+    #[must_use]
+    pub fn drives(&self) -> &AmigaFloppyChain {
+        &self.drives
+    }
+
+    /// Fit an empty drive at `unit` (1 to 3). Kickstart counts drives by
+    /// reading their IDs at reset, so a drive fitted after boot is seen
+    /// from the next reset. Returns `false` for a unit beyond DF3.
+    pub fn fit_drive(&mut self, unit: usize) -> bool {
+        let fitted = self.drives.fit(unit);
+        self.refresh_cia_a_external_inputs();
+        fitted
+    }
+
+    /// Canonical DF0 mount. `change_pending = true` leaves `/DSKCHANGE`
+    /// pending (a "newly inserted" disk — the A1000 boot path needs it);
+    /// `false` acknowledges it ("disk ready"). `writable = false` mounts
+    /// read-only — an archive that reports `/DSKPROT` and rejects a SAVE
+    /// (#97). The three `insert_adf*` helpers are thin presets over this.
+    pub fn mount_adf(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf_in(0, adf, change_pending, writable);
+    }
+
+    /// Mount an ADF in the drive at `unit`, fitting that drive if the
+    /// position is empty. Flags as for [`Self::mount_adf`]. Returns
+    /// `false`, mounting nothing, for a unit beyond DF3.
+    pub fn mount_adf_in(
+        &mut self,
+        unit: usize,
+        adf: Adf,
+        change_pending: bool,
+        writable: bool,
+    ) -> bool {
+        if !self.drives.fit(unit) {
+            return false;
+        }
+        let Some(drive) = self.drives.drive_mut(unit) else {
+            return false;
+        };
+        drive.insert_disk_writable(adf, writable);
+        if !change_pending {
+            drive.acknowledge_disk_change();
+        }
+        self.track_cache = None;
+        self.refresh_cia_a_external_inputs();
+        true
+    }
+
+    /// Reconnect snapshot-owned DF0 media without generating a physical
+    /// insertion event or invalidating the restored encoded-track stream.
+    pub fn reattach_adf(&mut self, adf: Adf, writable: bool) {
+        self.reattach_adf_in(0, adf, writable);
+    }
+
+    /// Reconnect snapshot-owned media to the drive at `unit`, as
+    /// [`Self::reattach_adf`] does for DF0. Returns `false` when no drive
+    /// is fitted there.
+    pub fn reattach_adf_in(&mut self, unit: usize, adf: Adf, writable: bool) -> bool {
+        let Some(drive) = self.drives.drive_mut(unit) else {
+            return false;
+        };
+        drive.reattach_disk_writable(adf, writable);
+        true
+    }
+
+    /// Insert an ADF into DF0, writable, acknowledging the change so
+    /// Kickstart sees "disk ready" rather than "newly inserted".
+    pub fn insert_adf(&mut self, adf: Adf) {
+        self.mount_adf(adf, false, true);
+    }
+
+    /// Insert an ADF into DF0 with an explicit writability (archives
+    /// mount read-only), acknowledging the change (#97).
+    pub fn insert_adf_writable(&mut self, adf: Adf, writable: bool) {
+        self.mount_adf(adf, false, writable);
+    }
+
+    /// Insert an ADF into DF0, writable, but leave `/DSKCHANGE` pending
+    /// (a "newly inserted" disk still awaiting acknowledgement).
+    pub fn insert_adf_with_change_pending(&mut self, adf: Adf) {
+        self.mount_adf(adf, true, true);
+    }
+
+    /// Eject the disk from DF0.
+    pub fn eject_disk(&mut self) {
+        self.eject_disk_in(0);
+    }
+
+    /// Eject the disk from the drive at `unit`. The drive stays fitted.
+    pub fn eject_disk_in(&mut self, unit: usize) {
+        if let Some(drive) = self.drives.drive_mut(unit) {
+            drive.eject_disk();
+        }
+        self.track_cache = None;
+        self.refresh_cia_a_external_inputs();
+    }
+
+    /// Move the emulated mouse in controller port 0. JOY0DAT stores
+    /// wrapping 8-bit relative counters; right and down increment.
+    pub fn move_mouse_port0(&mut self, dx: i32, dy: i32) {
+        self.joy0_x = self.joy0_x.wrapping_add(dx.rem_euclid(256) as u8);
+        self.joy0_y = self.joy0_y.wrapping_add(dy.rem_euclid(256) as u8);
+    }
+
+    /// Set one emulated mouse button for controller port 0.
+    pub fn set_mouse_button_port0(&mut self, button: &str, pressed: bool) {
+        match button {
+            "left" => {
+                self.port0_left_button_pressed = pressed;
+                self.refresh_cia_a_external_inputs();
+            }
+            "right" => self
+                .paula
+                .set_pot_pin_level(POTGOR_BTN_PORT0_RIGHT, !pressed),
+            "middle" => self
+                .paula
+                .set_pot_pin_level(POTGOR_BTN_PORT0_MIDDLE, !pressed),
+            _ => {}
+        }
+    }
+
+    /// Set one emulated digital joystick control for controller port 1.
+    ///
+    /// Returns `false` when the port or control name is unknown. Port 0
+    /// remains reserved for the mouse in the current native verifier path.
+    pub fn set_joystick_control(&mut self, port: u8, name: &str, pressed: bool) -> bool {
+        if port != 1 || !self.joystick1.set_control(name, pressed) {
+            return false;
+        }
+        self.port1_left_button_pressed = self.joystick1.fire;
+        self.joy1_x = (self.joy1_x & 0xFC) | self.joystick1.x_bits();
+        self.joy1_y = (self.joy1_y & 0xFC) | self.joystick1.y_bits();
+        // Second / third fire buttons sit on port 1's POTGOR pot lines
+        // (active-low), the same pins the mouse right / middle buttons
+        // use. Per vAmiga Joystick::changePotgo: button2 → the RIGHT
+        // pin, button3 → the MIDDLE pin.
+        self.paula
+            .set_pot_pin_level(POTGOR_BTN_PORT1_RIGHT, !self.joystick1.button2);
+        self.paula
+            .set_pot_pin_level(POTGOR_BTN_PORT1_MIDDLE, !self.joystick1.button3);
+        self.refresh_cia_a_external_inputs();
+        true
+    }
+
+    /// Read-only JOY0DAT (`$DFF00A`, controller port 0 / mouse) — the
+    /// raw 16-bit pot-counter register a program reads to sense the
+    /// mouse or a joystick plugged into port 0.
+    #[must_use]
+    pub fn joy0dat(&self) -> u16 {
+        joydat(self.joy0_x, self.joy0_y)
+    }
+
+    /// Read-only JOY1DAT (`$DFF00C`, controller port 1 / joystick) —
+    /// the raw 16-bit pot-counter register. Digital-joystick direction
+    /// bits are decoded here exactly as the hardware presents them, so
+    /// a headless query sees the same value `Joyx(1)`/`Joyy(1)` would.
+    #[must_use]
+    pub fn joy1dat(&self) -> u16 {
+        joydat(self.joy1_x, self.joy1_y)
+    }
+
+    /// Read-only keyboard controller access — useful for tests
+    /// inspecting the power-up state or queued key count.
+    #[must_use]
+    pub fn keyboard(&self) -> &AmigaKeyboard {
+        &self.keyboard
+    }
+
+    /// Queue a keyboard event for transmission to the host. `pressed`
+    /// = true sets the raw keycode (bit 7 clear); `pressed` = false
+    /// raises bit 7 to signal key-up. Bytes are rotated + inverted
+    /// before they leave via CIA-A SDR.
+    pub fn key_event(&mut self, keycode: u8, pressed: bool) {
+        self.keyboard.key_event(keycode, pressed);
+    }
+
+    /// Read-only Gary access — useful for tests / diagnostics that
+    /// want to inspect the chip-select decode.
+    #[must_use]
+    pub fn gary(&self) -> &Gary {
+        &self.gary
+    }
+
+    /// Read-only access to the Zorro-II fast-RAM autoconfig board, if
+    /// one is present. `None` when the `RamConfig` had `fast_kb == 0`
+    /// or the size wasn't one of the supported autoconfig sizes.
+    #[must_use]
+    pub fn autoconfig(&self) -> Option<&AutoconfigBoard> {
+        self.autoconfig.as_ref()
+    }
+
+    /// Round an arbitrary fast-RAM size in KiB down to the nearest
+    /// Zorro-II board size. `None` for zero or sub-64 KiB requests.
+    /// Zorro-II boards come in {64, 128, 256, 512, 1024, 2048, 4096,
+    /// 8192} KiB; smaller-than-max requests that fall between tiers
+    /// round down (e.g. 1024 + 64 → 1024).
+    fn zorro_size_for_kib(kib: u32) -> Option<u32> {
+        const TIERS: &[u32] = &[8192, 4096, 2048, 1024, 512, 256, 128, 64];
+        TIERS.iter().copied().find(|&t| kib >= t)
+    }
+
+    /// Read a word from the autoconfig board's RAM window, if the
+    /// board is configured and the address lands inside its assigned
+    /// range. Returns `None` otherwise so the caller falls through to
+    /// the next handler.
+    fn autoconfig_fast_ram_read_word(&self, addr24: u32) -> Option<u16> {
+        let board = self.autoconfig.as_ref()?;
+        let hi = board.read_ram_byte(addr24)?;
+        let lo = board.read_ram_byte(addr24.wrapping_add(1)).unwrap_or(0);
+        Some((u16::from(hi) << 8) | u16::from(lo))
+    }
+
+    /// Read a byte from the autoconfig board's RAM window, if the
+    /// board is configured and the address lands inside its assigned
+    /// range. Returns `None` otherwise.
+    fn autoconfig_fast_ram_read_byte(&self, addr24: u32) -> Option<u8> {
+        self.autoconfig.as_ref()?.read_ram_byte(addr24)
+    }
+
+    /// Write a byte to the autoconfig board's RAM window if the
+    /// address lands inside its range. Returns `true` when the write
+    /// was absorbed by the board, `false` to let the caller continue
+    /// with the default handler.
+    fn autoconfig_fast_ram_write_byte(&mut self, addr24: u32, val: u8) -> bool {
+        let Some(board) = self.autoconfig.as_mut() else {
+            return false;
+        };
+        let Some(base) = board.base() else {
+            return false;
+        };
+        let size = board.ram_size();
+        if addr24 < base || addr24 >= base + size {
+            return false;
+        }
+        board.write_ram_byte(addr24, val);
+        true
+    }
+
+    /// Write a word to the autoconfig board's RAM window if the
+    /// address lands inside its range. Returns `true` on absorption.
+    fn autoconfig_fast_ram_write_word(&mut self, addr24: u32, val: u16) -> bool {
+        if !self.autoconfig_fast_ram_write_byte(addr24, (val >> 8) as u8) {
+            return false;
+        }
+        self.autoconfig_fast_ram_write_byte(addr24.wrapping_add(1), val as u8);
+        true
+    }
+
+    fn a530_read_word(&self, address: u32) -> Option<u16> {
+        let board = self.gvp_a530.as_ref()?;
+        let high = board.read_mapped_byte(address)?;
+        let low = board.read_mapped_byte(address.wrapping_add(1))?;
+        Some((u16::from(high) << 8) | u16::from(low))
+    }
+
+    fn a530_write_word(&mut self, address: u32, value: u16) -> bool {
+        let Some(board) = self.gvp_a530.as_mut() else {
+            return false;
+        };
+        if !board.contains_mapped_address(address)
+            || !board.contains_mapped_address(address.wrapping_add(1))
+        {
+            return false;
+        }
+        let high = board.write_mapped_byte(address, (value >> 8) as u8);
+        let low = board.write_mapped_byte(address.wrapping_add(1), value as u8);
+        debug_assert!(high && low, "validated A530 word must remain mapped");
+        true
+    }
+
+    fn a530_autoconfig_visible(&self) -> bool {
+        self.gvp_a530.as_ref().is_some_and(|board| {
+            matches!(
+                board.autoconfig_state(),
+                AutoconfigState::Unconfigured | AutoconfigState::WaitingHighBase { .. }
+            )
+        })
+    }
+
+    fn autoconfig_probe_read_word(&self, offset: u16) -> u16 {
+        if self.a530_autoconfig_visible() {
+            self.gvp_a530
+                .as_ref()
+                .map_or(0xFFFF, |board| board.read_autoconfig_word(offset))
+        } else {
+            self.autoconfig
+                .as_ref()
+                .map_or(0xFFFF, |board| board.read_word(offset))
+        }
+    }
+
+    fn autoconfig_probe_write_word(&mut self, offset: u16, value: u16) {
+        if self.a530_autoconfig_visible() {
+            if let Some(board) = self.gvp_a530.as_mut() {
+                board.write_autoconfig_word(offset, value);
+            }
+        } else if let Some(board) = self.autoconfig.as_mut() {
+            board.write_word(offset, value);
+        }
+    }
+
+    /// Decode a 24-bit CPU address to its chip select. Convenience
+    /// wrapper around `gary.decode(addr)`.
+    #[must_use]
+    pub fn chip_select(&self, addr: u32) -> ChipSelect {
+        self.gary.decode(addr)
+    }
+
+    /// Resolve a CPU-visible custom-register offset for `addr24`.
+    ///
+    /// Besides the normal `$DFFxxx` window, Kickstart 1.x probes
+    /// absent A500/A2000 slow-RAM blocks via addresses like
+    /// `$C0F09A` / `$C0F01C`. On real hardware those unbacked
+    /// addresses alias to the custom-register window; backed slow RAM
+    /// must still win and behave like RAM.
+    fn custom_offset_for_addr(&self, addr24: u32) -> Option<u16> {
+        if (CUSTOM_BASE..CUSTOM_TOP).contains(&addr24) {
+            return Some((addr24 - CUSTOM_BASE) as u16 & 0x1FE);
+        }
+        self.slow_ram_hole_custom_offset(addr24)
+    }
+
+    /// On A500/A2000-style machines, the unbacked portion of the
+    /// slow-RAM aperture exposes the same low-16-bit `x?Fxxx`
+    /// custom-register mirror that KS 1.x uses for its slow-RAM
+    /// probe. Installed slow RAM must mask this completely.
+    fn slow_ram_hole_custom_offset(&self, addr24: u32) -> Option<u16> {
+        if self.gary.decode(addr24) != ChipSelect::SlowRam {
+            return None;
+        }
+        let slow_off = addr24.checked_sub(SLOW_RAM_BASE)? as usize;
+        if slow_off < self.memory.slow_ram_size() {
+            return None;
+        }
+        if (addr24 & 0x0000_F000) != 0x0000_F000 {
+            return None;
+        }
+        Some((addr24 & 0x1FE) as u16)
+    }
+
+    /// Push the next rotational MFM word from the drive's encoded track
+    /// buffer into Paula's disk FIFO. Re-encodes the track when the
+    /// drive head has moved since the last word, or when no cache
+    /// exists yet. Cache replacement preserves the spindle's word phase
+    /// modulo the new track length. Rotates the cursor back to 0 at end of
+    /// track so successive revolutions keep delivering words.
+    ///
+    /// This advances the rotating stream and DSKBYTR/DSKDATR state only.
+    /// Agnus-granted cells independently move queued words to chip RAM.
+    fn feed_next_mfm_word(&mut self) {
+        let unit = self.drives.dma_unit();
+        let drive = self.drives.dma_drive();
+        let cyl = drive.cylinder();
+        let head = drive.head();
+        let need_refresh = match &self.track_cache {
+            Some((u, c, h, _)) => *u != unit || *c != cyl || *h != head,
+            None => true,
+        };
+        if need_refresh {
+            let Some(bytes) = drive.encode_mfm_track() else {
+                self.track_cache = None;
+                return;
+            };
+            let word_count = bytes.len() / 2;
+            self.track_word_cursor = if word_count == 0 {
+                0
+            } else {
+                self.track_word_cursor % word_count
+            };
+            self.track_cache = Some((unit, cyl, head, bytes));
+        }
+        let Some((_, _, _, bytes)) = &self.track_cache else {
+            return;
+        };
+        let word_count = bytes.len() / 2;
+        if word_count == 0 {
+            return;
+        }
+        // Wrap the cursor at end-of-track so a DMA transfer that
+        // exceeds one revolution gets a second copy of the track's
+        // front sectors, just like a real disk rotating continuously.
+        // KS 1.3's trackdisk *relies* on this wrap: when it decodes
+        // sector N>0 it scans forward `(11 - N) * 1088` bytes from
+        // the current sync and expects to find sector 0's sync (the
+        // start of the next revolution). Returning $AAAA filler
+        // past the end of the track would starve that scan and
+        // every sector past sector 0 would decode to garbage, so
+        // wrap deliberately.
+        if self.track_word_cursor >= word_count {
+            self.track_word_cursor = 0;
+        }
+        let i = self.track_word_cursor * 2;
+        let word = (u16::from(bytes[i]) << 8) | u16::from(bytes[i + 1]);
+        self.track_word_cursor += 1;
+
+        self.paula.receive_disk_read_word(word);
+    }
+
+    /// Drain one rotational write-stream word from Paula's FIFO to the drive.
+    ///
+    /// Agnus-granted cells fill the FIFO from chip RAM independently. When
+    /// the completed transfer's final queued word reaches the drive, decode
+    /// the captured MFM track and persist its sectors to the in-memory image.
+    fn feed_next_write_word(&mut self) {
+        if let Some(write_word) = self.paula.take_disk_write_stream_word() {
+            self.drives.dma_drive_mut().note_write_mfm_word(write_word);
+            // Final word transferred — decode the captured MFM and write the
+            // decoded sectors back to the disk image. The head and cylinder
+            // have not changed, but a successful flush makes the cached read
+            // stream stale. Preserve spindle phase and rebuild on next read.
+            if !self.paula.disk_write_stream_active()
+                && self.drives.dma_drive_mut().flush_write_capture() > 0
+            {
+                self.track_cache = None;
+            }
+        }
+    }
+
+    /// Convenience: current BPLCON0 value.
+    #[must_use]
+    pub fn bplcon0(&self) -> u16 {
+        self.agnus.bplcon0
+    }
+
+    /// Convenience: a colour table entry.
+    #[must_use]
+    pub fn color(&self, idx: usize) -> u16 {
+        self.denise.color(idx)
+    }
+
+    /// Backdoor for tests: write a word as if the CPU did it.
+    pub fn poke_word(&mut self, addr: u32, val: u16) {
+        if self.a530_write_word(addr, val) {
+            return;
+        }
+        let Some(addr24) = self.motherboard_address(addr) else {
+            return;
+        };
+        // Zorro-II autoconfig probe window: base-address assignment
+        // and shut-up writes go here. Test harnesses use this path
+        // to walk the `expansion.library` probe scan step by step.
+        if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
+            self.autoconfig_probe_write_word((addr24 - AUTOCONFIG_BASE) as u16, val);
+            return;
+        }
+        // Fast-RAM window for a configured autoconfig board.
+        if self.autoconfig_fast_ram_write_word(addr24, val) {
+            return;
+        }
+        if let Some(offset) = self.custom_offset_for_addr(addr24) {
+            self.dispatch_custom_write(offset, val);
+            return;
+        }
+        match self.gary.decode(addr24) {
+            ChipSelect::Rtc => self.rtc.write_word(addr24, val),
+            _ => self.memory.write_word(addr24, val),
+        }
+    }
+
+    /// Dispatch a Copper MOVE before Denise renders the current output tick.
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word_before_output_tick(offset, val);
+            match offset {
+                0x08E => self.agnus.write_diwstrt(val),
+                0x090 => self.agnus.write_diwstop(val),
+                _ => {
+                    self.agnus.write_timing_register(offset, val);
+                }
+            }
+            return;
+        }
+        if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
+            self.denise.write_word_before_output_tick(offset, val);
+            self.record_palette_write(offset, val);
+        } else {
+            self.dispatch_custom_write(offset, val);
+        }
+    }
+
+    fn record_palette_write(&mut self, offset: u16, val: u16) {
+        // On OCS BPLCON3 is not backed by a chip register. The attempted
+        // write remains inspectable, but there is no live selector value.
+        if (((0x180..=0x1BE).contains(&offset) && offset.is_multiple_of(2))
+            || offset == 0x0106
+            || offset == 0x010C)
+            && self.debug_palette_log.len() < 262144
+        {
+            self.debug_palette_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+                None,
+            ));
+        }
+    }
+
+    /// Dispatch a custom-register word write to the right submodule.
+    /// Shared between `poke_word` and the CPU bus servicer.
+    fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word(offset, val);
+        }
+        if self.agnus.write_timing_register(offset, val) {
+            return;
+        }
+        let intena_before = self.paula.intena();
+        match offset {
+            0x080 => {
+                self.copper.cop1lc = (self.copper.cop1lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                self.debug_cop1lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop1lc,
+                ));
+            }
+            0x082 => {
+                self.copper.cop1lc = (self.copper.cop1lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                self.debug_cop1lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop1lc,
+                ));
+            }
+            0x084 => {
+                self.copper.cop2lc = (self.copper.cop2lc & 0x0000_FFFF) | (u32::from(val) << 16);
+                self.debug_cop2lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop2lc,
+                ));
+            }
+            0x086 => {
+                self.copper.cop2lc = (self.copper.cop2lc & 0xFFFF_0000) | u32::from(val & 0xFFFE);
+                self.debug_cop2lc_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    self.copper.cop2lc,
+                ));
+            }
+            0x088 => self.copper.jump1(),
+            0x08A => self.copper.jump2(),
+            0x02E => self.copper.write_copcon(val),
+            // Paula-owned register space: INTENA / INTREQ / ADKCON.
+            0x096 => {
+                let before = self.agnus.dmacon;
+                self.agnus.write_dmacon(val);
+                let after = self.agnus.dmacon;
+                self.paula.sync_audio_dma_control(after);
+                if before != after {
+                    self.debug_dmacon_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        val,
+                        before,
+                        after,
+                    ));
+                }
+            }
+            0x09A => self.paula.write_intena(val),
+            0x09C => self.paula.write_intreq(val),
+            0x09E => self.paula.write_adkcon(val),
+            // Paula-owned audio channel storage ($0A0..=$0DA).
+            0x0A0..=0x0DA => {
+                if let Some((ch, field)) = paula_decode::audio_register(offset) {
+                    self.paula.write_audio(ch, field, val);
+                }
+            }
+            // Paula-owned disk registers.
+            0x024 => self.paula.write_dsklen(val),
+            0x026 => self.paula.write_dskdat(val),
+            0x07E => self.paula.set_dsksync(val),
+            // Paula-owned serial registers.
+            0x030 => self.paula.write_serdat(val),
+            0x032 => self.paula.write_serper(val),
+            // Paula-owned POTGO (\$034).
+            0x034 => self.paula.write_potgo(val),
+            // Denise JOYTEST ($036): writes the upper six bits of all
+            // four mouse counters; low two bits remain live switch
+            // state on real hardware, so leave them untouched.
+            0x036 => {
+                self.joy0_x = (self.joy0_x & 0x03) | ((val as u8) & 0xFC);
+                self.joy0_y = (self.joy0_y & 0x03) | (((val >> 8) as u8) & 0xFC);
+                self.joy1_x = (self.joy1_x & 0x03) | ((val as u8) & 0xFC);
+                self.joy1_y = (self.joy1_y & 0x03) | (((val >> 8) as u8) & 0xFC);
+            }
+            // Fat Agnus 8372A owns the ECS large-blit extension trio even
+            // when paired with OCS Denise. Early OCS falls through to the
+            // legacy blitter-register range below, where these offsets are
+            // intentionally ignored.
+            0x05A | 0x05C | 0x05E if self.agnus.is_fat_8372a() => {
+                let result = self
+                    .agnus
+                    .write_extended_blitter_register(offset, val)
+                    .expect("Fat Agnus must decode the ECS blitter extension");
+                if result == ExtendedBlitterWrite::Started {
+                    self.debug_blit_starts += 1;
+                    self.debug_blit_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        self.agnus.bltcon0,
+                        self.agnus.bltcon1,
+                        self.agnus.blt_apt,
+                        self.agnus.blt_bpt,
+                        self.agnus.blt_cpt,
+                        self.agnus.blt_dpt,
+                        self.agnus.bltsize,
+                    ));
+                }
+            }
+            // Agnus-owned blitter registers. BLTSIZE ($058) fires
+            // `start_blit` inside `write_blitter_register`, arming the
+            // incremental scheduler; the blit then consumes one startup
+            // outcome or DMA operation per granted CCK in the tick loop
+            // (#31) instead of completing here. DMACONR BBUSY follows the
+            // installed Agnus revision's externally visible timing.
+            //
+            // A write during an active blit lands at its normally arbitrated
+            // CCK. Software must WaitBlit before reprogramming these
+            // registers; a new BLTSIZE may overwrite the in-flight operation.
+            // Every blitter step remains in the machine scheduler.
+            0x040..=0x074 => {
+                if self.agnus.write_blitter_register(offset, val) && offset == 0x058 {
+                    self.debug_blit_starts += 1;
+                    self.debug_blit_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        self.agnus.bltcon0,
+                        self.agnus.bltcon1,
+                        self.agnus.blt_apt,
+                        self.agnus.blt_bpt,
+                        self.agnus.blt_cpt,
+                        self.agnus.blt_dpt,
+                        self.agnus.bltsize,
+                    ));
+                }
+            }
+            // Agnus-owned bitplane + display-window + DSK pointer.
+            0x020 => self.agnus.write_dsk_pointer(true, val),
+            0x022 => self.agnus.write_dsk_pointer(false, val),
+            0x028 => self.agnus.write_refptr(val),
+            0x08E => self.agnus.write_diwstrt(val),
+            0x090 => self.agnus.write_diwstop(val),
+            0x092 => self.agnus.write_ddfstrt(val),
+            0x094 => self.agnus.write_ddfstop(val),
+            0x100 => {
+                self.agnus.write_bplcon0(val);
+                // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
+                // effect at the next pixel, not only next tick.
+                self.denise.ocs.bplcon0 = val;
+                if self.debug_bplcon0_log.len() < 8192 {
+                    self.debug_bplcon0_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        val,
+                    ));
+                }
+            }
+            0x108 => self.agnus.write_bpl1mod(val),
+            0x10A => self.agnus.write_bpl2mod(val),
+            0x0E0..=0x0F6 => {
+                let plane_idx = ((offset - 0x0E0) / 4) as usize;
+                let high = (offset & 2) == 0;
+                self.agnus.write_bpl_pointer(plane_idx, high, val);
+            }
+            // Agnus-owned sprite pointers SPR0PTH..SPR7PTL at $120..=$13E.
+            // Per HRM 4-4, pointer low-word write commits the pair.
+            0x120..=0x13E => {
+                let sprite = ((offset - 0x120) / 4) as usize;
+                let high = (offset & 2) == 0;
+                self.agnus.write_sprite_pointer_reg(sprite, high, val);
+            }
+            // Direct (CPU/copper) writes to SPRxPOS ($140+8n) / SPRxCTL
+            // ($142+8n) must update Agnus's VSTART/VSTOP comparators, not
+            // just Denise — otherwise a DMA sprite positioned by direct
+            // register writes (Blitz `ShowSprite`, whose chip-RAM control
+            // words stay zero) never activates. Mirrors vAmiga, where
+            // every SPRxPOS/CTL write pokes both Agnus and Denise (#455).
+            0x140..=0x17F => {
+                let channel = ((offset - 0x140) / 8) as usize;
+                match offset & 0x7 {
+                    0 => self.agnus.poke_sprite_pos(channel, val),
+                    2 => self.agnus.poke_sprite_ctl(channel, val),
+                    _ => {} // SPRxDATA / SPRxDATB are Denise-only.
+                }
+                self.denise.write_word(offset, val);
+            }
+            _ => self.denise.write_word(offset, val),
+        }
+        if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {
+            self.debug_dsk_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+            ));
+        }
+        self.record_palette_write(offset, val);
+        if offset == 0x09A {
+            self.debug_intena_writes += 1;
+            let intena_after = self.paula.intena();
+            if intena_after > self.debug_peak_intena {
+                self.debug_peak_intena = intena_after;
+            }
+            if intena_after != intena_before {
+                self.debug_intena_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    val,
+                    intena_before,
+                    intena_after,
+                ));
+            }
+        }
+    }
+
+    /// Backdoor for tests: write a byte as if the CPU did it.
+    pub fn poke_byte(&mut self, addr: u32, val: u8) {
+        if self
+            .gvp_a530
+            .as_mut()
+            .is_some_and(|board| board.write_mapped_byte(addr, val))
+        {
+            return;
+        }
+        let Some(addr) = self.motherboard_address(addr) else {
+            return;
+        };
+        if let Some(reg) = cia::decode_cia_a(addr) {
+            self.cia_a.write(reg, val);
+            self.memory.set_overlay(self.cia_a.ovl());
+        } else if let Some(reg) = cia::decode_cia_b(addr) {
+            self.cia_b.write(reg, val);
+            if matches!(reg, 0x01 | 0x03) {
+                self.apply_drive_control_from_cia_b();
+            }
+        } else if let Some(offset) = self.custom_offset_for_addr(addr) {
+            // Custom registers are word-only; byte writes pad with
+            // the same byte in both halves on real hardware. For our
+            // purposes a byte write just writes the byte value.
+            let word = u16::from(val) << 8 | u16::from(val);
+            self.dispatch_custom_write(offset, word);
+        } else if self.gary.decode(addr) == ChipSelect::Rtc {
+            self.rtc.write_byte(addr, val);
+        } else {
+            self.memory.write_byte(addr, val);
+        }
+    }
+
+    /// Shared MC68000-compatible CPU state (read-only — mutating outside the
+    /// tick loop breaks invariants).
+    #[must_use]
+    pub fn cpu(&self) -> &motorola_68000::Cpu68000 {
+        self.cpu.as_base()
+    }
+
+    /// Runtime-selected processor, including its concrete model identity.
+    #[must_use]
+    pub const fn active_cpu(&self) -> &ActiveCpu {
+        &self.cpu
+    }
+
+    /// Active CPU clock-domain conversion, including its exact phase.
+    #[must_use]
+    pub const fn cpu_clock(&self) -> CpuClock {
+        self.cpu_clock
+    }
+
+    /// Whether persisted partial CPU-domain progress is compatible with the
+    /// configured CPU clock.
+    #[must_use]
+    pub fn cpu_domain_phase_is_coherent(&self) -> bool {
+        self.cpu_domain_phase
+            .snapshot_is_coherent(self.cpu_clock, self.tick_count)
+    }
+
+    /// Installed GVP A530 accelerator, if present.
+    #[must_use]
+    pub fn gvp_a530(&self) -> Option<&GvpA530> {
+        self.gvp_a530.as_ref()
+    }
+
+    /// Whether synchronized A530 motherboard-bridge state is installed.
+    ///
+    /// This is exposed for save-state/configuration validation; ordinary
+    /// accesses are timed through [`AmigaDriver`].
+    #[must_use]
+    pub fn has_synchronized_motherboard_bridge(&self) -> bool {
+        self.motherboard_bridge.is_some()
+    }
+
+    /// Current synchronized A530 motherboard-bridge progress, if installed.
+    ///
+    /// Inspecting the snapshot does not poll or otherwise advance the bridge.
+    #[must_use]
+    pub fn motherboard_bridge_diagnostic_snapshot(
+        &self,
+    ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
+        self.motherboard_bridge
+            .map(SynchronizedMotherboardBridge::diagnostic_snapshot)
+    }
+
+    /// Whether any pending synchronized response still belongs to the CPU
+    /// bus cycle that initiated it.
+    #[must_use]
+    pub fn motherboard_bridge_is_coherent(&self) -> bool {
+        let cpu_waiting = match &self.cpu.state {
+            State::BusCycle {
+                addr,
+                fc,
+                is_word,
+                cycle_count,
+                ..
+            } if *cycle_count >= 2 && matches!(self.cpu.bus_status, BusStatus::Wait) => {
+                let local_cycle = if *fc == FunctionCode::InterruptAck {
+                    false
+                } else if self.cpu.active_bus_transfer.is_some() {
+                    self.gvp_a530.as_ref().is_some_and(|board| {
+                        board.contains_sized_access(*addr, self.cpu.bus_transfer_size)
+                    })
+                } else {
+                    self.gvp_a530.as_ref().is_some_and(|board| {
+                        board.contains_mapped_address(*addr)
+                            && (!*is_word || board.contains_mapped_address(addr.wrapping_add(1)))
+                    })
+                };
+                !local_cycle
+            }
+            _ => false,
+        };
+        self.motherboard_bridge
+            .is_none_or(|bridge| bridge.is_coherent_with_waiting_cpu(cpu_waiting))
+    }
+
+    /// Drain instruction boundaries crossed since the previous call.
+    pub fn drain_cpu_boundaries(&mut self) -> std::collections::vec_deque::Drain<'_, CpuBoundary> {
+        self.cpu_boundaries.drain(..)
+    }
+
+    /// Total master/4 system ticks (= lores pixels) elapsed since
+    /// construction. The active processor may consume multiple edges per
+    /// system tick.
+    #[must_use]
+    pub fn tick_count(&self) -> u64 {
+        self.tick_count
+    }
+
+    /// Total Agnus CCKs (colour clocks, master/8) elapsed since
+    /// construction. Derived from `tick_count` — 2 ticks per CCK.
+    /// Useful for comparing timestamps against HRM beam-coordinate
+    /// register values.
+    #[must_use]
+    pub fn cck_count(&self) -> u64 {
+        self.tick_count / TICKS_PER_CCK
+    }
+
+    /// Side-effect-free board scheduler and CPU-domain state.
+    #[must_use]
+    pub fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        AmigaSchedulerDiagnosticSnapshot {
+            tick_count: self.tick_count,
+            cck_count: self.cck_count(),
+            cck_phase: self.cck_phase,
+            e_clock_phase: self.e_clock_phase,
+            prev_vertb_level: self.prev_vertb_level,
+            prev_cia_a_irq: self.prev_cia_a_irq,
+            prev_cia_b_irq: self.prev_cia_b_irq,
+            prev_cia_a_spmode: self.prev_cia_a_spmode,
+            cpu_clock_numerator: self.cpu_clock.numerator(),
+            cpu_clock_denominator: self.cpu_clock.denominator(),
+            cpu_clock_phase: self.cpu_clock.phase(),
+            cpu_clock_maximum_edges_per_tick: self.cpu_clock.maximum_edges_per_tick(),
+            cpu_domain_idle: self.cpu_domain_phase.is_idle(),
+            cpu_domain_edges_remaining: self.cpu_domain_phase.edges_remaining(),
+            cpu_domain_motherboard_slot_pending: self.cpu_domain_phase.motherboard_slot_pending(),
+            cpu_domain_coherent: self.cpu_domain_phase_is_coherent(),
+            pending_cpu_boundaries: self.cpu_boundaries.iter().copied().collect(),
+            pending_cpu_boundary_capacity: AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY,
+        }
+    }
+
+    /// Side-effect-free encoded-track cache and delivery-pacer state.
+    #[must_use]
+    pub fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        let (cache_cylinder, cache_head, cache_bytes) = self
+            .track_cache
+            .as_ref()
+            .map_or((None, None, 0), |(_, cylinder, head, bytes)| {
+                (Some(*cylinder), Some(*head), bytes.len())
+            });
+        AmigaTrackStreamDiagnosticSnapshot {
+            cache_present: self.track_cache.is_some(),
+            cache_cylinder,
+            cache_head,
+            cache_bytes,
+            word_count: cache_bytes / 2,
+            word_cursor: self.track_word_cursor,
+            pacer_ccks: self.track_pacer,
+            word_interval_ccks: self.disk_word_cck_interval(),
+        }
+    }
+
+    /// Side-effect-free controller-port counters and host input latches.
+    #[must_use]
+    pub fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
+        AmigaInputDiagnosticSnapshot {
+            joy0_x: self.joy0_x,
+            joy0_y: self.joy0_y,
+            joy0dat: joydat(self.joy0_x, self.joy0_y),
+            joy1_x: self.joy1_x,
+            joy1_y: self.joy1_y,
+            joy1dat: joydat(self.joy1_x, self.joy1_y),
+            port0_primary_button_pressed: self.port0_left_button_pressed,
+            port1_primary_button_pressed: self.port1_left_button_pressed,
+            joystick1_up: self.joystick1.up,
+            joystick1_down: self.joystick1.down,
+            joystick1_left: self.joystick1.left,
+            joystick1_right: self.joystick1.right,
+            joystick1_fire: self.joystick1.fire,
+            joystick1_button2: self.joystick1.button2,
+            joystick1_button3: self.joystick1.button3,
+        }
+    }
+
+    /// Read a word at the given 24-bit address — peeks state without
+    /// side effects (does NOT clear ICR etc). For inspecting state
+    /// during tests; not equivalent to a CPU bus cycle.
+    #[must_use]
+    pub fn read_word(&self, addr: u32) -> u16 {
+        self.peek_bus_word(addr)
+    }
+
+    /// Read a word as if the CPU did the bus cycle. Side-effecting:
+    /// CIA-A ICR reads clear ICR; future read-side-effect registers
+    /// behave like the CPU sees them.
+    pub fn cpu_read_word(&mut self, addr: u32) -> u16 {
+        if let Some(value) = self.a530_read_word(addr) {
+            return value;
+        }
+        let Some(addr24) = self.motherboard_address(addr) else {
+            return 0xFFFF;
+        };
+        if let Some(reg) = cia::decode_cia_a(addr24) {
+            return u16::from(self.cia_a.read(reg));
+        }
+        if let Some(reg) = cia::decode_cia_b(addr24) {
+            return u16::from(self.cia_b.read(reg));
+        }
+        self.bus_read_word(addr24)
+    }
+
+    /// Read a longword (big-endian) at the given 24-bit address.
+    #[must_use]
+    pub fn read_long(&self, addr: u32) -> u32 {
+        let hi = self.peek_bus_word(addr);
+        let lo = self.peek_bus_word(addr.wrapping_add(2));
+        (u32::from(hi) << 16) | u32::from(lo)
+    }
+
+    fn bus_read_word(&self, address: u32) -> u16 {
+        self.inspect_bus_word(address, true)
+    }
+
+    fn peek_bus_word(&self, address: u32) -> u16 {
+        self.inspect_bus_word(address, false)
+    }
+
+    fn inspect_bus_word(&self, address: u32, drive_memory_bus: bool) -> u16 {
+        if let Some(value) = self.a530_read_word(address) {
+            return value;
+        }
+        let addr24 = if self.gvp_a530.is_some() {
+            if address > 0x00FF_FFFF {
+                return 0xFFFF;
+            }
+            address
+        } else {
+            address & 0x00FF_FFFF
+        };
+        if let Some(reg) = cia::decode_cia_a(addr24) {
+            return u16::from(self.cia_a.peek(reg));
+        }
+        if let Some(reg) = cia::decode_cia_b(addr24) {
+            return u16::from(self.cia_b.peek(reg));
+        }
+        // Zorro-II autoconfig probe window.
+        if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
+            return self.autoconfig_probe_read_word((addr24 - AUTOCONFIG_BASE) as u16);
+        }
+        // Fast-RAM window served by a configured autoconfig board.
+        if let Some(val) = self.autoconfig_fast_ram_read_word(addr24) {
+            return val;
+        }
+        if self.gary.decode(addr24) == ChipSelect::Rtc {
+            return self.rtc.read_word(addr24);
+        }
+        if let Some(offset) = self.custom_offset_for_addr(addr24) {
+            return match offset {
+                0x002 => self.agnus.dmaconr(),
+                0x004 => self.agnus.vposr(),
+                0x006 => self.agnus.vhposr(),
+                0x00A => joydat(self.joy0_x, self.joy0_y),
+                0x00C => joydat(self.joy1_x, self.joy1_y),
+                // CLXDAT — debug peek, non-clearing (the real CPU read
+                // clears on read via `dispatch_custom_register`).
+                0x00E => self.denise.peek_clxdat(),
+                // Paula-owned read-side registers.
+                0x01C => self.paula.intena(),
+                0x01E => self.paula.intreq(),
+                0x010 => self.paula.adkcon(),
+                0x01A => self.paula.peek_dskbytr(self.agnus.dmacon),
+                0x018 => self.paula.peek_serdatr(),
+                // Paula POT read registers (read-only).
+                0x012 => self.paula.pot0dat(),
+                0x014 => self.paula.pot1dat(),
+                0x016 => self.paula.peek_potgor(),
+                0x0A0..=0x0DA => paula_decode::audio_register(offset)
+                    .map(|(ch, f)| self.paula.read_audio(ch, f))
+                    .unwrap_or(0xFFFF),
+                _ => 0xFFFF,
+            };
+        }
+        if drive_memory_bus {
+            self.memory.read_word(addr24)
+        } else {
+            self.memory.peek_word(addr24)
+        }
+    }
+
+    /// Read a chip-RAM byte directly, ignoring the OVL overlay.
+    #[must_use]
+    pub fn read_chip_ram_byte(&self, addr: u32) -> u8 {
+        self.memory.read_chip_ram_byte(addr)
+    }
+
+    /// Tick one Amiga system period — master/4, the lores pixel rate
+    /// (7.09 MHz PAL). The chipset and CIA schedules derive from this
+    /// domain; the selected processor consumes the exact number of edges
+    /// emitted by its own clock conversion.
+    ///
+    /// Two ticks make one Agnus CCK, so chip-side events that the HRM
+    /// describes at CCK granularity (beam advance, copper fetch slot,
+    /// bitplane fetch, shift-register reload) fire on alternate ticks
+    /// (`cck_phase == 0`). Per-tick events (CPU clock, lores pixel
+    /// output, CIA E-clock divisor, CPU bus service) fire every tick.
+    /// One machine tick. The per-CCK body is the shared
+    /// [`AmigaDriver::tick`]; this inherent method delegates so the many
+    /// existing `OcsCore::<C>::tick` callers (tests, the `AmigaMachine` impl,
+    /// MCP) keep working unchanged.
+    pub fn tick(&mut self) {
+        <Self as AmigaDriver>::tick(self);
+    }
+
+    /// Advance either to the next active-CPU instruction boundary or through
+    /// one complete Amiga system tick when no boundary is crossed.
+    #[must_use]
+    pub fn advance_to_cpu_boundary(&mut self) -> bool {
+        <Self as AmigaDriver>::advance_to_cpu_boundary(self)
+    }
+
+    /// The CIAs (Amiga Hardware Reference Manual, appendix F). CIA-A drives
+    /// data bits 7-0 and CIA-B bits 15-8, so a byte read takes the CIA on
+    /// its lane and a word read both halves. A lane no selected CIA drives
+    /// floats; on the 68000 WinUAE gives it the prefetch word, as here. The
+    /// 68000 puts a written byte on both lanes, so each selected CIA takes
+    /// it; a word write gives CIA-B the high byte and CIA-A the low.
+    fn dispatch_cias(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let select = cia::decode_cia_select(tx.addr, self.cia_decoder())?;
+        let reg = select.reg;
+        if tx.is_read {
+            let floating = self.cpu_base().irc;
+            let high = |amiga: &mut Self| {
+                if select.b {
+                    amiga.cia_b.read(reg)
+                } else {
+                    (floating >> 8) as u8
+                }
+            };
+            let low = |amiga: &mut Self| {
+                if select.a {
+                    amiga.cia_a.read(reg)
+                } else {
+                    floating as u8
+                }
+            };
+            return Some(if tx.is_word {
+                let hi = high(self);
+                let lo = low(self);
+                BusResponse::Word((u16::from(hi) << 8) | u16::from(lo))
+            } else if tx.addr & 1 == 1 {
+                BusResponse::Byte(low(self))
+            } else {
+                BusResponse::Byte(high(self))
+            });
+        }
+        let (high_byte, low_byte) = if tx.is_word {
+            ((tx.data >> 8) as u8, tx.data as u8)
+        } else {
+            (tx.data as u8, tx.data as u8)
+        };
+        if select.b {
+            self.debug_cia_b_cr_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                reg,
+                high_byte,
+            ));
+            self.cia_b.write(reg, high_byte);
+            if matches!(reg, 0x01 | 0x03) {
+                self.apply_drive_control_from_cia_b();
+            }
+        }
+        if select.a {
+            self.debug_cia_a_cr_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                reg,
+                low_byte,
+            ));
+            self.cia_a.write(reg, low_byte);
+            self.memory.set_overlay(self.cia_a.ovl());
+        }
+        Some(BusResponse::WriteAck)
+    }
+
+    /// Old-address battery-backed RTC at `$DC0000-$DC003F`. Word
+    /// accesses route through `read_word` / `write_word`; byte
+    /// accesses through `read_byte` / `write_byte`. Either path logs
+    /// the access for the `amiga.debug.rtc` query surface.
+    fn dispatch_rtc(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if self.gary.decode(tx.addr) != ChipSelect::Rtc {
+            return None;
+        }
+        Some(if tx.is_read {
+            let val = if tx.is_word {
+                self.rtc.read_word(tx.addr)
+            } else {
+                u16::from(self.rtc.read_byte(tx.addr))
+            };
+            self.log_rtc_access(tx.addr, true, tx.is_word, val);
+            if tx.is_word {
+                BusResponse::Word(val)
+            } else {
+                BusResponse::Byte(val as u8)
+            }
+        } else {
+            self.log_rtc_access(tx.addr, false, tx.is_word, tx.data);
+            if tx.is_word {
+                self.rtc.write_word(tx.addr, tx.data);
+            } else {
+                self.rtc.write_byte(tx.addr, tx.data as u8);
+            }
+            BusResponse::WriteAck
+        })
+    }
+
+    /// Zorro-II autoconfig probe window `$E80000-$E8007F`. The board
+    /// drives every nibble on D15-D12, so byte writes at even
+    /// addresses deliver their data via the high byte — mirror it
+    /// into the high half before handing the word to the board.
+    fn dispatch_autoconfig(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if !(AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&tx.addr) {
+            return None;
+        }
+        let offset = (tx.addr - AUTOCONFIG_BASE) as u16;
+        Some(if tx.is_read {
+            BusResponse::Word(self.autoconfig_probe_read_word(offset))
+        } else {
+            let written = if tx.is_word {
+                tx.data
+            } else if tx.addr & 1 == 0 {
+                (tx.data & 0xFF) << 8
+            } else {
+                tx.data & 0xFF
+            };
+            self.autoconfig_probe_write_word(offset, written);
+            BusResponse::WriteAck
+        })
+    }
+
+    /// Fast-RAM window served by the configured autoconfig board.
+    /// Checked before custom-register / memory dispatch so writes
+    /// land in the board's backing store.
+    fn dispatch_fast_ram(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if tx.is_read {
+            let word = self.autoconfig_fast_ram_read_word(tx.addr)?;
+            if tx.is_word {
+                Some(BusResponse::Word(word))
+            } else {
+                let byte = self.autoconfig_fast_ram_read_byte(tx.addr).unwrap_or(0);
+                Some(BusResponse::Byte(byte))
+            }
+        } else {
+            let absorbed = if tx.is_word {
+                self.autoconfig_fast_ram_write_word(tx.addr, tx.data)
+            } else {
+                self.autoconfig_fast_ram_write_byte(tx.addr, tx.data as u8)
+            };
+            absorbed.then_some(BusResponse::WriteAck)
+        }
+    }
+
+    /// Custom-register space (`$DFF000-$DFFFFE`) dispatches to the
+    /// chipset module. DSKBYTR has a read side-effect; everything
+    /// else is pure-read or routed via `dispatch_custom_write`.
+    fn dispatch_custom_register(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let offset = self.custom_offset_for_addr(tx.addr)?;
+        Some(if tx.is_read {
+            *self.debug_reg_read_counts.entry(offset).or_insert(0) += 1;
+            let val = match offset {
+                0x004 => self.agnus.vposr(),
+                0x006 => self.agnus.vhposr(),
+                0x00A => joydat(self.joy0_x, self.joy0_y),
+                0x00C => joydat(self.joy1_x, self.joy1_y),
+                // CLXDAT — latched sprite/playfield collisions, cleared on read.
+                0x00E => self.denise.read_clxdat(),
+                0x01C => self.paula.intena(),
+                0x01E => self.paula.intreq(),
+                0x010 => self.paula.adkcon(),
+                0x01A => self.paula.read_dskbytr(self.agnus.dmacon),
+                0x018 => self.paula.read_serdatr(),
+                0x012 => self.paula.pot0dat(),
+                0x014 => self.paula.pot1dat(),
+                0x016 => self.paula.peek_potgor(),
+                0x002 => self.agnus.dmaconr(),
+                // DENISEID at $07C. OCS Denise 8362 has no version
+                // register — `denise.deniseid()` returns `$FFFF` (open
+                // bus). Wired explicitly so the intent is visible at
+                // the dispatch table; KS 2.x / 3.x compares this value
+                // against ECS ($FFFC) and AGA ($FFF8) markers.
+                0x07C => self.denise.deniseid(),
+                0x0A0..=0x0DA => paula_decode::audio_register(offset)
+                    .map(|(ch, f)| self.paula.read_audio(ch, f))
+                    .unwrap_or(0xFFFF),
+                _ => 0xFFFF,
+            };
+            if self.debug_reg_read_log.len() < 262144 {
+                self.debug_reg_read_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    offset,
+                    val,
+                ));
+            }
+            BusResponse::Word(val)
+        } else {
+            if self.debug_custom_write_log.len() < 1_048_576 {
+                self.debug_custom_write_log.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    tx.addr,
+                    offset,
+                    tx.data,
+                    tx.is_word,
+                ));
+            }
+            self.dispatch_custom_write(offset, tx.data);
+            BusResponse::WriteAck
+        })
+    }
+
+    /// Memory fallback: chip RAM (with OVL gating reads to ROM), slow
+    /// RAM, ROM, and unmapped reads (floating bus) all live here.
+    /// Writes go through the watch-range diagnostic before landing.
+    fn dispatch_memory(&mut self, tx: &BusTransaction) -> BusResponse {
+        if tx.is_read {
+            if tx.is_word {
+                BusResponse::Word(self.memory.read_word(tx.addr))
+            } else {
+                BusResponse::Byte(self.memory.read_byte(tx.addr))
+            }
+        } else {
+            self.record_debug_watch_write(tx.addr, tx.data, tx.is_word);
+            if tx.is_word {
+                self.memory.write_word(tx.addr, tx.data);
+            } else {
+                self.memory.write_byte(tx.addr, tx.data as u8);
+            }
+            BusResponse::WriteAck
+        }
+    }
+
+    fn record_debug_watch_write(&mut self, addr: u32, data: u16, is_word: bool) {
+        self.record_memory_watch_write(AmigaMemoryWriteSource::Cpu, addr, data, is_word);
+    }
+
+    fn record_memory_watch_write(
+        &mut self,
+        source: AmigaMemoryWriteSource,
+        addr: u32,
+        data: u16,
+        is_word: bool,
+    ) {
+        if let Some((lo, len)) = self.debug_watch_addr {
+            let hi = lo.wrapping_add(len);
+            let access_len = if is_word { 2u32 } else { 1 };
+            let access_hi = addr.wrapping_add(access_len);
+            if addr < hi && access_hi > lo {
+                let record = AmigaMemoryWriteRecord {
+                    cck: self.tick_count / TICKS_PER_CCK,
+                    pc: self.cpu.regs.pc,
+                    addr,
+                    value: data,
+                    is_word,
+                    source,
+                };
+                self.debug_memory_watch_writes.push(record);
+                if source == AmigaMemoryWriteSource::Cpu {
+                    self.debug_watch_writes
+                        .push((record.cck, record.pc, addr, data, is_word));
+                }
+            }
+        }
+    }
+
+    /// Normalize one MC68020/MC68030 dynamic-sized local-RAM phase into
+    /// ordered byte observations. The shared watch schema represents byte
+    /// and word writes only, while a 32-bit local port can accept one to four
+    /// bytes in a physical phase.
+    fn record_debug_watch_sized_write(&mut self, addr: u32, remaining: TransferSize, data: u32) {
+        let transferred = dynamic_transfer_bytes(remaining, addr, gvp_a530::LOCAL_RAM_PORT);
+        let value = extract_dynamic_bus_data(data, transferred, addr, gvp_a530::LOCAL_RAM_PORT);
+        for offset in 0..transferred {
+            let shift = u32::from(transferred - offset - 1) * 8;
+            let byte = ((value >> shift) & 0xFF) as u16;
+            self.record_debug_watch_write(addr.wrapping_add(u32::from(offset)), byte, false);
+        }
+    }
+
+    /// Build a persistable snapshot of the live machine state.
+    ///
+    /// Diagnostic logs (`debug_*` fields) are intentionally excluded —
+    /// they are observability, not state. The inserted disk is also
+    /// excluded; the runtime envelope is responsible for re-inserting
+    /// disk media on restore.
+    #[must_use]
+    pub fn snapshot_state(&self) -> OcsSnapshot<C> {
+        OcsSnapshot {
+            _configuration: PhantomData,
+            cpu: self.cpu.clone(),
+            cpu_clock: self.cpu_clock,
+            cpu_domain_phase: self.cpu_domain_phase,
+            gvp_a530: self.gvp_a530.clone(),
+            motherboard_bridge: self.motherboard_bridge,
+            memory: self.memory.clone(),
+            drives: self.drives.clone(),
+            track_cache: self.track_cache.clone(),
+            track_word_cursor: self.track_word_cursor,
+            track_pacer: self.track_pacer,
+            keyboard: self.keyboard.clone(),
+            prev_cia_a_spmode: self.prev_cia_a_spmode,
+            gary: self.gary.clone(),
+            rtc: self.rtc.snapshot_state(),
+            autoconfig: self.autoconfig.clone(),
+            cia_a: self.cia_a.clone(),
+            cia_b: self.cia_b.clone(),
+            paula: self.paula.clone(),
+            joy0_x: self.joy0_x,
+            joy0_y: self.joy0_y,
+            joy1_x: self.joy1_x,
+            joy1_y: self.joy1_y,
+            port0_left_button_pressed: self.port0_left_button_pressed,
+            port1_left_button_pressed: self.port1_left_button_pressed,
+            joystick1: self.joystick1,
+            agnus: self.agnus.clone(),
+            copper: self.copper.clone(),
+            denise: self.denise.clone(),
+            tick_count: self.tick_count,
+            cck_phase: self.cck_phase,
+            prev_vertb_level: self.prev_vertb_level,
+            prev_cia_a_irq: self.prev_cia_a_irq,
+            prev_cia_b_irq: self.prev_cia_b_irq,
+            e_clock_phase: self.e_clock_phase,
+        }
+    }
+
+    /// Restore machine state from a snapshot. Diagnostic logs are
+    /// cleared (snapshots do not preserve observability state). Disk
+    /// media is not restored here — re-mount via `insert_disk` after
+    /// restore.
+    pub fn restore_snapshot_state(&mut self, snap: OcsSnapshot<C>) -> Result<(), String> {
+        if snap.agnus.region != C::REGION {
+            return Err("snapshot does not match fixed OCS-shaped region".into());
+        }
+        let expected_agnus = if C::BOARD.uses_fat_agnus() {
+            InstalledAgnusKind::Fat8372A
+        } else {
+            InstalledAgnusKind::EarlyOcs
+        };
+        if snap.agnus.kind() != expected_agnus {
+            return Err("installed OCS-shaped Agnus revision does not match configuration".into());
+        }
+        let original_revision = if C::BOARD.has_bootstrap() {
+            OriginalAgnusRevision::A1000
+        } else {
+            OriginalAgnusRevision::Later
+        };
+        if snap.agnus.original_revision() != original_revision
+            || snap.memory.diagnostic_snapshot().rom.a1000.is_some() != C::BOARD.has_bootstrap()
+        {
+            return Err("snapshot does not match fixed bootstrap/original-Agnus fitting".into());
+        }
+        if C::BOARD.has_onboard_rtc() && !snap.rtc_present() {
+            return Err("A2000 onboard RTC must be present".into());
+        }
+
+        self.cpu = snap.cpu;
+        self.cpu_clock = snap.cpu_clock;
+        self.cpu_domain_phase = snap.cpu_domain_phase;
+        self.gvp_a530 = snap.gvp_a530;
+        self.motherboard_bridge = snap.motherboard_bridge;
+        self.memory = snap.memory;
+        self.drives = snap.drives;
+        self.track_cache = snap.track_cache;
+        self.track_word_cursor = snap.track_word_cursor;
+        self.track_pacer = snap.track_pacer;
+        self.keyboard = snap.keyboard;
+        self.prev_cia_a_spmode = snap.prev_cia_a_spmode;
+        self.gary = snap.gary;
+        self.rtc = snap.rtc;
+        self.autoconfig = snap.autoconfig;
+        self.cia_a = snap.cia_a;
+        self.cia_b = snap.cia_b;
+        self.paula = snap.paula;
+        self.joy0_x = snap.joy0_x;
+        self.joy0_y = snap.joy0_y;
+        self.joy1_x = snap.joy1_x;
+        self.joy1_y = snap.joy1_y;
+        self.port0_left_button_pressed = snap.port0_left_button_pressed;
+        self.port1_left_button_pressed = snap.port1_left_button_pressed;
+        self.joystick1 = snap.joystick1;
+        self.agnus = snap.agnus;
+        self.copper = snap.copper;
+        self.denise = snap.denise;
+        self.tick_count = snap.tick_count;
+        self.cck_phase = snap.cck_phase;
+        self.prev_vertb_level = snap.prev_vertb_level;
+        self.prev_cia_a_irq = snap.prev_cia_a_irq;
+        self.prev_cia_b_irq = snap.prev_cia_b_irq;
+        self.e_clock_phase = snap.e_clock_phase;
+        self.cpu_boundaries.clear();
+        self.redrive_accelerator_inputs();
+
+        self.debug_reg_read_counts.clear();
+        self.debug_peak_intena = 0;
+        self.debug_intena_writes = 0;
+        self.debug_intena_log.clear();
+        self.debug_cop1lc_log.clear();
+        self.debug_cop2lc_log.clear();
+        self.debug_dsk_log.clear();
+        self.debug_dmacon_log.clear();
+        self.debug_blit_starts = 0;
+        self.debug_blit_log.clear();
+        self.debug_cia_a_cr_log.clear();
+        self.debug_cia_b_cr_log.clear();
+        self.debug_copper_move_log.clear();
+        self.debug_custom_write_log.clear();
+        self.debug_watch_addr = None;
+        self.debug_memory_watch_writes.clear();
+        self.debug_watch_writes.clear();
+        self.debug_rtc_log.clear();
+        self.debug_bplcon0_log.clear();
+        self.debug_palette_log.clear();
+        self.debug_reg_read_log.clear();
+        Ok(())
+    }
+}
+
+// The shared per-CCK driver (#34). The `tick`, bus-service, and response
+// bodies live as provided defaults on `AmigaDriver` in
+// `common-commodore-amiga`; this impl supplies the OCS accessors, targeted
+// multi-borrow operations, scalar bookkeeping, and variant-specific helpers
+// (no Gayle arm; optional A530 local bus and synchronized bridge).
+impl<C: Configuration> AmigaDriver for OcsCore<C> {
+    fn agnus(&self) -> &Agnus {
+        self.agnus.base()
+    }
+    fn agnus_mut(&mut self) -> &mut Agnus {
+        self.agnus.base_mut()
+    }
+    fn copper(&self) -> &Copper {
+        &self.copper
+    }
+    fn copper_mut(&mut self) -> &mut Copper {
+        &mut self.copper
+    }
+    fn paula(&self) -> &Paula8364 {
+        &self.paula
+    }
+    fn paula_mut(&mut self) -> &mut Paula8364 {
+        &mut self.paula
+    }
+    fn cia_decoder(&self) -> cia::CiaDecoder {
+        cia::CiaDecoder::Gary
+    }
+
+    fn cia_a(&self) -> &Cia {
+        &self.cia_a
+    }
+    fn cia_a_mut(&mut self) -> &mut Cia {
+        &mut self.cia_a
+    }
+    fn cia_b(&self) -> &Cia {
+        &self.cia_b
+    }
+    fn cia_b_mut(&mut self) -> &mut Cia {
+        &mut self.cia_b
+    }
+    fn drives(&self) -> &AmigaFloppyChain {
+        &self.drives
+    }
+    fn drives_mut(&mut self) -> &mut AmigaFloppyChain {
+        &mut self.drives
+    }
+    fn keyboard_mut(&mut self) -> &mut AmigaKeyboard {
+        &mut self.keyboard
+    }
+    fn memory(&self) -> &Memory {
+        &self.memory
+    }
+    fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.memory
+    }
+    fn rtc_mut(&mut self) -> &mut Msm6242Rtc {
+        &mut self.rtc
+    }
+    fn cpu_base(&self) -> &motorola_68000::Cpu68000 {
+        &self.cpu
+    }
+    fn cpu_base_mut(&mut self) -> &mut motorola_68000::Cpu68000 {
+        &mut self.cpu
+    }
+    fn cpu_clock_mut(&mut self) -> &mut CpuClock {
+        &mut self.cpu_clock
+    }
+    fn cpu_domain_phase(&self) -> &CpuDomainPhase {
+        &self.cpu_domain_phase
+    }
+    fn cpu_domain_phase_mut(&mut self) -> &mut CpuDomainPhase {
+        &mut self.cpu_domain_phase
+    }
+
+    fn copper_tick_cck(
+        &mut self,
+        vpos: u16,
+        hpos: u16,
+        copper_slot_granted: bool,
+        blitter_busy: bool,
+    ) -> Option<(u16, u16)> {
+        debug_assert_eq!(hpos, self.agnus.hpos);
+        let comparator_hp = self.agnus.copper_comparator_hpos();
+        self.copper.tick_cck(
+            &self.memory,
+            vpos,
+            comparator_hp,
+            copper_slot_granted,
+            blitter_busy,
+        )
+    }
+
+    fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome {
+        let mut bus = WatchingChipRamBus::new(&mut self.memory);
+        let outcome = self.agnus.tick_blitter_cck(progress_granted, &mut bus);
+        let write = bus.take_write();
+        if let Some((addr, value)) = write {
+            self.record_memory_watch_write(AmigaMemoryWriteSource::Blitter, addr, value, true);
+        }
+        outcome
+    }
+
+    fn service_blitter_dma(
+        &mut self,
+        transfer: emu198x_commodore_agnus_ocs::DmaTransfer,
+    ) -> BlitterCckOutcome {
+        let mut bus = WatchingChipRamBus::new(&mut self.memory);
+        let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
+        let write = bus.take_write();
+        if let Some((addr, value)) = write {
+            self.record_memory_watch_write(AmigaMemoryWriteSource::Blitter, addr, value, true);
+        }
+        outcome
+    }
+
+    fn generate_display_dma(&mut self) {
+        self.agnus.generate_display_dma();
+    }
+
+    fn service_addressed_sprite_dma(&mut self, transfer: emu198x_commodore_agnus_ocs::DmaTransfer) {
+        let (emu198x_commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | emu198x_commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
+            reservation, ..
+        }) = transfer.target
+        else {
+            panic!("non-display descriptor reached sprite adapter");
+        };
+        let emu198x_commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+            channel,
+            second_word,
+            control: _,
+        } = reservation.channel
+        else {
+            panic!("non-sprite display descriptor reached sprite adapter");
+        };
+        let width = self.agnus.spr_fetch_width();
+        let memory = &self.memory;
+        let (is_control, value) = self
+            .agnus
+            .service_retained_sprite_dma(transfer, width, |addr| memory.read_chip_ram_word(addr));
+        let channel = usize::from(channel);
+        if is_control {
+            let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+            self.denise.write_word(reg, value as u16);
+        } else if second_word {
+            self.denise.ocs.write_sprite_datb_wide(channel, value);
+        } else {
+            self.denise.ocs.write_sprite_data_wide(channel, value);
+        }
+    }
+
+    fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16) {
+        self.record_memory_watch_write(AmigaMemoryWriteSource::DiskDma, addr, value, true);
+    }
+
+    fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>) {
+        // Memory borrow lives outside the closure so the closure borrows
+        // only Memory, not all of Self.
+        let memory = &self.memory;
+        self.paula
+            .finish_audio_cck(dmacon, slot, |addr| memory.read_chip_ram_byte(addr));
+    }
+
+    fn service_sprite_dma(&mut self, channel: u8, second_word: bool) {
+        let width = self.agnus.spr_fetch_width();
+        let memory = &self.memory;
+        let fetched =
+            self.agnus
+                .service_sprite_dma_cyc(channel as usize, second_word, width, |addr| {
+                    memory.read_chip_ram_word(addr)
+                });
+        if let Some((is_control, value)) = fetched {
+            let channel = channel as usize;
+            if is_control {
+                // SPRxPOS / SPRxCTL — 16-bit, via the unified dispatch.
+                let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+                self.denise.write_word(reg, value as u16);
+            } else if second_word {
+                // SPRxDATB — full FMODE width into the serial shifter.
+                self.denise.ocs.write_sprite_datb_wide(channel, value);
+            } else {
+                // SPRxDATA — full FMODE width into the serial shifter.
+                self.denise.ocs.write_sprite_data_wide(channel, value);
+            }
+        }
+    }
+
+    fn service_denise_timing_strobe(&mut self, strobe: emu198x_commodore_agnus_ocs::DmaStrobe) {
+        self.denise.service_timing_strobe(strobe);
+    }
+
+    fn denise_tick_with_dma(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch_plane: Option<u8>,
+        serviced_bitplane: Option<emu198x_commodore_agnus_ocs::DmaTransfer>,
+    ) {
+        let width_words = self.agnus.bpl_fetch_width();
+        let vertical_diw_active = self.agnus.vertical_diw_active();
+        let line_ccks = self.agnus.current_line_ccks();
+        let counter = self
+            .denise
+            .output_comparator_position_for(&self.agnus, phase);
+        self.denise.ocs.advance_fixed_hblank(counter);
+        let blanking = common_commodore_amiga::denise::HorizontalBlanking::from_level(
+            self.denise.ocs.fixed_hblank_active(),
+        );
+        let bitplane_dma_fetch = serviced_bitplane
+            .map(denise::BitplaneDmaInput::Serviced)
+            .or_else(|| {
+                bitplane_dma_fetch_plane.map(|plane| {
+                    denise::BitplaneDmaInput::Granted(denise::BitplaneDmaFetch {
+                        plane,
+                        width_words,
+                    })
+                })
+            });
+        assert!(
+            serviced_bitplane.is_none() || bitplane_dma_fetch_plane.is_none(),
+            "duplicate bitplane memory service"
+        );
+        self.denise.tick_with_dma_output_signals(
+            phase,
+            bitplane_dma_fetch,
+            denise::DeniseOutputSignals::new(vertical_diw_active, blanking),
+            self.agnus.base_mut(),
+            &self.memory,
+            line_ccks,
+        );
+    }
+
+    fn cck_phase(&self) -> u8 {
+        self.cck_phase
+    }
+    fn set_cck_phase(&mut self, value: u8) {
+        self.cck_phase = value;
+    }
+    fn prev_vertb_level(&self) -> bool {
+        self.prev_vertb_level
+    }
+    fn set_prev_vertb_level(&mut self, value: bool) {
+        self.prev_vertb_level = value;
+    }
+    fn prev_cia_a_spmode(&self) -> bool {
+        self.prev_cia_a_spmode
+    }
+    fn set_prev_cia_a_spmode(&mut self, value: bool) {
+        self.prev_cia_a_spmode = value;
+    }
+    fn prev_cia_a_irq(&self) -> bool {
+        self.prev_cia_a_irq
+    }
+    fn set_prev_cia_a_irq(&mut self, value: bool) {
+        self.prev_cia_a_irq = value;
+    }
+    fn prev_cia_b_irq(&self) -> bool {
+        self.prev_cia_b_irq
+    }
+    fn set_prev_cia_b_irq(&mut self, value: bool) {
+        self.prev_cia_b_irq = value;
+    }
+    fn e_clock_phase(&self) -> u64 {
+        self.e_clock_phase
+    }
+    fn set_e_clock_phase(&mut self, value: u64) {
+        self.e_clock_phase = value;
+    }
+    fn track_pacer(&self) -> u16 {
+        self.track_pacer
+    }
+    fn set_track_pacer(&mut self, value: u16) {
+        self.track_pacer = value;
+    }
+    fn tick_count(&self) -> u64 {
+        self.tick_count
+    }
+    fn set_tick_count(&mut self, value: u64) {
+        self.tick_count = value;
+    }
+    fn push_copper_move_log(&mut self, entry: common_commodore_amiga::driver::CopperMoveLogEntry) {
+        self.debug_copper_move_log.push(entry);
+    }
+    fn record_cpu_boundary(&mut self) {
+        if self.cpu_boundaries.len() == AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY {
+            let _ = self.cpu_boundaries.pop_front();
+        }
+        let instr_start_pc = self.cpu.instr_start_pc;
+        self.cpu_boundaries.push_back(CpuBoundary {
+            system_tick: self.tick_count,
+            instr_start_pc,
+            sr: self.cpu.regs.sr,
+            opcode: self.cpu.ir,
+        });
+    }
+
+    fn advance_agnus_cck(&mut self) {
+        self.agnus.tick_cck();
+    }
+
+    fn agnus_bus_plan(&self) -> CckBusPlan {
+        self.agnus
+            .cck_bus_plan_with_disk_request_mask(self.paula.disk_dma_slot_request_mask())
+    }
+
+    fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        OcsCore::<C>::dispatch_custom_write(self, offset, val);
+    }
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        OcsCore::<C>::dispatch_copper_write(self, offset, val);
+    }
+    fn feed_next_write_word(&mut self) {
+        OcsCore::<C>::feed_next_write_word(self);
+    }
+    fn feed_next_mfm_word(&mut self) {
+        OcsCore::<C>::feed_next_mfm_word(self);
+    }
+    fn refresh_cia_a_external_inputs(&mut self) {
+        OcsCore::<C>::refresh_cia_a_external_inputs(self);
+    }
+
+    fn tick_cpu_with_ipl(&mut self) {
+        self.cpu.ipl = self.paula.compute_ipl();
+        self.cpu.tick();
+    }
+
+    fn dispatch_bus(&mut self, tx: &BusTransaction) -> BusResponse {
+        self.dispatch_cias(tx)
+            .or_else(|| self.dispatch_rtc(tx))
+            .or_else(|| self.dispatch_autoconfig(tx))
+            .or_else(|| self.dispatch_fast_ram(tx))
+            .or_else(|| self.dispatch_custom_register(tx))
+            .unwrap_or_else(|| self.dispatch_memory(tx))
+    }
+
+    fn dispatch_local_sized_bus(&mut self, tx: &SizedBusTransaction) -> Option<SizedBusResponse> {
+        let data = if tx.is_read {
+            self.gvp_a530.as_ref()?.read_sized(tx.addr, tx.remaining)?
+        } else {
+            if !self
+                .gvp_a530
+                .as_mut()?
+                .write_sized(tx.addr, tx.remaining, tx.data)
+            {
+                return None;
+            }
+            self.record_debug_watch_sized_write(tx.addr, tx.remaining, tx.data);
+            0
+        };
+        Some(SizedBusResponse {
+            data,
+            port: gvp_a530::LOCAL_RAM_PORT,
+        })
+    }
+
+    fn dispatch_local_bus(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        if tx.is_read {
+            if tx.is_word {
+                self.a530_read_word(tx.addr).map(BusResponse::Word)
+            } else {
+                self.gvp_a530
+                    .as_ref()?
+                    .read_mapped_byte(tx.addr)
+                    .map(BusResponse::Byte)
+            }
+        } else {
+            let absorbed = if tx.is_word {
+                self.a530_write_word(tx.addr, tx.data)
+            } else {
+                self.gvp_a530
+                    .as_mut()?
+                    .write_mapped_byte(tx.addr, tx.data as u8)
+            };
+            if absorbed {
+                self.record_debug_watch_write(tx.addr, tx.data, tx.is_word);
+            }
+            absorbed.then_some(BusResponse::WriteAck)
+        }
+    }
+
+    fn motherboard_bridge_mut(&mut self) -> Option<&mut SynchronizedMotherboardBridge> {
+        self.motherboard_bridge.as_mut()
+    }
+
+    fn reset_external_devices_from_cpu(&mut self) {
+        if let Some(board) = self.gvp_a530.as_mut() {
+            board.reset();
+        }
+        if let Some(board) = self.autoconfig.as_mut() {
+            board.reset();
+        }
+        if let Some(bridge) = self.motherboard_bridge.as_mut() {
+            bridge.reset();
+        }
+        self.redrive_accelerator_inputs();
+    }
+
+    fn motherboard_address(&self, address: u32) -> Option<u32> {
+        if self.gvp_a530.is_some() {
+            (address <= 0x00FF_FFFF).then_some(address)
+        } else {
+            Some(address & 0x00FF_FFFF)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[allow(dead_code)]
+    pub(super) mod support {
+        use crate as engine;
+        include!("../tests/support/boards.rs");
+    }
+    use common_commodore_amiga::board::MotherboardBridgeAction;
+    use emu198x_peripheral_commodore_amiga_floppy::DD;
+    use emu198x_peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
+    use motorola_68000::bus::{BusStatus, FunctionCode, TransferSize};
+    use motorola_68000::cpu::State;
+    use motorola_68000::microcode::MicroOp;
+    use support::*;
+
+    use super::*;
+
+    fn a530_compatibility_config() -> A530Config {
+        A530Config::new(A530RamSize::Mib1, 1)
+            .with_cache_enabled(false)
+            .with_autoboot_enabled(false)
+    }
+
+    // Advance the complete motherboard, including request/address/service.
+    // Return just after phase zero, so callers can examine both CPU phases.
+    fn advance_to_cck(amiga: &mut OcsCore<impl Configuration>, target: u16) {
+        assert!(amiga.agnus.hpos < target);
+        let line = amiga.agnus.vpos;
+        for _ in 0..456 {
+            amiga.tick();
+            assert_eq!(amiga.agnus.vpos, line, "target must be on this line");
+            if amiga.agnus.hpos == target {
+                assert_eq!(amiga.cck_phase, 1);
+                return;
+            }
+        }
+        panic!("beam did not reach {target:#x}");
+    }
+
+    fn arm_chip_ram_write(amiga: &mut OcsCore<impl Configuration>, address: u32, value: u16) {
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: address,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(value),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+    }
+
+    fn primed_d_only_blitter(copper_enabled: bool, nasty: bool) -> AmigaOcs {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.state = State::Stopped;
+        amiga.memory.set_overlay(false);
+        amiga.agnus.vpos = 0x20;
+        amiga.agnus.hpos = 0x30;
+        amiga.agnus.bltcon0 = 0x0100;
+        amiga.agnus.blt_dpt = 0x2000;
+        amiga.agnus.bltsize = (1 << 6) | 4;
+        amiga.agnus.dmacon = bits::DMACON_DMAEN
+            | bits::DMACON_BLTEN
+            | if nasty { bits::DMACON_BLTPRI } else { 0 }
+            | if copper_enabled {
+                bits::DMACON_COPEN
+            } else {
+                0
+            };
+        arm_horizontal_copper_wait(&mut amiga.copper, 0x00FE);
+        amiga.memory.write_word(0x2000, 0xFFFF);
+        amiga.agnus.start_blit();
+        // Two startup admissions, then idle / locked first D / idle from
+        // the compiled D-only area schedule. Every stage uses the driver.
+        advance_to_cck(&mut amiga, 0x35);
+        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 0);
+        assert_eq!(
+            amiga.agnus.next_blitter_dma_request(),
+            Some(emu198x_commodore_agnus_ocs::BlitterDmaOp::WriteD)
+        );
+        assert!(amiga.agnus.next_blitter_progress_uses_bus());
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
+        amiga
+    }
+
+    fn assert_d_only_write_admitted(amiga: &AmigaOcs) {
+        use emu198x_commodore_agnus_ocs::{BlitterDmaOp, DmaAddressStage, DmaTransferTarget};
+        assert!(
+            matches!(amiga.agnus.dma_pipeline().address(), Some(DmaAddressStage::Transfer(t))
+            if t.address == 0x2000 && t.target == DmaTransferTarget::Blitter {
+                operation: BlitterDmaOp::WriteD, write_value: Some(0)
+            })
+        );
+        assert_eq!(
+            amiga.memory.read_chip_ram_word(0x2000),
+            0xFFFF,
+            "admission must not write memory"
+        );
+    }
+
+    fn arm_horizontal_copper_wait(copper: &mut Copper, target_hp: u16) {
+        copper.waiting = true;
+        copper.wait_target = target_hp;
+        copper.wait_mask = 0x80FE;
+        copper.wait_bfd = true;
+    }
+
+    #[test]
+    fn ocs_copper_and_cpu_color_writes_update_immediately_and_keep_diagnostics() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.denise.ocs.set_palette(0, 0x0123);
+
+        amiga.dispatch_copper_write(0x0180, 0x0ABC);
+        assert_eq!(amiga.denise.color(0), 0x0ABC);
+        assert_eq!(
+            amiga
+                .denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .len(),
+            0,
+        );
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0180)
+        );
+
+        amiga.dispatch_custom_write(0x0182, 0x0456);
+        assert_eq!(amiga.denise.color(1), 0x0456);
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0182)
+        );
+    }
+
+    #[test]
+    fn scheduler_dispatches_copper_color_before_current_output() {
+        const NEW_ARGB: u32 = 0xFFAA_BBCC;
+        const NEW_COLOR: u16 = 0x0ABC;
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.state = State::Stopped;
+        amiga.denise.ocs.set_palette(0, 0x0123);
+        amiga.agnus.vpos = 0x0032;
+        amiga.agnus.write_diwstrt(0x2C81);
+        amiga.agnus.write_diwstop(0xF4C1);
+        // Sixteen complete padding MOVEs put COLOR00 service at $44.
+        for instruction in 0..16 {
+            amiga.memory.write_word(0x1000 + instruction * 4, 0x0182);
+            amiga.memory.write_word(0x1002 + instruction * 4, 0);
+        }
+        amiga.memory.write_word(0x1040, 0x0180);
+        amiga.memory.write_word(0x1042, NEW_COLOR);
+        amiga.copper.pc = 0x1000;
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_COPEN;
+        advance_to_cck(&mut amiga, 0x0043);
+        assert_eq!(amiga.denise.color(0), 0x0123);
+        assert_eq!(amiga.copper.pending_dma_fetch, Some((2, 0x1042)));
+        advance_to_cck(&mut amiga, 0x0044);
+        assert_eq!(amiga.denise.color(0), NEW_COLOR);
+        assert!(
+            amiga
+                .denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .is_empty()
+        );
+        // The registered STRHOR pipeline puts the native scan four CCKs
+        // behind Agnus. Check the old/new edge, not just a palette mirror.
+        let row = usize::from(0x0032u16 - 0x0019) * 2;
+        let x = 80;
+        let start = row * denise::FB_WIDTH as usize + x;
+        assert_eq!(
+            &amiga.denise.framebuffer()[start - 2..start + 2],
+            &[0xFF11_2233, 0xFF11_2233, NEW_ARGB, NEW_ARGB]
+        );
+        assert_eq!(
+            amiga
+                .debug_copper_move_log
+                .last()
+                .map(|r| (r.1, r.2, r.3, r.4)),
+            Some((0x32, 0x44, 0x180, NEW_COLOR))
+        );
+        assert_eq!(amiga.debug_palette_log.len(), 17);
+    }
+
+    #[test]
+    fn copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma() {
+        use emu198x_commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.state = State::Stopped;
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.write_diwstop(0xA0C1);
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(0x00D0);
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BPLEN;
+        amiga.agnus.bplcon0 = 0;
+        amiga.agnus.bpl_pt[5] = 0x2000;
+        amiga.memory.write_word(0x1000, 0x0100);
+        amiga.memory.write_word(0x1002, 0x6000);
+        amiga.memory.write_word(0x1004, 0xffff);
+        amiga.memory.write_word(0x1006, 0xfffe);
+        amiga.copper.pc = 0x1000;
+        advance_to_cck(&mut amiga, 0x0036);
+        amiga.agnus.dmacon |= bits::DMACON_COPEN;
+        advance_to_cck(&mut amiga, 0x003A);
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0038));
+        assert!(amiga.copper.bus_used_this_cck);
+        assert_eq!(amiga.agnus.bplcon0, 0x6000);
+        assert_eq!(amiga.agnus.cck_bus_plan().slot_owner, SlotOwner::Copper);
+        assert_eq!(amiga.agnus.bpl_pt[5], 0x2000);
+        assert!(matches!(amiga.agnus.dma_pipeline().service(), Some(t)
+            if t.target == DmaTransferTarget::Copper { instruction_word: 2 }));
+        // Two BPLCON0 copy edges precede selection, then address and service.
+        advance_to_cck(&mut amiga, 0x003C);
+        assert_eq!(
+            amiga
+                .agnus
+                .dma_pipeline()
+                .reservation()
+                .expect("BPL6 request")
+                .channel,
+            DisplayDmaChannel::Bitplane(5)
+        );
+        assert_eq!(amiga.agnus.bpl_pt[5], 0x2000);
+        advance_to_cck(&mut amiga, 0x003E);
+        assert_eq!(amiga.agnus.bpl_pt[5], 0x2002);
+    }
+
+    #[test]
+    fn serviced_bitplane_cell_survives_a_later_dma_disable_and_restore() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.memory.set_overlay(false);
+        amiga.cpu.state = State::Stopped;
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_diwstop(0xA0C1);
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(0x00D0);
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BPLEN;
+        amiga.agnus.bplcon0 = 0x1000;
+        amiga.agnus.bpl_pt[0] = 0x2000;
+        advance_to_cck(&mut amiga, 0x0042);
+        assert_eq!(
+            amiga.agnus.bpl_pt[0], 0x2000,
+            "addressing does not read RAM"
+        );
+        advance_to_cck(&mut amiga, 0x0043);
+        assert_eq!(
+            amiga.agnus.bpl_pt[0], 0x2002,
+            "a real fetch consumed the cell"
+        );
+
+        // A later custom-register write can change the next request, but
+        // cannot give the already-serviced cell back to a chip-RAM request.
+        amiga.poke_word(0x00DF_F096, bits::DMACON_BPLEN);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Bitplane(0)
+        );
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x3000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0);
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("encode serviced cell");
+        let snapshot = postcard::from_bytes(&bytes).expect("decode serviced cell");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+        for machine in [&mut amiga, &mut restored] {
+            machine.tick(); // second half of the consumed CCK
+            assert_eq!(machine.cpu.bus_status, BusStatus::Wait);
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0);
+            machine.tick(); // next free CCK
+            assert!(matches!(machine.cpu.bus_status, BusStatus::Ready(0)));
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0x1234);
+        }
+    }
+
+    #[test]
+    fn copper_first_fetch_keeps_its_cell_owned_after_half_cck_restore() {
+        let mut original = AmigaOcs::new(vec![0; 256 * 1024]);
+        original.memory.write_word(0x1000, 0x0180);
+        original.memory.write_word(0x1002, 0x0F00);
+        original.copper.pc = 0x1000;
+        original.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_COPEN;
+        original.cpu.state = State::Stopped;
+        original.agnus.hpos = 0x003E;
+        original.cck_phase = 0;
+        original.tick();
+        assert_eq!(original.copper.pending_dma_fetch, Some((1, 0x1000)));
+        assert_eq!(original.copper.cck_phase, 0);
+        assert!(!original.copper.bus_used_this_cck);
+        advance_to_cck(&mut original, 0x0040);
+        assert_eq!(original.copper.cck_phase, 1);
+        assert!(original.copper.bus_used_this_cck);
+        original.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x3000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        original.cpu.bus_status = BusStatus::Wait;
+        let bytes = postcard::to_allocvec(&original.snapshot_state()).expect("encode IR1 cell");
+        let snapshot = postcard::from_bytes(&bytes).expect("decode IR1 cell");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+        for machine in [&mut original, &mut restored] {
+            <AmigaOcs as AmigaDriver>::service_cpu_bus(machine);
+            assert_eq!(machine.cpu.bus_status, BusStatus::Wait);
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0);
+            machine.tick();
+            assert_eq!(machine.cpu.bus_status, BusStatus::Wait);
+            machine.tick();
+            assert_eq!(machine.cpu.bus_status, BusStatus::Ready(0));
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0x1234);
+        }
+    }
+
+    #[test]
+    fn track_change_preserves_rotational_word_phase() {
+        const WORD_PHASE: usize = 173;
+
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"));
+        amiga.feed_next_mfm_word();
+        amiga.track_word_cursor = WORD_PHASE;
+
+        // Port B: /DSKSIDE and /DSKSEL0 low, motor off, no step.
+        amiga.drives.update_control(0xF3);
+        let next_track = amiga.drives.df0().encode_mfm_track().expect("head 1 track");
+        let expected_word =
+            u16::from_be_bytes([next_track[WORD_PHASE * 2], next_track[WORD_PHASE * 2 + 1]]);
+
+        amiga.feed_next_mfm_word();
+
+        let stream = amiga.track_stream_diagnostic_snapshot();
+        assert_eq!(stream.cache_head, Some(1));
+        assert_eq!(stream.word_cursor, WORD_PHASE + 1);
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+    }
+
+    #[test]
+    fn disk_dma_reads_the_selected_drive() {
+        const WORD_PHASE: usize = 32;
+
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid DF0 ADF"));
+        assert!(amiga.mount_adf_in(
+            1,
+            Adf::from_bytes(vec![0xFF; DD.len()]).expect("valid DF1 ADF"),
+            false,
+            true,
+        ));
+        let word_at =
+            |track: Vec<u8>| u16::from_be_bytes([track[WORD_PHASE * 2], track[WORD_PHASE * 2 + 1]]);
+        let df0_word = word_at(amiga.drives.df0().encode_mfm_track().expect("DF0 track"));
+        let df1_word = word_at(
+            amiga
+                .drives
+                .drive(1)
+                .and_then(AmigaFloppyDrive::encode_mfm_track)
+                .expect("DF1 track"),
+        );
+        assert_ne!(df0_word, df1_word);
+
+        // Port B: /DSKSEL0 low, then /DSKSEL1 low; the same cylinder and
+        // head on both, so only the unit tells the cached tracks apart.
+        for (prb, expected) in [(0xF7, df0_word), (0xEF, df1_word)] {
+            amiga.drives.update_control(prb);
+            amiga.track_word_cursor = WORD_PHASE;
+            amiga.feed_next_mfm_word();
+            assert_eq!(amiga.paula.dskdatr(), expected, "PRB ${prb:02X}");
+        }
+    }
+
+    #[test]
+    fn a_select_pulse_reaches_the_status_lines_before_the_next_e_clock() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        assert!(amiga.fit_drive(1));
+        amiga.poke_byte(0x00BF_D300, 0xFF);
+        // HRM Appendix E identification: DF1's motor on, then off, then
+        // select pulses with /DSKRDY read while selected. Port B is
+        // /MTR /SEL3 /SEL2 /SEL1 /SEL0 /SIDE DIR /STEP, all active low
+        // but DIR.
+        for prb in [0x7F, 0x6F, 0x7F, 0xFF, 0xEF, 0xFF] {
+            amiga.poke_byte(0x00BF_D100, prb);
+        }
+        for _ in 0..32 {
+            amiga.poke_byte(0x00BF_D100, 0xEF);
+            assert_eq!(
+                amiga.cia_a.external_a() & 0x20,
+                0,
+                "DF1 answers $FFFFFFFF: /DSKRDY low on every selected read"
+            );
+            amiga.poke_byte(0x00BF_D100, 0xFF);
+        }
+    }
+
+    #[test]
+    fn media_change_invalidates_encoded_track_cache() {
+        const WORD_PHASE: usize = 32;
+
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"));
+        amiga.track_word_cursor = WORD_PHASE;
+        amiga.feed_next_mfm_word();
+        let old_word = amiga.paula.dskdatr();
+        assert!(amiga.track_cache.is_some());
+
+        amiga.track_word_cursor = WORD_PHASE;
+        amiga.insert_adf(Adf::from_bytes(vec![0xFF; DD.len()]).expect("valid replacement ADF"));
+        assert!(amiga.track_cache.is_none());
+        assert_eq!(amiga.track_word_cursor, WORD_PHASE);
+
+        let replacement_track = amiga
+            .drives
+            .df0()
+            .encode_mfm_track()
+            .expect("replacement track");
+        let expected_word = u16::from_be_bytes([
+            replacement_track[WORD_PHASE * 2],
+            replacement_track[WORD_PHASE * 2 + 1],
+        ]);
+        assert_ne!(expected_word, old_word);
+
+        amiga.feed_next_mfm_word();
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+        assert_eq!(amiga.track_word_cursor, WORD_PHASE + 1);
+
+        amiga.eject_disk();
+        assert!(amiga.track_cache.is_none());
+        let cursor_after_eject = amiga.track_word_cursor;
+        amiga.feed_next_mfm_word();
+        assert!(amiga.track_cache.is_none());
+        assert_eq!(amiga.track_word_cursor, cursor_after_eject);
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+    }
+
+    #[test]
+    fn successful_track_write_invalidates_cache_and_preserves_word_phase() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.mount_adf(
+            Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"),
+            false,
+            true,
+        );
+        amiga.feed_next_mfm_word();
+
+        let stale_track = amiga
+            .track_cache
+            .as_ref()
+            .expect("initial read should encode the track")
+            .3
+            .clone();
+        let replacement_data = vec![0xA5; 11 * 512];
+        let replacement_track = encode_mfm_track(&replacement_data, 0, 11);
+        let word_phase = stale_track
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(replacement_track.as_chunks::<2>().0.iter())
+            .position(|(old, replacement)| old != replacement)
+            .expect("distinct sector data should change the encoded track");
+        let stale_word =
+            u16::from_be_bytes([stale_track[word_phase * 2], stale_track[word_phase * 2 + 1]]);
+        let expected_word = u16::from_be_bytes([
+            replacement_track[word_phase * 2],
+            replacement_track[word_phase * 2 + 1],
+        ]);
+        assert_ne!(stale_word, expected_word);
+        amiga.track_word_cursor = word_phase;
+
+        let mfm_words: Vec<u16> = replacement_track
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&bytes| u16::from_be_bytes(bytes))
+            .collect();
+        let dsklen = emu198x_commodore_paula_8364::bits::DSKLEN_DMAEN
+            | emu198x_commodore_paula_8364::bits::DSKLEN_WRITE
+            | u16::try_from(mfm_words.len()).expect("DD track fits DSKLEN");
+        amiga.paula.write_dsklen(dsklen);
+        amiga.paula.write_dsklen(dsklen);
+        for word in mfm_words {
+            assert!(amiga.paula.accept_disk_write_dma_slot(word));
+            amiga.feed_next_write_word();
+        }
+
+        assert!(amiga.track_cache.is_none());
+        assert_eq!(amiga.track_word_cursor, word_phase);
+        assert_eq!(
+            &amiga.drives.df0().save_adf().expect("disk remains mounted")[..replacement_data.len()],
+            replacement_data.as_slice()
+        );
+
+        amiga.feed_next_mfm_word();
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+        assert_eq!(amiga.track_word_cursor, word_phase + 1);
+    }
+
+    #[test]
+    fn final_disk_word_keeps_the_cpu_stalled_for_the_whole_cck() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.poke_word(0x00DF_F020, 0x0000); // DSKPTH
+        amiga.poke_word(0x00DF_F022, 0x2000); // DSKPTL
+        amiga.poke_word(0x00DF_F096, 0x8210); // DMAEN | DSKEN
+        amiga.poke_word(0x00DF_F024, 0x8001); // arm one-word read
+        amiga.poke_word(0x00DF_F024, 0x8001);
+        amiga.paula.receive_disk_read_word(0xA55A);
+        assert_eq!(amiga.paula.disk_dma_slot_request_mask(), 0b100);
+
+        amiga.cpu.state = State::Stopped;
+        advance_to_cck(&mut amiga, 0x0E);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+        assert!(amiga.paula.disk_dma_pending());
+        assert!(matches!(amiga.agnus.dma_pipeline().address(),
+            Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if matches!(t.target, emu198x_commodore_agnus_ocs::DmaTransferTarget::Disk { slot: 2, .. })));
+        amiga.tick(); // finish the admission CCK before arming the CPU
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x0000_1000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x5AA5),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x0F);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xA55A);
+        assert!(!amiga.paula.disk_dma_pending());
+        assert_eq!(amiga.paula.disk_dma_slot_request_mask(), 0);
+        let live_plan = amiga
+            .agnus
+            .cck_bus_plan_with_disk_request_mask(amiga.paula.disk_dma_slot_request_mask());
+        assert_eq!(
+            live_plan.slot_owner,
+            SlotOwner::Disk,
+            "the outgoing descriptor retains ownership after FIFO completion"
+        );
+        assert!(amiga.agnus.disk_bus_used_this_cck());
+        let bus = amiga.agnus.bus_diagnostic_snapshot_for_plan(live_plan);
+        assert!(bus.disk_bus_used_this_cck);
+        assert!(bus.disk_holds_bus);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0);
+
+        let encoded = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+        let snapshot: OcsSnapshot<_> =
+            postcard::from_bytes(&encoded).expect("deserialize snapshot");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+        assert_eq!(restored.cck_phase, 1);
+        assert!(
+            restored.agnus.disk_bus_used_this_cck(),
+            "phase-one restore must retain phase-zero disk ownership"
+        );
+
+        // The second master/4 phase is still part of the same CCK.
+        amiga.tick();
+        assert!(amiga.agnus.disk_bus_used_this_cck());
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0);
+    }
+
+    #[test]
+    fn memory_watch_records_cpu_blitter_and_disk_dma_sources() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.memory.set_overlay(false);
+        amiga.debug_watch_addr = Some((0x1000, 0x2002));
+
+        let response = amiga.dispatch_memory(&BusTransaction {
+            addr: 0x1000,
+            is_read: false,
+            is_word: true,
+            data: 0x1234,
+        });
+        assert!(matches!(response, BusResponse::WriteAck));
+
+        amiga.poke_word(0x00DF_F040, 0x01FF); // USED | D := 1
+        amiga.poke_word(0x00DF_F042, 0x0000);
+        amiga.poke_word(0x00DF_F054, 0x0000);
+        amiga.poke_word(0x00DF_F056, 0x2000);
+        amiga.poke_word(0x00DF_F058, 0x0041); // one row, one word
+        for _ in 0..16 {
+            let _ = amiga.blitter_dma_step(true);
+            if !amiga.agnus.blitter_busy {
+                break;
+            }
+        }
+        assert!(!amiga.agnus.blitter_busy);
+
+        amiga.poke_word(0x00DF_F020, 0x0000);
+        amiga.poke_word(0x00DF_F022, 0x3000);
+        amiga.poke_word(0x00DF_F096, 0x8210); // DMAEN | DSKEN
+        amiga.poke_word(0x00DF_F024, 0x8001);
+        amiga.poke_word(0x00DF_F024, 0x8001);
+        amiga.paula.receive_disk_read_word(0xA55A);
+        assert!(<AmigaOcs as AmigaDriver>::service_disk_dma_slot(&mut amiga));
+
+        let sources: Vec<_> = amiga
+            .debug_memory_watch_writes
+            .iter()
+            .map(|record| record.source)
+            .collect();
+        assert_eq!(
+            sources,
+            vec![
+                AmigaMemoryWriteSource::Cpu,
+                AmigaMemoryWriteSource::Blitter,
+                AmigaMemoryWriteSource::DiskDma,
+            ]
+        );
+        assert_eq!(
+            amiga
+                .debug_memory_watch_writes
+                .iter()
+                .map(|record| record.addr)
+                .collect::<Vec<_>>(),
+            vec![0x1000, 0x2000, 0x3000]
+        );
+        assert_eq!(
+            amiga.debug_watch_writes.len(),
+            1,
+            "the legacy CPU-only stream must retain its established shape"
+        );
+    }
+
+    #[test]
+    fn completed_system_tick_advances_rtc_at_region_rate() {
+        let mut pal = AmigaOcs::new(vec![0; 256 * 1024]);
+        pal.tick();
+        let pal_rtc = pal.rtc_diagnostic_snapshot();
+        assert_eq!(pal_rtc.subsecond_system_ticks, 1);
+        assert_eq!(pal_rtc.system_ticks_per_second, PAL_SYSTEM_TICK_HZ);
+
+        let mut ntsc = AmigaOcs::with_ram_config_ntsc(vec![0; 256 * 1024], RamConfig::bare());
+        ntsc.tick();
+        let ntsc_rtc = ntsc.rtc_diagnostic_snapshot();
+        assert_eq!(ntsc_rtc.subsecond_system_ticks, 1);
+        assert_eq!(ntsc_rtc.system_ticks_per_second, NTSC_SYSTEM_TICK_HZ);
+    }
+
+    #[test]
+    fn cia_b_bus_writes_are_recorded_for_diagnostics() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        let response = amiga.dispatch_cias(&BusTransaction {
+            addr: 0x00BF_D100,
+            is_read: false,
+            is_word: true,
+            data: 0xA500,
+        });
+
+        assert!(matches!(response, Some(BusResponse::WriteAck)));
+        assert_eq!(amiga.debug_cia_b_cr_log, vec![(0, 0, 1, 0xA5)]);
+    }
+
+    #[test]
+    fn cpu_blitter_register_write_does_not_complete_the_active_blit() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.agnus.bltsize = (2 << 6) | 2;
+        amiga.agnus.start_blit();
+        assert!(amiga.agnus.blitter_busy);
+
+        amiga.agnus.hpos = 0x34;
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x00DF_F040,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        let tick_before = amiga.tick_count;
+        let beam_before = (amiga.agnus.vpos, amiga.agnus.hpos);
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.agnus.bltcon0, 0x1234);
+        assert!(amiga.agnus.blitter_busy);
+        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 2);
+        assert_eq!(amiga.paula.intreq() & 0x0040, 0);
+        assert_eq!(amiga.tick_count, tick_before);
+        assert_eq!((amiga.agnus.vpos, amiga.agnus.hpos), beam_before);
+    }
+
+    #[test]
+    fn copper_wait_uses_the_installed_agnus_horizontal_projection() {
+        let mut ocs = AmigaOcs::new(vec![0; 256 * 1024]);
+        ocs.agnus.hpos = 0x00DE;
+        arm_horizontal_copper_wait(&mut ocs.copper, 0x00E0);
+        <AmigaOcs as AmigaDriver>::copper_tick_cck(&mut ocs, 0, 0x00DE, false, false);
+        assert!(
+            !ocs.copper.waiting,
+            "PAL physical $DE must reach comparator position $E0",
+        );
+
+        let mut ntsc = AmigaOcs::with_ram_config_ntsc(vec![0; 256 * 1024], RamConfig::bare());
+        ntsc.agnus.lol = true;
+        ntsc.agnus.hpos = 0x00E0;
+        arm_horizontal_copper_wait(&mut ntsc.copper, 0x00E2);
+        <OcsCore<Ntsc> as AmigaDriver>::copper_tick_cck(&mut ntsc, 0, 0x00E0, false, false);
+        assert!(
+            !ntsc.copper.waiting,
+            "NTSC-long physical $E0 must reach comparator position $E2",
+        );
+
+        let mut fat = AmigaOcs::with_fat_agnus_ram_config(vec![0; 256 * 1024], RamConfig::bare());
+        assert!(fat.agnus.write_timing_register(0x1C0, 0x00FA));
+        assert!(fat.agnus.write_timing_register(
+            0x1DC,
+            emu198x_commodore_agnus_ecs::BEAMCON0_VARBEAMEN
+                | emu198x_commodore_agnus_ecs::BEAMCON0_PAL,
+        ));
+        assert_eq!(
+            fat.agnus.current_line_ccks(),
+            0x00FB,
+            "the mixed OCS machine must retain Fat Agnus's programmed line length",
+        );
+        fat.agnus.hpos = 0x00F8;
+        arm_horizontal_copper_wait(&mut fat.copper, 0x0010);
+        <OcsCore<FatPal> as AmigaDriver>::copper_tick_cck(&mut fat, 0, 0x00F8, false, false);
+        assert!(
+            fat.copper.waiting,
+            "Fat Agnus programmed physical $F8 must wrap to comparator position zero",
+        );
+    }
+
+    /// Behind the A530's bridge a CIA access is still a VPA cycle on the
+    /// motherboard's 68000 bus, so it waits for the E clock in motherboard
+    /// time: the motherboard access comes six clocks after the CIAs count, as
+    /// on a bare A500 (`tests/cia_e_clock.rs`), whatever the 68030's own
+    /// clock, and the bridge returns it on the next slot.
+    #[test]
+    fn a530_cia_reads_end_six_clocks_after_the_cia_counts() {
+        fn put_w(rom: &mut [u8], at: usize, word: u16) {
+            rom[at] = (word >> 8) as u8;
+            rom[at + 1] = word as u8;
+        }
+        let mut rom = vec![0u8; 256 * 1024];
+        for (at, word) in [(0, 0x0000), (2, 0x8000), (4, 0x00FC), (6, 0x0100)] {
+            put_w(&mut rom, at, word);
+        }
+        let mut at = 0x100;
+        // MOVE.B #imm,(xxx).l: TALO = $FF, TAHI = $FF, CRA = START.
+        for (value, low) in [(0x00FF, 0xE401), (0x00FF, 0xE501), (0x0001, 0xEE01)] {
+            for word in [0x13FC, value, 0x00BF, low] {
+                put_w(&mut rom, at, word);
+                at += 2;
+            }
+        }
+        let loop_at = at;
+        for _ in 0..8 {
+            // MOVE.B $00BFE401,D0
+            for word in [0x1039, 0x00BF, 0xE401] {
+                put_w(&mut rom, at, word);
+                at += 2;
+            }
+        }
+        put_w(&mut rom, at, 0x6000);
+        put_w(&mut rom, at + 2, (loop_at as i32 - (at as i32 + 2)) as u16);
+
+        let mut amiga =
+            AmigaOcs::with_gvp_a530_config(rom, RamConfig::bare(), a530_compatibility_config());
+        let mut timer = amiga.cia_a.peek(4);
+        let mut last_count = 0u64;
+        let mut reading = false;
+        let mut pending: Option<u8> = None;
+        let (mut ended, mut checked) = (0, 0);
+        for tick in 0..20_000u64 {
+            amiga.tick();
+            let now = amiga.cia_a.peek(4);
+            if now != timer {
+                timer = now;
+                last_count = tick;
+            }
+            let in_read = matches!(
+                amiga.cpu().state,
+                State::BusCycle { addr, .. } if addr & 0x00FF_FFFF == 0x00BF_E401
+            );
+            if in_read
+                && !reading
+                && let Some(value) = pending.take()
+            {
+                assert_eq!(amiga.cpu().regs.d[0] & 0xFF, u32::from(value));
+                checked += 1;
+            }
+            if reading && !in_read && tick > 1_000 {
+                // The motherboard access happens six clocks after the count
+                // and the bridge returns its response on the next slot.
+                assert_eq!(
+                    tick - last_count,
+                    7,
+                    "a CIA read through the bridge should end one slot after the motherboard access"
+                );
+                pending = Some(timer);
+                ended += 1;
+            }
+            reading = in_read;
+        }
+        assert!(
+            ended > 100 && checked > 100,
+            "too few reads: {ended} ended, {checked} checked"
+        );
+    }
+
+    #[test]
+    fn a530_selects_ec030_exact_clock_and_separate_local_ram() {
+        let amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+
+        assert_eq!(amiga.active_cpu().model(), CpuModel::M68EC030);
+        assert_eq!(amiga.cpu_clock().numerator(), 4_000_000);
+        assert_eq!(amiga.cpu_clock().denominator(), 709_379);
+        let board = amiga.gvp_a530().expect("A530 must be installed");
+        assert_eq!(board.ram_size(), 1024 * 1024);
+        assert!(!board.cache_enabled());
+        assert!(!board.autoboot_enabled());
+        assert!(
+            amiga.autoconfig().is_none(),
+            "A530 local RAM must not become generic RamConfig.fast_kb"
+        );
+    }
+
+    #[test]
+    fn a530_local_ram_uses_full_width_responder_before_motherboard_projection() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+        board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
+
+        let write = SizedBusTransaction {
+            addr: 0x0020_0000,
+            is_read: false,
+            remaining: TransferSize::Long,
+            data: 0x1234_5678,
+        };
+        let response = amiga
+            .dispatch_local_sized_bus(&write)
+            .expect("configured A530 RAM absorbs the write");
+        assert_eq!(response.port, gvp_a530::LOCAL_RAM_PORT);
+
+        let read = SizedBusTransaction {
+            is_read: true,
+            data: 0,
+            ..write
+        };
+        let response = amiga
+            .dispatch_local_sized_bus(&read)
+            .expect("configured A530 RAM serves the read");
+        assert_eq!(response.data, 0x1234_5678);
+        assert_eq!(amiga.motherboard_address(0x0100_0000), None);
+        assert_eq!(amiga.motherboard_address(0x00DF_F000), Some(0x00DF_F000));
+    }
+
+    #[test]
+    fn a530_snapshot_preserves_cpu_clock_phase_and_local_ram() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        {
+            let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+            board.write_autoconfig_word(0x4A, 0x0000);
+            board.write_autoconfig_word(0x48, 0x2000);
+            assert!(board.write_mapped_byte(0x0020_0042, 0xA5));
+        }
+        amiga.tick();
+        let expected_clock = amiga.cpu_clock();
+        assert_ne!(expected_clock.phase(), 0);
+        let snapshot = amiga.snapshot_state();
+
+        amiga.tick();
+        assert!(
+            amiga
+                .gvp_a530
+                .as_mut()
+                .expect("A530 must be installed")
+                .write_mapped_byte(0x0020_0042, 0x5A)
+        );
+        amiga
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+
+        assert_eq!(amiga.active_cpu().model(), CpuModel::M68EC030);
+        assert_eq!(amiga.cpu_clock(), expected_clock);
+        assert_eq!(
+            amiga
+                .gvp_a530()
+                .expect("A530 must survive restore")
+                .read_mapped_byte(0x0020_0042),
+            Some(0xA5)
+        );
+        assert_eq!(amiga.drain_cpu_boundaries().len(), 0);
+    }
+
+    #[test]
+    fn snapshot_preserves_denise_bpl1dat_sprite_visibility_latch() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        assert!(!amiga.denise.ocs.sprite_bpl1dat_enabled());
+
+        amiga.denise.ocs.queue_shift_load_from_bpl1dat();
+        assert!(amiga.denise.ocs.sprite_bpl1dat_enabled());
+        let snapshot = amiga.snapshot_state();
+
+        amiga.denise.ocs.begin_beam_line();
+        assert!(!amiga.denise.ocs.sprite_bpl1dat_enabled());
+        amiga
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+
+        assert!(
+            amiga.denise.ocs.sprite_bpl1dat_enabled(),
+            "restoring mid-line must preserve whether BPL1DAT has enabled sprites",
+        );
+    }
+
+    #[test]
+    fn ocs_fixed_blank_starts_in_the_carried_right_edge() {
+        // The registered UAE colour guest starts blanking at counter 14
+        // (next counter $0f). Its last visible lores pixel is counter 13.
+        // These are native 70 ns columns; the reference stores each twice.
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.denise.ocs.set_palette(0, 0x135);
+        for _ in 0..24_000 {
+            amiga.tick();
+            if amiga.agnus.vpos == 51 && amiga.agnus.hpos == 13 {
+                break;
+            }
+        }
+        assert_eq!((amiga.agnus.vpos, amiga.agnus.hpos), (51, 13));
+        let row = ((50 - 0x19) * denise::FB_WIDTH * 2) as usize;
+        let pixels = amiga.denise.framebuffer();
+        assert_eq!(&pixels[row + 758..row + 760], &[0xFF11_3355; 2]);
+        assert_eq!(
+            &pixels[row + 760..row + 762],
+            &[0xFF00_0000; 2],
+            "OCS fixed HBLANK must mask the carried row at counter 14",
+        );
+    }
+
+    #[test]
+    fn postcard_snapshot_preserves_pending_denise_raster_carry() {
+        let mut original = AmigaOcs::new(vec![0; 256 * 1024]);
+        original.agnus.agnus_id = 0x2000;
+        original.agnus.vpos = 50;
+        original.agnus.hpos = 226;
+        original.agnus.diwstrt = 0x0000;
+        original.agnus.diwstop = 0x00FF;
+        original.agnus.bplcon0 = 0x1000;
+        original.denise.ocs.set_palette(0, 0x000);
+        original.denise.ocs.set_palette(1, 0xFFF);
+        original.denise.ocs.bpl_shift[0] = 0x6000;
+        original.denise.ocs.shift_count = 3;
+
+        <AmigaOcs as AmigaDriver>::denise_tick(&mut original, 1, None);
+        original.agnus.vbl_count = 1;
+        original.agnus.vpos = 0;
+        original.agnus.hpos = 0;
+        assert_eq!(
+            original
+                .denise
+                .completed_display_field_count(original.agnus.vbl_count),
+            0,
+            "raw field ownership must remain with the carried raster",
+        );
+
+        let encoded = postcard::to_allocvec(&original.snapshot_state())
+            .expect("encode wrapped-field carry state");
+        let snapshot: OcsSnapshot<_> =
+            postcard::from_bytes(&encoded).expect("decode wrapped-field carry state");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+        assert_eq!(
+            restored
+                .denise
+                .completed_display_field_count(restored.agnus.vbl_count),
+            0,
+            "restoring inside the wrap must preserve display-field ownership",
+        );
+
+        for amiga in [&mut original, &mut restored] {
+            <AmigaOcs as AmigaDriver>::denise_tick(amiga, 0, None);
+            <AmigaOcs as AmigaDriver>::denise_tick(amiga, 1, None);
+        }
+
+        assert_eq!(restored.denise.framebuffer(), original.denise.framebuffer());
+        let prior_y = (50u32 - 0x19) * 2;
+        for x in 732..736 {
+            assert_eq!(
+                restored.denise.framebuffer()[(prior_y * denise::FB_WIDTH + x) as usize],
+                0xFFFF_FFFF,
+                "restored physical hpos 0 must complete the prior raster row",
+            );
+        }
+
+        for amiga in [&mut original, &mut restored] {
+            amiga.agnus.hpos = 0x12;
+            <AmigaOcs as AmigaDriver>::denise_tick(amiga, 0, None);
+            assert_eq!(
+                amiga
+                    .denise
+                    .completed_display_field_count(amiga.agnus.vbl_count),
+                1,
+                "HBLANK start must release the restored field for publication",
+            );
+        }
+    }
+
+    #[test]
+    fn a530_snapshot_preserves_instruction_step_stopped_mid_system_tick() {
+        fn configured_machine() -> AmigaOcs {
+            let config = A530Config::new(A530RamSize::Mib1, 1)
+                .with_cache_enabled(true)
+                .with_autoboot_enabled(false);
+            let mut amiga =
+                AmigaOcs::with_gvp_a530_config(vec![0; 256 * 1024], RamConfig::bare(), config);
+            let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+            board.write_autoconfig_word(0x4A, 0x0000);
+            board.write_autoconfig_word(0x48, 0x2000);
+            for word in board.storage_mut().as_chunks_mut::<2>().0.iter_mut() {
+                word.copy_from_slice(&0x4E71u16.to_be_bytes());
+            }
+
+            // Start with two prefetched NOPs in accelerator-local RAM. Later
+            // prefetches use the A530's 32-bit local responder, allowing the
+            // 40 MHz CPU to reach instruction boundaries between system-tick
+            // edges instead of being paced by the motherboard bridge.
+            amiga.cpu.regs.pc = 0x0020_0004;
+            amiga.cpu.setup_prefetch(0x4E71, 0x4E71);
+            amiga.cpu.regs.cacr = 0x0000_0001;
+            amiga.redrive_accelerator_inputs();
+            amiga
+        }
+
+        fn step_one_instruction(amiga: &mut OcsCore<impl Configuration>) -> u64 {
+            let starts_before = amiga.cpu.instruction_starts;
+            let ticks_before = amiga.tick_count;
+            while !amiga.advance_to_cpu_boundary() {}
+            assert_eq!(
+                amiga.cpu.instruction_starts.wrapping_sub(starts_before),
+                1,
+                "exact stepping must cross one boundary"
+            );
+            amiga.tick_count.wrapping_sub(ticks_before)
+        }
+
+        let mut original = configured_machine();
+        let mut stopped_mid_tick = false;
+        for _ in 0..256 {
+            if step_one_instruction(&mut original) == 0 {
+                stopped_mid_tick = true;
+                break;
+            }
+        }
+        assert!(stopped_mid_tick);
+        assert!(
+            !original.cpu_domain_phase.is_idle(),
+            "a zero-tick instruction step must retain later CPU edges"
+        );
+
+        let encoded =
+            postcard::to_allocvec(&original.snapshot_state()).expect("encode partial CPU tick");
+        let snapshot: OcsSnapshot<_> =
+            postcard::from_bytes(&encoded).expect("decode partial CPU tick");
+        let mut restored = configured_machine();
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+
+        for _ in 0..128 {
+            assert_eq!(
+                step_one_instruction(&mut restored),
+                step_one_instruction(&mut original)
+            );
+            assert_eq!(restored.cpu.regs.pc, original.cpu.regs.pc);
+            assert_eq!(
+                restored.cpu.instruction_starts,
+                original.cpu.instruction_starts
+            );
+        }
+
+        assert_eq!(
+            postcard::to_allocvec(&restored.snapshot_state())
+                .expect("encode restored continuation"),
+            postcard::to_allocvec(&original.snapshot_state())
+                .expect("encode original continuation"),
+            "restored partial CPU-domain state must converge byte-for-byte"
+        );
+    }
+
+    #[test]
+    fn a530_poke_byte_uses_local_ram_and_rejects_high_motherboard_aliases() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+        board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
+
+        amiga.poke_byte(0x0020_0042, 0xA5);
+        assert_eq!(
+            amiga.gvp_a530().expect("A530 remains installed").storage()[0x42],
+            0xA5
+        );
+
+        let dmacon_before = amiga.agnus.dmacon;
+        amiga.poke_byte(0x01DF_F096, 0xFF);
+        assert_eq!(
+            amiga.agnus.dmacon, dmacon_before,
+            "a full-address accelerator must not alias A24 into custom registers"
+        );
+    }
+
+    #[test]
+    fn a530_motherboard_write_crosses_sync_access_and_return_slots() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        amiga.memory.set_overlay(false);
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x0000_0100,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0xA55A),
+            cycle_count: 2,
+        };
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.memory.read_word(0x100), 0);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(
+            amiga.memory.read_word(0x100),
+            0xA55A,
+            "the motherboard side effect occurs only on the admitted access slot"
+        );
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert!(
+            amiga
+                .motherboard_bridge
+                .as_ref()
+                .is_some_and(SynchronizedMotherboardBridge::is_idle)
+        );
+    }
+
+    #[test]
+    fn a530_bridge_state_must_belong_to_a_waiting_motherboard_cycle() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+        board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
+        let bridge = amiga
+            .motherboard_bridge
+            .as_mut()
+            .expect("A530 bridge must be installed");
+        assert_eq!(bridge.poll(false), MotherboardBridgeAction::Wait);
+
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::ReadWord,
+            addr: 0x0020_0000,
+            fc: FunctionCode::SupervisorData,
+            is_read: true,
+            is_word: true,
+            data: None,
+            cycle_count: 2,
+        };
+        assert!(
+            !amiga.motherboard_bridge_is_coherent(),
+            "a local RAM cycle cannot own pending motherboard bridge work"
+        );
+
+        if let State::BusCycle { addr, .. } = &mut amiga.cpu.state {
+            *addr = 0x0000_0100;
+        }
+        assert!(
+            amiga.motherboard_bridge_is_coherent(),
+            "a waiting non-local cycle may own pending bridge work"
+        );
+    }
+
+    #[test]
+    fn a530_snapshot_retains_latched_response_without_repeating_write() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        amiga.memory.set_overlay(false);
+        amiga.debug_watch_addr = Some((0x100, 2));
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x0000_0100,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.debug_watch_writes.len(), 1);
+        let snapshot = amiga.snapshot_state();
+
+        amiga
+            .restore_snapshot_state(snapshot)
+            .expect("matching fixed board");
+        assert!(amiga.debug_watch_writes.is_empty());
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert!(
+            amiga.debug_watch_writes.is_empty(),
+            "returning a snapshotted response must not dispatch the write again"
+        );
+    }
+
+    #[test]
+    fn a530_local_sized_writes_reach_the_shared_memory_watch() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+        board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
+
+        amiga.debug_watch_addr = Some((0x0020_0001, 2));
+        let pc = amiga.cpu.regs.pc;
+        let response = <AmigaOcs as AmigaDriver>::dispatch_local_sized_bus(
+            &mut amiga,
+            &SizedBusTransaction {
+                addr: 0x0020_0000,
+                is_read: false,
+                remaining: TransferSize::Long,
+                data: 0x1122_3344,
+            },
+        );
+        assert!(response.is_some());
+        assert_eq!(
+            amiga.debug_watch_writes,
+            vec![
+                (0, pc, 0x0020_0001, 0x22, false),
+                (0, pc, 0x0020_0002, 0x33, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn cpu_reset_output_resets_a530_mapping_but_preserves_local_ram() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        {
+            let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+            board.write_autoconfig_word(0x4A, 0x0000);
+            board.write_autoconfig_word(0x48, 0x2000);
+            assert!(board.write_mapped_byte(0x0020_0042, 0xA5));
+        }
+        amiga.cpu.reset_out = true;
+
+        amiga.tick();
+
+        assert!(!amiga.cpu.reset_out, "machine must consume RESET output");
+        let board = amiga.gvp_a530().expect("A530 remains installed");
+        assert_eq!(board.autoconfig_state(), AutoconfigState::Unconfigured);
+        assert_eq!(board.storage()[0x42], 0xA5);
+    }
+
+    #[test]
+    fn a530_interrupt_acknowledge_bypasses_local_ram_and_crosses_bridge() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig::bare(),
+            a530_compatibility_config(),
+        );
+        let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
+        board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0xF000);
+        assert!(board.contains_mapped_address(0x00FF_FFF7));
+        assert!(board.write_mapped_byte(0x00FF_FFF7, 0xA5));
+
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::InterruptAck,
+            addr: 0x00FF_FFF7,
+            fc: FunctionCode::InterruptAck,
+            is_read: true,
+            is_word: true,
+            data: None,
+            cycle_count: 2,
+        };
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::Ready(27),
+            "IACK must use the accepted level, never accelerator-local RAM data"
+        );
+    }
+
+    #[test]
+    fn a530_debug_access_uses_full_addresses_and_the_real_autoconfig_chain() {
+        let mut amiga = AmigaOcs::with_gvp_a530_config(
+            vec![0; 256 * 1024],
+            RamConfig {
+                chip_kb: 512,
+                slow_kb: 0,
+                fast_kb: 64,
+            },
+            a530_compatibility_config(),
+        );
+        let probe_offset = 0x10;
+        assert_eq!(
+            amiga.read_word(AUTOCONFIG_BASE + u32::from(probe_offset)),
+            amiga
+                .gvp_a530()
+                .expect("A530 must be first in the chain")
+                .read_autoconfig_word(probe_offset)
+        );
+
+        amiga.poke_word(AUTOCONFIG_BASE + 0x4A, 0x0000);
+        amiga.poke_word(AUTOCONFIG_BASE + 0x48, 0x2000);
+        assert_eq!(
+            amiga.read_word(AUTOCONFIG_BASE + u32::from(probe_offset)),
+            amiga
+                .autoconfig()
+                .expect("generic Fast RAM follows the A530")
+                .read_word(probe_offset)
+        );
+
+        amiga.poke_word(0x0020_0042, 0xA55A);
+        assert_eq!(amiga.read_word(0x0020_0042), 0xA55A);
+        assert_eq!(
+            amiga.read_word(0x0100_0000),
+            0xFFFF,
+            "an EC030 debug read above the motherboard aperture must not alias address zero"
+        );
+    }
+
+    #[test]
+    fn autovector_uses_the_level_encoded_by_the_interrupt_acknowledge_cycle() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.ipl = 6;
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::InterruptAck,
+            addr: 0x00FF_FFF7, // accepted IPL 3 on A3-A1
+            fc: FunctionCode::InterruptAck,
+            is_read: true,
+            is_word: true,
+            data: None,
+            cycle_count: 2,
+        };
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::Ready(27),
+            "the live IPL 6 pins must not replace the accepted level 3"
+        );
+    }
+
+    #[test]
+    fn parked_copper_yields_its_free_cell_to_nasty_blitter_before_cpu() {
+        let mut amiga = primed_d_only_blitter(true, true);
+        amiga.tick(); // finish $35 before presenting the contested request
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x36);
+        assert_d_only_write_admitted(&amiga);
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::Ready(0),
+            "the outgoing internal cell is free even while future D wins admission"
+        );
+        // A new CPU transaction must wait for the D service on the next CCK.
+        amiga.tick();
+        arm_chip_ram_write(&mut amiga, 0x3002, 0x5678);
+        advance_to_cck(&mut amiga, 0x37);
+        assert!(!amiga.copper.bus_used_this_cck);
+        assert!(amiga.agnus.blitter_bus_used_this_cck());
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3002), 0);
+        amiga.tick();
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        advance_to_cck(&mut amiga, 0x38);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3002), 0x5678);
+    }
+
+    #[test]
+    fn parked_copper_yields_to_cpu_before_non_nasty_blitter_when_cpu_requests_chip_ram() {
+        let mut amiga = primed_d_only_blitter(true, false);
+        amiga.tick(); // finish $35 before presenting the contested request
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x36);
+        assert!(!amiga.copper.bus_used_this_cck);
+        assert!(
+            amiga.agnus.dma_pipeline().address().is_none(),
+            "CPU denied non-nasty D admission"
+        );
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0x1234);
+    }
+
+    #[test]
+    fn parked_copper_yields_idle_cpu_cell_to_non_nasty_blitter() {
+        let mut amiga = primed_d_only_blitter(true, false);
+        advance_to_cck(&mut amiga, 0x36);
+        assert_d_only_write_admitted(&amiga);
+        advance_to_cck(&mut amiga, 0x37);
+        assert!(!amiga.copper.bus_used_this_cck);
+        assert!(amiga.agnus.blitter_bus_used_this_cck());
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+    }
+
+    #[test]
+    fn ordinary_cpu_cell_prefers_mature_cpu_request_to_non_nasty_blitter() {
+        let mut amiga = primed_d_only_blitter(false, false);
+        amiga.tick(); // finish $35 before presenting the contested request
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x36);
+        assert!(
+            amiga.agnus.dma_pipeline().address().is_none(),
+            "CPU denied non-nasty D admission"
+        );
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0x1234);
+    }
+
+    #[test]
+    fn ordinary_cpu_cell_allows_non_nasty_blitter_when_cpu_is_idle() {
+        let mut amiga = primed_d_only_blitter(false, false);
+        advance_to_cck(&mut amiga, 0x36);
+        assert_d_only_write_admitted(&amiga);
+        advance_to_cck(&mut amiga, 0x37);
+        assert!(amiga.agnus.blitter_bus_used_this_cck());
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+    }
+
+    #[test]
+    fn active_copper_fetch_keeps_its_cell_from_nasty_blitter_and_cpu() {
+        use emu198x_commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+        let mut amiga = primed_d_only_blitter(true, true);
+        // Retire the preceding internal phase without admitting D. IR1 and
+        // the ready D will then compete for the same odd input cell at $37.
+        amiga.agnus.dmacon &= !bits::DMACON_BLTEN;
+        advance_to_cck(&mut amiga, 0x36);
+        amiga.agnus.dmacon |= bits::DMACON_BLTEN;
+        amiga.copper.waiting = false;
+        amiga.copper.pc = 0x1000;
+        amiga.memory.write_word(0x1000, 0x0180);
+        amiga.memory.write_word(0x1002, 0x0F0F);
+        advance_to_cck(&mut amiga, 0x37);
+        assert!(
+            matches!(amiga.agnus.dma_pipeline().address(), Some(DmaAddressStage::Transfer(t))
+            if t.target == DmaTransferTarget::Copper { instruction_word: 1 })
+        );
+        assert_eq!(
+            amiga.agnus.next_blitter_dma_request(),
+            Some(emu198x_commodore_agnus_ocs::BlitterDmaOp::WriteD)
+        );
+        amiga.tick();
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x38);
+        assert_eq!(amiga.copper.cck_phase, 1);
+        assert!(amiga.copper.bus_used_this_cck);
+        assert!(!amiga.agnus.blitter_bus_used_this_cck());
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0);
+        // Copper owns outgoing service, while D may enter the future cell.
+        assert_d_only_write_admitted(&amiga);
+        advance_to_cck(&mut amiga, 0x39);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+    }
+
+    #[test]
+    fn cpu_reuses_line_internal_and_suppressed_d_cells_in_nasty_mode() {
+        use emu198x_commodore_agnus_ocs::BlitterDmaOp;
+        for (drain, pending, next, next_nasty) in [
+            (2, BlitterDmaOp::Internal, BlitterDmaOp::ReadC, true),
+            (9, BlitterDmaOp::WriteD, BlitterDmaOp::Internal, false),
+        ] {
+            let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+            amiga.agnus.bltcon0 = 0x0BCA; // USEA+C+D, standard line minterm
+            amiga.agnus.bltcon1 = 0x001B; // X-major +X/+Y, ONEDOT, LINE
+            amiga.agnus.blt_apt = 0x0000_FFFE;
+            amiga.agnus.blt_amod = 0;
+            amiga.agnus.blt_bmod = 0;
+            amiga.agnus.blt_cmod = -2;
+            amiga.agnus.blt_adat = 0x8000;
+            amiga.agnus.blt_bdat = 0xFFFF;
+            amiga.agnus.blt_cpt = 0x2000;
+            amiga.agnus.blt_dpt = 0x2000;
+            amiga.agnus.bltsize = (3 << 6) | 2;
+            amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_BLTPRI;
+            amiga.agnus.start_blit();
+
+            // Observe either the first internal A or the second suppressed D.
+            for _ in 0..drain {
+                let _ = amiga.blitter_dma_step(true);
+            }
+            assert_eq!(amiga.agnus.next_blitter_dma_request(), Some(pending),);
+            assert!(!amiga.agnus.blitter_nasty_active());
+
+            // Arrange the next phase-0 tick at a genuine CPU/free cell and place
+            // a mature CPU chip-RAM write on the bus. The line engine retires its
+            // would-be D in that CCK without driving the bus, so the CPU transfer
+            // must complete in the same cell even though BLTPRI remains set.
+            amiga.cck_phase = 0;
+            amiga.agnus.hpos = 0x34;
+            amiga.cpu.state = State::BusCycle {
+                op: MicroOp::WriteWord,
+                addr: 0x3000,
+                fc: FunctionCode::SupervisorData,
+                is_read: false,
+                is_word: true,
+                data: Some(0x1234),
+                cycle_count: 2,
+            };
+            amiga.cpu.bus_status = BusStatus::Wait;
+
+            amiga.tick();
+
+            assert!(
+                amiga.agnus.blitter_busy,
+                "the suppressed operation must be non-final for this arbitration regression",
+            );
+            assert_eq!(amiga.agnus.next_blitter_dma_request(), Some(next),);
+            assert_eq!(
+                amiga.agnus.blitter_nasty_active(),
+                next_nasty,
+                "next-stage ownership must not alter this CCK's CPU grant"
+            );
+            assert!(!amiga.agnus.blitter_bus_used_this_cck());
+            assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
+            // The operation above was admitted, not serviced. Retire it
+            // through the real stage with another mature CPU request.
+            assert!(matches!(amiga.agnus.dma_pipeline().address(),
+            Some(emu198x_commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if t.target == emu198x_commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
+                operation: pending, allocated: false
+            }));
+            amiga.tick();
+            arm_chip_ram_write(&mut amiga, 0x3002, 0x5678);
+            advance_to_cck(&mut amiga, 0x36);
+            assert!(amiga.agnus.blitter_cck_bus_state_recorded());
+            assert!(!amiga.agnus.blitter_bus_used_this_cck());
+            assert_eq!(amiga.memory.read_chip_ram_word(0x3002), 0x5678);
+            assert!(
+                matches!(amiga.cpu.bus_status, BusStatus::Ready(0)),
+                "CPU bus status after the free cell was {:?}; plan is {:?}",
+                amiga.cpu.bus_status,
+                amiga.agnus.cck_bus_plan(),
+            );
+            assert_eq!(amiga.read_chip_ram_byte(0x3000), 0x12);
+            assert_eq!(amiga.read_chip_ram_byte(0x3001), 0x34);
+        }
+    }
+}
+
+#[cfg(test)]
+mod fixed_owner_validation {
+    use super::tests::support::{A1000Pal, A2000Pal, FatPal, Ntsc, Pal};
+    use super::*;
+    fn unchanged<C: Configuration>(board: &mut OcsCore<C>, bad: OcsSnapshot<C>) {
+        let before = postcard::to_allocvec(&board.snapshot_state()).expect("before");
+        assert!(board.restore_snapshot_state(bad).is_err());
+        assert!(postcard::to_allocvec(&board.snapshot_state()).expect("after") == before);
+    }
+    #[test]
+    fn malformed_region_and_silicon_reject_before_mutation() {
+        let mut board = OcsCore::<Pal>::new(vec![0; 512 * 1024]);
+        let mut bad = board.snapshot_state();
+        bad.agnus = OcsCore::<Ntsc>::new(vec![0; 512 * 1024])
+            .snapshot_state()
+            .agnus;
+        unchanged(&mut board, bad);
+        let mut bad = board.snapshot_state();
+        bad.agnus = OcsCore::<FatPal>::new(vec![0; 512 * 1024])
+            .snapshot_state()
+            .agnus;
+        unchanged(&mut board, bad);
+    }
+    #[test]
+    fn malformed_bootstrap_fitting_and_original_revision_reject_before_mutation() {
+        let mut board = OcsCore::<A1000Pal>::new(vec![0; 64 * 1024]);
+        let mut bad = board.snapshot_state();
+        bad.memory = OcsCore::<Pal>::new(vec![0; 512 * 1024])
+            .snapshot_state()
+            .memory;
+        unchanged(&mut board, bad);
+        let mut bad = board.snapshot_state();
+        bad.agnus = OcsCore::<Pal>::new(vec![0; 512 * 1024])
+            .snapshot_state()
+            .agnus;
+        unchanged(&mut board, bad);
+    }
+    #[test]
+    fn missing_fitted_a2000_clock_rejects_before_mutation() {
+        let mut board = OcsCore::<A2000Pal>::new(vec![0; 512 * 1024]);
+        let mut bad = board.snapshot_state();
+        bad.gary.set_rtc_present(false);
+        unchanged(&mut board, bad);
+    }
+}

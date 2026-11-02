@@ -10,8 +10,8 @@ use emu198x_shell::{
 };
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA500PlusPalRuntime, AmigaA600PalRuntime,
-    AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime,
-    AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
+    AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaRuntime, AmigaRuntimeKind,
+    AmigaSessionQueryProvider, Model,
 };
 use serde_json::{Value, json};
 
@@ -19,7 +19,10 @@ use common::{dummy_a1000_bootstrap_rom, dummy_kickstart};
 
 #[test]
 fn zero_audio_period_is_not_truncated_in_grouped_or_leaf_queries() {
-    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     runtime.machine_mut().poke_word(0x00DF_F0A6, 0);
     runtime.machine_mut().poke_word(0x00DF_F0AA, 0x7F01);
     let grouped = query_value(&runtime, "paula.audio.channels.channel0");
@@ -32,7 +35,9 @@ fn zero_audio_period_is_not_truncated_in_grouped_or_leaf_queries() {
 
 #[test]
 fn query_provider_returns_declared_paths() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let paths = provider.query_paths(&runtime, None);
     assert!(paths.contains(&"a1000.boot_rom_visible".to_owned()));
@@ -54,7 +59,10 @@ fn query_provider_returns_declared_paths() {
 
 #[test]
 fn disk_queries_expose_the_complete_dma_fifo_state() {
-    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     runtime.machine_mut().poke_word(0x00DF_F024, 0x8002);
     runtime.machine_mut().poke_word(0x00DF_F024, 0x8002);
     runtime
@@ -97,7 +105,9 @@ fn disk_queries_expose_the_complete_dma_fifo_state() {
 
 #[test]
 fn query_cpu_pc_returns_initial_reset_vector() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let result = AmigaSessionQueryProvider
         .query(&runtime, "cpu.pc")
         .expect("query succeeds")
@@ -108,7 +118,10 @@ fn query_cpu_pc_returns_initial_reset_vector() {
 
 #[test]
 fn cpu_group_exposes_the_complete_bounded_schema() {
-    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     let cpu = query_value(&runtime, "cpu");
     let cpu = cpu.as_object().expect("CPU query should return an object");
     let mut fields: Vec<&str> = cpu.keys().map(String::as_str).collect();
@@ -226,18 +239,26 @@ fn cpu_group_exposes_the_complete_bounded_schema() {
 
 #[test]
 fn cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models() {
-    let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let ocs = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     let ecs = AmigaA500PlusPalRuntime::blank();
     let aga = AmigaA1200PalRuntime::blank();
-    let accelerated = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let accelerated = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalGvpA530.config(),
+    )
+    .expect("matching fixed owner");
 
-    for runtime in [&ocs, &AmigaOcsRuntime::blank(Model::A2000OcsPal)] {
+    fn check_stock<M: AmigaMachine + AmigaLiveAccess>(runtime: &AmigaRuntime<M>) {
         assert_eq!(query_value(runtime, "cpu.model"), json!("M68000"));
         assert_eq!(
             query_value(runtime, "cpu.cache.instruction_state_present"),
-            json!(false),
+            json!(false)
         );
     }
+    check_stock(&ocs);
+    check_stock(&runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::blank());
     assert_eq!(query_value(&ecs, "cpu.model"), json!("M68000"));
     assert_eq!(query_value(&aga, "cpu.model"), json!("M68EC020"));
     assert_eq!(query_value(&aga, "cpu.address_mask"), json!(0x00FF_FFFFu32),);
@@ -302,7 +323,10 @@ fn cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models() {
 
 #[test]
 fn keyboard_queries_expose_complete_protocol_state_and_legacy_aliases() {
-    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     let provider = AmigaSessionQueryProvider;
     let paths = provider.query_paths(&runtime, Some("keyboard"));
 
@@ -335,7 +359,10 @@ fn keyboard_queries_expose_complete_protocol_state_and_legacy_aliases() {
 
 #[test]
 fn memory_queries_distinguish_standard_and_a1000_rom_topologies() {
-    let standard = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let standard = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     assert_eq!(query_value(&standard, "memory.rom.kind"), json!("standard"));
     assert_eq!(
         query_value(&standard, "memory.rom.standard.size_bytes"),
@@ -343,8 +370,11 @@ fn memory_queries_distinguish_standard_and_a1000_rom_topologies() {
     );
     assert_eq!(query_value(&standard, "memory.rom.a1000"), Value::Null);
 
-    let a1000 = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-        .expect("A1000 runtime init");
+    let a1000 = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )
+    .expect("A1000 runtime init");
     assert_eq!(query_value(&a1000, "memory.rom.kind"), json!("a1000"));
     assert_eq!(
         query_value(&a1000, "memory.rom.a1000.boot_rom.size_bytes"),
@@ -385,8 +415,14 @@ fn debugger_peek_does_not_drive_the_floating_bus() {
 
 #[test]
 fn agnus_queries_distinguish_early_ocs_from_a2000_fat_8372a() {
-    let mut early = AmigaOcsRuntime::blank(Model::A500OcsPal);
-    let mut fat = AmigaOcsRuntime::blank(Model::A2000OcsPal);
+    let mut early = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
+    let mut fat = runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::blank_with_config(
+        Model::A2000OcsPal.config(),
+    )
+    .expect("matching fixed owner");
 
     assert_eq!(
         query_value(&early, "agnus.installed_variant"),
@@ -447,8 +483,11 @@ fn runtime_kind_forwards_a2000_fat_agnus_timing_diagnostics() {
 
 #[test]
 fn a1000_queries_report_bootstrap_state() {
-    let runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-        .expect("runtime init");
+    let runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )
+    .expect("runtime init");
     let boot_rom_visible = AmigaSessionQueryProvider
         .query(&runtime, "a1000.boot_rom_visible")
         .expect("query succeeds")
@@ -464,8 +503,11 @@ fn a1000_queries_report_bootstrap_state() {
 
 #[test]
 fn a1000_blitter_queries_distinguish_internal_activity_from_visible_busy() {
-    let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-        .expect("runtime init");
+    let mut runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )
+    .expect("runtime init");
     runtime.machine_mut().poke_word(0x00DF_F040, 0x0000);
     runtime.machine_mut().poke_word(0x00DF_F058, (1 << 6) | 1);
 
@@ -496,7 +538,8 @@ fn a1000_blitter_queries_distinguish_internal_activity_from_visible_busy() {
 #[test]
 fn completion_queries_distinguish_dmacon_copper_and_final_d() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let machine = runtime.machine_mut();
     machine.poke_word(0x00DF_F096, 0x8640); // DMAEN | BLTEN | BLTPRI
     machine.poke_word(0x00DF_F040, 0x01FF); // USED, D := all ones
@@ -589,7 +632,10 @@ fn every_a600_query_path_resolves() {
 
 #[test]
 fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
-    let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let ocs = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     assert_group_leaf_catalogue(
         &ocs,
         &[
@@ -699,7 +745,10 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
 
 #[test]
 fn runtime_configuration_queries_expose_complete_immutable_construction_intent() {
-    let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let stock = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
 
     assert_exact_object_fields(
         &query_value(&stock, "runtime.configuration"),
@@ -781,7 +830,10 @@ fn runtime_configuration_queries_expose_complete_immutable_construction_intent()
 #[test]
 fn accelerator_configuration_paths_are_model_specific_and_complete() {
     let provider = AmigaSessionQueryProvider;
-    let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let stock = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     let stock_paths = provider.query_paths(&stock, Some("runtime.configuration.accelerator"));
     assert!(
         !stock_paths
@@ -789,7 +841,10 @@ fn accelerator_configuration_paths_are_model_specific_and_complete() {
         "a machine without an accelerator must not advertise absent configuration leaves",
     );
 
-    let accelerated = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let accelerated = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalGvpA530.config(),
+    )
+    .expect("matching fixed owner");
     let accelerated_paths =
         provider.query_paths(&accelerated, Some("runtime.configuration.accelerator"));
     for path in [
@@ -833,7 +888,10 @@ fn accelerator_configuration_paths_are_model_specific_and_complete() {
 #[test]
 fn audio_filter_queries_are_complete_dynamic_and_side_effect_free() {
     let provider = AmigaSessionQueryProvider;
-    let a500 = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let a500 = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
 
     assert_exact_object_fields(
         &query_value(&a500, "runtime.audio_filter"),
@@ -886,7 +944,10 @@ fn audio_filter_queries_are_complete_dynamic_and_side_effect_free() {
         json!(false),
     );
 
-    let a1000 = AmigaOcsRuntime::blank(Model::A1000OcsPal);
+    let a1000 = runtime_commodore_amiga::AmigaA1000PalRuntime::blank_with_config(
+        Model::A1000OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     assert_eq!(
         query_value(&a1000, "runtime.audio_filter.led_always_on"),
         json!(true),
@@ -900,7 +961,10 @@ fn audio_filter_queries_are_complete_dynamic_and_side_effect_free() {
 
 #[test]
 fn agnus_group_exposes_complete_non_blitter_state_and_live_ocs_values() {
-    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
 
     assert_exact_object_fields(
         &query_value(&runtime, "agnus.identity"),
@@ -1048,7 +1112,10 @@ fn gayle_discovery_matches_the_configured_board() {
 
 #[test]
 fn gary_group_exposes_every_persisted_configuration_flag() {
-    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPalA501);
+    let runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalA501.config(),
+    )
+    .expect("matching fixed owner");
     let fields = query_value(&runtime, "gary")
         .as_object()
         .expect("Gary query should return an object")
@@ -1076,7 +1143,10 @@ fn gary_group_exposes_every_persisted_configuration_flag() {
 
 #[test]
 fn rtc_queries_expose_a_stable_deterministic_clock_and_subsecond_phase() {
-    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPalA501);
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalA501.config(),
+    )
+    .expect("matching fixed owner");
     let provider = AmigaSessionQueryProvider;
 
     let initial = query_value(&runtime, "rtc");
@@ -1154,9 +1224,18 @@ fn rtc_queries_expose_a_stable_deterministic_clock_and_subsecond_phase() {
 
 #[test]
 fn expansion_queries_distinguish_generic_fast_ram_a530_and_absent_devices() {
-    let bare = AmigaOcsRuntime::blank(Model::A500OcsPal);
-    let generic = AmigaOcsRuntime::blank(Model::A500OcsPalMaxed);
-    let a530 = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let bare = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
+    let generic = runtime_commodore_amiga::AmigaA500Rev6APalRuntime::blank_with_config(
+        Model::A500OcsPalMaxed.config(),
+    )
+    .expect("matching fixed owner");
+    let a530 = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalGvpA530.config(),
+    )
+    .expect("matching fixed owner");
     let ecs = AmigaA500PlusPalRuntime::blank();
     let a600 = AmigaA600PalRuntime::blank();
     let a1200 = AmigaA1200PalRuntime::blank();
@@ -1233,7 +1312,10 @@ fn assert_no_expansions<M: AmigaMachine>(runtime: &AmigaRuntime<M>) {
 
 #[test]
 fn expansion_query_tracks_autoconfig_state_transitions_and_discovers_live_fields() {
-    let mut generic = AmigaOcsRuntime::blank(Model::A500OcsPalMaxed);
+    let mut generic = runtime_commodore_amiga::AmigaA500Rev6APalRuntime::blank_with_config(
+        Model::A500OcsPalMaxed.config(),
+    )
+    .expect("matching fixed owner");
     let provider = AmigaSessionQueryProvider;
     assert_eq!(
         query_value(&generic, "expansion.generic_fast_ram.state.phase",),
@@ -1279,7 +1361,10 @@ fn expansion_query_tracks_autoconfig_state_transitions_and_discovers_live_fields
         );
     }
 
-    let mut a530 = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let mut a530 = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalGvpA530.config(),
+    )
+    .expect("matching fixed owner");
     a530.machine_mut().poke_word(0x00E8_004A, 0x0000);
     assert_eq!(
         query_value(&a530, "expansion.gvp_a530.memory_function.state.phase",),
@@ -1301,7 +1386,10 @@ fn expansion_query_tracks_autoconfig_state_transitions_and_discovers_live_fields
 
 #[test]
 fn denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset() {
-    let mut ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let mut ocs = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     assert_denise_board_pipeline(&mut ocs);
 
     let mut ecs = AmigaA500PlusPalRuntime::blank();
@@ -1777,8 +1865,9 @@ fn scheduler_queries_do_not_drain_pending_cpu_boundaries() {
 }
 
 fn walk_all_paths(with_disk: bool) {
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart())
-        .expect("dummy Kickstart should construct");
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("dummy Kickstart should construct");
     if with_disk {
         let disk = vec![0u8; DD.len()];
         let mut media = MediaSet::new();
@@ -1806,7 +1895,9 @@ fn walk_all_paths(with_disk: bool) {
 /// real ROMs (covered by ROM-gated diagnostics).
 #[test]
 fn boot_status_reports_no_visible_output_on_fresh_runtime() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let detected = provider
         .query(&runtime, "boot.detected")
@@ -1835,7 +1926,8 @@ fn boot_status_reports_no_visible_output_on_fresh_runtime() {
 #[test]
 fn boot_status_reports_monochrome_after_running_some_frames() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -1868,7 +1960,9 @@ fn boot_status_reports_monochrome_after_running_some_frames() {
 
 #[test]
 fn unknown_path_returns_ok_none() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let value = provider
         .query(&runtime, "does.not.exist")
@@ -1878,7 +1972,9 @@ fn unknown_path_returns_ok_none() {
 
 #[test]
 fn query_paths_filters_by_prefix() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let disk_paths = provider.query_paths(&runtime, Some("disk."));
     assert!(!disk_paths.is_empty());
@@ -1891,7 +1987,9 @@ fn query_paths_filters_by_prefix() {
 
 #[test]
 fn query_paths_returns_full_catalogue_when_prefix_missing() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let all = provider.query_paths(&runtime, None);
     let prefixed = provider.query_paths(&runtime, Some(""));
@@ -1903,7 +2001,9 @@ fn query_paths_returns_full_catalogue_when_prefix_missing() {
 
 #[test]
 fn debug_dsk_log_query_reports_zero_when_empty() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let count = provider
         .query(&runtime, "debug.dsk_write_count")
@@ -1920,7 +2020,8 @@ fn debug_dsk_log_query_reports_zero_when_empty() {
 #[test]
 fn frame_count_query_advances_after_run_until() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let initial = provider
         .query(&runtime, "machine.frame_count")
@@ -1953,7 +2054,8 @@ fn frame_count_query_advances_after_run_until() {
 #[test]
 fn disk_queries_flip_after_load_media() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let provider = AmigaSessionQueryProvider;
 
     let inserted = provider

@@ -38,8 +38,8 @@ use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
 use runtime_commodore_amiga::{
-    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
-    AmigaRuntime, Model,
+    AmigaA500PlusPalRuntime, AmigaA500Rev5PalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess,
+    AmigaMachine, AmigaRuntime, Model,
 };
 
 const BLTCON0: u32 = 0x00DF_F040;
@@ -62,7 +62,7 @@ fn cancelled_audio_startup_delivery_survives_live_restore() -> Result<(), Box<dy
         AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x096, 0x8200 | (1 << channel));
         // Obtain stage identities through the machine's existing Paula
         // re-export; runtime does not depend directly on the chip crate.
-        let mut phase = machine_commodore_amiga_ocs::Paula8364::new();
+        let mut phase = common_commodore_amiga_ocs::Paula8364::new();
         let idle = phase.audio_diagnostic_snapshot().channels[0].state;
         phase.sync_audio_dma_control(0x0201);
         if second {
@@ -140,8 +140,14 @@ fn cancelled_audio_startup_delivery_survives_live_restore() -> Result<(), Box<dy
         for second in [false, true] {
             for pending in [false, true] {
                 check(
-                    AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
-                    AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+                    runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                        Model::A500OcsPal,
+                        blank_kickstart(),
+                    )?,
+                    runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                        Model::A500OcsPal,
+                        blank_kickstart(),
+                    )?,
                     channel,
                     second,
                     pending,
@@ -268,8 +274,14 @@ fn paula_handover_sampling_history_survives_live_restore() -> Result<(), Box<dyn
     for period in [8, 124, 65_536] {
         for manual in [false, true] {
             check(
-                AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
-                AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+                runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                    Model::A500OcsPal,
+                    blank_kickstart(),
+                )?,
+                runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                    Model::A500OcsPal,
+                    blank_kickstart(),
+                )?,
                 period,
                 manual,
             )?;
@@ -373,8 +385,14 @@ fn paula_manual_stop_decisions_survive_live_restore() -> Result<(), Box<dyn Erro
     for period in [1, 2, 8, 0] {
         for stop in [false, true] {
             check(
-                AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
-                AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+                runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                    Model::A500OcsPal,
+                    blank_kickstart(),
+                )?,
+                runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                    Model::A500OcsPal,
+                    blank_kickstart(),
+                )?,
                 period,
                 stop,
             )?;
@@ -457,8 +475,14 @@ fn paula_pending_loop_and_delayed_irq_survive_live_restore() -> Result<(), Box<d
     }
     for attach in [0, 0x10, 0x01, 0x11] {
         check(
-            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
-            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?,
             attach,
         )?;
         check(
@@ -553,8 +577,14 @@ fn paula_modulation_and_pending_dma_survive_live_restore() -> Result<(), Box<dyn
     }
     for attach in [0x10, 0x01, 0x11] {
         check(
-            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
-            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?,
             attach,
         )?;
         check(
@@ -649,8 +679,14 @@ fn paula_zero_and_short_periods_survive_live_restore() -> Result<(), Box<dyn Err
     }
     for period in [0, 1, 3] {
         check(
-            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
-            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?,
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?,
             period,
         )?;
         check(
@@ -721,8 +757,14 @@ fn horizontal_display_window_survives_strobe_reset_and_half_cck_restore()
     }
     for stop in [0xC1, 0xD1] {
         check(
-            AmigaOcsRuntime::blank(Model::A500OcsPal),
-            AmigaOcsRuntime::blank(Model::A500OcsPal),
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+                Model::A500OcsPal.config(),
+            )
+            .expect("matching fixed owner"),
+            runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+                Model::A500OcsPal.config(),
+            )
+            .expect("matching fixed owner"),
             stop,
         )?;
         check(
@@ -785,8 +827,14 @@ fn malformed_combined_refresh_restore_preserves_the_destination() -> Result<(), 
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
     )?;
     check(
         AmigaA500PlusPalRuntime::blank(),
@@ -902,8 +950,14 @@ fn combined_refresh_display_replays_through_live_service_on_every_chipset()
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
     )?;
     check(
         AmigaA500PlusPalRuntime::blank(),
@@ -1017,8 +1071,14 @@ fn overlapping_display_address_samples_before_outgoing_pointer_service()
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
     )?;
     check(
         AmigaA500PlusPalRuntime::blank(),
@@ -1132,8 +1192,14 @@ fn bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service()
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
         &[1],
     )?;
     check(
@@ -1253,8 +1319,14 @@ fn addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset()
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
         &[1],
     )?;
     check(
@@ -1333,7 +1405,13 @@ fn automatic_strobes_cross_the_live_pipeline_and_reset_denise() -> Result<(), Bo
         }
         Ok(())
     }
-    check(AmigaOcsRuntime::blank(Model::A500OcsPal), false)?;
+    check(
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        false,
+    )?;
     check(AmigaA500PlusPalRuntime::blank(), true)?;
     check(AmigaA1200PalRuntime::blank(), true)
 }
@@ -1437,8 +1515,14 @@ fn live_strobe_service_and_denise_counter_replay_on_every_chipset() -> Result<()
         Ok(())
     }
     check(
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
         false,
     )?;
     check(
@@ -1543,8 +1627,11 @@ fn null_host() -> HostIo<'static> {
 
 fn ocs_runtime_with_active_hires_ddf_at_line(
     target_line: u16,
-) -> Result<AmigaOcsRuntime, MachineError> {
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+) -> Result<AmigaA500Rev5PalRuntime, MachineError> {
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = runtime.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -1575,7 +1662,10 @@ fn ocs_runtime_with_active_hires_ddf_at_line(
 
 #[test]
 fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
 
     // Run a handful of frames so the chipset has non-trivial state
     // (beam counters advanced, CIA timers run, copper has been kicked
@@ -1586,7 +1676,10 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
 
     let snapshot_a = original.snapshot()?;
 
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot_a)?;
 
     let snapshot_b = restored.snapshot()?;
@@ -1605,7 +1698,10 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
 
 #[test]
 fn rtc_time_and_subsecond_phase_survive_restore_and_forward_replay() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPalA501,
+        blank_kickstart(),
+    )?;
     for _ in 0..12_345 {
         original.machine_mut().tick();
     }
@@ -1618,7 +1714,10 @@ fn rtc_time_and_subsecond_phase_survive_restore_and_forward_replay() -> Result<(
     assert!(rtc_at_snapshot.system_ticks_per_second > 12_345);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPalA501,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
 
     assert_eq!(
@@ -1653,7 +1752,10 @@ fn rtc_time_and_subsecond_phase_survive_restore_and_forward_replay() -> Result<(
 
 #[test]
 fn partial_disk_dma_fifo_is_a_snapshot_fixed_point() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     original.machine_mut().poke_word(0x00DF_F024, 0x8003);
     original.machine_mut().poke_word(0x00DF_F024, 0x8003);
     original
@@ -1666,7 +1768,10 @@ fn partial_disk_dma_fifo_is_a_snapshot_fixed_point() -> Result<(), Box<dyn Error
         .receive_disk_read_word(0x2222);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
 
     let disk = restored.machine().paula().disk_diagnostic_snapshot();
@@ -1682,7 +1787,10 @@ fn partial_disk_dma_fifo_is_a_snapshot_fixed_point() -> Result<(), Box<dyn Error
 
 #[test]
 fn group1_handler_prefetch_context_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, odd_group1_handler_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        odd_group1_handler_kickstart(),
+    )?;
     let mut reached_odd_handler = false;
     for _ in 0..20_000 {
         original.machine_mut().tick();
@@ -1697,7 +1805,10 @@ fn group1_handler_prefetch_context_survives_postcard_round_trip() -> Result<(), 
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, odd_group1_handler_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        odd_group1_handler_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert_eq!(
         snapshot,
@@ -1720,7 +1831,10 @@ fn group1_handler_prefetch_context_survives_postcard_round_trip() -> Result<(), 
 #[test]
 fn accepted_interrupt_acknowledge_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let kickstart = interrupt_acknowledge_kickstart();
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, kickstart.clone())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        kickstart.clone(),
+    )?;
     original.machine_mut().poke_word(0x00DF_F09A, 0xC040); // INTEN | BLIT
     original.machine_mut().poke_word(0x00DF_F09C, 0x8040); // request BLIT
 
@@ -1743,7 +1857,8 @@ fn accepted_interrupt_acknowledge_survives_postcard_round_trip() -> Result<(), B
     assert_eq!(original.machine().cpu().regs.interrupt_mask(), 3);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, kickstart)?;
+    let mut restored =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, kickstart)?;
     restored.restore(&snapshot)?;
     assert_eq!(
         snapshot,
@@ -1773,7 +1888,10 @@ fn accepted_interrupt_acknowledge_survives_postcard_round_trip() -> Result<(), B
 
 #[test]
 fn a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPalGvpA530, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPalGvpA530,
+        blank_kickstart(),
+    )?;
     original.machine_mut().poke_word(0x00E8_004A, 0x0000);
     original.machine_mut().poke_word(0x00E8_0048, 0x2000);
     original.machine_mut().poke_word(0x0020_0042, 0xA55A);
@@ -1783,7 +1901,10 @@ fn a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram() -> Result<()
     assert_ne!(original.machine().cpu_clock().phase(), 0);
 
     let snapshot_a = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPalGvpA530, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPalGvpA530,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot_a)?;
 
     assert_eq!(
@@ -1801,13 +1922,19 @@ fn a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram() -> Result<()
 
 #[test]
 fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let mut host = null_host();
     original.run_until(MachineTime::new(32_000), &mut host)?;
 
     let snapshot = original.snapshot()?;
 
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
 
     // Run both runtimes forward by the same amount of machine time
@@ -1835,7 +1962,10 @@ fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dy
 
 #[test]
 fn ocs_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -1863,7 +1993,10 @@ fn ocs_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dy
     assert_eq!(original.machine().agnus().ddf_fetch_end(), None);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert_eq!(restored.machine().agnus().ddf_fetch_end(), None);
 
@@ -1879,7 +2012,10 @@ fn ocs_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dy
     // A second round trip while the terminal unit is pending proves
     // the frozen endpoint itself remains part of postcard state.
     let pending_snapshot = original.snapshot()?;
-    let mut pending_restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut pending_restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     pending_restored.restore(&pending_snapshot)?;
     assert_eq!(
         pending_restored.machine().agnus().ddf_fetch_end(),
@@ -1911,7 +2047,10 @@ fn ocs_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dy
 
 #[test]
 fn ocs_phase_shifted_terminal_wrap_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -1936,7 +2075,10 @@ fn ocs_phase_shifted_terminal_wrap_survives_postcard_round_trip() -> Result<(), 
     assert!(original.machine().agnus().ocs_ddf_hard_start_open());
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert_eq!(restored.machine().agnus().hpos, 0x00E2);
     assert_eq!(restored.machine().agnus().ddf_fetch_end(), Some(0x00E3));
@@ -1996,7 +2138,10 @@ fn ocs_aborted_ddf_run_survives_postcard_round_trip() -> Result<(), Box<dyn Erro
     let pointers_after_reenable = original.machine().agnus().bpl_pt;
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(restored.machine().agnus().dma_enabled(0x0100));
     assert!(restored.machine().agnus().ocs_ddf_run_aborted());
@@ -2072,7 +2217,10 @@ fn ocs_rewritten_future_ddf_start_survives_postcard_round_trip() -> Result<(), B
     let pointers_before_fresh_start = original.machine().agnus().bpl_pt;
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(restored.machine().agnus().ocs_ddf_run_aborted());
     assert_eq!(restored.machine().agnus().ddf_start_match(), Some(0x0038));
@@ -2164,7 +2312,10 @@ fn ocs_vertical_diw_history_survives_postcard_round_trip() -> Result<(), Box<dyn
     let pointers_after_close = original.machine().agnus().bpl_pt;
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(!restored.machine().agnus().vertical_diw_active());
     assert!(restored.machine().agnus().ocs_ddf_run_aborted());
@@ -2217,7 +2368,10 @@ fn ocs_vertical_diw_history_survives_postcard_round_trip() -> Result<(), Box<dyn
 
 #[test]
 fn a1000_hard_vertical_blank_identity_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut original = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     original.machine_mut().poke_word(0x00DF_F08E, 0xF081); // late VSTART
     original.machine_mut().poke_word(0x00DF_F090, 0xE0C1); // earlier VSTOP
 
@@ -2243,7 +2397,10 @@ fn a1000_hard_vertical_blank_identity_survives_postcard_round_trip() -> Result<(
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut restored = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     restored.restore(&snapshot)?;
     assert_eq!(
         restored.machine().agnus().original_revision(),
@@ -2276,8 +2433,10 @@ fn a1000_hard_vertical_blank_identity_survives_postcard_round_trip() -> Result<(
     // identity alone is insufficient here: DIW writes consume the held
     // event rather than recomputing it from vpos.
     let line_zero_snapshot = original.snapshot()?;
-    let mut line_zero_restored =
-        AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut line_zero_restored = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     line_zero_restored.restore(&line_zero_snapshot)?;
     assert_eq!(line_zero_restored.machine().agnus().vpos, 0);
     assert!(!line_zero_restored.machine().agnus().vertical_diw_active());
@@ -2295,7 +2454,10 @@ fn a1000_hard_vertical_blank_identity_survives_postcard_round_trip() -> Result<(
 
 #[test]
 fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut original = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(BLTCON0, 0x01FF); // USED | D := 1
@@ -2336,8 +2498,10 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
     assert_eq!(original.machine().intreq() & INT_BLIT, 0);
 
     let before_first_cck = original.snapshot()?;
-    let mut restored_before =
-        AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut restored_before = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     restored_before.restore(&before_first_cck)?;
     assert_eq!(before_first_cck, restored_before.snapshot()?);
     assert!(restored_before.machine().agnus().blitter_busy);
@@ -2385,7 +2549,10 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
     assert_eq!(original.snapshot()?, restored_before.snapshot()?);
 
     let after_first_cck = original.snapshot()?;
-    let mut restored_after = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut restored_after = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     restored_after.restore(&after_first_cck)?;
     assert_eq!(after_first_cck, restored_after.snapshot()?);
     assert!(restored_after.machine().agnus().blitter_busy_visible());
@@ -2454,7 +2621,10 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
 
 #[test]
 fn pending_copper_skip_kind_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut original = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(BLTCON0, 0);
@@ -2482,7 +2652,10 @@ fn pending_copper_skip_kind_survives_postcard_round_trip() -> Result<(), Box<dyn
     assert!(!original.machine().agnus().blitter_busy_visible());
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    let mut restored = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )?;
     restored.restore(&snapshot)?;
     assert_eq!(snapshot, restored.snapshot()?);
     assert!(restored.machine().copper().pending_wait_delay);
@@ -2582,7 +2755,10 @@ fn pre_aga_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<
 {
     const DESTINATION: u32 = 0x0000_2000;
 
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
@@ -2614,7 +2790,10 @@ fn pre_aga_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<
     assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
 
     let at_finish = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&at_finish)?;
     assert_eq!(at_finish, restored.snapshot()?);
 
@@ -2639,7 +2818,10 @@ fn pre_aga_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<
     assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
 
     let before_final_d = original.snapshot()?;
-    let mut restored_before_final_d = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored_before_final_d = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored_before_final_d.restore(&before_final_d)?;
     assert_eq!(before_final_d, restored_before_final_d.snapshot()?);
 
@@ -2671,7 +2853,10 @@ fn every_line_stage_and_pending_result_survive_snapshot_restore() -> Result<(), 
             if !use_b && matches!(target_phase, 1 | 4) {
                 continue;
             }
-            let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+            let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?;
             {
                 let machine = original.machine_mut();
                 machine.poke_word(0x1000, 1);
@@ -2737,7 +2922,10 @@ fn every_line_stage_and_pending_result_survive_snapshot_restore() -> Result<(), 
                 assert_eq!(original.machine().read_chip_ram_byte(0x3000), 0);
             }
             let snapshot = original.snapshot()?;
-            let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+            let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                Model::A500OcsPal,
+                blank_kickstart(),
+            )?;
             restored.restore(&snapshot)?;
             assert_eq!(snapshot, restored.snapshot()?);
             for _ in 0..100 {
@@ -2760,7 +2948,10 @@ fn every_line_stage_and_pending_result_survive_snapshot_restore() -> Result<(), 
 fn line_onedot_suppression_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     const DESTINATION: u32 = 0x0000_2000;
 
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
@@ -2799,7 +2990,10 @@ fn line_onedot_suppression_survives_postcard_round_trip() -> Result<(), Box<dyn 
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert_eq!(snapshot, restored.snapshot()?);
 
@@ -3033,7 +3227,10 @@ fn a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip() -> Result<(), 
 
 #[test]
 fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -3056,7 +3253,10 @@ fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), B
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(
         !restored.machine().agnus().ocs_ddf_hard_start_open(),
@@ -3101,7 +3301,10 @@ fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), B
 fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     use emu198x_commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
 
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     {
         let machine = original.machine_mut();
         machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
@@ -3142,7 +3345,10 @@ fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(
         restored.machine().agnus().ocs_ddf_hard_start_open(),
@@ -3242,7 +3448,10 @@ fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box
 
 #[test]
 fn fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(
+        Model::A2000OcsPal,
+        blank_kickstart(),
+    )?;
     assert!(original.machine().uses_fat_agnus_8372a());
     {
         let machine = original.machine_mut();
@@ -3272,7 +3481,10 @@ fn fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), 
     assert_eq!(original.machine().agnus().ddf_fetch_end(), None);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(
+        Model::A2000OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(restored.machine().uses_fat_agnus_8372a());
     assert_eq!(restored.machine().agnus().ddf_fetch_end(), None);
@@ -3287,7 +3499,10 @@ fn fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), 
     assert_eq!(restored.machine().agnus().ddf_fetch_end(), Some(0x00DF));
 
     let pending_snapshot = original.snapshot()?;
-    let mut pending_restored = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    let mut pending_restored = runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(
+        Model::A2000OcsPal,
+        blank_kickstart(),
+    )?;
     pending_restored.restore(&pending_snapshot)?;
     assert_eq!(
         pending_restored.machine().agnus().ddf_fetch_end(),
@@ -3327,7 +3542,10 @@ fn fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), 
 
 #[test]
 fn a2000_fat_agnus_snapshot_round_trips_extension_state() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(
+        Model::A2000OcsPal,
+        blank_kickstart(),
+    )?;
     assert!(original.machine().uses_fat_agnus_8372a());
 
     // Populate wrapper-only state rather than proving only that the inner
@@ -3341,7 +3559,10 @@ fn a2000_fat_agnus_snapshot_round_trips_extension_state() -> Result<(), Box<dyn 
     original.run_until(MachineTime::new(64), &mut host)?;
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(
+        Model::A2000OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
 
     assert!(restored.machine().uses_fat_agnus_8372a());
@@ -4221,10 +4442,16 @@ fn aga_display_register_pipelines_survive_snapshot_round_trip() -> Result<(), Bo
 
 #[test]
 fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
-    let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let snapshot = original.snapshot()?;
 
-    let mut other_model = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
+    let mut other_model = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPalA501,
+        blank_kickstart(),
+    )?;
     let result = other_model.restore(&snapshot);
     assert!(result.is_err(), "restoring across models should fail");
     Ok(())
@@ -4232,7 +4459,10 @@ fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     // Crafted bytes that won't deserialize as the current envelope — postcard rejects
     // mismatched length / shape and the restore returns an error.
     let result = runtime.restore(&[0xFFu8; 4]);
@@ -4299,7 +4529,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 /// branch instead of the postcard-parse-error branch above.
 #[test]
 fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
         bytes[0], 68,
@@ -4307,7 +4540,10 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     );
     bytes[0] = 65;
 
-    let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut other = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let err = other
         .restore(&bytes)
         .expect_err("version-65 snapshot should be rejected before payload decode");
@@ -4324,7 +4560,10 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn ocs_fixed_blank_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let mut visited = std::collections::BTreeSet::new();
     let mut levels = std::collections::BTreeSet::new();
     for _ in 0..30_000 {
@@ -4340,7 +4579,10 @@ fn ocs_fixed_blank_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>>
         let state = m.denise().ocs.fixed_hblank_active();
         levels.insert(state);
         let bytes = original.snapshot()?;
-        let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            blank_kickstart(),
+        )?;
         restored.restore(&bytes)?;
         assert_eq!(state, restored.machine().denise().ocs.fixed_hblank_active());
         assert!(
@@ -4489,7 +4731,10 @@ fn lisa_vertical_blank_strobes_and_edges_survive_runtime_restore() -> Result<(),
 /// this test the floppy0 re-insert path stays uncovered.
 #[test]
 fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
@@ -4498,7 +4743,10 @@ fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
 
     let snapshot = runtime.snapshot()?;
 
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&snapshot)?;
     assert!(
         restored.machine().drive().has_disk(),
@@ -4613,8 +4861,14 @@ fn restore_preserves_writable_live_floppy_image_across_chipset_tiers() -> Result
 {
     assert_writable_live_floppy_snapshot(
         "OCS A500",
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
-        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+            Model::A500OcsPal.config(),
+        )
+        .expect("matching fixed owner"),
     )?;
     assert_writable_live_floppy_snapshot(
         "ECS A500+",
@@ -4738,7 +4992,10 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
 #[test]
 fn both_pending_copper_wait_stages_survive_runtime_restore() -> Result<(), Box<dyn Error>> {
     for initial_idle in [true, false] {
-        let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            blank_kickstart(),
+        )?;
         {
             let machine = original.machine_mut();
             for (address, value) in [
@@ -4771,7 +5028,10 @@ fn both_pending_copper_wait_stages_survive_runtime_restore() -> Result<(), Box<d
         );
         assert!(!original.machine().copper().pending_wait_is_skip);
         let bytes = original.snapshot()?;
-        let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            blank_kickstart(),
+        )?;
         restored.restore(&bytes)?;
         assert_eq!(bytes, restored.snapshot()?);
         for _ in 0..64 {
@@ -4786,7 +5046,10 @@ fn both_pending_copper_wait_stages_survive_runtime_restore() -> Result<(), Box<d
 
 #[test]
 fn copper_first_word_survives_runtime_restore_and_later_ram_writes() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     for (address, value) in [
         (0x1000, 0x0180),
         (0x1002, 0x0F00),
@@ -4810,7 +5073,10 @@ fn copper_first_word_survives_runtime_restore_and_later_ram_writes() -> Result<(
     assert!(reached, "the live driver must service IR1 before saving");
     assert_eq!(original.machine().copper().pc, 0x1002);
     let bytes = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&bytes)?;
     assert_eq!(bytes, restored.snapshot()?);
     for runtime in [&mut original, &mut restored] {
@@ -4834,7 +5100,10 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
     // ABCD reaches all four channel stages; ABD fill and D-only fill also
     // exercise trailing idle and the displaced A-hold stage.
     for (mode, fill) in [(15u16, false), (13, true), (1, true)] {
-        let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            blank_kickstart(),
+        )?;
         {
             let machine = original.machine_mut();
             for (address, value) in [
@@ -4880,7 +5149,10 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
             if state.execution.startup_ccks_remaining == 0 && visited.insert(key) {
                 let bytes = original.snapshot()?;
                 assert_eq!(bytes[0], 68);
-                let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+                let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+                    Model::A500OcsPal,
+                    blank_kickstart(),
+                )?;
                 restored.restore(&bytes)?;
                 assert_eq!(bytes, restored.snapshot()?);
                 for _ in 0..64 {
@@ -4920,7 +5192,10 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
 #[test]
 fn blocked_blitter_wait_and_wake_comparison_survive_restore() -> Result<(), Box<dyn Error>> {
     for wake_pending in [false, true] {
-        let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            blank_kickstart(),
+        )?;
         {
             let m = original.machine_mut();
             for (address, value) in [
@@ -4957,7 +5232,10 @@ fn blocked_blitter_wait_and_wake_comparison_survive_restore() -> Result<(), Box<
         );
         assert_eq!(original.machine().copper().pending_wait_delay, wake_pending);
         let bytes = original.snapshot()?;
-        let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            blank_kickstart(),
+        )?;
         restored.restore(&bytes)?;
         for _ in 0..64 {
             original.machine_mut().tick();

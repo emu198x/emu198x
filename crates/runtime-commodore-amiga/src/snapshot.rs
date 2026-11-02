@@ -268,13 +268,11 @@ mod tests {
     use common_commodore_amiga::driver::AmigaDriver;
     use emu198x_commodore_agnus_ocs::{DmaTransfer, DmaTransferTarget};
     use emu198x_peripheral_commodore_amiga_floppy::{Adf, DD};
-    use machine_commodore_amiga_ocs::AmigaOcs;
+    use machine_commodore_amiga_a500_rev5_pal::AmigaA500Rev5 as AmigaOcs;
     use motorola_68000::CpuModel;
 
     use super::*;
-    use crate::{
-        AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model,
-    };
+    use crate::{AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, Model};
 
     #[test]
     fn all_denise_variants_restore_pending_strobe_and_half_cck_counter_commit() {
@@ -374,8 +372,10 @@ mod tests {
         }
         for channel in [0, 1, 4] {
             reject(
-                AmigaOcsRuntime::blank(Model::A500OcsPal),
-                AmigaOcsRuntime::blank(Model::A500OcsPal),
+                crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                    .expect("matching fixed owner"),
+                crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                    .expect("matching fixed owner"),
                 channel,
             );
             reject(
@@ -400,14 +400,17 @@ mod tests {
 
     #[test]
     fn restore_rejects_out_of_range_audio_phase_without_mutating_runtime() {
-        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let source = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&source).expect("encode source snapshot");
         let mut envelope: SnapshotEnvelopeV68<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.audio_sample_accumulator = u64::MAX;
         let forged = postcard::to_allocvec(&envelope).expect("encode forged audio phase");
 
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         for _ in 0..100 {
             target.tick_traced();
         }
@@ -425,14 +428,17 @@ mod tests {
 
     #[test]
     fn restore_rejects_machine_state_that_disagrees_with_a530_configuration() {
-        let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let stock = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&stock).expect("encode stock snapshot");
         let mut envelope: SnapshotEnvelopeV68<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.config = Model::A500OcsPalGvpA530.config();
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
 
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPalGvpA530.config())
+                .expect("matching fixed owner");
         target.machine_mut().poke_word(0x0020_0042, 0xA55A);
         target.cpu_trace_arm(None, 10_000);
         for _ in 0..2_000 {
@@ -489,14 +495,17 @@ mod tests {
 
     #[test]
     fn media_for_a_drive_that_is_not_fitted_is_rejected_without_mutating_runtime() {
-        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let source = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&source).expect("encode source snapshot");
         let mut envelope: SnapshotEnvelopeV68<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy_bytes[1] = Some(vec![0; DD.len()]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
 
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         let before = encode(&target).expect("encode target before failed restore");
         let error = decode(&mut target, &forged).expect_err("DF1 media without DF1");
 
@@ -512,14 +521,17 @@ mod tests {
 
     #[test]
     fn malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace() {
-        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let source = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&source).expect("encode source snapshot");
         let mut envelope: SnapshotEnvelopeV68<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy_bytes[0] = Some(vec![0; 17]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
 
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         let target_media = vec![0; DD.len()];
         let target_adf = Adf::from_bytes(target_media.clone()).expect("decode valid target media");
         target.machine_mut().insert_adf(target_adf);
@@ -552,9 +564,12 @@ mod tests {
 
     #[test]
     fn successful_restore_clears_captured_trace_but_keeps_it_armed() {
-        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let source = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         target.cpu_trace_arm(None, 10_000);
         for _ in 0..2_000 {
             target.tick_traced();
@@ -572,12 +587,16 @@ mod tests {
 
     #[test]
     fn restore_retains_live_audio_filter_response() {
-        let mut source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut source =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         for _ in 0..64 {
             let _ = source.filter_audio_for_test(0.75, -0.5, true);
         }
         let encoded = encode(&source).expect("encode live audio history");
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         decode(&mut target, &encoded).expect("restore live audio history");
         assert_eq!(
             target.filter_audio_for_test(0.25, -0.125, true),
@@ -588,7 +607,8 @@ mod tests {
 
     #[test]
     fn malformed_audio_signal_is_rejected_atomically() {
-        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let source = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&source).expect("encode source");
         for damage in 0..14 {
             let mut envelope: SnapshotEnvelopeV68<AmigaOcs> =
@@ -611,7 +631,9 @@ mod tests {
                 _ => unreachable!(),
             }
             let forged = postcard::to_allocvec(&envelope).expect("encode malformed state");
-            let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+            let mut target =
+                crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                    .expect("matching fixed owner");
             let _ = target.filter_audio_for_test(0.5, -0.5, true);
             let before = encode(&target).expect("encode warm target");
             let error = decode(&mut target, &forged).expect_err("reject malformed signal");
@@ -622,9 +644,12 @@ mod tests {
 
     #[test]
     fn successful_restore_replaces_target_history_with_saved_silence() {
-        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let source = crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner");
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut target =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
 
         for _ in 0..64 {
             let _ = target.filter_audio_for_test(0.75, -0.5, true);
@@ -632,7 +657,9 @@ mod tests {
         decode(&mut target, &encoded).expect("restore valid snapshot");
 
         let restored = target.filter_audio_for_test(0.25, -0.125, false);
-        let mut fresh = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let mut fresh =
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner");
         let expected = fresh.filter_audio_for_test(0.25, -0.125, false);
         assert_eq!(
             restored, expected,

@@ -39,6 +39,13 @@ use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
 use common_commodore_amiga_aga::{A1200Core, Configuration as A1200Configuration};
 use common_commodore_amiga_ecs::{AgnusEcs, DeniseEcs};
 use common_commodore_amiga_ecs::{Configuration as EcsConfiguration, EcsCore};
+use common_commodore_amiga_ocs::Configuration as OcsConfiguration;
+use common_commodore_amiga_ocs::{
+    AmigaFloppyDrive, AmigaInputDiagnosticSnapshot, AmigaKeyboard,
+    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
+    AutoconfigBoardDiagnosticSnapshot, Cia, Copper, InstalledAgnusKind,
+    Msm6242RtcDiagnosticSnapshot, OcsCore, Paula8364,
+};
 use emu198x_commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
 use emu198x_commodore_denise_aga::{
     DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot, DeniseAgaProgrammedHblankRegisters,
@@ -48,12 +55,6 @@ use emu198x_commodore_gary::GaryDiagnosticSnapshot;
 use emu198x_commodore_gayle::GayleDiagnosticSnapshot;
 use emu198x_peripheral_commodore_amiga_floppy::{Adf, AmigaFloppyChain};
 use gvp_a530::GvpA530DiagnosticSnapshot;
-use machine_commodore_amiga_ocs::{
-    AmigaFloppyDrive, AmigaInputDiagnosticSnapshot, AmigaKeyboard, AmigaOcs,
-    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
-    AutoconfigBoardDiagnosticSnapshot, Cia, Copper, InstalledAgnusKind,
-    Msm6242RtcDiagnosticSnapshot, Paula8364,
-};
 use motorola_68k_common::registers::Registers;
 
 use crate::variants::AmigaRuntimeKind;
@@ -683,7 +684,7 @@ pub trait AmigaLiveAccess {
 // AmigaOcs impl
 // ===================================================================
 
-impl AmigaLiveAccess for AmigaOcs {
+impl<C: OcsConfiguration> AmigaLiveAccess for OcsCore<C> {
     fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
         self.active_cpu().diagnostic_snapshot()
     }
@@ -715,47 +716,47 @@ impl AmigaLiveAccess for AmigaOcs {
     }
 
     fn tick(&mut self) {
-        AmigaOcs::tick(self);
+        OcsCore::<C>::tick(self);
     }
 
     fn tick_count(&self) -> u64 {
-        AmigaOcs::tick_count(self)
+        OcsCore::<C>::tick_count(self)
     }
 
     fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
-        AmigaOcs::scheduler_diagnostic_snapshot(self)
+        OcsCore::<C>::scheduler_diagnostic_snapshot(self)
     }
 
     fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
-        AmigaOcs::track_stream_diagnostic_snapshot(self)
+        OcsCore::<C>::track_stream_diagnostic_snapshot(self)
     }
 
     fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
-        AmigaOcs::input_diagnostic_snapshot(self)
+        OcsCore::<C>::input_diagnostic_snapshot(self)
     }
 
     fn intena(&self) -> u16 {
-        AmigaOcs::intena(self)
+        OcsCore::<C>::intena(self)
     }
 
     fn intreq(&self) -> u16 {
-        AmigaOcs::intreq(self)
+        OcsCore::<C>::intreq(self)
     }
 
     fn dmacon(&self) -> u16 {
-        AmigaOcs::dmacon(self)
+        OcsCore::<C>::dmacon(self)
     }
 
     fn adkcon(&self) -> u16 {
-        AmigaOcs::adkcon(self)
+        OcsCore::<C>::adkcon(self)
     }
 
     fn bplcon0(&self) -> u16 {
-        AmigaOcs::bplcon0(self)
+        OcsCore::<C>::bplcon0(self)
     }
 
     fn color(&self, idx: usize) -> u16 {
-        AmigaOcs::color(self, idx)
+        OcsCore::<C>::color(self, idx)
     }
 
     fn overlay(&self) -> bool {
@@ -775,7 +776,7 @@ impl AmigaLiveAccess for AmigaOcs {
     }
 
     fn agnus(&self) -> &Agnus {
-        AmigaOcs::agnus(self)
+        OcsCore::<C>::agnus(self)
     }
 
     fn installed_agnus_variant(&self) -> AgnusInstalledVariant {
@@ -792,7 +793,7 @@ impl AmigaLiveAccess for AmigaOcs {
                     .cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
             )
         } else {
-            let agnus = AmigaOcs::agnus(self);
+            let agnus = OcsCore::<C>::agnus(self);
             agnus.bus_diagnostic_snapshot_for_plan(
                 agnus
                     .cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
@@ -813,35 +814,35 @@ impl AmigaLiveAccess for AmigaOcs {
     }
 
     fn cia_a(&self) -> &Cia {
-        AmigaOcs::cia_a(self)
+        OcsCore::<C>::cia_a(self)
     }
 
     fn cia_b(&self) -> &Cia {
-        AmigaOcs::cia_b(self)
+        OcsCore::<C>::cia_b(self)
     }
 
     fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
-        AmigaOcs::rtc_diagnostic_snapshot(self)
+        OcsCore::<C>::rtc_diagnostic_snapshot(self)
     }
 
     fn paula(&self) -> &Paula8364 {
-        AmigaOcs::paula(self)
+        OcsCore::<C>::paula(self)
     }
 
     fn drive(&self) -> &AmigaFloppyDrive {
-        AmigaOcs::drive(self)
+        OcsCore::<C>::drive(self)
     }
 
     fn drives(&self) -> &AmigaFloppyChain {
-        AmigaOcs::drives(self)
+        OcsCore::<C>::drives(self)
     }
 
     fn keyboard(&self) -> &AmigaKeyboard {
-        AmigaOcs::keyboard(self)
+        OcsCore::<C>::keyboard(self)
     }
 
     fn copper(&self) -> &Copper {
-        AmigaOcs::copper(self)
+        OcsCore::<C>::copper(self)
     }
 
     fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
@@ -863,12 +864,12 @@ impl AmigaLiveAccess for AmigaOcs {
     fn motherboard_bridge_diagnostic_snapshot(
         &self,
     ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
-        AmigaOcs::motherboard_bridge_diagnostic_snapshot(self)
+        OcsCore::<C>::motherboard_bridge_diagnostic_snapshot(self)
     }
 
     fn motherboard_bridge_is_coherent(&self) -> Option<bool> {
         self.has_synchronized_motherboard_bridge()
-            .then(|| AmigaOcs::motherboard_bridge_is_coherent(self))
+            .then(|| OcsCore::<C>::motherboard_bridge_is_coherent(self))
     }
 
     fn framebuffer(&self) -> &[u32] {
@@ -877,25 +878,25 @@ impl AmigaLiveAccess for AmigaOcs {
 
     fn framebuffer_dims(&self) -> (u32, u32) {
         (
-            machine_commodore_amiga_ocs::FB_WIDTH,
-            machine_commodore_amiga_ocs::FB_HEIGHT,
+            common_commodore_amiga_ocs::FB_WIDTH,
+            common_commodore_amiga_ocs::FB_HEIGHT,
         )
     }
 
     fn read_word(&self, addr: u32) -> u16 {
-        AmigaOcs::read_word(self, addr)
+        OcsCore::<C>::read_word(self, addr)
     }
 
     fn read_long(&self, addr: u32) -> u32 {
-        AmigaOcs::read_long(self, addr)
+        OcsCore::<C>::read_long(self, addr)
     }
 
     fn poke_byte(&mut self, addr: u32, value: u8) {
-        AmigaOcs::poke_byte(self, addr, value);
+        OcsCore::<C>::poke_byte(self, addr, value);
     }
 
     fn poke_word(&mut self, addr: u32, value: u16) {
-        AmigaOcs::poke_word(self, addr, value);
+        OcsCore::<C>::poke_word(self, addr, value);
     }
 
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
@@ -993,7 +994,7 @@ impl AmigaLiveAccess for AmigaOcs {
     }
 
     fn eject_floppy0(&mut self) {
-        AmigaOcs::eject_disk(self);
+        OcsCore::<C>::eject_disk(self);
     }
 }
 
@@ -1191,8 +1192,8 @@ impl<C: EcsConfiguration> AmigaLiveAccess for EcsCore<C> {
 
     fn framebuffer_dims(&self) -> (u32, u32) {
         (
-            machine_commodore_amiga_ocs::FB_WIDTH,
-            machine_commodore_amiga_ocs::FB_HEIGHT,
+            common_commodore_amiga_ocs::FB_WIDTH,
+            common_commodore_amiga_ocs::FB_HEIGHT,
         )
     }
 
@@ -1673,7 +1674,14 @@ impl<C: A1200Configuration> AmigaLiveAccess for A1200Core<C> {
 impl AmigaLiveAccess for AmigaRuntimeKind {
     fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cpu_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().cpu_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().cpu_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().cpu_diagnostic_snapshot(),
@@ -1685,7 +1693,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_snapshot(&self) -> CpuSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().cpu_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().cpu_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().cpu_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().cpu_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cpu_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().cpu_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cpu_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cpu_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cpu_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().cpu_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().cpu_snapshot(),
             Self::A600Pal(rt) => rt.machine().cpu_snapshot(),
@@ -1697,7 +1712,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_pc(&self) -> u32 {
         match self {
-            Self::Ocs(rt) => rt.machine().cpu_pc(),
+            Self::A1000Pal(rt) => rt.machine().cpu_pc(),
+            Self::A1000Ntsc(rt) => rt.machine().cpu_pc(),
+            Self::A500Rev5Pal(rt) => rt.machine().cpu_pc(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cpu_pc(),
+            Self::A500Rev6APal(rt) => rt.machine().cpu_pc(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cpu_pc(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cpu_pc(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cpu_pc(),
             Self::A500PlusPal(rt) => rt.machine().cpu_pc(),
             Self::A500PlusNtsc(rt) => rt.machine().cpu_pc(),
             Self::A600Pal(rt) => rt.machine().cpu_pc(),
@@ -1709,7 +1731,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_instruction_starts(&self) -> u64 {
         match self {
-            Self::Ocs(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A1000Pal(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A1000Ntsc(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A500Rev5Pal(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A500Rev6APal(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cpu_instruction_starts(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cpu_instruction_starts(),
             Self::A500PlusPal(rt) => rt.machine().cpu_instruction_starts(),
             Self::A500PlusNtsc(rt) => rt.machine().cpu_instruction_starts(),
             Self::A600Pal(rt) => rt.machine().cpu_instruction_starts(),
@@ -1721,7 +1750,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_in_followup(&self) -> bool {
         match self {
-            Self::Ocs(rt) => rt.machine().cpu_in_followup(),
+            Self::A1000Pal(rt) => rt.machine().cpu_in_followup(),
+            Self::A1000Ntsc(rt) => rt.machine().cpu_in_followup(),
+            Self::A500Rev5Pal(rt) => rt.machine().cpu_in_followup(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cpu_in_followup(),
+            Self::A500Rev6APal(rt) => rt.machine().cpu_in_followup(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cpu_in_followup(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cpu_in_followup(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cpu_in_followup(),
             Self::A500PlusPal(rt) => rt.machine().cpu_in_followup(),
             Self::A500PlusNtsc(rt) => rt.machine().cpu_in_followup(),
             Self::A600Pal(rt) => rt.machine().cpu_in_followup(),
@@ -1736,7 +1772,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         // machine tick) so the per-tick `step` / `run_until_*` tools
         // feed an armed CPU trace, exactly as the run loop does.
         match self {
-            Self::Ocs(rt) => rt.tick_traced(),
+            Self::A1000Pal(rt) => rt.tick_traced(),
+            Self::A1000Ntsc(rt) => rt.tick_traced(),
+            Self::A500Rev5Pal(rt) => rt.tick_traced(),
+            Self::A500Rev5Ntsc(rt) => rt.tick_traced(),
+            Self::A500Rev6APal(rt) => rt.tick_traced(),
+            Self::A500Rev6ANtsc(rt) => rt.tick_traced(),
+            Self::A2000CrRev6Pal(rt) => rt.tick_traced(),
+            Self::A2000CrRev6Ntsc(rt) => rt.tick_traced(),
             Self::A500PlusPal(rt) => rt.tick_traced(),
             Self::A500PlusNtsc(rt) => rt.tick_traced(),
             Self::A600Pal(rt) => rt.tick_traced(),
@@ -1748,7 +1791,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn tick_count(&self) -> u64 {
         match self {
-            Self::Ocs(rt) => rt.machine().tick_count(),
+            Self::A1000Pal(rt) => rt.machine().tick_count(),
+            Self::A1000Ntsc(rt) => rt.machine().tick_count(),
+            Self::A500Rev5Pal(rt) => rt.machine().tick_count(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().tick_count(),
+            Self::A500Rev6APal(rt) => rt.machine().tick_count(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().tick_count(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().tick_count(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().tick_count(),
             Self::A500PlusPal(rt) => rt.machine().tick_count(),
             Self::A500PlusNtsc(rt) => rt.machine().tick_count(),
             Self::A600Pal(rt) => rt.machine().tick_count(),
@@ -1760,7 +1810,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().scheduler_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().scheduler_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().scheduler_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().scheduler_diagnostic_snapshot(),
@@ -1772,7 +1829,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().track_stream_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().track_stream_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().track_stream_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().track_stream_diagnostic_snapshot(),
@@ -1784,7 +1848,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().input_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().input_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().input_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().input_diagnostic_snapshot(),
@@ -1796,7 +1867,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn intena(&self) -> u16 {
         match self {
-            Self::Ocs(rt) => rt.machine().intena(),
+            Self::A1000Pal(rt) => rt.machine().intena(),
+            Self::A1000Ntsc(rt) => rt.machine().intena(),
+            Self::A500Rev5Pal(rt) => rt.machine().intena(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().intena(),
+            Self::A500Rev6APal(rt) => rt.machine().intena(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().intena(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().intena(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().intena(),
             Self::A500PlusPal(rt) => rt.machine().intena(),
             Self::A500PlusNtsc(rt) => rt.machine().intena(),
             Self::A600Pal(rt) => rt.machine().intena(),
@@ -1808,7 +1886,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn intreq(&self) -> u16 {
         match self {
-            Self::Ocs(rt) => rt.machine().intreq(),
+            Self::A1000Pal(rt) => rt.machine().intreq(),
+            Self::A1000Ntsc(rt) => rt.machine().intreq(),
+            Self::A500Rev5Pal(rt) => rt.machine().intreq(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().intreq(),
+            Self::A500Rev6APal(rt) => rt.machine().intreq(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().intreq(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().intreq(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().intreq(),
             Self::A500PlusPal(rt) => rt.machine().intreq(),
             Self::A500PlusNtsc(rt) => rt.machine().intreq(),
             Self::A600Pal(rt) => rt.machine().intreq(),
@@ -1820,7 +1905,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn dmacon(&self) -> u16 {
         match self {
-            Self::Ocs(rt) => rt.machine().dmacon(),
+            Self::A1000Pal(rt) => rt.machine().dmacon(),
+            Self::A1000Ntsc(rt) => rt.machine().dmacon(),
+            Self::A500Rev5Pal(rt) => rt.machine().dmacon(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().dmacon(),
+            Self::A500Rev6APal(rt) => rt.machine().dmacon(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().dmacon(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().dmacon(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().dmacon(),
             Self::A500PlusPal(rt) => rt.machine().dmacon(),
             Self::A500PlusNtsc(rt) => rt.machine().dmacon(),
             Self::A600Pal(rt) => rt.machine().dmacon(),
@@ -1832,7 +1924,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn adkcon(&self) -> u16 {
         match self {
-            Self::Ocs(rt) => rt.machine().adkcon(),
+            Self::A1000Pal(rt) => rt.machine().adkcon(),
+            Self::A1000Ntsc(rt) => rt.machine().adkcon(),
+            Self::A500Rev5Pal(rt) => rt.machine().adkcon(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().adkcon(),
+            Self::A500Rev6APal(rt) => rt.machine().adkcon(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().adkcon(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().adkcon(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().adkcon(),
             Self::A500PlusPal(rt) => rt.machine().adkcon(),
             Self::A500PlusNtsc(rt) => rt.machine().adkcon(),
             Self::A600Pal(rt) => rt.machine().adkcon(),
@@ -1844,7 +1943,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn bplcon0(&self) -> u16 {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::bplcon0(rt.machine()),
@@ -1856,7 +1962,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn color(&self, idx: usize) -> u16 {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A1000Pal(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::color(rt.machine(), idx),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::color(rt.machine(), idx),
             Self::A500PlusPal(rt) => AmigaLiveAccess::color(rt.machine(), idx),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::color(rt.machine(), idx),
             Self::A600Pal(rt) => AmigaLiveAccess::color(rt.machine(), idx),
@@ -1868,7 +1981,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn overlay(&self) -> bool {
         match self {
-            Self::Ocs(rt) => rt.machine().overlay(),
+            Self::A1000Pal(rt) => rt.machine().overlay(),
+            Self::A1000Ntsc(rt) => rt.machine().overlay(),
+            Self::A500Rev5Pal(rt) => rt.machine().overlay(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().overlay(),
+            Self::A500Rev6APal(rt) => rt.machine().overlay(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().overlay(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().overlay(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().overlay(),
             Self::A500PlusPal(rt) => rt.machine().overlay(),
             Self::A500PlusNtsc(rt) => rt.machine().overlay(),
             Self::A600Pal(rt) => rt.machine().overlay(),
@@ -1880,7 +2000,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn copper_pc(&self) -> u32 {
         match self {
-            Self::Ocs(rt) => rt.machine().copper_pc(),
+            Self::A1000Pal(rt) => rt.machine().copper_pc(),
+            Self::A1000Ntsc(rt) => rt.machine().copper_pc(),
+            Self::A500Rev5Pal(rt) => rt.machine().copper_pc(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().copper_pc(),
+            Self::A500Rev6APal(rt) => rt.machine().copper_pc(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().copper_pc(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().copper_pc(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().copper_pc(),
             Self::A500PlusPal(rt) => rt.machine().copper_pc(),
             Self::A500PlusNtsc(rt) => rt.machine().copper_pc(),
             Self::A600Pal(rt) => rt.machine().copper_pc(),
@@ -1892,7 +2019,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn copper_cop1lc(&self) -> u32 {
         match self {
-            Self::Ocs(rt) => rt.machine().copper_cop1lc(),
+            Self::A1000Pal(rt) => rt.machine().copper_cop1lc(),
+            Self::A1000Ntsc(rt) => rt.machine().copper_cop1lc(),
+            Self::A500Rev5Pal(rt) => rt.machine().copper_cop1lc(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().copper_cop1lc(),
+            Self::A500Rev6APal(rt) => rt.machine().copper_cop1lc(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().copper_cop1lc(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().copper_cop1lc(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().copper_cop1lc(),
             Self::A500PlusPal(rt) => rt.machine().copper_cop1lc(),
             Self::A500PlusNtsc(rt) => rt.machine().copper_cop1lc(),
             Self::A600Pal(rt) => rt.machine().copper_cop1lc(),
@@ -1904,7 +2038,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn copper_cop2lc(&self) -> u32 {
         match self {
-            Self::Ocs(rt) => rt.machine().copper_cop2lc(),
+            Self::A1000Pal(rt) => rt.machine().copper_cop2lc(),
+            Self::A1000Ntsc(rt) => rt.machine().copper_cop2lc(),
+            Self::A500Rev5Pal(rt) => rt.machine().copper_cop2lc(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().copper_cop2lc(),
+            Self::A500Rev6APal(rt) => rt.machine().copper_cop2lc(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().copper_cop2lc(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().copper_cop2lc(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().copper_cop2lc(),
             Self::A500PlusPal(rt) => rt.machine().copper_cop2lc(),
             Self::A500PlusNtsc(rt) => rt.machine().copper_cop2lc(),
             Self::A600Pal(rt) => rt.machine().copper_cop2lc(),
@@ -1916,7 +2057,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn agnus(&self) -> &Agnus {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::agnus(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::agnus(rt.machine()),
@@ -1928,7 +2076,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn installed_agnus_variant(&self) -> AgnusInstalledVariant {
         match self {
-            Self::Ocs(rt) => rt.machine().installed_agnus_variant(),
+            Self::A1000Pal(rt) => rt.machine().installed_agnus_variant(),
+            Self::A1000Ntsc(rt) => rt.machine().installed_agnus_variant(),
+            Self::A500Rev5Pal(rt) => rt.machine().installed_agnus_variant(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().installed_agnus_variant(),
+            Self::A500Rev6APal(rt) => rt.machine().installed_agnus_variant(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().installed_agnus_variant(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().installed_agnus_variant(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().installed_agnus_variant(),
             Self::A500PlusPal(rt) => rt.machine().installed_agnus_variant(),
             Self::A500PlusNtsc(rt) => rt.machine().installed_agnus_variant(),
             Self::A600Pal(rt) => rt.machine().installed_agnus_variant(),
@@ -1940,7 +2095,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
@@ -1952,7 +2114,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
         match self {
-            Self::Ocs(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A1000Pal(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A1000Ntsc(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A500Rev5Pal(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A500Rev6APal(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().ecs_agnus_timing(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().ecs_agnus_timing(),
             Self::A500PlusPal(rt) => rt.machine().ecs_agnus_timing(),
             Self::A500PlusNtsc(rt) => rt.machine().ecs_agnus_timing(),
             Self::A600Pal(rt) => rt.machine().ecs_agnus_timing(),
@@ -1964,7 +2133,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn enhanced_denise(&self) -> Option<EnhancedDeniseSnapshot> {
         match self {
-            Self::Ocs(_) => None,
+            Self::A1000Pal(_) => None,
+            Self::A1000Ntsc(_) => None,
+            Self::A500Rev5Pal(_) => None,
+            Self::A500Rev5Ntsc(_) => None,
+            Self::A500Rev6APal(_) => None,
+            Self::A500Rev6ANtsc(_) => None,
+            Self::A2000CrRev6Pal(_) => None,
+            Self::A2000CrRev6Ntsc(_) => None,
             Self::A500PlusPal(rt) => rt.machine().enhanced_denise(),
             Self::A500PlusNtsc(rt) => rt.machine().enhanced_denise(),
             Self::A600Pal(rt) => rt.machine().enhanced_denise(),
@@ -1976,7 +2152,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().denise_diagnostic_snapshot(),
@@ -1988,7 +2171,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn denise_board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
@@ -2000,7 +2190,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn aga_denise_diagnostic_snapshot(&self) -> Option<DeniseAgaDiagnosticSnapshot> {
         match self {
-            Self::Ocs(_)
+            Self::A1000Pal(_)
+            | Self::A1000Ntsc(_)
+            | Self::A500Rev5Pal(_)
+            | Self::A500Rev5Ntsc(_)
+            | Self::A500Rev6APal(_)
+            | Self::A500Rev6ANtsc(_)
+            | Self::A2000CrRev6Pal(_)
+            | Self::A2000CrRev6Ntsc(_)
             | Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2012,7 +2209,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cia_a(&self) -> &Cia {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::cia_a(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::cia_a(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::cia_a(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::cia_a(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::cia_a(rt.machine()),
@@ -2024,7 +2228,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cia_b(&self) -> &Cia {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::cia_b(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::cia_b(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::cia_b(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::cia_b(rt.machine()),
@@ -2036,7 +2247,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().rtc_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().rtc_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().rtc_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().rtc_diagnostic_snapshot(),
@@ -2048,7 +2266,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn paula(&self) -> &Paula8364 {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::paula(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::paula(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::paula(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::paula(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::paula(rt.machine()),
@@ -2060,7 +2285,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn drive(&self) -> &AmigaFloppyDrive {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::drive(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::drive(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::drive(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::drive(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::drive(rt.machine()),
@@ -2072,7 +2304,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn drives(&self) -> &AmigaFloppyChain {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::drives(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::drives(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::drives(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::drives(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::drives(rt.machine()),
@@ -2084,7 +2323,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn keyboard(&self) -> &AmigaKeyboard {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::keyboard(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::keyboard(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::keyboard(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::keyboard(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::keyboard(rt.machine()),
@@ -2096,7 +2342,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn copper(&self) -> &Copper {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::copper(rt.machine()),
@@ -2108,7 +2361,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().gary().diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().gary().diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().gary().diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().gary().diagnostic_snapshot(),
@@ -2120,7 +2380,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn memory_diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot {
         match self {
-            Self::Ocs(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().memory().diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().memory().diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().memory().diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().memory().diagnostic_snapshot(),
@@ -2132,7 +2399,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
         match self {
-            Self::Ocs(_) => None,
+            Self::A1000Pal(_) => None,
+            Self::A1000Ntsc(_) => None,
+            Self::A500Rev5Pal(_) => None,
+            Self::A500Rev5Ntsc(_) => None,
+            Self::A500Rev6APal(_) => None,
+            Self::A500Rev6ANtsc(_) => None,
+            Self::A2000CrRev6Pal(_) => None,
+            Self::A2000CrRev6Ntsc(_) => None,
             Self::A500PlusPal(rt) => rt.machine().gayle_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().gayle_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().gayle_diagnostic_snapshot(),
@@ -2144,7 +2418,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn generic_fast_ram_diagnostic_snapshot(&self) -> Option<AutoconfigBoardDiagnosticSnapshot> {
         match self {
-            Self::Ocs(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
             Self::A500PlusPal(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
             Self::A500PlusNtsc(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
             Self::A600Pal(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
@@ -2156,7 +2437,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn gvp_a530_diagnostic_snapshot(&self) -> Option<GvpA530DiagnosticSnapshot> {
         match self {
-            Self::Ocs(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
             Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2170,7 +2458,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         &self,
     ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
         match self {
-            Self::Ocs(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A1000Pal(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A1000Ntsc(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A500Rev5Pal(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A500Rev6APal(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
             Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2182,7 +2477,20 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn motherboard_bridge_is_coherent(&self) -> Option<bool> {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => {
+                AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine())
+            }
+            Self::A2000CrRev6Pal(rt) => {
+                AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine())
+            }
+            Self::A2000CrRev6Ntsc(rt) => {
+                AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine())
+            }
             Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2194,7 +2502,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn framebuffer(&self) -> &[u32] {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A1000Pal(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
             Self::A500PlusPal(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
             Self::A600Pal(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
@@ -2206,7 +2521,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn framebuffer_dims(&self) -> (u32, u32) {
         match self {
-            Self::Ocs(rt) => rt.machine().framebuffer_dims(),
+            Self::A1000Pal(rt) => rt.machine().framebuffer_dims(),
+            Self::A1000Ntsc(rt) => rt.machine().framebuffer_dims(),
+            Self::A500Rev5Pal(rt) => rt.machine().framebuffer_dims(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().framebuffer_dims(),
+            Self::A500Rev6APal(rt) => rt.machine().framebuffer_dims(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().framebuffer_dims(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().framebuffer_dims(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().framebuffer_dims(),
             Self::A500PlusPal(rt) => rt.machine().framebuffer_dims(),
             Self::A500PlusNtsc(rt) => rt.machine().framebuffer_dims(),
             Self::A600Pal(rt) => rt.machine().framebuffer_dims(),
@@ -2218,7 +2540,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn read_word(&self, addr: u32) -> u16 {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A1000Pal(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
             Self::A500PlusPal(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
             Self::A600Pal(rt) => AmigaLiveAccess::read_word(rt.machine(), addr),
@@ -2230,7 +2559,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn read_long(&self, addr: u32) -> u32 {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A1000Pal(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
             Self::A500PlusPal(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
             Self::A600Pal(rt) => AmigaLiveAccess::read_long(rt.machine(), addr),
@@ -2242,7 +2578,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn poke_byte(&mut self, addr: u32, value: u8) {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A1000Pal(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
             Self::A500PlusPal(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
             Self::A600Pal(rt) => AmigaLiveAccess::poke_byte(rt.machine_mut(), addr, value),
@@ -2254,7 +2597,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn poke_word(&mut self, addr: u32, value: u16) {
         match self {
-            Self::Ocs(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A1000Pal(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A1000Ntsc(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A500Rev5Pal(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A500Rev5Ntsc(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A500Rev6APal(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A500Rev6ANtsc(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A2000CrRev6Pal(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
+            Self::A2000CrRev6Ntsc(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
             Self::A500PlusPal(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
             Self::A500PlusNtsc(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
             Self::A600Pal(rt) => AmigaLiveAccess::poke_word(rt.machine_mut(), addr, value),
@@ -2266,7 +2616,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
         match self {
-            Self::Ocs(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A1000Pal(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A1000Ntsc(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A500Rev5Pal(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A500Rev5Ntsc(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A500Rev6APal(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A500Rev6ANtsc(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A2000CrRev6Pal(rt) => rt.machine_mut().set_watch(base_len),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine_mut().set_watch(base_len),
             Self::A500PlusPal(rt) => rt.machine_mut().set_watch(base_len),
             Self::A500PlusNtsc(rt) => rt.machine_mut().set_watch(base_len),
             Self::A600Pal(rt) => rt.machine_mut().set_watch(base_len),
@@ -2278,7 +2635,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn watch_range(&self) -> Option<(u32, u32)> {
         match self {
-            Self::Ocs(rt) => rt.machine().watch_range(),
+            Self::A1000Pal(rt) => rt.machine().watch_range(),
+            Self::A1000Ntsc(rt) => rt.machine().watch_range(),
+            Self::A500Rev5Pal(rt) => rt.machine().watch_range(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().watch_range(),
+            Self::A500Rev6APal(rt) => rt.machine().watch_range(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().watch_range(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().watch_range(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().watch_range(),
             Self::A500PlusPal(rt) => rt.machine().watch_range(),
             Self::A500PlusNtsc(rt) => rt.machine().watch_range(),
             Self::A600Pal(rt) => rt.machine().watch_range(),
@@ -2290,7 +2654,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn watch_log(&self) -> &[WatchLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().watch_log(),
+            Self::A1000Pal(rt) => rt.machine().watch_log(),
+            Self::A1000Ntsc(rt) => rt.machine().watch_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().watch_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().watch_log(),
+            Self::A500Rev6APal(rt) => rt.machine().watch_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().watch_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().watch_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().watch_log(),
             Self::A500PlusPal(rt) => rt.machine().watch_log(),
             Self::A500PlusNtsc(rt) => rt.machine().watch_log(),
             Self::A600Pal(rt) => rt.machine().watch_log(),
@@ -2302,7 +2673,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn dsk_write_log(&self) -> &[DskLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().dsk_write_log(),
+            Self::A1000Pal(rt) => rt.machine().dsk_write_log(),
+            Self::A1000Ntsc(rt) => rt.machine().dsk_write_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().dsk_write_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().dsk_write_log(),
+            Self::A500Rev6APal(rt) => rt.machine().dsk_write_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().dsk_write_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().dsk_write_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().dsk_write_log(),
             Self::A500PlusPal(rt) => rt.machine().dsk_write_log(),
             Self::A500PlusNtsc(rt) => rt.machine().dsk_write_log(),
             Self::A600Pal(rt) => rt.machine().dsk_write_log(),
@@ -2314,7 +2692,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn palette_log(&self) -> &[PaletteLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().palette_log(),
+            Self::A1000Pal(rt) => rt.machine().palette_log(),
+            Self::A1000Ntsc(rt) => rt.machine().palette_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().palette_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().palette_log(),
+            Self::A500Rev6APal(rt) => rt.machine().palette_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().palette_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().palette_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().palette_log(),
             Self::A500PlusPal(rt) => rt.machine().palette_log(),
             Self::A500PlusNtsc(rt) => rt.machine().palette_log(),
             Self::A600Pal(rt) => rt.machine().palette_log(),
@@ -2326,7 +2711,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn bplcon0_log(&self) -> &[Bplcon0LogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().bplcon0_log(),
+            Self::A1000Pal(rt) => rt.machine().bplcon0_log(),
+            Self::A1000Ntsc(rt) => rt.machine().bplcon0_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().bplcon0_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().bplcon0_log(),
+            Self::A500Rev6APal(rt) => rt.machine().bplcon0_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().bplcon0_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().bplcon0_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().bplcon0_log(),
             Self::A500PlusPal(rt) => rt.machine().bplcon0_log(),
             Self::A500PlusNtsc(rt) => rt.machine().bplcon0_log(),
             Self::A600Pal(rt) => rt.machine().bplcon0_log(),
@@ -2338,7 +2730,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn reg_read_log(&self) -> &[RegReadLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().reg_read_log(),
+            Self::A1000Pal(rt) => rt.machine().reg_read_log(),
+            Self::A1000Ntsc(rt) => rt.machine().reg_read_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().reg_read_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().reg_read_log(),
+            Self::A500Rev6APal(rt) => rt.machine().reg_read_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().reg_read_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().reg_read_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().reg_read_log(),
             Self::A500PlusPal(rt) => rt.machine().reg_read_log(),
             Self::A500PlusNtsc(rt) => rt.machine().reg_read_log(),
             Self::A600Pal(rt) => rt.machine().reg_read_log(),
@@ -2350,7 +2749,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn custom_write_log(&self) -> &[CustomWriteEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().custom_write_log(),
+            Self::A1000Pal(rt) => rt.machine().custom_write_log(),
+            Self::A1000Ntsc(rt) => rt.machine().custom_write_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().custom_write_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().custom_write_log(),
+            Self::A500Rev6APal(rt) => rt.machine().custom_write_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().custom_write_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().custom_write_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().custom_write_log(),
             Self::A500PlusPal(rt) => rt.machine().custom_write_log(),
             Self::A500PlusNtsc(rt) => rt.machine().custom_write_log(),
             Self::A600Pal(rt) => rt.machine().custom_write_log(),
@@ -2362,7 +2768,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn copper_move_log(&self) -> &[CopperMoveLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().copper_move_log(),
+            Self::A1000Pal(rt) => rt.machine().copper_move_log(),
+            Self::A1000Ntsc(rt) => rt.machine().copper_move_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().copper_move_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().copper_move_log(),
+            Self::A500Rev6APal(rt) => rt.machine().copper_move_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().copper_move_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().copper_move_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().copper_move_log(),
             Self::A500PlusPal(rt) => rt.machine().copper_move_log(),
             Self::A500PlusNtsc(rt) => rt.machine().copper_move_log(),
             Self::A600Pal(rt) => rt.machine().copper_move_log(),
@@ -2374,7 +2787,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn register_read_counts(&self) -> &std::collections::HashMap<u16, u64> {
         match self {
-            Self::Ocs(rt) => rt.machine().register_read_counts(),
+            Self::A1000Pal(rt) => rt.machine().register_read_counts(),
+            Self::A1000Ntsc(rt) => rt.machine().register_read_counts(),
+            Self::A500Rev5Pal(rt) => rt.machine().register_read_counts(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().register_read_counts(),
+            Self::A500Rev6APal(rt) => rt.machine().register_read_counts(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().register_read_counts(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().register_read_counts(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().register_read_counts(),
             Self::A500PlusPal(rt) => rt.machine().register_read_counts(),
             Self::A500PlusNtsc(rt) => rt.machine().register_read_counts(),
             Self::A600Pal(rt) => rt.machine().register_read_counts(),
@@ -2386,7 +2806,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn peak_intena(&self) -> u16 {
         match self {
-            Self::Ocs(rt) => rt.machine().peak_intena(),
+            Self::A1000Pal(rt) => rt.machine().peak_intena(),
+            Self::A1000Ntsc(rt) => rt.machine().peak_intena(),
+            Self::A500Rev5Pal(rt) => rt.machine().peak_intena(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().peak_intena(),
+            Self::A500Rev6APal(rt) => rt.machine().peak_intena(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().peak_intena(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().peak_intena(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().peak_intena(),
             Self::A500PlusPal(rt) => rt.machine().peak_intena(),
             Self::A500PlusNtsc(rt) => rt.machine().peak_intena(),
             Self::A600Pal(rt) => rt.machine().peak_intena(),
@@ -2398,7 +2825,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn intena_write_count(&self) -> u64 {
         match self {
-            Self::Ocs(rt) => rt.machine().intena_write_count(),
+            Self::A1000Pal(rt) => rt.machine().intena_write_count(),
+            Self::A1000Ntsc(rt) => rt.machine().intena_write_count(),
+            Self::A500Rev5Pal(rt) => rt.machine().intena_write_count(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().intena_write_count(),
+            Self::A500Rev6APal(rt) => rt.machine().intena_write_count(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().intena_write_count(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().intena_write_count(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().intena_write_count(),
             Self::A500PlusPal(rt) => rt.machine().intena_write_count(),
             Self::A500PlusNtsc(rt) => rt.machine().intena_write_count(),
             Self::A600Pal(rt) => rt.machine().intena_write_count(),
@@ -2410,7 +2844,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn intena_log(&self) -> &[RegisterTransitionLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().intena_log(),
+            Self::A1000Pal(rt) => rt.machine().intena_log(),
+            Self::A1000Ntsc(rt) => rt.machine().intena_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().intena_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().intena_log(),
+            Self::A500Rev6APal(rt) => rt.machine().intena_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().intena_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().intena_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().intena_log(),
             Self::A500PlusPal(rt) => rt.machine().intena_log(),
             Self::A500PlusNtsc(rt) => rt.machine().intena_log(),
             Self::A600Pal(rt) => rt.machine().intena_log(),
@@ -2422,7 +2863,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cop1lc_log(&self) -> &[CopperPointerLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().cop1lc_log(),
+            Self::A1000Pal(rt) => rt.machine().cop1lc_log(),
+            Self::A1000Ntsc(rt) => rt.machine().cop1lc_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().cop1lc_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cop1lc_log(),
+            Self::A500Rev6APal(rt) => rt.machine().cop1lc_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cop1lc_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cop1lc_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cop1lc_log(),
             Self::A500PlusPal(rt) => rt.machine().cop1lc_log(),
             Self::A500PlusNtsc(rt) => rt.machine().cop1lc_log(),
             Self::A600Pal(rt) => rt.machine().cop1lc_log(),
@@ -2434,7 +2882,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cop2lc_log(&self) -> &[CopperPointerLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().cop2lc_log(),
+            Self::A1000Pal(rt) => rt.machine().cop2lc_log(),
+            Self::A1000Ntsc(rt) => rt.machine().cop2lc_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().cop2lc_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cop2lc_log(),
+            Self::A500Rev6APal(rt) => rt.machine().cop2lc_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cop2lc_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cop2lc_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cop2lc_log(),
             Self::A500PlusPal(rt) => rt.machine().cop2lc_log(),
             Self::A500PlusNtsc(rt) => rt.machine().cop2lc_log(),
             Self::A600Pal(rt) => rt.machine().cop2lc_log(),
@@ -2446,7 +2901,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn dmacon_log(&self) -> &[RegisterTransitionLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().dmacon_log(),
+            Self::A1000Pal(rt) => rt.machine().dmacon_log(),
+            Self::A1000Ntsc(rt) => rt.machine().dmacon_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().dmacon_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().dmacon_log(),
+            Self::A500Rev6APal(rt) => rt.machine().dmacon_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().dmacon_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().dmacon_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().dmacon_log(),
             Self::A500PlusPal(rt) => rt.machine().dmacon_log(),
             Self::A500PlusNtsc(rt) => rt.machine().dmacon_log(),
             Self::A600Pal(rt) => rt.machine().dmacon_log(),
@@ -2458,7 +2920,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn blitter_start_count(&self) -> u64 {
         match self {
-            Self::Ocs(rt) => rt.machine().blitter_start_count(),
+            Self::A1000Pal(rt) => rt.machine().blitter_start_count(),
+            Self::A1000Ntsc(rt) => rt.machine().blitter_start_count(),
+            Self::A500Rev5Pal(rt) => rt.machine().blitter_start_count(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().blitter_start_count(),
+            Self::A500Rev6APal(rt) => rt.machine().blitter_start_count(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().blitter_start_count(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().blitter_start_count(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().blitter_start_count(),
             Self::A500PlusPal(rt) => rt.machine().blitter_start_count(),
             Self::A500PlusNtsc(rt) => rt.machine().blitter_start_count(),
             Self::A600Pal(rt) => rt.machine().blitter_start_count(),
@@ -2470,7 +2939,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn blitter_log(&self) -> &[BlitLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().blitter_log(),
+            Self::A1000Pal(rt) => rt.machine().blitter_log(),
+            Self::A1000Ntsc(rt) => rt.machine().blitter_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().blitter_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().blitter_log(),
+            Self::A500Rev6APal(rt) => rt.machine().blitter_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().blitter_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().blitter_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().blitter_log(),
             Self::A500PlusPal(rt) => rt.machine().blitter_log(),
             Self::A500PlusNtsc(rt) => rt.machine().blitter_log(),
             Self::A600Pal(rt) => rt.machine().blitter_log(),
@@ -2482,7 +2958,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cia_a_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().cia_a_write_log(),
+            Self::A1000Pal(rt) => rt.machine().cia_a_write_log(),
+            Self::A1000Ntsc(rt) => rt.machine().cia_a_write_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().cia_a_write_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cia_a_write_log(),
+            Self::A500Rev6APal(rt) => rt.machine().cia_a_write_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cia_a_write_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cia_a_write_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cia_a_write_log(),
             Self::A500PlusPal(rt) => rt.machine().cia_a_write_log(),
             Self::A500PlusNtsc(rt) => rt.machine().cia_a_write_log(),
             Self::A600Pal(rt) => rt.machine().cia_a_write_log(),
@@ -2494,7 +2977,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cia_b_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().cia_b_write_log(),
+            Self::A1000Pal(rt) => rt.machine().cia_b_write_log(),
+            Self::A1000Ntsc(rt) => rt.machine().cia_b_write_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().cia_b_write_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().cia_b_write_log(),
+            Self::A500Rev6APal(rt) => rt.machine().cia_b_write_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().cia_b_write_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().cia_b_write_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().cia_b_write_log(),
             Self::A500PlusPal(rt) => rt.machine().cia_b_write_log(),
             Self::A500PlusNtsc(rt) => rt.machine().cia_b_write_log(),
             Self::A600Pal(rt) => rt.machine().cia_b_write_log(),
@@ -2506,7 +2996,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cia_a_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
         match self {
-            Self::Ocs(_)
+            Self::A1000Pal(_)
+            | Self::A1000Ntsc(_)
+            | Self::A500Rev5Pal(_)
+            | Self::A500Rev5Ntsc(_)
+            | Self::A500Rev6APal(_)
+            | Self::A500Rev6ANtsc(_)
+            | Self::A2000CrRev6Pal(_)
+            | Self::A2000CrRev6Ntsc(_)
             | Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2518,7 +3015,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cia_b_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
         match self {
-            Self::Ocs(_)
+            Self::A1000Pal(_)
+            | Self::A1000Ntsc(_)
+            | Self::A500Rev5Pal(_)
+            | Self::A500Rev5Ntsc(_)
+            | Self::A500Rev6APal(_)
+            | Self::A500Rev6ANtsc(_)
+            | Self::A2000CrRev6Pal(_)
+            | Self::A2000CrRev6Ntsc(_)
             | Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2530,7 +3034,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn rtc_access_log(&self) -> &[RtcAccessLogEntry] {
         match self {
-            Self::Ocs(rt) => rt.machine().rtc_access_log(),
+            Self::A1000Pal(rt) => rt.machine().rtc_access_log(),
+            Self::A1000Ntsc(rt) => rt.machine().rtc_access_log(),
+            Self::A500Rev5Pal(rt) => rt.machine().rtc_access_log(),
+            Self::A500Rev5Ntsc(rt) => rt.machine().rtc_access_log(),
+            Self::A500Rev6APal(rt) => rt.machine().rtc_access_log(),
+            Self::A500Rev6ANtsc(rt) => rt.machine().rtc_access_log(),
+            Self::A2000CrRev6Pal(rt) => rt.machine().rtc_access_log(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine().rtc_access_log(),
             Self::A500PlusPal(rt) => rt.machine().rtc_access_log(),
             Self::A500PlusNtsc(rt) => rt.machine().rtc_access_log(),
             Self::A600Pal(rt) => rt.machine().rtc_access_log(),
@@ -2542,7 +3053,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn aga_copper(&self) -> Option<&Copper> {
         match self {
-            Self::Ocs(_)
+            Self::A1000Pal(_)
+            | Self::A1000Ntsc(_)
+            | Self::A500Rev5Pal(_)
+            | Self::A500Rev5Ntsc(_)
+            | Self::A500Rev6APal(_)
+            | Self::A500Rev6ANtsc(_)
+            | Self::A2000CrRev6Pal(_)
+            | Self::A2000CrRev6Ntsc(_)
             | Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2554,7 +3072,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn aga_lisa(&self) -> Option<AgaLisaSnapshot> {
         match self {
-            Self::Ocs(_)
+            Self::A1000Pal(_)
+            | Self::A1000Ntsc(_)
+            | Self::A500Rev5Pal(_)
+            | Self::A500Rev5Ntsc(_)
+            | Self::A500Rev6APal(_)
+            | Self::A500Rev6ANtsc(_)
+            | Self::A2000CrRev6Pal(_)
+            | Self::A2000CrRev6Ntsc(_)
             | Self::A500PlusPal(_)
             | Self::A500PlusNtsc(_)
             | Self::A600Pal(_)
@@ -2566,7 +3091,35 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn insert_floppy0_writable(&mut self, adf: Adf, change_pending: bool, writable: bool) {
         match self {
-            Self::Ocs(rt) => {
+            Self::A1000Pal(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A1000Ntsc(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A500Rev5Pal(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A500Rev5Ntsc(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A500Rev6APal(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A500Rev6ANtsc(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A2000CrRev6Pal(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::A2000CrRev6Ntsc(rt) => {
                 rt.machine_mut()
                     .insert_floppy0_writable(adf, change_pending, writable)
             }
@@ -2599,7 +3152,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn eject_floppy0(&mut self) {
         match self {
-            Self::Ocs(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A1000Pal(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A1000Ntsc(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A500Rev5Pal(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A500Rev5Ntsc(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A500Rev6APal(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A500Rev6ANtsc(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A2000CrRev6Pal(rt) => rt.machine_mut().eject_floppy0(),
+            Self::A2000CrRev6Ntsc(rt) => rt.machine_mut().eject_floppy0(),
             Self::A500PlusPal(rt) => rt.machine_mut().eject_floppy0(),
             Self::A500PlusNtsc(rt) => rt.machine_mut().eject_floppy0(),
             Self::A600Pal(rt) => rt.machine_mut().eject_floppy0(),
@@ -2615,7 +3175,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_trace_arm(&mut self, pc_filter: Option<(u32, u32)>, max_entries: usize) {
         match self {
-            Self::Ocs(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A1000Pal(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A1000Ntsc(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A500Rev5Pal(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A500Rev5Ntsc(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A500Rev6APal(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A500Rev6ANtsc(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A2000CrRev6Pal(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
+            Self::A2000CrRev6Ntsc(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
             Self::A500PlusPal(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
             Self::A500PlusNtsc(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
             Self::A600Pal(rt) => rt.cpu_trace_arm(pc_filter, max_entries),
@@ -2627,7 +3194,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_trace_disarm(&mut self) -> usize {
         match self {
-            Self::Ocs(rt) => rt.cpu_trace_disarm(),
+            Self::A1000Pal(rt) => rt.cpu_trace_disarm(),
+            Self::A1000Ntsc(rt) => rt.cpu_trace_disarm(),
+            Self::A500Rev5Pal(rt) => rt.cpu_trace_disarm(),
+            Self::A500Rev5Ntsc(rt) => rt.cpu_trace_disarm(),
+            Self::A500Rev6APal(rt) => rt.cpu_trace_disarm(),
+            Self::A500Rev6ANtsc(rt) => rt.cpu_trace_disarm(),
+            Self::A2000CrRev6Pal(rt) => rt.cpu_trace_disarm(),
+            Self::A2000CrRev6Ntsc(rt) => rt.cpu_trace_disarm(),
             Self::A500PlusPal(rt) => rt.cpu_trace_disarm(),
             Self::A500PlusNtsc(rt) => rt.cpu_trace_disarm(),
             Self::A600Pal(rt) => rt.cpu_trace_disarm(),
@@ -2639,7 +3213,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_trace_clear(&mut self) -> usize {
         match self {
-            Self::Ocs(rt) => rt.cpu_trace_clear(),
+            Self::A1000Pal(rt) => rt.cpu_trace_clear(),
+            Self::A1000Ntsc(rt) => rt.cpu_trace_clear(),
+            Self::A500Rev5Pal(rt) => rt.cpu_trace_clear(),
+            Self::A500Rev5Ntsc(rt) => rt.cpu_trace_clear(),
+            Self::A500Rev6APal(rt) => rt.cpu_trace_clear(),
+            Self::A500Rev6ANtsc(rt) => rt.cpu_trace_clear(),
+            Self::A2000CrRev6Pal(rt) => rt.cpu_trace_clear(),
+            Self::A2000CrRev6Ntsc(rt) => rt.cpu_trace_clear(),
             Self::A500PlusPal(rt) => rt.cpu_trace_clear(),
             Self::A500PlusNtsc(rt) => rt.cpu_trace_clear(),
             Self::A600Pal(rt) => rt.cpu_trace_clear(),
@@ -2651,7 +3232,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_trace_armed(&self) -> bool {
         match self {
-            Self::Ocs(rt) => rt.cpu_trace_armed(),
+            Self::A1000Pal(rt) => rt.cpu_trace_armed(),
+            Self::A1000Ntsc(rt) => rt.cpu_trace_armed(),
+            Self::A500Rev5Pal(rt) => rt.cpu_trace_armed(),
+            Self::A500Rev5Ntsc(rt) => rt.cpu_trace_armed(),
+            Self::A500Rev6APal(rt) => rt.cpu_trace_armed(),
+            Self::A500Rev6ANtsc(rt) => rt.cpu_trace_armed(),
+            Self::A2000CrRev6Pal(rt) => rt.cpu_trace_armed(),
+            Self::A2000CrRev6Ntsc(rt) => rt.cpu_trace_armed(),
             Self::A500PlusPal(rt) => rt.cpu_trace_armed(),
             Self::A500PlusNtsc(rt) => rt.cpu_trace_armed(),
             Self::A600Pal(rt) => rt.cpu_trace_armed(),
@@ -2663,7 +3251,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_trace_max_entries(&self) -> usize {
         match self {
-            Self::Ocs(rt) => rt.cpu_trace_max_entries(),
+            Self::A1000Pal(rt) => rt.cpu_trace_max_entries(),
+            Self::A1000Ntsc(rt) => rt.cpu_trace_max_entries(),
+            Self::A500Rev5Pal(rt) => rt.cpu_trace_max_entries(),
+            Self::A500Rev5Ntsc(rt) => rt.cpu_trace_max_entries(),
+            Self::A500Rev6APal(rt) => rt.cpu_trace_max_entries(),
+            Self::A500Rev6ANtsc(rt) => rt.cpu_trace_max_entries(),
+            Self::A2000CrRev6Pal(rt) => rt.cpu_trace_max_entries(),
+            Self::A2000CrRev6Ntsc(rt) => rt.cpu_trace_max_entries(),
             Self::A500PlusPal(rt) => rt.cpu_trace_max_entries(),
             Self::A500PlusNtsc(rt) => rt.cpu_trace_max_entries(),
             Self::A600Pal(rt) => rt.cpu_trace_max_entries(),
@@ -2675,7 +3270,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn cpu_trace_entries(&self) -> &[crate::CpuTraceEntry] {
         match self {
-            Self::Ocs(rt) => rt.cpu_trace_entries(),
+            Self::A1000Pal(rt) => rt.cpu_trace_entries(),
+            Self::A1000Ntsc(rt) => rt.cpu_trace_entries(),
+            Self::A500Rev5Pal(rt) => rt.cpu_trace_entries(),
+            Self::A500Rev5Ntsc(rt) => rt.cpu_trace_entries(),
+            Self::A500Rev6APal(rt) => rt.cpu_trace_entries(),
+            Self::A500Rev6ANtsc(rt) => rt.cpu_trace_entries(),
+            Self::A2000CrRev6Pal(rt) => rt.cpu_trace_entries(),
+            Self::A2000CrRev6Ntsc(rt) => rt.cpu_trace_entries(),
             Self::A500PlusPal(rt) => rt.cpu_trace_entries(),
             Self::A500PlusNtsc(rt) => rt.cpu_trace_entries(),
             Self::A600Pal(rt) => rt.cpu_trace_entries(),

@@ -242,7 +242,14 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
                 return Err("Unknown disk slot".into());
             }
             return match r {
-                AmigaRuntimeKind::Ocs(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A1000Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A1000Ntsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev5Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev5Ntsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev6APal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500Rev6ANtsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A2000CrRev6Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A2000CrRev6Ntsc(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::A500PlusPal(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::A500PlusNtsc(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::A600Pal(r) => r.machine().floppy0_image_bytes(),

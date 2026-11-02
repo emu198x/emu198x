@@ -121,8 +121,14 @@ fn host_decimation_rejects_ultrasonic_aliases() {
     let mut count = 0;
     let mut failures = 0;
     for (cases, failed) in [
-        sweep(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsPal)),
-        sweep(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc)),
+        sweep(
+            crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+                .expect("matching fixed owner"),
+        ),
+        sweep(
+            crate::AmigaA500Rev5NtscRuntime::blank_with_config(Model::A500OcsNtsc.config())
+                .expect("matching fixed owner"),
+        ),
         sweep(crate::AmigaA500PlusPalRuntime::blank()),
         sweep(crate::AmigaA500PlusNtscRuntime::blank()),
         sweep(crate::AmigaA1200PalRuntime::blank()),
@@ -205,10 +211,22 @@ fn led_alignment<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(mut runtime: A
 
 #[test]
 fn led_control_follows_the_delayed_signal_on_every_board() {
-    led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsPal));
-    led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc));
-    led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A1000OcsPal));
-    led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A1000OcsNtsc));
+    led_alignment(
+        crate::AmigaA500Rev5PalRuntime::blank_with_config(Model::A500OcsPal.config())
+            .expect("matching fixed owner"),
+    );
+    led_alignment(
+        crate::AmigaA500Rev5NtscRuntime::blank_with_config(Model::A500OcsNtsc.config())
+            .expect("matching fixed owner"),
+    );
+    led_alignment(
+        crate::AmigaA1000PalRuntime::blank_with_config(Model::A1000OcsPal.config())
+            .expect("matching fixed owner"),
+    );
+    led_alignment(
+        crate::AmigaA1000NtscRuntime::blank_with_config(Model::A1000OcsNtsc.config())
+            .expect("matching fixed owner"),
+    );
     led_alignment(crate::AmigaA500PlusPalRuntime::blank());
     led_alignment(crate::AmigaA500PlusNtscRuntime::blank());
     led_alignment(crate::AmigaA1200PalRuntime::blank());

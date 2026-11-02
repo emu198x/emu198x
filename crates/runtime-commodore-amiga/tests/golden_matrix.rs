@@ -67,8 +67,8 @@ use emu198x_shell::{
     HeadlessScript, HeadlessSession, MediaKind, ScriptMediaKind, ScriptStep, read_media_asset,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaA1200NtscRuntime, AmigaA1200PalRuntime, AmigaOcsRuntime,
-    AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaA1200NtscRuntime, AmigaA1200PalRuntime, AmigaSessionQueryProvider,
+    DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 /// One row in the golden matrix.
@@ -334,9 +334,9 @@ fn load_optional_disk_asset(spec: DiskAsset, row: &str) -> Option<Vec<u8>> {
 /// `tick()` directly rather than `run_until` so we bypass the
 /// frame-sink plumbing — the test only cares about the final
 /// framebuffer, not per-frame emission.
-fn tick_frames(rt: &mut AmigaOcsRuntime, frames: u64) {
+fn tick_frames(rt: &mut impl runtime_commodore_amiga::AmigaLiveAccess, frames: u64) {
     for _ in 0..(frames * A500_PAL_FRAME_TICKS) {
-        rt.machine_mut().tick();
+        rt.tick();
     }
 }
 
@@ -347,8 +347,8 @@ fn tick_frames(rt: &mut AmigaOcsRuntime, frames: u64) {
 /// horizontal trim and `(DISPLAY_HEIGHT - FSUAE_H) / 2`-scanline
 /// vertical trim, discarding the outer PAL overscan border that
 /// FS-UAE doesn't show.
-fn capture_fsuae_rgb(rt: &AmigaOcsRuntime) -> Vec<u8> {
-    crop_fsuae_rgb(rt.machine().denise().framebuffer())
+fn capture_fsuae_rgb(rt: &impl runtime_commodore_amiga::AmigaLiveAccess) -> Vec<u8> {
+    crop_fsuae_rgb(rt.framebuffer())
 }
 
 /// Compare the historical hires reference view of the fixed PAL window.
@@ -542,7 +542,7 @@ fn run_row(row: &GoldenRow) {
             disk,
             settle_frames,
         } => {
-            let mut rt = AmigaOcsRuntime::new(row.model, rom_bytes)
+            let mut rt = runtime_commodore_amiga::AmigaRuntimeKind::new(row.model, rom_bytes)
                 .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
             if let Some(spec) = disk {
                 let Some(bytes) = load_optional_disk_asset(spec, row.name) else {
@@ -550,7 +550,7 @@ fn run_row(row: &GoldenRow) {
                 };
                 let adf = Adf::from_bytes(bytes)
                     .unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
-                rt.machine_mut().insert_adf(adf);
+                runtime_commodore_amiga::AmigaLiveAccess::insert_floppy0(&mut rt, adf, false);
             }
             tick_frames(&mut rt, settle_frames);
             capture_fsuae_rgb(&rt)
@@ -566,7 +566,7 @@ fn run_row(row: &GoldenRow) {
             let Some(workbench_path) = disk_asset_path(workbench_disk, row.name) else {
                 return;
             };
-            let runtime = AmigaOcsRuntime::new(row.model, rom_bytes)
+            let runtime = runtime_commodore_amiga::AmigaRuntimeKind::new(row.model, rom_bytes)
                 .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
             let mut session = HeadlessSession::new_with_query_provider(
                 runtime,

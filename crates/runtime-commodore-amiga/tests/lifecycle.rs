@@ -10,7 +10,7 @@ use emu198x_shell::{
     MediaTransportCommand, NullAudioSink, NullFrameSink, NullTraceSink, ResetKind,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, Model, PaulaChannel, RamConfig,
+    A500_PAL_FRAME_TICKS, AmigaA500Rev5PalRuntime, AudioControls, Model, PaulaChannel, RamConfig,
     profile_for,
 };
 
@@ -53,14 +53,15 @@ impl FrameSink for FrameCollector {
 
 #[test]
 fn from_firmware_accepts_supported_kickstart_size() {
-    let runtime = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
+    let runtime = AmigaA500Rev5PalRuntime::from_firmware(Model::A500OcsPal, &dummy_firmware());
     assert!(runtime.is_ok());
 }
 
 #[test]
 fn audio_controls_mutate_machine_paula_mixer() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
 
     runtime.set_audio_channel_enabled(PaulaChannel::Channel1, false);
     runtime.set_audio_channel_gain(PaulaChannel::Channel3, 0.25);
@@ -72,13 +73,19 @@ fn audio_controls_mutate_machine_paula_mixer() {
 
 #[test]
 fn from_firmware_accepts_supported_a1000_bootstrap_size() {
-    let runtime = AmigaOcsRuntime::from_firmware(Model::A1000OcsPal, &dummy_a1000_firmware());
+    let runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::from_firmware(
+        Model::A1000OcsPal,
+        &dummy_a1000_firmware(),
+    );
     assert!(runtime.is_ok());
 }
 
 #[test]
 fn new_rejects_undersized_rom() {
-    match AmigaOcsRuntime::new(Model::A500OcsPal, vec![0; 128 * 1024]) {
+    match runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        vec![0; 128 * 1024],
+    ) {
         Err(MachineError::InvalidFirmware { id, .. }) => assert_eq!(id, KICKSTART_ROM_ID),
         Err(other) => panic!("expected InvalidFirmware, got {other:?}"),
         Ok(_) => panic!("expected InvalidFirmware, got Ok"),
@@ -87,7 +94,10 @@ fn new_rejects_undersized_rom() {
 
 #[test]
 fn a1000_new_rejects_non_bootstrap_rom_size() {
-    match AmigaOcsRuntime::new(Model::A1000OcsPal, vec![0; 256 * 1024]) {
+    match runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        vec![0; 256 * 1024],
+    ) {
         Err(MachineError::InvalidFirmware { id, .. }) => {
             assert_eq!(id, A1000_BOOTSTRAP_ROM_ID)
         }
@@ -98,8 +108,9 @@ fn a1000_new_rejects_non_bootstrap_rom_size() {
 
 #[test]
 fn load_media_accepts_dd_adf() {
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart())
-        .expect("dummy Kickstart should construct");
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("dummy Kickstart should construct");
     let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
@@ -111,8 +122,11 @@ fn load_media_accepts_dd_adf() {
 
 #[test]
 fn load_media_keeps_a1000_disk_change_pending() {
-    let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-        .expect("dummy bootstrap ROM should construct");
+    let mut runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )
+    .expect("dummy bootstrap ROM should construct");
     let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
@@ -130,7 +144,8 @@ fn load_media_keeps_a1000_disk_change_pending() {
 #[test]
 fn load_media_rejects_unknown_slot() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     // DF0 to DF3 are floppy-0 to floppy-3; there is no fifth drive.
@@ -142,7 +157,8 @@ fn load_media_rejects_unknown_slot() {
 #[test]
 fn run_until_advances_time_and_emits_frame() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let target = MachineTime::new(A500_PAL_FRAME_TICKS);
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
@@ -178,7 +194,8 @@ fn run_until_advances_time_and_emits_frame() {
 #[test]
 fn sub_field_target_still_advances_one_complete_field() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let target = MachineTime::new(A500_PAL_FRAME_TICKS / 4);
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
@@ -206,7 +223,8 @@ fn sub_field_target_still_advances_one_complete_field() {
 #[test]
 fn run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     runtime.machine_mut().poke_word(0x00DF_F180, 0x0F00);
 
     let mut frame_sink = FrameCollector::default();
@@ -257,7 +275,8 @@ fn run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge() {
 #[test]
 fn run_until_emits_on_actual_long_interlace_field_boundary() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     runtime.machine_mut().poke_word(0x00DF_F100, 0x0004);
 
     let target = MachineTime::new(A500_PAL_FRAME_TICKS);
@@ -294,7 +313,8 @@ fn run_until_emits_on_actual_long_interlace_field_boundary() {
 #[test]
 fn run_until_applies_mouse_input_to_controller_port_zero() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let input_events = [
         InputEvent::PointerMotion {
             device: "mouse-1".into(),
@@ -331,7 +351,8 @@ fn run_until_applies_mouse_input_to_controller_port_zero() {
 #[test]
 fn run_until_applies_joystick_input_to_controller_port_two() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let input_events = [
         InputEvent::Button {
             port: 2,
@@ -371,7 +392,9 @@ fn run_until_applies_joystick_input_to_controller_port_two() {
 
 #[test]
 fn machine_core_profile_matches_model_profile() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     assert_eq!(
         runtime.profile().profile_id.as_str(),
         profile_for(Model::A500OcsPal).profile_id.as_str()
@@ -380,7 +403,9 @@ fn machine_core_profile_matches_model_profile() {
 
 #[test]
 fn machine_core_capabilities_match_profile() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let caps = runtime.capabilities();
     let profile = profile_for(Model::A500OcsPal);
     assert_eq!(caps, profile.capabilities);
@@ -388,7 +413,9 @@ fn machine_core_capabilities_match_profile() {
 
 #[test]
 fn machine_core_time_matches_internal_time() {
-    let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     // Brand new runtime: time is the default (zero ticks).
     assert_eq!(runtime.time(), MachineTime::default());
 }
@@ -396,7 +423,8 @@ fn machine_core_time_matches_internal_time() {
 #[test]
 fn machine_core_reset_rebuilds_runtime_state() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
     let mut trace_sink = NullTraceSink;
@@ -424,7 +452,8 @@ fn machine_core_reset_rebuilds_runtime_state() {
 #[test]
 fn machine_core_reset_remounts_inserted_floppy() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
@@ -439,8 +468,11 @@ fn machine_core_reset_remounts_inserted_floppy() {
 
 #[test]
 fn machine_core_reset_a1000_rebuilds_with_bootstrap_rom() {
-    let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
-        .expect("A1000 bootstrap should construct");
+    let mut runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::new(
+        Model::A1000OcsPal,
+        dummy_a1000_bootstrap_rom(),
+    )
+    .expect("A1000 bootstrap should construct");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
     let mut trace_sink = NullTraceSink;
@@ -463,7 +495,8 @@ fn machine_core_reset_a1000_rebuilds_with_bootstrap_rom() {
 #[test]
 fn machine_core_command_rejects_any_request() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let err = runtime
         .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
             "floppy-0",
@@ -479,7 +512,8 @@ fn machine_core_command_rejects_any_request() {
 #[test]
 fn load_media_rejects_unsupported_media_kind() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let bytes = [0u8; 16];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Cartridge, &bytes));
@@ -495,7 +529,8 @@ fn load_media_rejects_unsupported_media_kind() {
 #[test]
 fn load_media_rejects_invalid_adf_bytes() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     // ADF parser requires a specific size; a short buffer is invalid.
     let bytes = [0u8; 12];
     let mut media = MediaSet::new();
@@ -512,7 +547,8 @@ fn load_media_rejects_invalid_adf_bytes() {
 #[test]
 fn load_media_identifies_unsupported_ipf_before_trying_adf() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let bytes = b"CAPS\0\0\0\0";
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, bytes));
@@ -535,7 +571,7 @@ fn load_media_identifies_unsupported_ipf_before_trying_adf() {
 #[test]
 fn from_firmware_reports_missing_kickstart() {
     let firmware = FirmwareSet::new();
-    let result = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &firmware);
+    let result = AmigaA500Rev5PalRuntime::from_firmware(Model::A500OcsPal, &firmware);
     let Err(err) = result else {
         panic!("empty firmware set should be rejected")
     };
@@ -549,7 +585,8 @@ fn from_firmware_reports_missing_kickstart() {
 #[test]
 fn from_firmware_reports_missing_a1000_bootstrap() {
     let firmware = FirmwareSet::new();
-    let result = AmigaOcsRuntime::from_firmware(Model::A1000OcsPal, &firmware);
+    let result =
+        runtime_commodore_amiga::AmigaA1000PalRuntime::from_firmware(Model::A1000OcsPal, &firmware);
     let Err(err) = result else {
         panic!("empty firmware set should be rejected")
     };
@@ -564,12 +601,12 @@ fn from_firmware_reports_missing_a1000_bootstrap() {
 fn from_firmware_rejects_wrong_size_kickstart_via_firmware_set() {
     // Firmware set passes profile validation (the right id is present)
     // but the bytes are the wrong size — that drives the error path
-    // *inside* `AmigaOcsRuntime::new` after `from_firmware` has resolved
+    // *inside* `AmigaA500Rev5PalRuntime::new` after `from_firmware` has resolved
     // the bytes.
     let bytes: &'static [u8] = Box::leak(vec![0u8; 1024].into_boxed_slice());
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new(KICKSTART_ROM_ID, bytes));
-    let result = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &firmware);
+    let result = AmigaA500Rev5PalRuntime::from_firmware(Model::A500OcsPal, &firmware);
     assert!(
         matches!(result, Err(MachineError::InvalidFirmware { .. })),
         "1 KiB firmware should be rejected"
@@ -578,13 +615,19 @@ fn from_firmware_rejects_wrong_size_kickstart_via_firmware_set() {
 
 #[test]
 fn blank_constructor_builds_a500_runtime() {
-    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     assert_eq!(runtime.model(), Model::A500OcsPal);
 }
 
 #[test]
 fn blank_constructor_builds_a1000_runtime() {
-    let runtime = AmigaOcsRuntime::blank(Model::A1000OcsPal);
+    let runtime = runtime_commodore_amiga::AmigaA1000PalRuntime::blank_with_config(
+        Model::A1000OcsPal.config(),
+    )
+    .expect("matching fixed owner");
     assert_eq!(runtime.model(), Model::A1000OcsPal);
 }
 
@@ -621,9 +664,12 @@ fn construction_rejects_chip_ram_above_the_selected_agnus_ceiling() {
     ];
 
     for (model, firmware, ram) in cases {
-        let error = AmigaOcsRuntime::with_ram_config(model, firmware, ram)
-            .err()
-            .expect("Agnus-incompatible chip RAM must be rejected before construction");
+        let error = runtime_commodore_amiga::AmigaRuntimeKind::with_config(
+            model.config().with_ram(ram),
+            firmware,
+        )
+        .err()
+        .expect("Agnus-incompatible chip RAM must be rejected before construction");
         assert!(
             matches!(error, MachineError::InvalidRequest { .. }),
             "unexpected error for {model:?}: {error:?}"
@@ -639,7 +685,7 @@ fn blank_constructor_builds_every_ocs_shaped_pal_variant() {
         Model::A2000OcsPal,
         Model::A500OcsPalGvpA530,
     ] {
-        let runtime = AmigaOcsRuntime::blank(model);
+        let runtime = runtime_commodore_amiga::AmigaRuntimeKind::blank(model);
         assert_eq!(runtime.model(), model);
     }
 }
@@ -649,7 +695,10 @@ fn a530_profile_builds_and_resets_the_configured_cpu_clock_and_board() {
     use motorola_68000::CpuModel;
     use runtime_commodore_amiga::{Accelerator, CpuConfig};
 
-    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::blank_with_config(
+        Model::A500OcsPalGvpA530.config(),
+    )
+    .expect("matching fixed owner");
     assert_eq!(
         runtime.config().cpu(),
         CpuConfig::new(CpuModel::M68EC030, 40_000_000)
@@ -676,11 +725,14 @@ fn a530_profile_builds_and_resets_the_configured_cpu_clock_and_board() {
 
 #[test]
 fn ntsc_a530_profile_builds_and_resets_the_configured_cpu_clock_and_board() {
-    use machine_commodore_amiga_ocs::AgnusRegion;
+    use common_commodore_amiga_ocs::AgnusRegion;
     use motorola_68000::CpuModel;
     use runtime_commodore_amiga::{Accelerator, CpuConfig};
 
-    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsNtscGvpA530);
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5NtscRuntime::blank_with_config(
+        Model::A500OcsNtscGvpA530.config(),
+    )
+    .expect("matching fixed owner");
     assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);
     assert_eq!(
         runtime.config().cpu(),
@@ -726,7 +778,8 @@ fn ntsc_a530_profile_builds_and_resets_the_configured_cpu_clock_and_board() {
 #[test]
 fn set_audio_controls_replaces_full_mixer_state() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let mut controls = AudioControls::default();
     controls.set_channel_enabled(PaulaChannel::Channel0, false);
     controls.set_channel_gain(PaulaChannel::Channel2, 0.125);
@@ -742,7 +795,8 @@ fn set_audio_controls_replaces_full_mixer_state() {
 #[test]
 fn run_until_reports_reached_target_with_zero_advancement() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -766,7 +820,8 @@ fn run_until_reports_reached_target_with_zero_advancement() {
 #[test]
 fn run_until_applies_keyboard_input() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let input_events = [
         InputEvent::Key {
             name: "space".into(),
@@ -809,7 +864,8 @@ fn run_until_applies_keyboard_input() {
 #[test]
 fn run_until_drops_unrouted_input_events() {
     let mut runtime =
-        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime init");
     let input_events = [
         InputEvent::PointerMotion {
             device: "mouse-2".into(),
@@ -853,12 +909,30 @@ fn run_until_drops_unrouted_input_events() {
 
 #[test]
 fn blank_constructor_builds_every_ntsc_variant() {
-    let _ = AmigaOcsRuntime::blank(Model::A1000OcsNtsc);
-    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtsc);
-    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscA501);
-    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscMaxed);
-    let _ = AmigaOcsRuntime::blank(Model::A2000OcsNtsc);
-    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscGvpA530);
+    let _ = runtime_commodore_amiga::AmigaA1000NtscRuntime::blank_with_config(
+        Model::A1000OcsNtsc.config(),
+    )
+    .expect("matching fixed owner");
+    let _ = runtime_commodore_amiga::AmigaA500Rev5NtscRuntime::blank_with_config(
+        Model::A500OcsNtsc.config(),
+    )
+    .expect("matching fixed owner");
+    let _ = runtime_commodore_amiga::AmigaA500Rev5NtscRuntime::blank_with_config(
+        Model::A500OcsNtscA501.config(),
+    )
+    .expect("matching fixed owner");
+    let _ = runtime_commodore_amiga::AmigaA500Rev6ANtscRuntime::blank_with_config(
+        Model::A500OcsNtscMaxed.config(),
+    )
+    .expect("matching fixed owner");
+    let _ = runtime_commodore_amiga::AmigaA2000CrRev6NtscRuntime::blank_with_config(
+        Model::A2000OcsNtsc.config(),
+    )
+    .expect("matching fixed owner");
+    let _ = runtime_commodore_amiga::AmigaA500Rev5NtscRuntime::blank_with_config(
+        Model::A500OcsNtscGvpA530.config(),
+    )
+    .expect("matching fixed owner");
 }
 
 #[test]
@@ -883,7 +957,10 @@ fn ntsc_profile_advertises_ntsc_region_and_ntsc_clock_rate() {
 fn ntsc_runtime_runs_one_frame_at_ntsc_tick_count() {
     use runtime_commodore_amiga::A500_NTSC_FRAME_TICKS;
 
-    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsNtsc);
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5NtscRuntime::blank_with_config(
+        Model::A500OcsNtsc.config(),
+    )
+    .expect("matching fixed owner");
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -923,9 +1000,11 @@ fn ntsc_a1000_uses_bootstrap_firmware_path() {
     // model-driven and shared between PAL and NTSC A1000).
     let bootstrap = dummy_a1000_bootstrap_rom();
     let kickstart = dummy_kickstart();
-    assert!(AmigaOcsRuntime::new(Model::A1000OcsNtsc, bootstrap).is_ok());
+    assert!(
+        runtime_commodore_amiga::AmigaA1000NtscRuntime::new(Model::A1000OcsNtsc, bootstrap).is_ok()
+    );
     assert!(matches!(
-        AmigaOcsRuntime::new(Model::A1000OcsNtsc, kickstart),
+        runtime_commodore_amiga::AmigaA1000NtscRuntime::new(Model::A1000OcsNtsc, kickstart),
         Err(MachineError::InvalidFirmware { .. })
     ));
 }
@@ -999,7 +1078,7 @@ fn ecs_runtime_runs_one_ntsc_frame() {
 
 #[test]
 fn reset_preserves_ecs_ntsc_region() {
-    use machine_commodore_amiga_ocs::AgnusRegion;
+    use common_commodore_amiga_ocs::AgnusRegion;
     use runtime_commodore_amiga::AmigaA500PlusNtscRuntime;
 
     let mut runtime = AmigaA500PlusNtscRuntime::blank();
@@ -1010,7 +1089,7 @@ fn reset_preserves_ecs_ntsc_region() {
 
 #[test]
 fn reset_preserves_a1200_ntsc_region() {
-    use machine_commodore_amiga_ocs::AgnusRegion;
+    use common_commodore_amiga_ocs::AgnusRegion;
 
     let mut runtime = runtime_commodore_amiga::AmigaA1200NtscRuntime::blank();
     runtime.reset(ResetKind::Hard);
@@ -1060,7 +1139,9 @@ fn profile_clock_derives_field_rate_recording_fps() {
 #[test]
 fn host_fields_identify_completed_rows_before_agnus_toggles_lof() {
     use emu198x_shell::{FieldParity, VideoField};
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime");
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, dummy_kickstart())
+            .expect("runtime");
     runtime.machine_mut().poke_word(0x00DF_F100, 4);
     let mut frames = FrameCollector::default();
     let mut audio = NullAudioSink;

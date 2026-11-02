@@ -1,12 +1,12 @@
 //! Commodore Amiga family profile catalogue.
 
+use common_commodore_amiga_ocs::RamConfig;
 use emu198x_commodore_agnus_ocs::{NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
     MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 use gvp_a530::{A530Config, A530RamSize};
-use machine_commodore_amiga_ocs::RamConfig;
 use motorola_68000::CpuModel;
 
 use crate::amiga_model::{Accelerator, AmigaConfig, CpuConfig, CpuKind};
@@ -40,7 +40,7 @@ pub enum Model {
     /// A500+ (Plus) layout: 1 MiB chip RAM, no trapdoor (PAL).
     /// **ECS chipset** — A500+ shipped with ECS Agnus 8375 and ECS
     /// (Super) Denise 8373, plus Kickstart 2.04. Backed by
-    /// `AmigaEcs` not `AmigaOcs`.
+    /// the fixed A500+ owner over shared ECS wiring.
     A500PlusEcsPal,
     /// A500+ (Plus) layout (NTSC). ECS chipset; Kickstart 2.04.
     A500PlusEcsNtsc,
@@ -65,11 +65,10 @@ pub enum Model {
     A600EcsNtsc,
     /// A2000 mixed PAL: ECS Fat Agnus 8372A jumpered for 1 MiB chip
     /// RAM, OCS Denise, 68000 CPU, Zorro-II slots and Kickstart 1.3 /
-    /// 2.04. Backed by `AmigaOcs` because the mixed stack retains the
+    /// 2.04. The fixed A2000CR rev-6 owner retains the
     /// OCS Denise shape. German A2000A (8367 PAL / 8361 NTSC) and PCB 312720-01
     /// (8371 PAL / 8370 NTSC), both with 512 KiB chip RAM, do not yet have
-    /// distinct runtime catalogue entries. The raw `AmigaOcs::with_ram_config`
-    /// constructor selects early silicon without attaching board identity.
+    /// distinct runtime catalogue entries.
     A2000OcsPal,
     /// A2000 OCS NTSC.
     A2000OcsNtsc,
@@ -266,6 +265,15 @@ impl Model {
     #[must_use]
     pub fn from_variant_id(id: &str) -> Option<Self> {
         match id {
+            "commodore-amiga-a1000-pal" => return Some(Self::A1000OcsPal),
+            "commodore-amiga-a1000-ntsc" => return Some(Self::A1000OcsNtsc),
+            "commodore-amiga-a500-rev5-pal" => return Some(Self::A500OcsPal),
+            "commodore-amiga-a500-rev5-ntsc" => return Some(Self::A500OcsNtsc),
+            "commodore-amiga-a500-rev6a-pal" => return Some(Self::A500OcsPalMaxed),
+            "commodore-amiga-a500-rev6a-ntsc" => return Some(Self::A500OcsNtscMaxed),
+            "commodore-amiga-a2000cr-rev6-pal" => return Some(Self::A2000OcsPal),
+            "commodore-amiga-a2000cr-rev6-ntsc" => return Some(Self::A2000OcsNtsc),
+
             "commodore-amiga-a500-plus-pal" => return Some(Self::A500PlusEcsPal),
             "commodore-amiga-a500-plus-ntsc" => return Some(Self::A500PlusEcsNtsc),
             "commodore-amiga-a600-pal" => return Some(Self::A600EcsPal),
@@ -666,7 +674,14 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A600EcsNtsc => MachineId::from("commodore-amiga-a600-ntsc"),
             Model::A1200AgaPal => MachineId::from("commodore-amiga-a1200-pal"),
             Model::A1200AgaNtsc => MachineId::from("commodore-amiga-a1200-ntsc"),
-            _ => MachineId::from("commodore-amiga"),
+            Model::A1000OcsPal => MachineId::from("commodore-amiga-a1000-pal"),
+            Model::A1000OcsNtsc => MachineId::from("commodore-amiga-a1000-ntsc"),
+            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalGvpA530 => MachineId::from("commodore-amiga-a500-rev5-pal"),
+            Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500OcsNtscGvpA530 => MachineId::from("commodore-amiga-a500-rev5-ntsc"),
+            Model::A500OcsPalMaxed => MachineId::from("commodore-amiga-a500-rev6a-pal"),
+            Model::A500OcsNtscMaxed => MachineId::from("commodore-amiga-a500-rev6a-ntsc"),
+            Model::A2000OcsPal => MachineId::from("commodore-amiga-a2000cr-rev6-pal"),
+            Model::A2000OcsNtsc => MachineId::from("commodore-amiga-a2000cr-rev6-ntsc"),
         },
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
@@ -676,15 +691,17 @@ pub fn profile_for(model: Model) -> MachineProfile {
         summary: match model {
             Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
             Model::A1000OcsNtsc => "Amiga 1000 OCS NTSC — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Boot path matches PAL A1000; Agnus runs on the NTSC clock with the short/long line alternation modelled in the chip layer.".into(),
-            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalMaxed => "Amiga OCS-shaped PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
-            Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500OcsNtscMaxed => "Amiga OCS-shaped NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
+            Model::A500OcsPal | Model::A500OcsPalA501 => "Amiga 500 rev 5 PAL — original Agnus and OCS Denise, 512 KiB chip RAM with an optional A501 trapdoor RAM/clock profile. Kickstart boot, native video/audio, DF0 media, input and snapshots are implemented; broader software coverage remains under validation.".into(),
+            Model::A500OcsPalMaxed => "Amiga 500 rev 6a PAL — 8372A Fat Agnus with OCS Denise. This modified-RAM profile fits 1 MiB chip, 512 KiB slow and 8 MiB fast RAM; the factory board has 512 KiB chip RAM. Native output and exact save continuation are covered; this is not a factory 1 MiB A500.".into(),
+            Model::A500OcsNtsc | Model::A500OcsNtscA501 => "Amiga 500 rev 5 NTSC — original Agnus and OCS Denise, 512 KiB chip RAM with an optional A501 trapdoor RAM/clock profile. The regional clock and short/long line alternation remain fixed to the NTSC board. Native output and exact save continuation are covered; broader software coverage remains under validation.".into(),
+            Model::A500OcsNtscMaxed => "Amiga 500 rev 6a NTSC — 8372A Fat Agnus with OCS Denise. This modified-RAM profile fits 1 MiB chip, 512 KiB slow and 8 MiB fast RAM; the factory board has 512 KiB chip RAM. The NTSC board retains its regional clock and native output.".into(),
             Model::A500PlusEcsPal => "Amiga 500 Plus ECS PAL — 68000 + ECS Agnus 8375 / Denise 8373, 1 MiB chip RAM and Kickstart 2.04. The full ECS chip stack supplies programmable timing and enhanced display registers.".into(),
             Model::A500PlusEcsNtsc => "Amiga 500 Plus ECS NTSC — same ECS chip stack as the PAL profile, with NTSC beam timing.".into(),
             Model::A1200AgaPal => "Amiga 1200 AGA PAL — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM, Kickstart 3.0/3.1, 1536x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Workbench boot and six exact AGA Test Kit video cases are registered; broader software compatibility remains under active validation.".into(),
             Model::A1200AgaNtsc => "Amiga 1200 AGA NTSC — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM. NTSC boot validation pending; PAL Agnus path is the active target.".into(),
             Model::A600EcsPal => "Amiga 600 ECS PAL — 68000 + ECS Agnus 8375 / Denise 8373 + Gayle (IDE + PCMCIA decode), 1 MiB chip RAM, Kickstart 2.05. Shares the ECS chip stack with the A500+; A600 form factor and Gayle-driven IDE distinguish it.".into(),
             Model::A600EcsNtsc => "Amiga 600 ECS NTSC — same chip stack as the A600 PAL, NTSC Agnus.".into(),
-            Model::A2000OcsPal => "Amiga 2000 mixed PAL — 68000 + ECS Fat Agnus 8372A + OCS Denise + Paula, configured for 1 MiB chip RAM, Kickstart 1.3 / 2.04 and Zorro-II slots. The 8372A path covers identity, RAM ceiling, ten-bit sprite comparators, extended blits, DIWHIGH display-DMA gating and the currently modelled programmable timing registers; additional ECS Agnus behavior remains incomplete. The German A2000A (8367 PAL / 8361 NTSC) and PCB 312720-01 (8371 PAL / 8370 NTSC), both with 512 KiB chip RAM, do not yet have distinct runtime models; only the raw `AmigaOcs::with_ram_config` machine constructor can currently select the early chip without A2000 identity.".into(),
+            Model::A2000OcsPal => "Amiga 2000 mixed PAL — 68000 + ECS Fat Agnus 8372A + OCS Denise + Paula, configured for 1 MiB chip RAM, Kickstart 1.3 / 2.04 and Zorro-II slots. The 8372A path covers identity, RAM ceiling, ten-bit sprite comparators, extended blits, DIWHIGH display-DMA gating and the currently modelled programmable timing registers; additional ECS Agnus behavior remains incomplete. The German A2000A (8367 PAL / 8361 NTSC) and PCB 312720-01 (8371 PAL / 8370 NTSC), both with 512 KiB chip RAM, do not yet have distinct runtime models; those board populations remain unqualified.".into(),
             Model::A2000OcsNtsc => "Amiga 2000 mixed NTSC — the same ECS Fat Agnus 8372A + OCS Denise stack as the PAL profile, with NTSC beam timing and the currently modelled 8372A extension registers; additional ECS Agnus behavior remains incomplete.".into(),
             Model::A500OcsPalGvpA530 => "Research validation profile: Amiga 500 OCS PAL with a 40 MHz MC68EC030 GVP A530 and 1 MiB accelerator-local RAM. Cache and SCSI autoboot are disabled so validation does not claim unimplemented behaviour.".into(),
             Model::A500OcsNtscGvpA530 => "Research validation profile: Amiga 500 OCS NTSC with a 40 MHz MC68EC030 GVP A530 and 1 MiB accelerator-local RAM. Cache and SCSI autoboot are disabled so validation does not claim unimplemented behaviour.".into(),

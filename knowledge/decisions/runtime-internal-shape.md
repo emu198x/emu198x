@@ -1,5 +1,9 @@
 # Decision: Runtime crate internal shape
 
+> Amiga board ownership and dispatch are superseded by
+> [the fixed-owner decision](amiga-remaining-board-owners.md). The historical
+> chipset grouping below does not override the per-machine owner rule.
+
 **Date:** April 2026
 
 **Related:** [within-family-layering.md](within-family-layering.md) covers the crate-level layout (`common-{family}` / `{vendor}-{chip}` / `format-{family}-{format}` / `machine-{family}-{variant}` / `runtime-{family}`). This document is about the file layout *inside* one `runtime-{family}` crate.

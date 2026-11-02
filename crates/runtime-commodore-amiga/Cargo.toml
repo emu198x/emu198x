@@ -1,6 +1,6 @@
 [package]
 name = "runtime-commodore-amiga"
-description = "Commodore Amiga runtime surface — bridges machine-commodore-amiga-ocs with the emu198x-shell MachineCore trait."
+description = "Commodore Amiga runtime surface — bridges common-commodore-amiga-ocs with the emu198x-shell MachineCore trait."
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -8,6 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+machine-commodore-amiga-a1000-pal = { path = "../machine-commodore-amiga-a1000-pal", version = "0.46.1" }
+machine-commodore-amiga-a1000-ntsc = { path = "../machine-commodore-amiga-a1000-ntsc", version = "0.46.1" }
+machine-commodore-amiga-a500-rev5-pal = { path = "../machine-commodore-amiga-a500-rev5-pal", version = "0.46.1" }
+machine-commodore-amiga-a500-rev5-ntsc = { path = "../machine-commodore-amiga-a500-rev5-ntsc", version = "0.46.1" }
+machine-commodore-amiga-a500-rev6a-pal = { path = "../machine-commodore-amiga-a500-rev6a-pal", version = "0.46.1" }
+machine-commodore-amiga-a500-rev6a-ntsc = { path = "../machine-commodore-amiga-a500-rev6a-ntsc", version = "0.46.1" }
+machine-commodore-amiga-a2000cr-rev6-pal = { path = "../machine-commodore-amiga-a2000cr-rev6-pal", version = "0.46.1" }
+machine-commodore-amiga-a2000cr-rev6-ntsc = { path = "../machine-commodore-amiga-a2000cr-rev6-ntsc", version = "0.46.1" }
 emu198x-commodore-agnus-ocs = { path = "../emu198x-commodore-agnus-ocs", version = "0.1.0" }
 emu198x-commodore-denise-aga = { path = "../emu198x-commodore-denise-aga", version = "0.1.0" }
 emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
@@ -24,7 +32,7 @@ machine-commodore-amiga-a500-plus-pal = { path = "../machine-commodore-amiga-a50
 machine-commodore-amiga-a500-plus-ntsc = { path = "../machine-commodore-amiga-a500-plus-ntsc", version = "0.46.0" }
 machine-commodore-amiga-a600-pal = { path = "../machine-commodore-amiga-a600-pal", version = "0.46.0" }
 machine-commodore-amiga-a600-ntsc = { path = "../machine-commodore-amiga-a600-ntsc", version = "0.46.0" }
-machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.46.0" }
+common-commodore-amiga-ocs = { path = "../common-commodore-amiga-ocs", version = "0.46.0" }
 motorola-68000 = { path = "../motorola-68000", version = "0.46.0" }
 motorola-68k-common = { path = "../motorola-68k-common", version = "0.46.0" }
 emu198x-peripheral-commodore-amiga-floppy = { path = "../emu198x-peripheral-commodore-amiga-floppy", version = "0.1.0" }

@@ -2,9 +2,9 @@
 
 use common_commodore_amiga::RamConfig;
 use common_commodore_amiga_ecs::RamConfig as EcsRamConfig;
+use common_commodore_amiga_ocs::RamConfig as OcsRamConfig;
 use machine_commodore_amiga_a1200_ntsc::RamConfig as AgaNtscRamConfig;
 use machine_commodore_amiga_a1200_pal::RamConfig as AgaRamConfig;
-use machine_commodore_amiga_ocs::RamConfig as OcsRamConfig;
 
 #[test]
 fn public_reexports_remain_the_same_type() {

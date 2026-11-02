@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use emu198x_shell::{
     HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
-use runtime_commodore_amiga::{AmigaOcsRuntime, Model, RamConfig};
+use runtime_commodore_amiga::{Model, RamConfig};
 
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
@@ -78,10 +78,12 @@ fn ram_variant_presets_construct_cleanly() {
         Model::A500OcsPalGvpA530,
         Model::A2000OcsPal,
     ] {
-        let runtime = AmigaOcsRuntime::new(model, blank_kickstart())
+        let runtime = runtime_commodore_amiga::AmigaRuntimeKind::new(model, blank_kickstart())
             .unwrap_or_else(|e| panic!("preset {model:?} should construct: {e:?}"));
         assert_eq!(
-            runtime.machine().memory().chip_ram_size(),
+            runtime_commodore_amiga::AmigaLiveAccess::memory_diagnostic_snapshot(&runtime)
+                .chip_ram
+                .size_bytes,
             expected_chip(model)
         );
     }
@@ -123,7 +125,10 @@ fn expected_chip(model: Model) -> usize {
 /// run loop, the CPU bus servicing, or the frame-emission path.
 #[test]
 fn run_until_advances_past_first_frame() -> Result<(), Box<dyn Error>> {
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut runtime = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let mut host = null_host();
     let target = MachineTime::new(300_000);
     runtime.run_until(target, &mut host)?;
@@ -146,11 +151,17 @@ fn run_until_advances_past_first_frame() -> Result<(), Box<dyn Error>> {
 /// software" failure mode.
 #[test]
 fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut original = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     let mut host = null_host();
     original.run_until(MachineTime::new(64_000), &mut host)?;
     let bytes_a = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    let mut restored = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+        Model::A500OcsPal,
+        blank_kickstart(),
+    )?;
     restored.restore(&bytes_a)?;
     let bytes_b = restored.snapshot()?;
     assert_eq!(bytes_a, bytes_b, "snapshot drift after restore");
@@ -197,7 +208,8 @@ fn kickstart_13_reaches_insert_disk_screen() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, firmware)?;
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPal, firmware)?;
 
     let mut host = null_host();
     runtime.run_until(MachineTime::new(2_500_000), &mut host)?;
@@ -243,7 +255,8 @@ fn workbench_13_media_reaches_active_display() -> Result<(), Box<dyn Error>> {
 
     let firmware = std::fs::read(&kickstart_path)?;
     let adf = std::fs::read(&adf_path)?;
-    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPalA501, firmware)?;
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPalA501, firmware)?;
 
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &adf));
@@ -289,7 +302,8 @@ fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), 
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
-    let mut runtime = AmigaOcsRuntime::new(Model::A2000OcsPal, firmware)?;
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(Model::A2000OcsPal, firmware)?;
     assert_eq!(runtime.machine().agnus().agnus_id, 0x2000);
 
     let mut host = null_host();
@@ -517,7 +531,8 @@ fn workbench_204_reaches_desktop_a2000_fat_agnus_pal() -> Result<(), Box<dyn Err
 
     let firmware = std::fs::read(&kickstart_path)?;
     let adf = std::fs::read(&adf_path)?;
-    let mut runtime = AmigaOcsRuntime::new(Model::A2000OcsPal, firmware)?;
+    let mut runtime =
+        runtime_commodore_amiga::AmigaA2000CrRev6PalRuntime::new(Model::A2000OcsPal, firmware)?;
     assert!(runtime.machine().uses_fat_agnus_8372a());
     assert_eq!(runtime.machine().read_word(0x00DF_F07C), 0xFFFF);
 

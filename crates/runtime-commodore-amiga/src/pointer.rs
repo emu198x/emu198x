@@ -51,7 +51,42 @@ impl AmigaRuntimeKind {
     #[must_use]
     pub fn mouse_pointer(&self) -> Option<(f64, f64)> {
         let (snapshot, frame, seen) = match self {
-            Self::Ocs(rt) => (
+            Self::A1000Pal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A1000Ntsc(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A500Rev5Pal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A500Rev5Ntsc(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A500Rev6APal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A500Rev6ANtsc(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A2000CrRev6Pal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A2000CrRev6Ntsc(rt) => (
                 rt.machine().denise_diagnostic_snapshot(),
                 rt.frame_count(),
                 &rt.pointer_seen,

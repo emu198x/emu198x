@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use emu198x_shell::{HeadlessSession, MediaImage, MediaKind, MediaSet, read_media_asset};
 use motorola_68000::CpuModel;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaRuntimeKind, AmigaSessionQueryProvider,
+    A500_PAL_FRAME_TICKS, AmigaA500Rev5PalRuntime, AmigaRuntimeKind, AmigaSessionQueryProvider,
     DISPLAY_HEIGHT, DISPLAY_WIDTH, Model, press_key,
 };
 use twox_hash::XxHash64;
@@ -213,10 +213,17 @@ fn build_empty_session(model: Model, kickstart: &[u8]) -> TestSession {
     )
 }
 
-fn ocs_runtime(session: &TestSession) -> &AmigaOcsRuntime {
+fn ocs_runtime(session: &TestSession) -> &AmigaA500Rev5PalRuntime {
     match session.machine() {
-        AmigaRuntimeKind::Ocs(runtime) => runtime,
-        AmigaRuntimeKind::A500PlusPal(_)
+        AmigaRuntimeKind::A500Rev5Pal(runtime) => runtime,
+        AmigaRuntimeKind::A1000Pal(_)
+        | AmigaRuntimeKind::A1000Ntsc(_)
+        | AmigaRuntimeKind::A500Rev5Ntsc(_)
+        | AmigaRuntimeKind::A500Rev6APal(_)
+        | AmigaRuntimeKind::A500Rev6ANtsc(_)
+        | AmigaRuntimeKind::A2000CrRev6Pal(_)
+        | AmigaRuntimeKind::A2000CrRev6Ntsc(_)
+        | AmigaRuntimeKind::A500PlusPal(_)
         | AmigaRuntimeKind::A500PlusNtsc(_)
         | AmigaRuntimeKind::A600Pal(_)
         | AmigaRuntimeKind::A600Ntsc(_)

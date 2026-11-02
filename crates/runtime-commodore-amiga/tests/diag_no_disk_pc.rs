@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, Model};
 
 #[test]
 #[ignore = "DIAGNOSTIC: explicit 900-frame no-disk PC diagnostic"]
@@ -14,7 +14,8 @@ fn no_disk_final_pc() {
         emu198x_test_skip::skip!("no kick13.rom");
     }
     let rom = std::fs::read(&rom_path).expect("read ROM");
-    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom).expect("build");
+    let mut rt = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPalA501, rom)
+        .expect("build");
 
     // Match the wb13 settle count so the comparison is apples-to-apples.
     for _ in 0..(900 * A500_PAL_FRAME_TICKS) {

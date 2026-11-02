@@ -13,7 +13,7 @@ use emu198x_peripheral_commodore_amiga_floppy::Adf;
 use emu198x_peripheral_commodore_amiga_floppy::mfm::{
     MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track,
 };
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, Model};
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
     if !path.exists() {
@@ -42,7 +42,7 @@ fn wb13_boot_state_checkpoints() -> Result<(), Box<dyn Error>> {
     // exactly where.
     let adf_bootblock: Vec<u8> = adf_bytes[..1024].to_vec();
 
-    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom)?;
+    let mut rt = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(Model::A500OcsPalA501, rom)?;
     let adf = Adf::from_bytes(adf_bytes).expect("decode WB 1.3 ADF");
     rt.machine_mut().insert_adf(adf);
 

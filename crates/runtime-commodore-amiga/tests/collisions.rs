@@ -76,7 +76,7 @@ fn pending_sprite_and_extended_plane_comparison_resume_together() {
 
 #[test]
 fn guest_cpu_reads_clxdat_with_bit_fifteen_set() {
-    use runtime_commodore_amiga::{AmigaA500PlusPalRuntime, AmigaOcsRuntime};
+    use runtime_commodore_amiga::AmigaA500PlusPalRuntime;
     // With no comparisons enabled, both groups match and bit 0 relatches.
     // Requiring BP1=1 with blank source data prevents a new match; the first
     // read clears any collision from before CLXCON changed. Neither case
@@ -98,7 +98,11 @@ fn guest_cpu_reads_clxdat_with_bit_fifteen_set() {
             }
             rom
         };
-        let mut ocs = AmigaOcsRuntime::new(Model::A500OcsPal, rom(256 * 1024)).expect("OCS guest");
+        let mut ocs = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
+            Model::A500OcsPal,
+            rom(256 * 1024),
+        )
+        .expect("OCS guest");
         let mut ecs = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, rom(512 * 1024))
             .expect("ECS guest");
         let mut aga =

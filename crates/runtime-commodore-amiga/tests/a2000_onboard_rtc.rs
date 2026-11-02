@@ -1,5 +1,5 @@
 //! The A2000's fitted clock must not depend on expansion RAM.
-use runtime_commodore_amiga::{AmigaOcsRuntime, Model};
+use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 fn guest_clock_observation(model: Model) -> (u16, bool) {
     let mut rom = vec![0; 512 * 1024];
@@ -24,18 +24,18 @@ fn guest_clock_observation(model: Model) -> (u16, bool) {
     code.extend(0x60FEu16.to_be_bytes());
     rom[8..8 + code.len()].copy_from_slice(&code);
 
-    let mut runtime = AmigaOcsRuntime::new(model, rom).expect("owned guest firmware");
+    let mut runtime = AmigaRuntimeKind::new(model, rom).expect("owned guest firmware");
     for _ in 0..10_000 {
-        runtime.machine_mut().tick();
+        runtime.tick();
     }
     assert_eq!(
-        runtime.machine().read_word(0x1002),
+        runtime.read_word(0x1002),
         0x51A7,
         "guest must complete its register writes and readback"
     );
     (
-        runtime.machine().read_word(0x1000) & 15,
-        runtime.machine().gary().rtc_present(),
+        runtime.read_word(0x1000) & 15,
+        runtime.gary_diagnostic_snapshot().rtc_present,
     )
 }
 

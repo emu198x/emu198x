@@ -62,7 +62,15 @@ run_group "Amiga library regressions" \
         -p emu198x-commodore-gayle \
         -p emu198x-peripheral-commodore-amiga-floppy \
         -p emu198x-peripheral-commodore-amiga-keyboard \
-        -p machine-commodore-amiga-ocs \
+        -p common-commodore-amiga-ocs \
+        -p machine-commodore-amiga-a1000-pal \
+        -p machine-commodore-amiga-a1000-ntsc \
+        -p machine-commodore-amiga-a500-rev5-pal \
+        -p machine-commodore-amiga-a500-rev5-ntsc \
+        -p machine-commodore-amiga-a500-rev6a-pal \
+        -p machine-commodore-amiga-a500-rev6a-ntsc \
+        -p machine-commodore-amiga-a2000cr-rev6-pal \
+        -p machine-commodore-amiga-a2000cr-rev6-ntsc \
         -p common-commodore-amiga-ecs \
         -p machine-commodore-amiga-a500-plus-pal \
         -p machine-commodore-amiga-a500-plus-ntsc \
@@ -88,7 +96,7 @@ run_group "Floppy mechanism and MFM integrations" \
         --test mfm_adf
 
 run_group "OCS machine arbitration, disk and blitter integrations" \
-    cargo test --locked -p machine-commodore-amiga-ocs \
+    cargo test --locked -p common-commodore-amiga-ocs \
         --test chip_bus_arbitration \
         --test disk_dma_arbitration \
         --test dsk_write_back \
