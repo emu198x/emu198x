@@ -634,8 +634,10 @@ def merge_shards(paths: list[Path]) -> list[dict]:
     indices = sorted(shard["shard"] for shard in shards)
     if indices != list(range(1, count + 1)):
         raise SystemExit(f"expected shards 1..{count}, got {indices}")
-    discovered = shards[0]["discovered"]
-    if any(shard["discovered"] != discovered for shard in shards):
+    # Cargo reports binaries in the order they finish building, which
+    # differs from shard to shard; only the set has to agree.
+    discovered = sorted(shards[0]["discovered"])
+    if any(sorted(shard["discovered"]) != discovered for shard in shards):
         raise SystemExit("shards discovered different test binaries")
     results = [result for shard in shards for result in shard["results"]]
     ran = [binary_name(r["package"], r["target"]) for r in results]
