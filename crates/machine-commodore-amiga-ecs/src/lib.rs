@@ -369,6 +369,19 @@ pub struct AmigaEcsSnapshot {
     e_clock_phase: u64,
 }
 
+impl AmigaEcsSnapshot {
+    /// Whether the saved decoder exposes a fitted RTC.
+    #[must_use]
+    pub const fn rtc_present(&self) -> bool {
+        self.gary.rtc_present()
+    }
+
+    /// Repair the legacy A500+ decode flag without replacing clock history.
+    pub fn enable_onboard_rtc(&mut self) {
+        self.gary.set_rtc_present(true);
+    }
+}
+
 impl AmigaEcs {
     fn apply_drive_control_from_cia_b(&mut self) {
         let prb = self.cia_b.port_b_output();
@@ -472,7 +485,13 @@ impl AmigaEcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, region, has_gayle)
+        let mut machine = Self::with_memory_config(memory, cfg, true, region, has_gayle);
+        // A500+ has an onboard clock even with no trapdoor expansion. A600
+        // retains its existing optional-expansion clock configuration.
+        if !has_gayle {
+            machine.gary.set_rtc_present(true);
+        }
+        machine
     }
 
     /// Build a real A1000-style machine: a small bootstrap ROM at
