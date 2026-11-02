@@ -167,14 +167,23 @@ impl Atari5200 {
     /// Create a new Atari 5200. `bios` may be empty to fall back to
     /// the cartridge's `$FFFC/$FFFD` mirror for the reset vector.
     pub fn new(rom: Vec<u8>, bios: Vec<u8>, region: Atari5200Region) -> Result<Self, String> {
-        let cart = Cartridge::from_rom(&rom)?;
+        Ok(Self::from_cartridge(
+            Cartridge::from_rom(&rom)?,
+            bios,
+            region,
+        ))
+    }
+
+    /// Build from a validated cartridge, retaining its explicit decode layout.
+    #[must_use]
+    pub fn from_cartridge(cart: Cartridge, bios: Vec<u8>, region: Atari5200Region) -> Self {
         let mut cpu = M6502::new();
         cpu.reset();
         let mut pokey = Pokey::new(region.cpu_hz());
         pokey.enable_keyboard_scan();
         let clocks_per_frame =
             u64::from(region.lines_per_frame()) * u64::from(COLOUR_CLOCKS_PER_LINE);
-        Ok(Self {
+        Self {
             cpu,
             antic: Antic::new(region.antic_region()),
             gtia: Gtia::new(region.gtia_region()),
@@ -189,7 +198,7 @@ impl Atari5200 {
             frame_count: 0,
             line_cycle: 0,
             controllers: [Controller::default(); 4],
-        })
+        }
     }
 
     /// Run one frame and return colour clocks consumed.
@@ -516,6 +525,12 @@ impl Atari5200 {
         let selected = &self.controllers[usize::from(output & 3)];
         let key = selected.key_at(self.pokey.keyboard_scan_address());
         self.pokey.set_keyboard_returns(key, selected.upper_fire);
+    }
+
+    /// Immutable firmware retained by the live machine and its snapshot.
+    #[must_use]
+    pub fn bios_bytes(&self) -> &[u8] {
+        &self.bios
     }
 
     /// Cartridge reference, for tests and chip inspection.

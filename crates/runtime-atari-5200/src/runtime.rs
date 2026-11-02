@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_atari_5200::{Atari5200, Atari5200Region};
+use machine_atari_5200::{Atari5200, Atari5200Region, CartLayout, Cartridge};
 
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;
@@ -18,6 +18,7 @@ pub struct Atari5200Runtime {
     model: Model,
     machine: Option<Atari5200>,
     cart_bytes: Option<Vec<u8>>,
+    cart_layout: Option<CartLayout>,
     bios_bytes: Vec<u8>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
@@ -34,6 +35,7 @@ impl Atari5200Runtime {
             model,
             machine: None,
             cart_bytes: None,
+            cart_layout: None,
             bios_bytes: Vec::new(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
@@ -68,6 +70,7 @@ impl Atari5200Runtime {
     /// Returns `MachineError::InvalidMedia` if the cart fails to parse.
     pub fn insert_cartridge(&mut self, rom: Vec<u8>) -> Result<(), MachineError> {
         self.cart_bytes = Some(rom);
+        self.cart_layout = None;
         self.rebuild_machine()
     }
 
@@ -95,11 +98,20 @@ impl Atari5200Runtime {
     /// [`Self::rebuild_machine`]'s framebuffer sizing exactly.
     pub(crate) fn set_machine(&mut self, machine: Option<Atari5200>) {
         if let Some(machine) = &machine {
+            // The snapshot's live machine is the authority after restore.
+            // Keep its decode evidence: its payload no longer has a CAR header.
+            self.cart_bytes = Some(machine.cart().rom_bytes().to_vec());
+            self.cart_layout = Some(machine.cart().layout());
+            self.bios_bytes = machine.bios_bytes().to_vec();
             let width = machine.framebuffer_width();
             let height = machine.framebuffer_height();
             self.rgba_width = width;
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        } else {
+            self.cart_bytes = None;
+            self.cart_layout = None;
+            self.bios_bytes.clear();
         }
         self.machine = machine;
         self.update_rgba_framebuffer();
@@ -128,12 +140,17 @@ impl Atari5200Runtime {
             emu198x_shell::Region::Pal => Atari5200Region::Pal,
             _ => Atari5200Region::Ntsc,
         };
-        let machine = Atari5200::new(rom, self.bios_bytes.clone(), region).map_err(|reason| {
-            MachineError::InvalidMedia {
-                slot: "cartridge-1".to_owned(),
-                reason,
-            }
+        let cart = match self.cart_layout {
+            Some(layout) => Cartridge::from_rom_with_layout(&rom, layout),
+            None => Cartridge::from_rom(&rom),
+        }
+        .map_err(|reason| MachineError::InvalidMedia {
+            slot: "cartridge-1".to_owned(),
+            reason,
         })?;
+        self.cart_layout = Some(cart.layout());
+        self.cart_bytes = Some(cart.rom_bytes().to_vec());
+        let machine = Atari5200::from_cartridge(cart, self.bios_bytes.clone(), region);
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
