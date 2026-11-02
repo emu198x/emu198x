@@ -1,4 +1,4 @@
-//! Commodore Amiga ECS machine family.
+//! Shared ECS board wiring for fixed A500+ and A600 owners.
 //!
 //! The machine composes the shared ECS chipset substrate into A500+ and A600
 //! board configurations. A600 construction adds the Gayle IDE / PCMCIA gate
@@ -47,6 +47,7 @@ pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
 
 use motorola_68000::Cpu68000;
+pub use motorola_68000::CpuModel;
 use rtc::Msm6242Rtc;
 
 const CUSTOM_BASE: u32 = 0x00DF_0000;
@@ -149,8 +150,27 @@ const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 // `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
 // `common_commodore_amiga::board` (#34) and imported above.
 
-/// Amiga (ECS) machine.
-pub struct AmigaEcs {
+/// Fixed construction identity for shared ECS board wiring.
+pub trait Configuration: 'static {
+    /// Physical video standard.
+    const REGION: AgnusRegion;
+    /// A600 Gayle fitting.
+    const HAS_GAYLE: bool;
+    /// Historical A500+ onboard clock, independent of expansions.
+    const ONBOARD_RTC: bool = !Self::HAS_GAYLE;
+    /// Registry owner ID.
+    const MACHINE_ID: &'static str;
+    /// Stock RAM fitted to the board.
+    const DEFAULT_RAM: RamConfig = RamConfig {
+        chip_kb: 1024,
+        slow_kb: 0,
+        fast_kb: 0,
+    };
+}
+
+/// Shared ECS wiring fixed by its owner marker.
+pub struct EcsCore<C: Configuration> {
+    _configuration: std::marker::PhantomData<C>,
     cpu: ActiveCpu,
     /// Exact active-CPU edges emitted per Amiga system tick.
     cpu_clock: CpuClock,
@@ -382,7 +402,7 @@ impl AmigaEcsSnapshot {
     }
 }
 
-impl AmigaEcs {
+impl<C: Configuration> EcsCore<C> {
     fn apply_drive_control_from_cia_b(&mut self) {
         let prb = self.cia_b.port_b_output();
         self.drives.update_control(prb);
@@ -406,16 +426,16 @@ impl AmigaEcs {
         self.cia_a.set_external_a(pra);
     }
 
-    /// Build a new Amiga (OCS) with the given Kickstart ROM image
-    /// and stock 512K chip RAM only (no expansion).
+    /// Build a fixed ECS board with the given Kickstart ROM image
+    /// and its stock RAM layout (no expansion).
     #[must_use]
     pub fn new(kickstart: Vec<u8>) -> Self {
-        Self::with_ram_config(kickstart, RamConfig::bare())
+        Self::with_ram_config(kickstart, C::DEFAULT_RAM)
     }
 
-    /// Build a new Amiga (OCS) with the given Kickstart ROM image
+    /// Build a fixed ECS board with the given Kickstart ROM image
     /// plus a trapdoor slow-RAM expansion at `$C00000` (common A500
-    /// config: 512 KiB). Chip RAM stays at stock 512K. Thin wrapper
+    /// config: 512 KiB). Chip RAM retains the owner stock default. Thin wrapper
     /// around `with_ram_config` for test / integration callers that
     /// don't need a full `RamConfig`.
     #[must_use]
@@ -423,113 +443,34 @@ impl AmigaEcs {
         Self::with_ram_config(
             kickstart,
             RamConfig {
-                chip_kb: DEFAULT_CHIP_RAM_SIZE as u32 / 1024,
+                chip_kb: C::DEFAULT_RAM.chip_kb,
                 slow_kb: (slow_ram_bytes / 1024) as u32,
                 fast_kb: 0,
             },
         )
     }
 
-    /// Build a new Amiga (OCS) with a fully explicit RAM layout.
-    ///
-    /// Panics if `cfg` is not one of the supported size combinations
-    /// (see `RamConfig::is_valid`). When `cfg.fast_kb > 0` a single
-    /// Zorro-II fast-RAM board is attached and starts unconfigured;
-    /// `expansion.library` discovers it during boot and assigns its
-    /// base address.
-    ///
-    /// PAL Agnus is used; the matching NTSC entry point is
-    /// `with_ram_config_ntsc`.
+    /// Construct this fixed board with an explicit supported RAM layout.
+    /// Panics for an unsupported RAM combination.
     #[must_use]
     pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal, false)
-    }
-
-    /// NTSC counterpart of `with_ram_config`. Same RAM/autoconfig
-    /// rules; the Agnus is constructed with NTSC line/frame counts
-    /// and the per-line short/long alternation enabled.
-    #[must_use]
-    pub fn with_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc, false)
-    }
-
-    /// Build a PAL A600 with Gayle and a fully explicit RAM layout.
-    ///
-    /// This is the A600 counterpart to [`Self::with_ram_config`]. It installs
-    /// Gayle's IDE / PCMCIA address decoder while retaining the same ECS
-    /// chipset and RAM validation rules.
-    #[must_use]
-    pub fn with_a600_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal, true)
-    }
-
-    /// NTSC counterpart of [`Self::with_a600_ram_config`].
-    #[must_use]
-    pub fn with_a600_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc, true)
-    }
-
-    fn with_ram_config_region(
-        kickstart: Vec<u8>,
-        cfg: RamConfig,
-        region: AgnusRegion,
-        has_gayle: bool,
-    ) -> Self {
-        assert!(
-            cfg.is_valid(),
-            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
-             slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
-        );
+        assert!(cfg.is_valid(), "RamConfig out of range: {cfg:?}");
         let memory = Memory::new_with_ram(
             kickstart,
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        let mut machine = Self::with_memory_config(memory, cfg, true, region, has_gayle);
-        // A500+ has an onboard clock even with no trapdoor expansion. A600
-        // retains its existing optional-expansion clock configuration.
-        if !has_gayle {
+        let mut machine = Self::with_memory_config(memory, cfg, true, C::REGION, C::HAS_GAYLE);
+        if C::ONBOARD_RTC {
             machine.gary.set_rtc_present(true);
         }
         machine
     }
 
-    /// Build a real A1000-style machine: a small bootstrap ROM at
-    /// `$F80000` plus writable WOM behind the normal 256K Kickstart
-    /// window. The WOM remains writable through `$FC0000-$FFFFFF`
-    /// until the bootstrap writes into `$F80000-$FBFFFF`, at which
-    /// point the bootstrap ROM disappears and the WOM becomes
-    /// read-only Kickstart. PAL Agnus.
+    /// Fixed registry identity.
     #[must_use]
-    pub fn with_a1000_bootstrap_rom(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_a1000_bootstrap_rom_region(boot_rom, cfg, AgnusRegion::Pal)
-    }
-
-    /// NTSC counterpart of `with_a1000_bootstrap_rom`. The A1000
-    /// shipped in both PAL (Europe) and NTSC (US) configurations
-    /// with identical bootstrap ROMs; only the Agnus revision
-    /// differs.
-    #[must_use]
-    pub fn with_a1000_bootstrap_rom_ntsc(boot_rom: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_a1000_bootstrap_rom_region(boot_rom, cfg, AgnusRegion::Ntsc)
-    }
-
-    fn with_a1000_bootstrap_rom_region(
-        boot_rom: Vec<u8>,
-        cfg: RamConfig,
-        region: AgnusRegion,
-    ) -> Self {
-        assert!(
-            cfg.is_valid(),
-            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
-             slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
-        );
-        let memory = Memory::new_a1000_bootstrap_with_ram(
-            boot_rom,
-            cfg.chip_kb as usize * 1024,
-            cfg.slow_kb as usize * 1024,
-        );
-        Self::with_memory_config(memory, cfg, true, region, false)
+    pub const fn machine_id(&self) -> &'static str {
+        C::MACHINE_ID
     }
 
     fn with_memory_config(
@@ -581,6 +522,7 @@ impl AmigaEcs {
         gary.set_rtc_present(cfg.slow_kb > 0);
         gary.set_gayle_present(has_gayle);
         Self {
+            _configuration: std::marker::PhantomData,
             cpu,
             cpu_clock: CpuClock::from_ratio(1, 1),
             cpu_domain_phase: CpuDomainPhase::default(),
@@ -1748,7 +1690,7 @@ impl AmigaEcs {
     /// output, CIA E-clock divisor, CPU bus service) fire every tick.
     /// One machine tick. The per-CCK body is the shared
     /// [`AmigaDriver::tick`]; this inherent method delegates so the many
-    /// existing `AmigaEcs::tick` callers (tests, the `AmigaMachine` impl,
+    /// existing `EcsCore::<C>::tick` callers (tests, the `AmigaMachine` impl,
     /// MCP) keep working unchanged.
     pub fn tick(&mut self) {
         <Self as AmigaDriver>::tick(self);
@@ -2100,7 +2042,16 @@ impl AmigaEcs {
     /// cleared (snapshots do not preserve observability state). Disk
     /// media is not restored here — re-mount via `insert_disk` after
     /// restore.
-    pub fn restore_snapshot_state(&mut self, snap: AmigaEcsSnapshot) {
+    pub fn restore_snapshot_state(&mut self, snap: AmigaEcsSnapshot) -> Result<(), String> {
+        if snap.agnus.region != C::REGION
+            || snap.gayle.is_some() != C::HAS_GAYLE
+            || snap.gary.gayle_present() != C::HAS_GAYLE
+        {
+            return Err("snapshot does not match fixed ECS region/Gayle fitting".into());
+        }
+        if C::ONBOARD_RTC && !snap.gary.rtc_present() {
+            return Err("A500+ onboard RTC must be present".into());
+        }
         self.cpu = snap.cpu;
         self.cpu_clock = snap.cpu_clock;
         self.cpu_domain_phase = snap.cpu_domain_phase;
@@ -2157,6 +2108,7 @@ impl AmigaEcs {
         self.debug_palette_log.clear();
         self.debug_reg_read_log.clear();
         self.cpu_boundaries.clear();
+        Ok(())
     }
 }
 
@@ -2165,7 +2117,7 @@ impl AmigaEcs {
 // resolves through concrete helpers before coercion. The optional Gayle arm
 // is active only for A600 board configurations; the stock MC68000 is held
 // through ActiveCpu.
-impl AmigaDriver for AmigaEcs {
+impl<C: Configuration> AmigaDriver for EcsCore<C> {
     fn agnus(&self) -> &Agnus {
         &self.agnus
     }
@@ -2470,19 +2422,19 @@ impl AmigaDriver for AmigaEcs {
     }
 
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
-        AmigaEcs::dispatch_custom_write(self, offset, val);
+        EcsCore::<C>::dispatch_custom_write(self, offset, val);
     }
     fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
-        AmigaEcs::dispatch_copper_write(self, offset, val);
+        EcsCore::<C>::dispatch_copper_write(self, offset, val);
     }
     fn feed_next_write_word(&mut self) {
-        AmigaEcs::feed_next_write_word(self);
+        EcsCore::<C>::feed_next_write_word(self);
     }
     fn feed_next_mfm_word(&mut self) {
-        AmigaEcs::feed_next_mfm_word(self);
+        EcsCore::<C>::feed_next_mfm_word(self);
     }
     fn refresh_cia_a_external_inputs(&mut self) {
-        AmigaEcs::refresh_cia_a_external_inputs(self);
+        EcsCore::<C>::refresh_cia_a_external_inputs(self);
     }
 
     fn tick_cpu_with_ipl(&mut self) {
@@ -2511,12 +2463,35 @@ mod bus_plan_dispatch_tests {
     use motorola_68000::cpu::State;
     use motorola_68000::microcode::MicroOp;
 
+    struct LegacyPal;
+    impl Configuration for LegacyPal {
+        const REGION: AgnusRegion = AgnusRegion::Pal;
+        const HAS_GAYLE: bool = false;
+        const MACHINE_ID: &'static str = "test-LegacyPal";
+        const DEFAULT_RAM: RamConfig = RamConfig::bare();
+    }
+    struct LegacyA600Pal;
+    impl Configuration for LegacyA600Pal {
+        const REGION: AgnusRegion = AgnusRegion::Pal;
+        const HAS_GAYLE: bool = true;
+        const MACHINE_ID: &'static str = "test-LegacyA600Pal";
+        const DEFAULT_RAM: RamConfig = RamConfig::bare();
+    }
+    struct LegacyA600Ntsc;
+    impl Configuration for LegacyA600Ntsc {
+        const REGION: AgnusRegion = AgnusRegion::Ntsc;
+        const HAS_GAYLE: bool = true;
+        const MACHINE_ID: &'static str = "test-LegacyA600Ntsc";
+        const DEFAULT_RAM: RamConfig = RamConfig::bare();
+    }
+    type AmigaEcs = EcsCore<LegacyPal>;
+
     fn machine() -> AmigaEcs {
         AmigaEcs::new(vec![0; 512 * 1024])
     }
 
-    fn a600() -> AmigaEcs {
-        AmigaEcs::with_a600_ram_config(vec![0; 512 * 1024], RamConfig::bare())
+    fn a600() -> EcsCore<LegacyA600Pal> {
+        EcsCore::<LegacyA600Pal>::with_ram_config(vec![0; 512 * 1024], RamConfig::bare())
     }
 
     #[test]
@@ -2716,7 +2691,8 @@ mod bus_plan_dispatch_tests {
     fn only_explicit_a600_constructors_install_gayle() {
         let a500_plus = machine();
         let a600_pal = a600();
-        let a600_ntsc = AmigaEcs::with_a600_ram_config_ntsc(vec![0; 512 * 1024], RamConfig::bare());
+        let a600_ntsc =
+            EcsCore::<LegacyA600Ntsc>::with_ram_config(vec![0; 512 * 1024], RamConfig::bare());
 
         assert!(a500_plus.gayle_diagnostic_snapshot().is_none());
         assert!(!a500_plus.gary().gayle_present());
@@ -2833,8 +2809,10 @@ mod bus_plan_dispatch_tests {
         ));
 
         let snapshot = source.snapshot_state();
-        let mut restored = machine();
-        restored.restore_snapshot_state(snapshot);
+        let mut restored = a600();
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("matching A600");
 
         let gayle = restored
             .gayle_diagnostic_snapshot()
@@ -2843,11 +2821,11 @@ mod bus_plan_dispatch_tests {
         assert_eq!(gayle.registers.configuration, 0x0B);
 
         let a500_plus_snapshot = machine().snapshot_state();
-        restored.restore_snapshot_state(a500_plus_snapshot);
-        assert!(
-            restored.gayle_diagnostic_snapshot().is_none(),
-            "restoring an A500+ snapshot must remove Gayle"
-        );
+        assert!(restored.restore_snapshot_state(a500_plus_snapshot).is_err());
+        let retained = restored
+            .gayle_diagnostic_snapshot()
+            .expect("foreign restore cannot remove Gayle");
+        assert_eq!(retained.registers, gayle.registers);
     }
 
     #[test]

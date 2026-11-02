@@ -38,7 +38,7 @@ use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
 use runtime_commodore_amiga::{
-    AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
+    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
     AmigaRuntime, Model,
 };
 
@@ -147,8 +147,8 @@ fn cancelled_audio_startup_delivery_survives_live_restore() -> Result<(), Box<dy
                     pending,
                 )?;
                 check(
-                    AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
-                    AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                    AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                    AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
                     channel,
                     second,
                     pending,
@@ -274,8 +274,8 @@ fn paula_handover_sampling_history_survives_live_restore() -> Result<(), Box<dyn
                 manual,
             )?;
             check(
-                AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
-                AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
                 period,
                 manual,
             )?;
@@ -379,8 +379,8 @@ fn paula_manual_stop_decisions_survive_live_restore() -> Result<(), Box<dyn Erro
                 stop,
             )?;
             check(
-                AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
-                AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
                 period,
                 stop,
             )?;
@@ -462,8 +462,8 @@ fn paula_pending_loop_and_delayed_irq_survive_live_restore() -> Result<(), Box<d
             attach,
         )?;
         check(
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
             attach,
         )?;
         check(
@@ -558,8 +558,8 @@ fn paula_modulation_and_pending_dma_survive_live_restore() -> Result<(), Box<dyn
             attach,
         )?;
         check(
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
             attach,
         )?;
         check(
@@ -654,8 +654,8 @@ fn paula_zero_and_short_periods_survive_live_restore() -> Result<(), Box<dyn Err
             period,
         )?;
         check(
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
             period,
         )?;
         check(
@@ -726,8 +726,8 @@ fn horizontal_display_window_survives_strobe_reset_and_half_cck_restore()
             stop,
         )?;
         check(
-            AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-            AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+            AmigaA500PlusPalRuntime::blank(),
+            AmigaA500PlusPalRuntime::blank(),
             stop,
         )?;
         check(
@@ -789,8 +789,8 @@ fn malformed_combined_refresh_restore_preserves_the_destination() -> Result<(), 
         AmigaOcsRuntime::blank(Model::A500OcsPal),
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
     )?;
     check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }
@@ -906,8 +906,8 @@ fn combined_refresh_display_replays_through_live_service_on_every_chipset()
         AmigaOcsRuntime::blank(Model::A500OcsPal),
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
     )?;
     check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }
@@ -1021,8 +1021,8 @@ fn overlapping_display_address_samples_before_outgoing_pointer_service()
         AmigaOcsRuntime::blank(Model::A500OcsPal),
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
     )?;
     check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }
@@ -1137,8 +1137,8 @@ fn bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service()
         &[1],
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
         &[1],
     )?;
     check(
@@ -1258,8 +1258,8 @@ fn addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset()
         &[1],
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
         &[1],
     )?;
     check(
@@ -1334,7 +1334,7 @@ fn automatic_strobes_cross_the_live_pipeline_and_reset_denise() -> Result<(), Bo
         Ok(())
     }
     check(AmigaOcsRuntime::blank(Model::A500OcsPal), false)?;
-    check(AmigaEcsRuntime::blank(Model::A500PlusEcsPal), true)?;
+    check(AmigaA500PlusPalRuntime::blank(), true)?;
     check(AmigaA1200PalRuntime::blank(), true)
 }
 
@@ -1442,8 +1442,8 @@ fn live_strobe_service_and_denise_counter_replay_on_every_chipset() -> Result<()
         false,
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
         true,
     )?;
     check(
@@ -2527,7 +2527,7 @@ fn pending_copper_skip_kind_survives_postcard_round_trip() -> Result<(), Box<dyn
 
 #[test]
 fn ecs_blitter_startup_phase_survives_nested_snapshot() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut original = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     original.machine_mut().poke_word(BLTCON0, 0);
     original.machine_mut().poke_word(BLTSIZE, (1 << 6) | 1);
     original
@@ -2554,7 +2554,7 @@ fn ecs_blitter_startup_phase_survives_nested_snapshot() -> Result<(), Box<dyn Er
     assert_eq!(original.machine().agnus().blitter_ccks_remaining, 2);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut restored = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     restored.restore(&snapshot)?;
     assert_eq!(snapshot, restored.snapshot()?);
     assert_eq!(
@@ -3395,8 +3395,8 @@ fn enhanced_vertical_close_replays_across_both_post_wrap_cells() -> Result<(), B
         Ok(())
     }
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
         |m| m.agnus_ecs().vertical_diw_active(),
     )?;
     check(
@@ -3408,7 +3408,7 @@ fn enhanced_vertical_close_replays_across_both_post_wrap_cells() -> Result<(), B
 
 #[test]
 fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut original = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     original.machine_mut().poke_word(0x00DF_F090, 0x10C1);
     original.machine_mut().poke_word(0x00DF_F08E, 0x0081);
     original.machine_mut().poke_word(0x00DF_F1E4, 0x0000);
@@ -3419,7 +3419,7 @@ fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn E
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut restored = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     restored.restore(&snapshot)?;
 
     assert!(restored.machine().agnus_ecs().vertical_diw_active());
@@ -3434,7 +3434,7 @@ fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn E
 #[test]
 fn ecs_blanking_selector_edges_replay_at_both_normal_rga_stages() -> Result<(), Box<dyn Error>> {
     for register in [0x100, 0x106] {
-        let mut original = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+        let mut original = AmigaA500PlusPalRuntime::blank();
         let partner = if register == 0x100 { 0x106 } else { 0x100 };
         original.machine_mut().poke_word(0x00DF_F000 + partner, 1);
         for _ in 0..4 {
@@ -3446,7 +3446,7 @@ fn ecs_blanking_selector_edges_replay_at_both_normal_rga_stages() -> Result<(), 
                 .poke_word(0x00DF_F000 + register, u16::from(enabled));
             for retired_ticks in 1..=2 {
                 let bytes = original.snapshot()?;
-                let mut restored = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+                let mut restored = AmigaA500PlusPalRuntime::blank();
                 restored.restore(&bytes)?;
                 assert!(
                     bytes == restored.snapshot()?,
@@ -3476,7 +3476,7 @@ fn ecs_blanking_selector_edges_replay_at_both_normal_rga_stages() -> Result<(), 
 
 #[test]
 fn ecs_csync_blanking_in_flight_stages_survive_both_clock_phases() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut original = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     for (register, value) in [
         (0x1C4, 0x40),
         (0x1C6, 0x48),
@@ -3523,7 +3523,7 @@ fn ecs_csync_blanking_in_flight_stages_survive_both_clock_phases() -> Result<(),
         rising |= stages.cck_samples[2] && !stages.output_level;
         falling |= !stages.cck_samples[2] && stages.output_level;
         let snapshot = original.snapshot()?;
-        let mut replay = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+        let mut replay = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
         replay.restore(&snapshot)?;
         // Direct chip ticks leave host framebuffer statistics stale; restore
         // refreshes those statistics. Compare the complete machine payload.
@@ -3567,7 +3567,7 @@ fn ecs_csync_blanking_in_flight_stages_survive_both_clock_phases() -> Result<(),
 
 #[test]
 fn ecs_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
-    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut original = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     original.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     original.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
     original.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
@@ -3602,7 +3602,7 @@ fn ecs_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
     );
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut restored = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     restored.restore(&snapshot)?;
     assert!(restored.machine().agnus_ecs().programmed_hblank_active());
     assert!(
@@ -3691,7 +3691,7 @@ fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
 fn ecs_dispatched_copper_color_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     const NEW_COLOR: u16 = 0x0ABC;
 
-    let mut original = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut original = AmigaA500PlusPalRuntime::blank();
     AmigaDriver::dispatch_copper_write(original.machine_mut(), 0x0180, NEW_COLOR);
 
     let board_before = original
@@ -3702,7 +3702,7 @@ fn ecs_dispatched_copper_color_survives_snapshot_round_trip() -> Result<(), Box<
     assert_eq!(original.machine().denise().color(0), NEW_COLOR);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut restored = AmigaA500PlusPalRuntime::blank();
     restored.restore(&snapshot)?;
 
     assert_eq!(
@@ -4242,8 +4242,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(), Box<dyn Error>> {
-    for (model, expected) in [(Model::A500PlusEcsPal, false), (Model::A600EcsPal, true)] {
-        let mut runtime = AmigaEcsRuntime::blank(model);
+    fn check<C: common_commodore_amiga_ecs::Configuration>(
+        mut runtime: runtime_commodore_amiga::AmigaRuntime<common_commodore_amiga_ecs::EcsCore<C>>,
+        expected: bool,
+    ) -> Result<(), Box<dyn Error>> {
         assert_eq!(
             runtime.machine().gayle_diagnostic_snapshot().is_some(),
             expected,
@@ -4272,7 +4274,18 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
                 0x5A,
             );
         }
+        Ok(())
     }
+    check(
+        runtime_commodore_amiga::AmigaA500PlusPalRuntime::blank(),
+        false,
+    )?;
+    check(
+        runtime_commodore_amiga::AmigaA500PlusNtscRuntime::blank(),
+        false,
+    )?;
+    check(runtime_commodore_amiga::AmigaA600PalRuntime::blank(), true)?;
+    check(runtime_commodore_amiga::AmigaA600NtscRuntime::blank(), true)?;
     Ok(())
 }
 
@@ -4605,8 +4618,8 @@ fn restore_preserves_writable_live_floppy_image_across_chipset_tiers() -> Result
     )?;
     assert_writable_live_floppy_snapshot(
         "ECS A500+",
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
     )?;
     assert_writable_live_floppy_snapshot(
         "AGA A1200",

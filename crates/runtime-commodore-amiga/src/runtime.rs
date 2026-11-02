@@ -13,17 +13,18 @@
 //! don't belong in lifecycle. `variants.rs` carries the trait + the
 //! per-variant impls + the public type aliases (`AmigaOcsRuntime`).
 
+use common_commodore_amiga_ecs::{Configuration as EcsConfiguration, EcsCore};
 use emu198x_shell::audio::band_limited::{BandLimitedHistory, BandLimitedStereo, DELAY};
 
 use common_commodore_amiga_aga::{A1200Core, Configuration as A1200Configuration};
+use common_commodore_amiga_ecs::{
+    AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel,
+};
 use emu198x_peripheral_commodore_amiga_floppy::{Adf, MAX_DRIVES};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult,
     StopReason,
-};
-use machine_commodore_amiga_ecs::{
-    AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel,
 };
 use machine_commodore_amiga_ocs::{
     AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
@@ -901,12 +902,12 @@ impl AmigaRuntime<AmigaOcs> {
 }
 
 // =====================================================================
-// AmigaEcs-specific construction + audio control surface.
+// Fixed ECS construction + audio control surface.
 // Parallels the AmigaOcs block above. A500+ and A600 variants route
 // through here; A3000 joins them once Ramsey and Fat Gary are ported.
 // =====================================================================
 
-impl AmigaRuntime<AmigaEcs> {
+impl<C: EcsConfiguration> AmigaRuntime<EcsCore<C>> {
     /// Construct an ECS runtime from owned firmware bytes, using the
     /// model's preset RAM layout.
     pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
@@ -926,8 +927,13 @@ impl AmigaRuntime<AmigaEcs> {
     pub fn with_config(config: AmigaConfig, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
         let model = config.model();
         validate_config(config, ChipsetKind::Ecs)?;
+        if profile_for(model).machine_id.as_str() != C::MACHINE_ID {
+            return Err(MachineError::InvalidRequest {
+                reason: "selected profile does not match fixed ECS owner".into(),
+            });
+        }
         validate_firmware_rom(model, &firmware_rom)?;
-        let machine = build_amiga_ecs(config, &firmware_rom);
+        let machine = build_amiga_ecs::<C>(config, &firmware_rom);
         let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
         let mut runtime = Self {
             profile: profile_for(model),
@@ -974,9 +980,15 @@ impl AmigaRuntime<AmigaEcs> {
 
     /// Construct an ECS runtime with a zero-filled placeholder ROM.
     #[must_use]
-    pub fn blank(model: Model) -> Self {
+    pub fn blank() -> Self {
+        let model = match (C::HAS_GAYLE, C::REGION) {
+            (false, machine_commodore_amiga_ocs::AgnusRegion::Pal) => Model::A500PlusEcsPal,
+            (false, machine_commodore_amiga_ocs::AgnusRegion::Ntsc) => Model::A500PlusEcsNtsc,
+            (true, machine_commodore_amiga_ocs::AgnusRegion::Pal) => Model::A600EcsPal,
+            (true, machine_commodore_amiga_ocs::AgnusRegion::Ntsc) => Model::A600EcsNtsc,
+        };
         Self::new(model, blank_firmware_rom(model))
-            .expect("blank ECS model firmware image should be valid")
+            .expect("fixed ECS placeholder firmware is valid")
     }
 
     /// RAM layout currently installed.
@@ -1147,19 +1159,11 @@ pub(crate) fn build_amiga_a1200<C: A1200Configuration>(
     A1200Core::<C>::with_ram_config(firmware_rom.to_vec(), config.ram())
 }
 
-pub(crate) fn build_amiga_ecs(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaEcs {
-    // ECS uses the same Kickstart-only construction as the A500
-    // family. A1000-style bootstrap and A3000 SuperKickstart paths
-    // come later. Region drives PAL/NTSC Agnus selection inside the
-    // chip layer.
-    let model = config.model();
-    let firmware = firmware_rom.to_vec();
-    match (model.uses_gayle(), model.is_ntsc()) {
-        (true, false) => AmigaEcs::with_a600_ram_config(firmware, config.ram()),
-        (true, true) => AmigaEcs::with_a600_ram_config_ntsc(firmware, config.ram()),
-        (false, false) => AmigaEcs::with_ram_config(firmware, config.ram()),
-        (false, true) => AmigaEcs::with_ram_config_ntsc(firmware, config.ram()),
-    }
+pub(crate) fn build_amiga_ecs<C: EcsConfiguration>(
+    config: AmigaConfig,
+    firmware_rom: &[u8],
+) -> EcsCore<C> {
+    EcsCore::<C>::with_ram_config(firmware_rom.to_vec(), config.ram())
 }
 
 pub(crate) fn build_amiga_ocs(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaOcs {
@@ -1417,8 +1421,8 @@ mod tests {
         for (count, failed) in [
             pulse_cases(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsPal)),
             pulse_cases(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc)),
-            pulse_cases(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal)),
-            pulse_cases(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc)),
+            pulse_cases(crate::AmigaA500PlusPalRuntime::blank()),
+            pulse_cases(crate::AmigaA500PlusNtscRuntime::blank()),
             pulse_cases(crate::AmigaA1200PalRuntime::blank()),
             pulse_cases(crate::AmigaA1200NtscRuntime::blank()),
         ] {
@@ -1521,12 +1525,14 @@ mod tests {
                 AmigaRuntime::<AmigaOcs>::blank(model),
             );
         }
-        for model in [Model::A500PlusEcsPal, Model::A500PlusEcsNtsc] {
-            checkpoints += replay_audio(
-                AmigaRuntime::<AmigaEcs>::blank(model),
-                AmigaRuntime::<AmigaEcs>::blank(model),
-            );
-        }
+        checkpoints += replay_audio(
+            crate::AmigaA500PlusPalRuntime::blank(),
+            crate::AmigaA500PlusPalRuntime::blank(),
+        );
+        checkpoints += replay_audio(
+            crate::AmigaA500PlusNtscRuntime::blank(),
+            crate::AmigaA500PlusNtscRuntime::blank(),
+        );
         checkpoints += replay_audio(
             crate::AmigaA1200PalRuntime::blank(),
             crate::AmigaA1200PalRuntime::blank(),
@@ -1593,7 +1599,19 @@ mod tests {
                             inner.audio_sample_accumulator =
                                 inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
                         }
-                        AmigaRuntimeKind::Ecs(inner) => {
+                        AmigaRuntimeKind::A500PlusPal(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                        AmigaRuntimeKind::A500PlusNtsc(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                        AmigaRuntimeKind::A600Pal(inner) => {
+                            inner.audio_sample_accumulator =
+                                inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
+                        }
+                        AmigaRuntimeKind::A600Ntsc(inner) => {
                             inner.audio_sample_accumulator =
                                 inner.tick_hz - u64::from(AUDIO_SAMPLE_RATE_HZ)
                         }
@@ -1617,7 +1635,19 @@ mod tests {
                             inner.rgba_framebuffer.fill(0x5a);
                             inner.non_black_pixels = u32::MAX;
                         }
-                        AmigaRuntimeKind::Ecs(inner) => {
+                        AmigaRuntimeKind::A500PlusPal(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                        AmigaRuntimeKind::A500PlusNtsc(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                        AmigaRuntimeKind::A600Pal(inner) => {
+                            inner.rgba_framebuffer.fill(0x5a);
+                            inner.non_black_pixels = u32::MAX;
+                        }
+                        AmigaRuntimeKind::A600Ntsc(inner) => {
                             inner.rgba_framebuffer.fill(0x5a);
                             inner.non_black_pixels = u32::MAX;
                         }
@@ -1680,7 +1710,18 @@ mod tests {
             }
             match (&deferred, &regular) {
                 (AmigaRuntimeKind::Ocs(d), AmigaRuntimeKind::Ocs(r)) => compare_runtime!(d, r),
-                (AmigaRuntimeKind::Ecs(d), AmigaRuntimeKind::Ecs(r)) => compare_runtime!(d, r),
+                (AmigaRuntimeKind::A500PlusPal(d), AmigaRuntimeKind::A500PlusPal(r)) => {
+                    compare_runtime!(d, r)
+                }
+                (AmigaRuntimeKind::A500PlusNtsc(d), AmigaRuntimeKind::A500PlusNtsc(r)) => {
+                    compare_runtime!(d, r)
+                }
+                (AmigaRuntimeKind::A600Pal(d), AmigaRuntimeKind::A600Pal(r)) => {
+                    compare_runtime!(d, r)
+                }
+                (AmigaRuntimeKind::A600Ntsc(d), AmigaRuntimeKind::A600Ntsc(r)) => {
+                    compare_runtime!(d, r)
+                }
                 (AmigaRuntimeKind::AgaPal(d), AmigaRuntimeKind::AgaPal(r)) => {
                     compare_runtime!(d, r)
                 }
@@ -1701,7 +1742,18 @@ mod tests {
             }
             match (&deferred, &regular) {
                 (AmigaRuntimeKind::Ocs(d), AmigaRuntimeKind::Ocs(r)) => compare_frame!(d, r),
-                (AmigaRuntimeKind::Ecs(d), AmigaRuntimeKind::Ecs(r)) => compare_frame!(d, r),
+                (AmigaRuntimeKind::A500PlusPal(d), AmigaRuntimeKind::A500PlusPal(r)) => {
+                    compare_frame!(d, r)
+                }
+                (AmigaRuntimeKind::A500PlusNtsc(d), AmigaRuntimeKind::A500PlusNtsc(r)) => {
+                    compare_frame!(d, r)
+                }
+                (AmigaRuntimeKind::A600Pal(d), AmigaRuntimeKind::A600Pal(r)) => {
+                    compare_frame!(d, r)
+                }
+                (AmigaRuntimeKind::A600Ntsc(d), AmigaRuntimeKind::A600Ntsc(r)) => {
+                    compare_frame!(d, r)
+                }
                 (AmigaRuntimeKind::AgaPal(d), AmigaRuntimeKind::AgaPal(r)) => compare_frame!(d, r),
                 (AmigaRuntimeKind::AgaNtsc(d), AmigaRuntimeKind::AgaNtsc(r)) => {
                     compare_frame!(d, r)

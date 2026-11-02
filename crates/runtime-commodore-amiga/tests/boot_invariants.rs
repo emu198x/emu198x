@@ -323,13 +323,13 @@ fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), 
 ///
 /// Catches regression: any bus-arbitration / overlay / interrupt
 /// regression that breaks the ECS A500+ boot path. Runs on the
-/// `AmigaEcsRuntime` (the chip-correct A500+ runtime) — see also
+/// `AmigaA500PlusPalRuntime` (the chip-correct A500+ runtime) — see also
 /// `kickstart_13_reaches_insert_disk_screen` for the OCS A500
 /// equivalent on KS 1.3.
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
 fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dyn Error>> {
-    use runtime_commodore_amiga::AmigaEcsRuntime;
+    use runtime_commodore_amiga::AmigaA500PlusPalRuntime;
     let Some(rom_dir) = home_rom_dir() else {
         emu198x_test_skip::record("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
         return Ok(());
@@ -343,7 +343,7 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dy
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
-    let mut runtime = AmigaEcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
+    let mut runtime = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, firmware)?;
 
     let mut host = null_host();
     // 50M ticks ≈ 350 PAL frames ≈ 7 seconds wall time. Picked from
@@ -381,7 +381,7 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
 
     use common_commodore_amiga::denise::FB_WIDTH;
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
-    use runtime_commodore_amiga::AmigaEcsRuntime;
+    use runtime_commodore_amiga::AmigaA500PlusPalRuntime;
 
     let Some(rom_dir) = home_rom_dir() else {
         emu198x_test_skip::record("skip: no Amiga ROM dir");
@@ -400,7 +400,7 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
 
     let firmware = std::fs::read(&kickstart_path)?;
     let adf = std::fs::read(&adf_path)?;
-    let mut runtime = AmigaEcsRuntime::new(Model::A500PlusEcsPal, firmware)?;
+    let mut runtime = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, firmware)?;
 
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &adf));

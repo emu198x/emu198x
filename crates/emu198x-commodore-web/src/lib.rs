@@ -108,7 +108,10 @@ impl Commodore {
             (Machine::C64(m), "drive-8") => m.runtime().flush_drive8_image(),
             (Machine::Amiga(m), "floppy-0") => match m.runtime() {
                 AmigaRuntimeKind::Ocs(r) => r.machine().floppy0_image_bytes(),
-                AmigaRuntimeKind::Ecs(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500PlusPal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500PlusNtsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A600Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A600Ntsc(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::AgaPal(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::AgaNtsc(r) => r.machine().floppy0_image_bytes(),
             },

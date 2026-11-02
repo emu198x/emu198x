@@ -6,10 +6,10 @@ use common_commodore_amiga::{
     denise_chip::DeniseChip,
     memory::Memory,
 };
+use common_commodore_amiga_ecs::DeniseEcs;
 use emu198x_commodore_agnus_ocs::Agnus;
 use emu198x_commodore_denise_aga::DeniseAga;
 use emu198x_commodore_denise_ocs::DeniseOcs;
-use machine_commodore_amiga_ecs::DeniseEcs;
 
 fn render<C: DeniseChip>(
     hires: bool,

@@ -1,9 +1,9 @@
 //! Moving the family RAM type must retain existing import and save contracts.
 
 use common_commodore_amiga::RamConfig;
+use common_commodore_amiga_ecs::RamConfig as EcsRamConfig;
 use machine_commodore_amiga_a1200_ntsc::RamConfig as AgaNtscRamConfig;
 use machine_commodore_amiga_a1200_pal::RamConfig as AgaRamConfig;
-use machine_commodore_amiga_ecs::RamConfig as EcsRamConfig;
 use machine_commodore_amiga_ocs::RamConfig as OcsRamConfig;
 
 #[test]

@@ -7,7 +7,8 @@
 //! DMACONR BBUSY release precede the final result/D pipeline; internal
 //! activity remains authoritative when a test needs the memory result.
 
-use machine_commodore_amiga_ecs::AmigaEcs;
+mod support;
+use support::AmigaEcs;
 
 const DMACONR: u32 = 0x00DF_F002;
 const INTREQR: u32 = 0x00DF_F01E;

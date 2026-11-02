@@ -9,7 +9,7 @@ use motorola_68000::{
     microcode::MicroOp,
 };
 use runtime_commodore_amiga::{
-    AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
+    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
     AmigaRuntime, Model,
 };
 
@@ -146,8 +146,8 @@ fn cpu_ddf_writes_replay_at_both_phases_and_across_wrap() -> Result<(), Box<dyn 
                     wrap,
                 )?;
                 check_cpu_delivery(
-                    AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-                    AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+                    AmigaA500PlusPalRuntime::blank(),
+                    AmigaA500PlusPalRuntime::blank(),
                     reg,
                     phase,
                     wrap,
@@ -192,8 +192,8 @@ fn invalid_pending_ddf_restore_leaves_destination_untouched() -> Result<(), Box<
         AmigaOcsRuntime::blank(Model::A500OcsPal),
     )?;
     check(
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaA500PlusPalRuntime::blank(),
+        AmigaA500PlusPalRuntime::blank(),
     )?;
     check(AmigaA1200PalRuntime::blank(), AmigaA1200PalRuntime::blank())
 }

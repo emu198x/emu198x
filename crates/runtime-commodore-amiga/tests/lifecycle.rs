@@ -935,7 +935,7 @@ fn ntsc_a1000_uses_bootstrap_firmware_path() {
 // A2000B remains in the OCS-shaped arm because it pairs 8372A with
 // OCS Denise.
 //
-// AmigaEcsRuntime is the canonical home for the A500+ Models. The
+// AmigaA500PlusPalRuntime is the canonical home for the A500+ Models. The
 // chip stack is AgnusEcs + DeniseEcs over the existing OCS Paula +
 // CIA pair. Smoke tests prove construction + frame-loop wiring.
 // Software boot validation (Kickstart 2.04 -> insert-disk) lives in
@@ -944,15 +944,15 @@ fn ntsc_a1000_uses_bootstrap_firmware_path() {
 
 #[test]
 fn ecs_blank_constructor_builds_a500_plus_pal_and_ntsc() {
-    use runtime_commodore_amiga::AmigaEcsRuntime;
-    let _ = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
-    let _ = AmigaEcsRuntime::blank(Model::A500PlusEcsNtsc);
+    use runtime_commodore_amiga::{AmigaA500PlusNtscRuntime, AmigaA500PlusPalRuntime};
+    let _ = AmigaA500PlusPalRuntime::blank();
+    let _ = AmigaA500PlusNtscRuntime::blank();
 }
 
 #[test]
 fn ecs_runtime_runs_one_pal_frame() {
-    use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaEcsRuntime};
-    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaA500PlusPalRuntime};
+    let mut runtime = AmigaA500PlusPalRuntime::blank();
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -975,8 +975,8 @@ fn ecs_runtime_runs_one_pal_frame() {
 
 #[test]
 fn ecs_runtime_runs_one_ntsc_frame() {
-    use runtime_commodore_amiga::{A500_NTSC_FRAME_TICKS, AmigaEcsRuntime};
-    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsNtsc);
+    use runtime_commodore_amiga::{A500_NTSC_FRAME_TICKS, AmigaA500PlusNtscRuntime};
+    let mut runtime = AmigaA500PlusNtscRuntime::blank();
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = NullAudioSink;
     let mut trace_sink = NullTraceSink;
@@ -1000,9 +1000,9 @@ fn ecs_runtime_runs_one_ntsc_frame() {
 #[test]
 fn reset_preserves_ecs_ntsc_region() {
     use machine_commodore_amiga_ocs::AgnusRegion;
-    use runtime_commodore_amiga::AmigaEcsRuntime;
+    use runtime_commodore_amiga::AmigaA500PlusNtscRuntime;
 
-    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsNtsc);
+    let mut runtime = AmigaA500PlusNtscRuntime::blank();
     runtime.reset(ResetKind::Hard);
 
     assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);

@@ -243,7 +243,10 @@ impl<R: FamilyRuntime + 'static, Q: SessionQueryProvider<R> + 'static> Host for 
             }
             return match r {
                 AmigaRuntimeKind::Ocs(r) => r.machine().floppy0_image_bytes(),
-                AmigaRuntimeKind::Ecs(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500PlusPal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A500PlusNtsc(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A600Pal(r) => r.machine().floppy0_image_bytes(),
+                AmigaRuntimeKind::A600Ntsc(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::AgaPal(r) => r.machine().floppy0_image_bytes(),
                 AmigaRuntimeKind::AgaNtsc(r) => r.machine().floppy0_image_bytes(),
             }

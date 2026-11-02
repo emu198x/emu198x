@@ -264,7 +264,9 @@ mod tests {
     use motorola_68000::CpuModel;
 
     use super::*;
-    use crate::{AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model};
+    use crate::{
+        AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model,
+    };
 
     #[test]
     fn all_denise_variants_restore_pending_strobe_and_half_cck_counter_commit() {
@@ -301,7 +303,7 @@ mod tests {
             }
         }
         check::<emu198x_commodore_denise_ocs::DeniseOcs>(false);
-        check::<machine_commodore_amiga_ecs::DeniseEcs>(true);
+        check::<common_commodore_amiga_ecs::DeniseEcs>(true);
         check::<emu198x_commodore_denise_aga::DeniseAga>(true);
     }
 
@@ -369,8 +371,8 @@ mod tests {
                 channel,
             );
             reject(
-                AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
-                AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+                AmigaA500PlusPalRuntime::blank(),
+                AmigaA500PlusPalRuntime::blank(),
                 channel,
             );
             reject(

@@ -297,7 +297,7 @@ const fn cpu_model_name(model: CpuModel) -> &'static str {
 /// Same provider, but dispatching over the runtime-time
 /// `AmigaRuntimeKind` enum so verifier binaries that store
 /// `AmigaRuntimeKind` (rather than a concrete `AmigaOcsRuntime` /
-/// `AmigaEcsRuntime`) can use this provider directly. The OCS and
+/// `AmigaA500PlusPalRuntime`) can use this provider directly. The OCS and
 /// ECS impl blocks share the same query catalogue today, so the
 /// dispatch is trivial.
 impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQueryProvider {
@@ -308,7 +308,10 @@ impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQue
     ) -> Vec<String> {
         match machine {
             crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query_paths(rt, prefix),
-            crate::variants::AmigaRuntimeKind::Ecs(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A500PlusPal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A500PlusNtsc(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A600Pal(rt) => self.query_paths(rt, prefix),
+            crate::variants::AmigaRuntimeKind::A600Ntsc(rt) => self.query_paths(rt, prefix),
             crate::variants::AmigaRuntimeKind::AgaPal(rt) => self.query_paths(rt, prefix),
             crate::variants::AmigaRuntimeKind::AgaNtsc(rt) => self.query_paths(rt, prefix),
         }
@@ -321,7 +324,10 @@ impl SessionQueryProvider<crate::variants::AmigaRuntimeKind> for AmigaSessionQue
     ) -> Result<Option<QueryResult>, QueryError> {
         match machine {
             crate::variants::AmigaRuntimeKind::Ocs(rt) => self.query(rt, path),
-            crate::variants::AmigaRuntimeKind::Ecs(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A500PlusPal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A500PlusNtsc(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A600Pal(rt) => self.query(rt, path),
+            crate::variants::AmigaRuntimeKind::A600Ntsc(rt) => self.query(rt, path),
             crate::variants::AmigaRuntimeKind::AgaPal(rt) => self.query(rt, path),
             crate::variants::AmigaRuntimeKind::AgaNtsc(rt) => self.query(rt, path),
         }

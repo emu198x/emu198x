@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use motorola_68000::CpuModel;
 use runtime_commodore_amiga::{
-    AmigaEcsRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model, RamConfig,
+    AmigaA500PlusPalRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model, RamConfig,
 };
 
 fn blank_kickstart() -> Vec<u8> {
@@ -72,7 +72,7 @@ fn a501_trapdoor_preset_installs_slow_ram() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn a500_plus_preset_installs_1m_chip() -> Result<(), Box<dyn Error>> {
-    let rt = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let rt = AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a500_plus());
     assert_eq!(rt.machine().memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 0);

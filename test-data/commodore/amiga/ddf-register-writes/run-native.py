@@ -16,7 +16,7 @@ def run(output: Path, fixtures: Path, probe: str) -> int:
     for name in (
         "emu198x-commodore-agnus-ocs",
         "common-commodore-amiga",
-        "machine-commodore-amiga-ecs",
+        "common-commodore-amiga-ecs",
         "motorola-68000",
     ):
         manifest += f"{name}={{path={json.dumps(str(REPO / 'crates' / name))}}}\n"

@@ -63,7 +63,11 @@ run_group "Amiga library regressions" \
         -p emu198x-peripheral-commodore-amiga-floppy \
         -p emu198x-peripheral-commodore-amiga-keyboard \
         -p machine-commodore-amiga-ocs \
-        -p machine-commodore-amiga-ecs \
+        -p common-commodore-amiga-ecs \
+        -p machine-commodore-amiga-a500-plus-pal \
+        -p machine-commodore-amiga-a500-plus-ntsc \
+        -p machine-commodore-amiga-a600-pal \
+        -p machine-commodore-amiga-a600-ntsc \
         -p common-commodore-amiga-aga \
         -p machine-commodore-amiga-a1200-pal \
         -p machine-commodore-amiga-a1200-ntsc \
@@ -92,7 +96,7 @@ run_group "OCS machine arbitration, disk and blitter integrations" \
         --test incremental_blitter
 
 run_group "ECS machine incremental-blitter integration" \
-    cargo test --locked -p machine-commodore-amiga-ecs --test incremental_blitter
+    cargo test --locked -p common-commodore-amiga-ecs --test incremental_blitter
 
 run_group "AGA machine incremental-blitter integration" \
     cargo test --locked -p common-commodore-amiga-aga --test incremental_blitter
