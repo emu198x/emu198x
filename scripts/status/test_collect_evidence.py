@@ -370,6 +370,19 @@ class ShardTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "discovered different"):
             self.main("--out", str(self.root / "x.json"), "--merge", *map(str, files))
 
+    def test_shards_may_discover_binaries_in_different_orders(self) -> None:
+        # Cargo lists binaries as they finish building, so each shard of a
+        # real run sees the same set in its own order.
+        whole = self.root / "whole.json"
+        self.assertEqual(self.main("--out", str(whole)), 0)
+        files = self.shard_files(2)
+        data = json.loads(files[1].read_text())
+        data["discovered"] = list(reversed(data["discovered"]))
+        files[1].write_text(json.dumps(data))
+        merged = self.root / "merged.json"
+        self.assertEqual(self.main("--out", str(merged), "--merge", *map(str, files)), 0)
+        self.assertEqual(merged.read_text(), whole.read_text())
+
     def test_a_failing_shard_fails(self) -> None:
         path = self.root / "broken"
         path.write_text(f"#!{sys.executable}\nprint('test no ... FAILED')\nraise SystemExit(101)\n")
