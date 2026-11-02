@@ -60,14 +60,19 @@ that are already published.
 
 - Stand up `emu198x/coleco-colecovision`, following `scripts/extract-repo.py`'s
   pattern and keeping the history of the moved paths.
-- Publish the family's library crates there; this repository's
-  `emu198x-fleet-web` and any other host then uses the published runtime.
-- Move the family's release: its binary goes out from its own repository.
-  Releasing a binary from a family repository (cargo-dist, Homebrew) is new
-  and is the part the pilot is for.
+- Publish the family's four library crates there, as
+  `emu198x-common-coleco-colecovision`,
+  `emu198x-machine-coleco-colecovision-ntsc`,
+  `emu198x-machine-coleco-colecovision-pal` and
+  `emu198x-runtime-coleco-colecovision` (`crate-naming.md`, § Amendment
+  2026-11-02).
+- `emu198x-colecovision`, the binary, stays here in the suite release and,
+  like `emu198x-fleet-web`, takes the published runtime
+  (`workspace-shape.md`, § Amendment 2026-11-02).
 - **Verified by:** the family's tests and corpus results are unchanged before
-  and after the move; `emu198x-fleet-web` passes against the published
-  runtime; the family repository's release produces an installable binary.
+  and after the move; `emu198x-colecovision` and `emu198x-fleet-web` pass
+  against the published crates; the suite release still produces an
+  installable ColecoVision binary.
 
 ### 4. The rest
 
