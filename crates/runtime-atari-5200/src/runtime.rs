@@ -23,7 +23,7 @@ pub struct Atari5200Runtime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
-    controller_cache: crate::input::ControllerCache,
+    pub(crate) controller_cache: [crate::input::ControllerCache; 4],
 }
 
 impl Atari5200Runtime {
@@ -39,7 +39,7 @@ impl Atari5200Runtime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
-            controller_cache: crate::input::ControllerCache::default(),
+            controller_cache: [crate::input::ControllerCache::default(); 4],
         }
     }
 
@@ -139,6 +139,7 @@ impl Atari5200Runtime {
         self.rgba_width = width;
         self.rgba_height = height;
         self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        self.controller_cache = [crate::input::ControllerCache::default(); 4];
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
         Ok(())

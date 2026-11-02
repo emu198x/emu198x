@@ -19,7 +19,8 @@ use crate::runtime::Atari7800Runtime;
 /// Version 5 adds POKEY RANDOM initialisation and restart phase.
 /// Version 6 stores native oscillator time, MARIA clock/fetch stages and the
 /// pending CPU phase-2 bus transaction and POKEY partial audio/filter state.
-const SNAPSHOT_VERSION: u16 = 6;
+/// Version 7 preserves the physical POKEY keyboard scan stage.
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -96,10 +97,10 @@ mod tests {
     #[test]
     fn old_version_is_rejected_before_decoding_machine_fields() {
         let mut runtime = Atari7800Runtime::blank(Model::A7800Ntsc);
-        let bytes = postcard::to_allocvec(&5u16).expect("version prefix");
+        let bytes = postcard::to_allocvec(&6u16).expect("version prefix");
         let err = decode(&mut runtime, &bytes).expect_err("old layout");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 5"))
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 6"))
         );
     }
 

@@ -39,7 +39,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 17 preserves the live DMA clock and shared playfield line RAM.
 /// Version 18 carries ANTIC's two-cycle CHBASE delay.
 /// Version 19 retains POKEY partial audio integration and DC-filter history.
-const SNAPSHOT_VERSION: u16 = 19;
+/// Version 20 preserves the physical POKEY keyboard scan stage.
+const SNAPSHOT_VERSION: u16 = 20;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -48,6 +49,7 @@ struct Atari5200RuntimeSnapshotRefV2<'a> {
     time: u64,
     model_id: &'a str,
     machine: Option<&'a Atari5200>,
+    controllers: &'a [crate::input::ControllerCache; 4],
 }
 
 /// Owning envelope used during decode.
@@ -57,6 +59,7 @@ struct Atari5200RuntimeSnapshotV2 {
     time: u64,
     model_id: String,
     machine: Option<Atari5200>,
+    controllers: [crate::input::ControllerCache; 4],
 }
 
 pub(crate) fn encode(runtime: &Atari5200Runtime) -> Result<Vec<u8>, MachineError> {
@@ -65,6 +68,7 @@ pub(crate) fn encode(runtime: &Atari5200Runtime) -> Result<Vec<u8>, MachineError
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        controllers: &runtime.controller_cache,
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -98,6 +102,7 @@ pub(crate) fn decode(runtime: &mut Atari5200Runtime, bytes: &[u8]) -> Result<(),
             ),
         });
     }
+    runtime.controller_cache = snapshot.controllers;
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(snapshot.machine);
     Ok(())
@@ -111,15 +116,15 @@ mod tests {
     use emu198x_shell::MachineError;
 
     #[test]
-    fn version_18_is_rejected_without_mutating_live_state() {
+    fn version_19_is_rejected_without_mutating_live_state() {
         let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
         runtime.set_time(emu198x_shell::MachineTime::new(12345));
         let before = super::encode(&runtime).expect("current snapshot");
         // Even a truncated old payload must fail at the version gate.
-        let old = postcard::to_allocvec(&18u16).expect("old version prefix");
+        let old = postcard::to_allocvec(&19u16).expect("old version prefix");
         let error = decode(&mut runtime, &old).expect_err("old layout must reject");
         assert!(matches!(error, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 18; expected 19"));
+            if reason == "unsupported snapshot version 19; expected 20"));
         assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
     }
 
@@ -142,6 +147,7 @@ mod tests {
             time: 0,
             model_id: runtime.model().model_id(),
             machine: None,
+            controllers: &runtime.controller_cache,
         })
         .expect("synthetic envelope should encode");
 

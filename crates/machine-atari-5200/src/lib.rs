@@ -139,6 +139,9 @@ impl emu198x_atari_antic::AnticMemory for AnticView<'_> {
     }
 }
 
+mod controller;
+use controller::Controller;
+
 /// Atari 5200 machine.
 #[derive(Serialize, Deserialize)]
 pub struct Atari5200 {
@@ -157,6 +160,7 @@ pub struct Atari5200 {
     frame_count: u64,
     /// CPU cycle counter within the current scan line.
     line_cycle: u16,
+    controllers: [Controller; 4],
 }
 
 impl Atari5200 {
@@ -167,8 +171,7 @@ impl Atari5200 {
         let mut cpu = M6502::new();
         cpu.reset();
         let mut pokey = Pokey::new(region.cpu_hz());
-        pokey.set_pot(0, POT_CENTER);
-        pokey.set_pot(1, POT_CENTER);
+        pokey.enable_keyboard_scan();
         let clocks_per_frame =
             u64::from(region.lines_per_frame()) * u64::from(COLOUR_CLOCKS_PER_LINE);
         Ok(Self {
@@ -185,6 +188,7 @@ impl Atari5200 {
             clocks_per_frame,
             frame_count: 0,
             line_cycle: 0,
+            controllers: [Controller::default(); 4],
         })
     }
 
@@ -280,12 +284,18 @@ impl Atari5200 {
                 self.dma_bus_data = byte;
             }
             self.cpu.rdy = !self.antic.wsync_halt();
+            let mut keyboard_control_write = None;
             if !self.clock_playfield_dma() {
                 // Complete the exposed bus transaction before tick consumes
                 // its data and prepares the next one. In particular, a write
                 // must not reach GTIA one CPU slot before its actual bus slot.
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
+                } else if (0xe800..=0xe9ff).contains(&self.cpu.addr) && self.cpu.addr & 15 == 15 {
+                    // This bus write completes at the current POKEY edge.
+                    // SKCTL starts its /114 phase after that edge, not one
+                    // clock earlier. Direct debugger writes occur between edges.
+                    keyboard_control_write = Some(self.cpu.data);
                 } else {
                     self.mem_write(self.cpu.addr, self.cpu.data);
                 }
@@ -301,7 +311,11 @@ impl Atari5200 {
                 self.gtia
                     .accept_playfield_sample(sample.colour_clock, &sample.pixels, sample.mode);
             }
+            self.drive_controller_lines();
             self.pokey.tick();
+            if let Some(value) = keyboard_control_write {
+                self.pokey.write(15, value);
+            }
             self.cpu.irq = self.pokey.irq_pending();
             // The DMA mask uses slots 0..113. Advance only after servicing
             // this slot, matching the 800XL's shared ANTIC clock convention.
@@ -441,28 +455,67 @@ impl Atari5200 {
         self.pokey.take_buffer()
     }
 
-    /// Set joystick X / Y via POKEY pots (0-228 each — 114 is centre).
+    /// Set the first controller's analogue axes (0–228, 114 centre).
     pub fn set_joystick(&mut self, x: u8, y: u8) {
-        self.pokey.set_pot(0, x.min(POT_MAX));
-        self.pokey.set_pot(1, y.min(POT_MAX));
+        self.set_controller_joystick(0, x, y);
     }
 
-    /// Set fire button (GTIA TRIG0).
-    pub fn set_fire(&mut self, pressed: bool) {
-        self.gtia.set_trigger(0, pressed);
-    }
-
-    /// Press a controller-keypad key by its POKEY scan code, or release the
-    /// held key when `pressed` is false. The 5200 keypad is a 4×4 matrix POKEY
-    /// scans; the scan code is `((row << 2) | col) << 1` (MAME `a5200_keypads`),
-    /// e.g. Start (row 3, col 0) = `0x18`. POKEY latches the code, marks
-    /// "key down", and raises the keyboard interrupt the OS polls.
-    pub fn set_keypad(&mut self, code: u8, pressed: bool) {
-        if pressed {
-            self.pokey.press_key(code);
-        } else {
-            self.pokey.release_key();
+    /// Set a physical controller's axes; indices are zero-based.
+    pub fn set_controller_joystick(&mut self, port: usize, x: u8, y: u8) {
+        if let Some(controller) = self.controllers.get_mut(port) {
+            controller.pots = [x.min(POT_MAX), y.min(POT_MAX)];
         }
+    }
+
+    /// Set the first controller's lower fire pair.
+    pub fn set_fire(&mut self, pressed: bool) {
+        self.set_controller_fire(0, false, pressed);
+    }
+
+    /// Drive lower fire to GTIA or upper fire to the selected POKEY KR2 line.
+    pub fn set_controller_fire(&mut self, port: usize, upper: bool, pressed: bool) {
+        if let Some(controller) = self.controllers.get_mut(port) {
+            if upper {
+                controller.upper_fire = pressed;
+            } else {
+                self.gtia.set_trigger(port as u8, pressed);
+            }
+        }
+    }
+
+    /// Set one key on the first keypad using its even POKEY scan code.
+    pub fn set_keypad(&mut self, code: u8, pressed: bool) {
+        self.set_controller_keypad(0, code, pressed);
+    }
+
+    /// Hold/release one switch independently of the other keypad switches.
+    pub fn set_controller_keypad(&mut self, port: usize, code: u8, pressed: bool) {
+        if code > 0x1e || code & 1 != 0 || code == 0 {
+            return;
+        }
+        if let Some(controller) = self.controllers.get_mut(port) {
+            let mask = 1 << (code >> 1);
+            if pressed {
+                controller.keys |= mask;
+            } else {
+                controller.keys &= !mask;
+            }
+        }
+    }
+
+    fn drive_controller_lines(&mut self) {
+        let output = self.gtia.console_output();
+        for (port, controller) in self.controllers.iter().enumerate() {
+            for (axis, &position) in controller.pots.iter().enumerate() {
+                self.pokey.set_pot(
+                    (port * 2 + axis) as u8,
+                    if output & 4 != 0 { position } else { POT_MAX },
+                );
+            }
+        }
+        let selected = &self.controllers[usize::from(output & 3)];
+        let key = selected.key_at(self.pokey.keyboard_scan_address());
+        self.pokey.set_keyboard_returns(key, selected.upper_fire);
     }
 
     /// Cartridge reference, for tests and chip inspection.
@@ -565,6 +618,65 @@ impl Atari5200 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pot_supply_gating_and_restore_retain_all_raw_axes() {
+        let mut machine =
+            Atari5200::new(trap_rom_8k(), vec![], Atari5200Region::Ntsc).expect("machine");
+        let positions = [[17, 41], [63, 89], [112, 137], [163, 211]];
+        for (port, [x, y]) in positions.into_iter().enumerate() {
+            machine.set_controller_joystick(port, x, y);
+        }
+        machine.poke(0xc01f, 0); // shared pot supply disabled
+        machine.poke(0xe80b, 0);
+        for _ in 0..230 * 114 * 2 {
+            machine.tick_colour_clock();
+        }
+        for pot in 0..8 {
+            assert_eq!(machine.mem_read(0xe800 + pot), POT_MAX);
+        }
+        let saved = postcard::to_allocvec(&machine).expect("save powered-off pots");
+        let mut restored: Atari5200 = postcard::from_bytes(&saved).expect("restore");
+        for m in [&mut machine, &mut restored] {
+            m.poke(0xc01f, 7); // enable supply, select a different keypad
+            m.poke(0xe80b, 0);
+            for _ in 0..230 * 114 * 2 {
+                m.tick_colour_clock();
+            }
+            for (pot, expected) in positions.into_iter().flatten().enumerate() {
+                assert_eq!(m.mem_read(0xe800 + pot as u16), expected);
+            }
+        }
+        assert_eq!(
+            postcard::to_allocvec(&restored).expect("restored"),
+            postcard::to_allocvec(&machine).expect("original")
+        );
+    }
+
+    #[test]
+    fn cpu_skctl_write_starts_first_scan_edge_81_clocks_later() {
+        let mut cart = vec![0xea; 32768];
+        cart[..8].copy_from_slice(&[0xa9, 2, 0x8d, 0x0f, 0xe8, 0x4c, 5, 0x40]);
+        let mut bios = vec![0xea; 2048];
+        bios[0x7fc..0x7fe].copy_from_slice(&[0, 0x40]);
+        let mut machine = Atari5200::new(cart, bios, Atari5200Region::Ntsc).expect("guest");
+        let mut written_at = None;
+        for _ in 0..1000 {
+            let old = machine.pokey.skctl();
+            machine.tick_colour_clock();
+            if old == 0 && machine.pokey.skctl() == 2 {
+                written_at = Some(machine.master_clock());
+            }
+            if machine.pokey.keyboard_scan_address() != 0 {
+                assert_eq!(
+                    machine.master_clock() - written_at.expect("CPU wrote SKCTL"),
+                    81 * 2
+                );
+                return;
+            }
+        }
+        panic!("guest never enabled the physical scanner");
+    }
 
     #[test]
     fn native_frame_finishes_the_current_raster_after_partial_steps() {
