@@ -49,6 +49,10 @@ a day, mostly waiting on CI.
   queue limits, for what cancelled job 125367344614 in attempt 1 of run 41467795429.
 - **Verified by:** a cited cause, or a written "not determinable" with what
   was checked.
+- **Done (2 November 2026).** The job's check run carries a failure annotation
+  from GitHub: "The job was not acquired by Runner of type hosted even after
+  multiple attempts". GitHub's own runner assignment gave up. No limit of ours
+  was involved, and there's none to raise, so option B below doesn't apply.
 
 ### 2. Decide how releases survive a missing Apple Silicon runner
 
@@ -66,8 +70,8 @@ This changes a binding decision, so Steve decides. Options:
   The decision explicitly forbids relaxing the same-attempt rule, so this
   needs the most rethinking.
 
-My recommendation is B if task 1 finds a limit we control, and A otherwise.
-Either way, the change goes to `producer-source-locks.md` first.
+Task 1 found no limit we control, so B is out, and I recommend A. The
+change goes to `producer-source-locks.md` first.
 
 - **Verified by:** for B, a tag dry run (or a PR run of the same jobs) whose
   Apple Silicon job queues longer than the old limit and still passes. For
