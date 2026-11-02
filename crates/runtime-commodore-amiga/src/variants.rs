@@ -79,6 +79,10 @@ pub trait AmigaMachine {
     /// Upgrade the one legacy v66 board flag while retaining all other fields.
     fn migrate_v66_snapshot(_state: &mut Self::Snapshot, _config: AmigaConfig) {}
 
+    /// Upgrade the pre-v68 A2000 clock fitting without changing its history.
+    /// Applied after the v66 step when reading either v66 or v67.
+    fn migrate_v67_snapshot(_state: &mut Self::Snapshot, _config: AmigaConfig) {}
+
     // ---------- clock / lifecycle ----------
 
     /// Build a fresh chip stack from firmware and canonical construction
@@ -1339,6 +1343,12 @@ impl AmigaMachine for AmigaOcs {
 
     type Snapshot = AmigaOcsSnapshot;
 
+    fn migrate_v67_snapshot(state: &mut Self::Snapshot, config: AmigaConfig) {
+        if matches!(config.model(), Model::A2000OcsPal | Model::A2000OcsNtsc) {
+            state.enable_onboard_rtc();
+        }
+    }
+
     fn build(firmware: &[u8], config: AmigaConfig) -> Self {
         crate::runtime::build_amiga_ocs(config, firmware)
     }
@@ -1489,6 +1499,11 @@ impl AmigaMachine for AmigaOcs {
         )?;
         if self.uses_fat_agnus_8372a() != config.model().uses_fat_agnus_8372a() {
             return Err("installed OCS-shaped Agnus revision does not match configuration".into());
+        }
+        if matches!(config.model(), Model::A2000OcsPal | Model::A2000OcsNtsc)
+            && !self.gary().rtc_present()
+        {
+            return Err("A2000 onboard RTC must be present".into());
         }
         Ok(())
     }

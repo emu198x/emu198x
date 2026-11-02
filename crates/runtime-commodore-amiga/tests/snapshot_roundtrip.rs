@@ -4292,8 +4292,8 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 /// Take a real snapshot, hand-patch the leading postcard varint version
 /// field back to 65, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV67` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 67` that byte is `0x43`.
+/// of a `SnapshotEnvelopeV68` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 68` that byte is `0x44`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -4302,8 +4302,8 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 67,
-        "postcard varint for SNAPSHOT_VERSION = 67 should be 0x43"
+        bytes[0], 68,
+        "postcard varint for SNAPSHOT_VERSION = 68 should be 0x44"
     );
     bytes[0] = 65;
 
@@ -4315,7 +4315,7 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 65; expected 66 or 67"
+                if reason == "unsupported snapshot version 65; expected 66, 67 or 68"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
@@ -4721,7 +4721,7 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
         }
         assert!(reached, "prefetch boundary not reached: holding={held}");
         let bytes = original.snapshot()?;
-        assert_eq!(bytes[0], 67);
+        assert_eq!(bytes[0], 68);
         let mut restored = AmigaA1200PalRuntime::new(Model::A1200AgaPal, rom.clone())?;
         restored.restore(&bytes)?;
         assert_eq!(bytes, restored.snapshot()?);
@@ -4879,7 +4879,7 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
             });
             if state.execution.startup_ccks_remaining == 0 && visited.insert(key) {
                 let bytes = original.snapshot()?;
-                assert_eq!(bytes[0], 67);
+                assert_eq!(bytes[0], 68);
                 let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
                 restored.restore(&bytes)?;
                 assert_eq!(bytes, restored.snapshot()?);

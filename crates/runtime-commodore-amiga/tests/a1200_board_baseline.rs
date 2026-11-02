@@ -206,7 +206,7 @@ fn continuation(runtime: &mut AmigaRuntimeKind) -> Vec<u8> {
     postcard::to_allocvec(&(
         fields,
         digest(&v66_comparison_bytes(
-            runtime.snapshot().expect("final v67 save"),
+            runtime.snapshot().expect("final v68 save"),
         )),
     ))
     .expect("native observations")
@@ -333,7 +333,7 @@ fn verify_original_continuations(debug_cut: bool) {
             );
             legacy_v66::assert_migrated_save(
                 &original,
-                &restored.snapshot().expect("reencoded v67"),
+                &restored.snapshot().expect("reencoded v68"),
                 false,
             );
             let actual = continuation(&mut restored);
@@ -361,7 +361,7 @@ fn original_v66_debug_cut_continuations_remain_exact() {
 }
 
 fn v66_comparison_bytes(mut current: Vec<u8>) -> Vec<u8> {
-    assert_eq!(current.first(), Some(&67), "v67 writer");
+    assert_eq!(current.first(), Some(&68), "v68 writer");
     current[0] = 66;
     current
 }

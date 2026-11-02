@@ -377,7 +377,25 @@ pub struct AmigaOcsSnapshot {
     e_clock_phase: u64,
 }
 
+impl AmigaOcsSnapshot {
+    /// Whether the persisted decoder exposes the fitted clock.
+    #[must_use]
+    pub const fn rtc_present(&self) -> bool {
+        self.gary.rtc_present()
+    }
+
+    /// Correct legacy onboard-clock decoding without changing clock history.
+    pub fn enable_onboard_rtc(&mut self) {
+        self.gary.set_rtc_present(true);
+    }
+}
+
 impl AmigaOcs {
+    /// Fit an onboard clock independently of an expansion RAM board.
+    pub fn enable_onboard_rtc(&mut self) {
+        self.gary.set_rtc_present(true);
+    }
+
     fn apply_drive_control_from_cia_b(&mut self) {
         let prb = self.cia_b.port_b_output();
         self.drives.update_control(prb);

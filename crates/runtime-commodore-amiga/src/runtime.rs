@@ -1183,7 +1183,7 @@ pub(crate) fn build_amiga_ocs(config: AmigaConfig, firmware_rom: &[u8]) -> Amiga
             AmigaOcs::with_gvp_a530_config(firmware, ram_config, board_config)
         };
     }
-    match (
+    let mut machine = match (
         model.is_a1000(),
         model.is_ntsc(),
         model.uses_fat_agnus_8372a(),
@@ -1195,7 +1195,11 @@ pub(crate) fn build_amiga_ocs(config: AmigaConfig, firmware_rom: &[u8]) -> Amiga
         (false, false, false) => AmigaOcs::with_ram_config(firmware, ram_config),
         (false, true, false) => AmigaOcs::with_ram_config_ntsc(firmware, ram_config),
         (true, _, true) => unreachable!("A1000 profiles never use Fat Agnus 8372A"),
+    };
+    if matches!(model, Model::A2000OcsPal | Model::A2000OcsNtsc) {
+        machine.enable_onboard_rtc();
     }
+    machine
 }
 
 /// Validate construction intent before a machine constructor can observe it.

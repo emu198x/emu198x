@@ -1,7 +1,7 @@
 //! Exact comparisons for the approved version/RTC-presence migration.
 pub fn assert_migrated_save(old: &[u8], current: &[u8], rtc_added: bool) {
     assert_eq!(old.first(), Some(&66), "immutable v66 envelope");
-    assert_eq!(current.first(), Some(&67), "new writer must emit v67");
+    assert_eq!(current.first(), Some(&68), "new writer must emit v68");
     assert_eq!(old.len(), current.len(), "saved field layout is unchanged");
     let changes: Vec<_> = old
         .iter()
