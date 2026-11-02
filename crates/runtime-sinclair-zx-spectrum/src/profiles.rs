@@ -604,7 +604,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             release_year: model.release_year(),
             summary: "Russian Spectrum clone with no contention, AY, and Beta 128 disk interface."
                 .into(),
-            clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_336_000)),
+            clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
             firmware: vec![
                 FirmwareRequirement::new("pentagon-rom-0", "Pentagon ROM 0", false),
                 FirmwareRequirement::new("pentagon-rom-1", "Pentagon ROM 1", false),
