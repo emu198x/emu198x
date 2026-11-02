@@ -1,4 +1,5 @@
 //! Immutable v66 saves and native continuations from before board extraction.
+mod legacy_v66;
 use std::path::{Path, PathBuf};
 
 use emu198x_shell::{
@@ -202,8 +203,13 @@ fn continuation(runtime: &mut AmigaRuntimeKind) -> Vec<u8> {
     ];
     assert_eq!(runtime.read_word(0x1202), 0, "guest saw released joystick");
     assert_ne!(runtime.read_word(0x00BF_E001) & 0x40, 0, "released mouse");
-    postcard::to_allocvec(&(fields, digest(&runtime.snapshot().expect("final v66 save"))))
-        .expect("native observations")
+    postcard::to_allocvec(&(
+        fields,
+        digest(&v66_comparison_bytes(
+            runtime.snapshot().expect("final v67 save"),
+        )),
+    ))
+    .expect("native observations")
 }
 fn diagnose(name: &str, actual: &[u8], expected: &[u8]) {
     let (a, final_a): (Vec<Field>, [u8; 32]) =
@@ -325,9 +331,10 @@ fn verify_original_continuations(debug_cut: bool) {
                 u8::from(debug_cut),
                 "{name}: retained half-CCK phase"
             );
-            assert!(
-                restored.snapshot().expect("reencoded") == original,
-                "{name}: complete save bytes"
+            legacy_v66::assert_migrated_save(
+                &original,
+                &restored.snapshot().expect("reencoded v67"),
+                false,
             );
             let actual = continuation(&mut restored);
             if actual != expected {
@@ -351,4 +358,10 @@ fn original_v66_native_continuations_remain_exact() {
 #[test]
 fn original_v66_debug_cut_continuations_remain_exact() {
     verify_original_continuations(true);
+}
+
+fn v66_comparison_bytes(mut current: Vec<u8>) -> Vec<u8> {
+    assert_eq!(current.first(), Some(&67), "v67 writer");
+    current[0] = 66;
+    current
 }

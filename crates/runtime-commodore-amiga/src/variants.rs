@@ -81,6 +81,9 @@ pub trait AmigaMachine {
     /// postcard inside the runtime's snapshot envelope.
     type Snapshot: Serialize + DeserializeOwned;
 
+    /// Upgrade the one legacy v66 board flag while retaining all other fields.
+    fn migrate_v66_snapshot(_state: &mut Self::Snapshot, _config: AmigaConfig) {}
+
     // ---------- clock / lifecycle ----------
 
     /// Build a fresh chip stack from firmware and canonical construction
@@ -1562,6 +1565,15 @@ impl AmigaMachine for AmigaEcs {
 
     type Snapshot = AmigaEcsSnapshot;
 
+    fn migrate_v66_snapshot(state: &mut Self::Snapshot, config: AmigaConfig) {
+        if matches!(
+            config.model(),
+            Model::A500PlusEcsPal | Model::A500PlusEcsNtsc
+        ) {
+            state.enable_onboard_rtc();
+        }
+    }
+
     fn build(firmware: &[u8], config: AmigaConfig) -> Self {
         crate::runtime::build_amiga_ecs(config, firmware)
     }
@@ -1674,6 +1686,9 @@ impl AmigaMachine for AmigaEcs {
     }
 
     fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) -> Result<(), String> {
+        if self.gayle_diagnostic_snapshot().is_none() && !snapshot.rtc_present() {
+            return Err("A500+ onboard RTC must be present".to_owned());
+        }
         AmigaEcs::restore_snapshot_state(self, snapshot);
         Ok(())
     }

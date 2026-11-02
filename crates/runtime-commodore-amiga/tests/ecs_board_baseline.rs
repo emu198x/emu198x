@@ -1,4 +1,5 @@
 //! Immutable v66 saves and native continuations from before board extraction.
+mod legacy_v66;
 use std::path::{Path, PathBuf};
 
 use emu198x_shell::{
@@ -339,17 +340,40 @@ fn verify_original_continuations(debug_cut: bool) {
                 u8::from(debug_cut),
                 "{name}: retained half-CCK phase"
             );
-            assert!(
-                restored.snapshot().expect("reencoded") == original,
-                "{name}: complete save bytes"
+            let rtc_added = matches!(model, Model::A500PlusEcsPal | Model::A500PlusEcsNtsc);
+            assert_eq!(
+                restored.gary_diagnostic_snapshot().rtc_present,
+                rtc_added,
+                "stock onboard RTC fitting"
+            );
+            legacy_v66::assert_migrated_save(
+                &original,
+                &restored.snapshot().expect("reencoded v67"),
+                rtc_added,
             );
             let actual = continuation(&mut restored);
-            if actual != expected {
+            let (actual_fields, actual_hash): (Vec<Field>, [u8; 32]) =
+                postcard::from_bytes(&actual).expect("current fields");
+            let (expected_fields, expected_hash): (Vec<Field>, [u8; 32]) =
+                postcard::from_bytes(&expected).expect("original fields");
+            let original_final = std::fs::read(root.join(format!("{name}.final-state")))
+                .expect("original final envelope");
+            assert_eq!(
+                digest(&original_final),
+                expected_hash,
+                "original complete final state hash"
+            );
+            let current_final = restored.snapshot().expect("current final envelope");
+            assert_eq!(digest(&current_final), actual_hash);
+            legacy_v66::assert_migrated_save(&original_final, &current_final, rtc_added);
+            let a = postcard::to_allocvec(&actual_fields).expect("current packets");
+            let e = postcard::to_allocvec(&expected_fields).expect("original packets");
+            if a != e {
                 diagnose(&name, &actual, &expected);
             }
             assert!(
-                actual == expected,
-                "{name}: first frame/audio/clocks/final bytes"
+                a == e,
+                "{name}: every original frame/audio/clock observation"
             );
         }
         let mut inactive = AmigaRuntimeKind::new(model, firmware(false, false)).expect("inactive");
