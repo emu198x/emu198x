@@ -180,6 +180,12 @@ impl Cartridge {
         Some(base)
     }
 
+    /// Immutable cartridge payload; the layout must accompany headerless bytes.
+    #[must_use]
+    pub fn rom_bytes(&self) -> &[u8] {
+        &self.rom
+    }
+
     /// Selected pages, for tests and chip inspection.
     #[must_use]
     pub const fn banks(&self) -> [u8; 2] {
