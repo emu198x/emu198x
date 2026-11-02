@@ -257,7 +257,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (bytes, ms) = decode(&device, &queue, &frame, false)?;
     export(dir, "nes-signal", &frame, bytes)?;
     println!("live NES: {ms:.3} ms");
-    let mut amiga = runtime_commodore_amiga::AmigaOcsRuntime::new(
+    let mut amiga = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
         runtime_commodore_amiga::Model::A500OcsPal,
         fs::read("../roms/kick13.rom")?,
     )?;

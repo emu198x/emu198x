@@ -247,7 +247,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     use emu198x_shell::{
         FieldParity, HostIo, LatestFrameCapture, MachineCore, NullAudioSink, NullTraceSink,
     };
-    let mut machine = runtime_commodore_amiga::AmigaOcsRuntime::new(
+    let mut machine = runtime_commodore_amiga::AmigaA500Rev5PalRuntime::new(
         runtime_commodore_amiga::Model::A500OcsPal,
         rom,
     )?;
