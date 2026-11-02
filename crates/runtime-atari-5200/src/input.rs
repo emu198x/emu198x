@@ -9,26 +9,24 @@
 //!     `x` / `horizontal` drives pot 0, `y` / `vertical` drives pot 1.
 //!   * [`InputEvent::Button`] / [`InputEvent::Key`] — digital direction
 //!     names (`up` / `down` / `left` / `right`) snap the pot to an extreme,
-//!     and `fire` drives the trigger.
+//!     `fire` drives the lower trigger and `fire2` drives upper fire.
 //!
 //! Direction convention: `left` / `up` → pot minimum, `right` / `down` →
-//! pot maximum, neither (or both) on an axis → centre. If a title reads
-//! inverted, flip the two constants below — the wiring is otherwise
-//! orientation-agnostic.
+//! pot maximum, neither (or both) on an axis → centre.
 //!
-//! The controller keypad (`start`, `pause`, `reset`, `0`-`9`, `*`, `#`) is
-//! momentary, not a held state, so it bypasses the analog/fire cache: a press
-//! latches the key's POKEY scan code, a release frees it.
+//! Each physical controller retains its own axes, directions and fire state.
+//! Keypad switches remain held on the machine until individually released.
 
 use emu198x_shell::InputEvent;
 use machine_atari_5200::Atari5200;
+use serde::{Deserialize, Serialize};
 
 const POT_MIN: u8 = 0;
 const POT_CENTRE: u8 = 114;
 const POT_MAX: u8 = 228;
 
 /// Host-side mirror of the analogue stick + fire.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct ControllerCache {
     x: u8,
     y: u8,
@@ -37,6 +35,7 @@ pub(crate) struct ControllerCache {
     left: bool,
     right: bool,
     fire: bool,
+    upper_fire: bool,
 }
 
 impl Default for ControllerCache {
@@ -49,14 +48,16 @@ impl Default for ControllerCache {
             left: false,
             right: false,
             fire: false,
+            upper_fire: false,
         }
     }
 }
 
 impl ControllerCache {
-    fn apply(self, machine: &mut Atari5200) {
-        machine.set_joystick(self.x, self.y);
-        machine.set_fire(self.fire);
+    fn apply(self, machine: &mut Atari5200, port: usize) {
+        machine.set_controller_joystick(port, self.x, self.y);
+        machine.set_controller_fire(port, false, self.fire);
+        machine.set_controller_fire(port, true, self.upper_fire);
     }
 
     /// Recompute the pot values from the held digital directions.
@@ -83,6 +84,10 @@ impl ControllerCache {
             "right" | "arrowright" => self.right = pressed,
             "fire" | "fire1" | "button" => {
                 self.fire = pressed;
+                return true;
+            }
+            "fire2" => {
+                self.upper_fire = pressed;
                 return true;
             }
             _ => return false,
@@ -139,16 +144,25 @@ fn keypad_code(name: &str) -> Option<u8> {
 
 pub(crate) fn apply_input_event(
     machine: &mut Atari5200,
-    cache: &mut ControllerCache,
+    caches: &mut [ControllerCache; 4],
     event: &InputEvent,
 ) {
-    // Keypad keys are momentary and POKEY-latched, not part of the held cache.
+    let port = match event {
+        InputEvent::Axis { port, .. } | InputEvent::Button { port, .. } => match port {
+            0 | 1 => 0,
+            2..=4 => usize::from(*port - 1),
+            _ => return,
+        },
+        InputEvent::Key { .. } => 0,
+        _ => return,
+    };
     if let InputEvent::Button { name, pressed, .. } | InputEvent::Key { name, pressed } = event
         && let Some(code) = keypad_code(&name.to_ascii_lowercase())
     {
-        machine.set_keypad(code, *pressed);
+        machine.set_controller_keypad(port, code, *pressed);
         return;
     }
+    let cache = &mut caches[port];
 
     let changed = match event {
         InputEvent::Axis { name, value, .. } => cache.set_axis(&name.to_ascii_lowercase(), *value),
@@ -161,7 +175,7 @@ pub(crate) fn apply_input_event(
         _ => false,
     };
     if changed {
-        cache.apply(machine);
+        cache.apply(machine, port);
     }
 }
 

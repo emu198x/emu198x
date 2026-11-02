@@ -154,7 +154,17 @@ fn all(root: &Path, capture: bool) -> Result<(), Box<dyn Error>> {
             if capture {
                 std::fs::write(file, value)?;
             } else {
-                assert!(value == std::fs::read(file)?, "original {id}.{suffix}");
+                let expected = std::fs::read(file)?;
+                if suffix.ends_with("state") {
+                    assert!(
+                        legacy_envelope::matches_without_unattached_scanner(
+                            &value, &expected, 6, 7
+                        ),
+                        "original {id}.{suffix}"
+                    );
+                } else {
+                    assert!(value == expected, "original {id}.{suffix}");
+                }
             }
         }
         let mut restored = Atari7800Runtime::blank(model);
@@ -166,7 +176,14 @@ fn all(root: &Path, capture: bool) -> Result<(), Box<dyn Error>> {
             .zip([after, frames, audio])
         {
             let expected = std::fs::read(root.join(format!("{id}.{suffix}")))?;
-            assert!(value == expected, "restored {id}.{suffix}");
+            if suffix.ends_with("state") {
+                assert!(
+                    legacy_envelope::matches_without_unattached_scanner(&value, &expected, 6, 7),
+                    "restored {id}.{suffix}"
+                );
+            } else {
+                assert!(value == expected, "restored {id}.{suffix}");
+            }
         }
     }
     Ok(())
@@ -188,3 +205,6 @@ fn capture_original_board_states() {
     std::fs::create_dir(&path).expect("new output directory");
     all(&path, true).expect("capture and immediate restored replay");
 }
+
+#[path = "../../../test-data/atari-pokey/legacy-envelope-comparison.rs"]
+mod legacy_envelope;

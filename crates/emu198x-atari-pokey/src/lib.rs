@@ -99,9 +99,7 @@ const IRQ_SEROUT_NEEDED: u8 = 0x10;
 const IRQ_SERIN_READY: u8 = 0x20;
 // bit 6 = keyboard key pressed.
 const IRQ_KEY: u8 = 0x40;
-/// bit 7 = the Break key. Nothing asserts it: Break is wired to POKEY's own
-/// pin on real hardware, and the machines drive the keyboard through KBCODE.
-#[allow(dead_code)]
+/// bit 7 = the Break key, sampled from KR2 by the physical scanner.
 const IRQ_BREAK: u8 = 0x80;
 
 /// SKSTAT bit 2 — "last key still pressed" (active low: 0 = a key is held).
@@ -258,6 +256,8 @@ impl Channel {
     }
 }
 
+mod keyboard;
+
 // ---------------------------------------------------------------------------
 // POKEY
 // ---------------------------------------------------------------------------
@@ -265,6 +265,7 @@ impl Channel {
 /// Atari POKEY chip.
 #[derive(Serialize, Deserialize)]
 pub struct Pokey {
+    keyboard: Option<keyboard::KeyboardScan>,
     /// Audio sampling timebase (Hz). This equals the CPU clock for callers
     /// using `tick`; independently clocked callers sample at their oscillator
     /// rate. Timers and serial advance only through chip-clock ticks.
@@ -424,6 +425,7 @@ impl Pokey {
             serial_in_bits: 0,
             serial_in_clock_phase: false,
             kbcode: 0,
+            keyboard: None,
             pot_target: [0; NUM_POTS],
             pot_value: [0; NUM_POTS],
             pot_counter: [0; NUM_POTS],
@@ -465,6 +467,7 @@ impl Pokey {
     /// This does not advance host audio time; pair it with [`Self::sample_tick`]
     /// when the chip clock is variable or independent of the sampling clock.
     pub fn tick_chip(&mut self) {
+        self.tick_keyboard();
         // Advance polynomial counters (run at CPU clock rate).
         if self.poly_restart_delay != 0 {
             self.poly_restart_delay -= 1;
@@ -655,7 +658,8 @@ impl Pokey {
 
             // SKRES: reset serial port status bits.
             0x0A => {
-                self.skstat = 0xFF;
+                // SKRES clears overrun/framing errors, not sampled key/Shift.
+                self.skstat |= 0xE0;
             }
 
             // POTGO: start pot scan.
@@ -701,6 +705,9 @@ impl Pokey {
                     self.poly_restart_delay = 1;
                 } else if !was_init && is_init {
                     self.random_init_clocks = 0;
+                }
+                if let Some(scan) = &mut self.keyboard {
+                    scan.write_control(self.skctl, value, &mut self.skstat);
                 }
                 self.skctl = value;
                 if value & 0x03 == 0 {
@@ -904,6 +911,10 @@ impl Pokey {
         data.extend_from_slice(&self.pot_target);
         data.extend_from_slice(&self.pot_value);
         data.push(u8::from(self.pot_scanning));
+        if let Some(scan) = &self.keyboard {
+            data.extend_from_slice(b"KSC1");
+            data.extend_from_slice(&scan.encode());
+        }
         data
     }
 
@@ -916,6 +927,15 @@ impl Pokey {
         if data.len() < 32 + 14 + 17 {
             return Err("POKEY state truncated".into());
         }
+        let keyboard = if data.len() >= 67 && &data[63..67] == b"KSC1" {
+            Some(keyboard::KeyboardScan::decode(
+                data.get(67..77).ok_or("POKEY keyboard state truncated")?,
+            )?)
+        } else if self.keyboard.is_some() {
+            return Err("POKEY state lacks physical keyboard scan state".into());
+        } else {
+            None
+        };
         let mut p = 0;
         for ch in &mut self.channels {
             ch.audf = data[p];
@@ -958,6 +978,10 @@ impl Pokey {
         p += 8;
         self.pot_scanning = data[p] != 0;
         p += 1;
+        if keyboard.is_some() {
+            p += 14;
+        }
+        self.keyboard = keyboard;
         Ok(p)
     }
 
@@ -2098,11 +2122,15 @@ mod tests {
     }
 
     #[test]
-    fn skres_resets_serial_status() {
+    fn skres_clears_errors_without_releasing_inputs() {
         let mut pokey = ntsc_pokey();
-        pokey.skstat = 0x00; // Simulate some status bits being set.
-        pokey.write(0x0A, 0); // SKRES
-        assert_eq!(pokey.skstat, 0xFF, "SKRES should reset SKSTAT to $FF");
+        pokey.press_key(0x40 | 0x2f);
+        let held = pokey.read(0x0f);
+        pokey.skstat &= !0xe0; // pending framing/keyboard/serial overruns
+        pokey.write(0x0a, 0);
+        assert_eq!(pokey.read(0x0f) & 0x1f, held & 0x1f);
+        assert_eq!(pokey.read(0x0f) & 0xe0, 0xe0);
+        assert_eq!(pokey.read(9), 0x40 | 0x2f);
     }
 
     #[test]

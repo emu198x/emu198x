@@ -1,0 +1,21 @@
+{
+  "reference-provenance.json": {
+    "source": "emulators/atari/altirra/src/ATAudio/source/pokey.cpp",
+    "source_sha256": "04cda7768564545e1d8a53271357805d32020a3b3ceef81ca1219b1b69ea82e9",
+    "scan_block_sha256": "0368c020e94309fa682e6932f90c80091547c0b8e228a49cf592122f87f72fd4",
+    "break_block_sha256": "766ae1c38ce23920176056458828a977e663e9e2721a1f0b7e6aada336801eff",
+    "scope": "Unchanged keyboard event and AssertBreakIRQ; matrix/scheduler/IRQ-ack shim; no CPU-write phase or electrical validation."
+  },
+  "matrix-provenance.json": {
+    "source": "emulators/atari/altirra/src/ATAudio/source/pokey.cpp",
+    "source_sha256": "04cda7768564545e1d8a53271357805d32020a3b3ceef81ca1219b1b69ea82e9",
+    "method_sha256": "db1144f8cf02ce6d97fb0bd3167b2d6938a6af3c02782655ea003d68d477dc26",
+    "scope": "Compares 64 KR1 positions and three sampled KR2 positions; unused effective-matrix bits are not observable pins.",
+    "csv_sha256": "a20527340146d5c4d5eb34e06b21b263ec17ffc94eb8c14eab9e6c3306bfc3ce",
+    "rows": 65536,
+    "mismatches": 0
+  },
+  "frozen_scan_csv_sha256": "6d8ef55ddd3619ac33c0e5798ddb51465243575fb4e6a3aa000c72503e9e629a",
+  "physical_matrix_u16le_sha256": "63d5b9b76e5a8c2863f92309020565ece37512ed82e45ece7914f636a234b103",
+  "physical_matrix_encoding": "32768 consecutive little-endian u16s, indexed by the 15 held key bits; each u16 gives all 16 physical intersections. Upper-fire independence verified from both source rows."
+}

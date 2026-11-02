@@ -588,6 +588,12 @@ impl Gtia {
     pub const fn gractl_value(&self) -> u8 {
         self.gractl
     }
+    /// Output latch driving external board wiring (distinct from CONSOL reads).
+    #[must_use]
+    pub const fn console_output(&self) -> u8 {
+        self.consol_out
+    }
+
     /// Current console-switch state (CONSOL read: START/SELECT/OPTION in bits
     /// 0-2, active low). Debug accessor.
     #[must_use]
