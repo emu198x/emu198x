@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-machine-commodore-amiga-a1000-pal = { path = "../machine-commodore-amiga-a1000-pal", version = "0.46.1" }
-machine-commodore-amiga-a1000-ntsc = { path = "../machine-commodore-amiga-a1000-ntsc", version = "0.46.1" }
-machine-commodore-amiga-a500-rev5-pal = { path = "../machine-commodore-amiga-a500-rev5-pal", version = "0.46.1" }
-machine-commodore-amiga-a500-rev5-ntsc = { path = "../machine-commodore-amiga-a500-rev5-ntsc", version = "0.46.1" }
-machine-commodore-amiga-a500-rev6a-pal = { path = "../machine-commodore-amiga-a500-rev6a-pal", version = "0.46.1" }
-machine-commodore-amiga-a500-rev6a-ntsc = { path = "../machine-commodore-amiga-a500-rev6a-ntsc", version = "0.46.1" }
-machine-commodore-amiga-a2000cr-rev6-pal = { path = "../machine-commodore-amiga-a2000cr-rev6-pal", version = "0.46.1" }
-machine-commodore-amiga-a2000cr-rev6-ntsc = { path = "../machine-commodore-amiga-a2000cr-rev6-ntsc", version = "0.46.1" }
+machine-commodore-amiga-a1000-pal = { path = "../machine-commodore-amiga-a1000-pal", version = "0.46.0" }
+machine-commodore-amiga-a1000-ntsc = { path = "../machine-commodore-amiga-a1000-ntsc", version = "0.46.0" }
+machine-commodore-amiga-a500-rev5-pal = { path = "../machine-commodore-amiga-a500-rev5-pal", version = "0.46.0" }
+machine-commodore-amiga-a500-rev5-ntsc = { path = "../machine-commodore-amiga-a500-rev5-ntsc", version = "0.46.0" }
+machine-commodore-amiga-a500-rev6a-pal = { path = "../machine-commodore-amiga-a500-rev6a-pal", version = "0.46.0" }
+machine-commodore-amiga-a500-rev6a-ntsc = { path = "../machine-commodore-amiga-a500-rev6a-ntsc", version = "0.46.0" }
+machine-commodore-amiga-a2000cr-rev6-pal = { path = "../machine-commodore-amiga-a2000cr-rev6-pal", version = "0.46.0" }
+machine-commodore-amiga-a2000cr-rev6-ntsc = { path = "../machine-commodore-amiga-a2000cr-rev6-ntsc", version = "0.46.0" }
 emu198x-commodore-agnus-ocs = { path = "../emu198x-commodore-agnus-ocs", version = "0.1.0" }
 emu198x-commodore-denise-aga = { path = "../emu198x-commodore-denise-aga", version = "0.1.0" }
 emu198x-commodore-denise-ocs = { path = "../emu198x-commodore-denise-ocs", version = "0.1.0" }
