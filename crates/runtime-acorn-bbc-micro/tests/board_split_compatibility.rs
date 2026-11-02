@@ -1,4 +1,9 @@
-//! Frozen pre-split v10 states and observations from df13140e7.
+//! Frozen pre-split v10 states from df13140e7, and what they do once restored.
+//!
+//! The observations live in `split-v10-monitor`: frames now end where the
+//! monitor retraces (emu198x/emu198x#2229), so the ones frozen beside the
+//! states no longer describe the machine. `EMU198X_BBC_CAPTURE=<dir>` writes
+//! fresh ones to a new directory instead of checking them.
 use emu198x_shell::{
     AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, MachineCore, MachineError,
     NullTraceSink, StopReason,
@@ -28,7 +33,26 @@ fn fixture(id: &str, suffix: &str) -> Vec<u8> {
     std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../test-data/acorn/bbc-micro/split-v10/{id}.{suffix}"
     )))
-    .expect("frozen pre-split observation")
+    .expect("frozen pre-split state")
+}
+fn observation(id: &str, suffix: &str, actual: &[u8]) -> Vec<u8> {
+    if let Some(dir) = std::env::var_os("EMU198X_BBC_CAPTURE") {
+        use std::io::Write;
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).expect("capture dir");
+        std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(dir.join(format!("{id}.{suffix}")))
+            .expect("new capture only")
+            .write_all(actual)
+            .expect("capture");
+        return actual.to_vec();
+    }
+    std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../test-data/acorn/bbc-micro/split-v10-monitor/{id}.{suffix}"
+    )))
+    .expect("observation")
 }
 fn identical(actual: &[u8], expected: &[u8], what: &str) {
     assert_eq!(actual.len(), expected.len(), "{what} length");
@@ -42,10 +66,14 @@ fn pre_split_v10_states_replay_identical_cpu_video_audio_and_inputs() {
         let initial = fixture(id, "state");
         let mut runtime = BbcMicroRuntime::blank(model);
         runtime.restore(&initial).expect("v10 restore");
+        // It saves again as version 11, with the monitor's scan, and that
+        // round-trips exactly.
+        let resaved = runtime.snapshot().expect("v11 encode");
+        runtime.restore(&resaved).expect("v11 restore");
         identical(
-            &runtime.snapshot().expect("v10 encode"),
-            &initial,
-            "initial state",
+            &runtime.snapshot().expect("v11 re-encode"),
+            &resaved,
+            "resaved state",
         );
         let mut audio = Audio::default();
         let mut frames = Frames::default();
@@ -62,8 +90,9 @@ fn pre_split_v10_states_replay_identical_cpu_video_audio_and_inputs() {
             assert_eq!(result.stop_reason, StopReason::ReachedTarget);
             assert_eq!(frames.0.len(), before + 1);
         }
+        let times = serde_json::to_vec(&frames.0).expect("times");
         let expected_times: Vec<u64> =
-            serde_json::from_slice(&fixture(id, "times.json")).expect("times");
+            serde_json::from_slice(&observation(id, "times.json", &times)).expect("times");
         assert_eq!(expected_times.len(), 3);
         assert_eq!(frames.0, expected_times);
         let machine = runtime.machine().expect("machine");
@@ -106,11 +135,12 @@ fn pre_split_v10_states_replay_identical_cpu_video_audio_and_inputs() {
                 .any(|p| f32::from_le_bytes(*p).abs() > 0.000_001),
             "guest produces audible samples"
         );
-        identical(&pixels, &fixture(id, "pixels"), "video");
-        identical(&audio.0, &fixture(id, "audio"), "audio");
+        identical(&pixels, &observation(id, "pixels", &pixels), "video");
+        identical(&audio.0, &observation(id, "audio", &audio.0), "audio");
+        let continued = runtime.snapshot().expect("continued state");
         identical(
-            &runtime.snapshot().expect("continued state"),
-            &fixture(id, "after.state"),
+            &continued,
+            &observation(id, "after.state", &continued),
             "continued state",
         );
     }

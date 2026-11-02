@@ -36,3 +36,11 @@ migrated code. Run `cargo test -p runtime-acorn-bbc-micro --test board_split_com
 - `acorn-bbc-micro-b.pixels`: SHA-256 `2258062d0cda7e2b11809e7dd8061129a8c0de32a4c68ffbb0cdcdbc87cb43bd`
 - `acorn-bbc-micro-b.state`: SHA-256 `93b6f476f52183d3e440530f880640eefaae48674ad1d25472be7bd726711fa0`
 - `acorn-bbc-micro-b.times.json`: SHA-256 `a949ede0fc0ad4e56a0ba381235ff937fa58710f0d1f54bfa45b20025cfd26cc`
+
+## Since 2 November 2026
+
+The states here are still restored by the compatibility test, unchanged. The
+observations (`times.json`, `pixels`, `audio`, `after.state`) describe frames
+that ended when the CRTC's counter wrapped; frames now end where the monitor
+retraces (emu198x/emu198x#2229), so the test checks against
+`../split-v10-monitor` instead.

@@ -120,10 +120,12 @@ fn output(r: &mut AmstradCpcRuntime) -> Vec<u8> {
     }
     postcard::to_allocvec(&(fields, r.snapshot().expect("final native save"))).expect("output")
 }
+/// Version 5 saves, which carry the monitor's scan: a restore resumes exactly,
+/// including the specimen's free-running monitor, which has no vertical sync
+/// to re-lock to.
 #[test]
-fn original_v4_boards_keep_exact_saves_and_first_three_resumed_fields() {
-    let root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/amstrad-cpc/board-split-v4");
+fn boards_keep_exact_saves_and_first_three_resumed_fields() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/amstrad-cpc/save-v5");
     for model in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
         let name = model.model_id();
         let mut live = specimen(model);
@@ -144,10 +146,9 @@ fn original_v4_boards_keep_exact_saves_and_first_three_resumed_fields() {
             }
             continue;
         }
-        let original = std::fs::read(root.join(format!("{name}.state"))).expect("original save");
-        assert!(saved == original, "{name}: full original v4 state");
-        let reference =
-            std::fs::read(root.join(format!("{name}.output"))).expect("original output");
+        let original = std::fs::read(root.join(format!("{name}.state"))).expect("saved state");
+        assert!(saved == original, "{name}: full v5 state");
+        let reference = std::fs::read(root.join(format!("{name}.output"))).expect("saved output");
         assert!(expected == reference, "{name}: direct output");
         let mut restored = AmstradCpcRuntime::blank(model);
         restored.restore(&original).expect("restore original");
@@ -158,6 +159,29 @@ fn original_v4_boards_keep_exact_saves_and_first_three_resumed_fields() {
         assert!(
             output(&mut restored) == reference,
             "{name}: first-frame pixels, samples, clocks and final state"
+        );
+    }
+}
+/// The original version 4 saves, from before the board split and before the
+/// monitor's scan joined the save, still restore and run. Their monitor's
+/// phase is unknown, so it re-locks; once saved again as version 5, a restore
+/// resumes exactly.
+#[test]
+fn original_v4_saves_still_restore_and_run() {
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/amstrad-cpc/board-split-v4");
+    for model in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
+        let name = model.model_id();
+        let original = std::fs::read(root.join(format!("{name}.state"))).expect("original save");
+        let mut restored = AmstradCpcRuntime::blank(model);
+        restored.restore(&original).expect("restore original v4");
+        let resaved = restored.snapshot().expect("save as v5");
+        let continued = output(&mut restored);
+        let mut again = AmstradCpcRuntime::blank(model);
+        again.restore(&resaved).expect("restore v5");
+        assert!(
+            output(&mut again) == continued,
+            "{name}: a v4 save, saved again as v5, resumes exactly"
         );
     }
 }
