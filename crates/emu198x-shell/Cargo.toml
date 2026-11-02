@@ -4,11 +4,11 @@ description = "Cross-system shared control surface, machine registry types, and 
 edition.workspace = true
 # Its own version, not the workspace lockstep one, so that a breaking change
 # to the interface every machine family builds on shows as a minor bump here,
-# and CI's semver check fails a PR that breaks it without one. That record is
-# how the family-extraction gate in knowledge/decisions/workspace-shape.md is
-# measured. Starts at the version it already carried in-tree.
+# and CI's semver check fails a PR that breaks it without one. Published for
+# the family repositories since 2026-11-02 (knowledge/decisions/
+# workspace-shape.md, § Amendment 2026-11-02). Started at the version it
+# already carried in-tree.
 version = "0.44.2"
-publish = false
 license.workspace = true
 repository.workspace = true
 

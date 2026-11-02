@@ -35,6 +35,11 @@ repository publishes its runtime and this repository takes it from crates.io.
 - **Verified by:** `scripts/publishable-crates.py` lists them in the order
   above; `cargo package` succeeds for each, in that order; the workspace
   builds and its tests pass.
+- **Done (2 November 2026):** `publishable-crates.py` lists all six, in that
+  order. `cargo package --locked` packages and verify-builds each against
+  the others. It drops `emu198x-native-video`'s three examples, which live
+  in `tools/spectrum-composite/` and stay local. `Cargo.lock` is unchanged,
+  and `emu198x-colecovision`, `emu198x-ui` and `emu198x-fleet-web` build.
 
 ### 2. First publish (Steve)
 

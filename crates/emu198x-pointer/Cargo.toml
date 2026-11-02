@@ -1,10 +1,10 @@
 [package]
 name = "emu198x-pointer"
 description = "Turning a host cursor into guest mouse counts: relative motion and the closed loop that keeps a guest's pointer under the cursor"
-version.workspace = true
-# Workspace-only, like emu198x-ui, its first consumer: it publishes when the
-# platform crates do (knowledge/decisions/workspace-shape.md, layer 5).
-publish = false
+# Versioned on its own since 2026-11-02, when the platform crates were
+# first published for the family repositories
+# (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
+version = "0.46.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

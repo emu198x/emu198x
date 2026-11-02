@@ -140,12 +140,12 @@ jobs:
       - name: Check the status pages are current
         run: python3 scripts/status/render_status.py --check
 
-  # emu198x-shell is the interface every machine family builds on, and a
-  # family moves to its own repository only after four weeks with no
-  # breaking change to it (knowledge/decisions/workspace-shape.md). This
-  # compares a pull request's shell with its base branch. A breaking change
-  # fails unless the same PR raises the shell's minor version, so the
-  # version history records every break and the gate can be read from it.
+  # emu198x-shell is the interface every machine family builds on, and the
+  # family repositories take it from crates.io (knowledge/decisions/
+  # workspace-shape.md, § Amendment 2026-11-02). This compares a pull
+  # request's shell with its base branch. A breaking change fails unless the
+  # same PR raises the shell's minor version, so a family repository never
+  # receives a break under a version that promises compatibility.
   shell-semver:
     name: Shell semver
     if: github.event_name == 'pull_request'
