@@ -4,7 +4,9 @@
 **Status:** Locked, **amended 2026-10-22**: the workspace splits by layer,
 then by system family; **amended again 2026-10-25**: every CPU and chip gets a
 repository of its own, however many families use it, and later that day so
-does every bus, board protocol and peripheral. Read
+does every bus, board protocol and peripheral; **amended 2026-11-02**:
+families move now, with no shell gate. Read
+[§ Amendment 2026-11-02](#amendment-2026-11-02--families-move-now),
 [§ Amendment 2026-10-25 (later)](#amendment-2026-10-25-later--buses-board-protocols-and-peripherals-too),
 [§ Amendment 2026-10-25](#amendment-2026-10-25--every-cpu-and-chip-gets-its-own-repository)
 and then
@@ -17,6 +19,36 @@ through Waves 2 / 3 (per the
 Companion to [`versioning-strategy.md`](versioning-strategy.md) —
 that record covers crate version management; this one covers
 workspace organisation.
+
+## Amendment 2026-11-02 — families move now
+
+**System families move to their own repositories now. There is no shell
+gate.** This removes "Families wait for the shell: four weeks in a row with
+no breaking change to `emu198x-shell`'s public interface" from § Amendment
+2026-10-22's gates, and "Families still wait for the shell gate" from both
+2026-10-25 amendments, including how CI measured it.
+
+Steve's correction, in his words: "the gate restriction is something you
+invented. So let's just go ahead now."
+
+What still holds:
+
+- **Dependents use published versions**, never `git` and `rev` pins. So the
+  platform crates a family builds on are published first: `emu198x-shell`,
+  `emu198x-ui`, `emu198x-native-video`, `emu198x-pointer`, `emu198x-win-menu`
+  and `emu198x-app-icon`. Each keeps its own version. A breaking change to one
+  is a minor release that each family repository takes when it next updates.
+- **Each family repository publishes its runtime.** `emu198x-fleet-web` and the
+  other cross-family hosts stay here (layer 5) and use those published
+  runtimes.
+- **One pilot family moves first, then the rest**, so the first move tests
+  the method before every family depends on it.
+- **The Spectrum family waits for the DSK adapter**, and **the 68k family
+  moves last**, as before. Both are dependencies, not timing.
+- **Every move:** no machine's test suite or accuracy corpus result changes.
+
+The `Shell semver` job in CI stays. It no longer measures a gate. It stops a
+breaking change to a published crate going out without a minor version.
 
 ## Amendment 2026-10-25 (later) — buses, board protocols and peripherals too
 
