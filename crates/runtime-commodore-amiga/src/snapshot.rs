@@ -46,6 +46,9 @@ use emu198x_peripheral_commodore_amiga_floppy::MAX_DRIVES;
 // Version 64 retains a pending 680x0 trace exception.
 // Version 65 retains a 68000 instruction's early final prefetch.
 // Version 66 retains an accelerator bridge's count of motherboard slots.
+// Version 67 requires the fitted A500+ RTC. The explicit version-66 reader
+// enables only its saved presence flag, preserving clock history and all
+// other fields; other models retain their version-66 payloads unchanged.
 const SNAPSHOT_VERSION: u32 = 67;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
