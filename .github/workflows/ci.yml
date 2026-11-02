@@ -433,14 +433,18 @@ jobs:
           # that covers the emulator around it.
           cargo test -p common-atari-800xl --test altirraos_boot -- --ignored
 
-  # Cross-platform smoke build. Catches platform-specific compile
-  # regressions on macOS (primary dev host) and Windows without
-  # paying the cost of a full test run on those OSes. The full test
-  # suite still runs only on Linux, via the `test` job below; this
-  # job checks compilation, plus a synthetic-ROM Spectrum startup regression
-  # on Windows, whose 1 MiB main-thread stack exposed #1792. cpal and gilrs each pick
-  # up native audio/gamepad backends on macOS and Windows, so no
-  # platform-specific install is needed outside Linux.
+  # Cross-platform smoke build. Catches Windows compile regressions without
+  # paying the cost of a full test run there. The full test suite still runs
+  # only on Linux, via the `test` job below; this job checks compilation,
+  # plus a synthetic-ROM Spectrum startup regression on the Windows 1 MiB
+  # main-thread stack, which exposed #1792. cpal and gilrs pick up native
+  # audio/gamepad backends on Windows, so no platform install is needed.
+  #
+  # macOS was dropped on 2026-11-02, at Steve's request. It needed one of
+  # GitHub's scarce Apple Silicon runners, and as a required check a
+  # shortage blocked every pull request. macOS is the primary development
+  # host, so a compile break there shows on the first local build, and every
+  # release still builds and signs for both macOS architectures.
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -448,7 +452,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [windows-latest]
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
