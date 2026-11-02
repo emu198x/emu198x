@@ -5,10 +5,10 @@
 //! copper, the RTC, the memory map, and the chipset-agnostic parts
 //! of the Denise-side rendering.
 //!
-//! Per-chipset machine crates (`machine-commodore-amiga-ocs`,
-//! `machine-commodore-amiga-ecs`, future `-aga`) plug their
-//! specific Agnus + Denise chips on top of this substrate and add
-//! chipset-specific wiring in their own `lib.rs`.
+//! OCS machine wiring and the shared `common-commodore-amiga-ecs` /
+//! `common-commodore-amiga-aga` wiring plug their specific Agnus + Denise
+//! chips on top of this substrate. Fixed A500+, A600 and A1200 regional
+//! machine owners select that shared wiring; OCS remains grouped.
 //!
 //! Mirrors the Spectrum's `common-sinclair-zx-spectrum` substrate
 //! pattern. See Seam 1 of

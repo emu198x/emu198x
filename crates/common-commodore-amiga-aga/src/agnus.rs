@@ -1,6 +1,6 @@
 //! Agnus wiring for the A1200 (AGA) machine.
 //!
-//! Mirror of `machine-commodore-amiga-ecs/src/agnus.rs` but pinned to
+//! Mirror of `common-commodore-amiga-ecs/src/agnus.rs` but pinned to
 //! the AGA Agnus (Alice) wrapper. `AgnusAga` from `emu198x-commodore-agnus-aga`
 //! Derefs to `AgnusEcs`, which in turn Derefs to OCS Agnus — so all
 //! slot allocation / DMA / copper / blitter logic passes through
