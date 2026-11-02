@@ -41,6 +41,18 @@ What still holds:
 - **Each family repository publishes its runtime.** `emu198x-fleet-web` and the
   other cross-family hosts stay here (layer 5) and use those published
   runtimes.
+- **A family's binary stays here for now.** A family repository publishes
+  its library crates (`common-`, `machine-` and `runtime-`, under
+  [`crate-naming.md`](crate-naming.md)'s names), and its emulator binary
+  stays in this repository's suite release, taking the runtime from
+  crates.io. This overrides layer 4's "holding its machines, runtimes … and
+  binaries" until a shared family release workflow exists in
+  `198x-workflows`, covering the five platforms, Apple signing and
+  notarisation, source locks and Homebrew, and has been proven on one
+  family. Then binaries move to their families, so that a fix to one family
+  ships without rebuilding the suite. Agreed with Steve on 2026-11-02: one
+  release pipeline keeps the pilot simple, and where a binary releases from
+  can change later without touching any published name.
 - **One pilot family moves first, then the rest**, so the first move tests
   the method before every family depends on it.
 - **The Spectrum family waits for the DSK adapter**, and **the 68k family

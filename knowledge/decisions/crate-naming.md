@@ -16,6 +16,31 @@
 | System-family common code | `{system}-common` | `common-sinclair-zx-spectrum` |
 | Cross-project shell | `emu198x-{role}` | `emu198x-shell` |
 
+## Amendment 2026-11-02: family crates publish under the same rule
+
+**A system family's library crates publish with `emu198x-` in front of
+their name, and their category word kept**, as § Amendment 2026-08-26 below
+already requires of every published crate. Steve confirmed this on
+2026-11-02, when families started moving to their own repositories
+([`workspace-shape.md`](workspace-shape.md), § Amendment 2026-11-02):
+
+| On disk | On crates.io |
+|---|---|
+| `common-coleco-colecovision` | `emu198x-common-coleco-colecovision` |
+| `machine-coleco-colecovision-ntsc` | `emu198x-machine-coleco-colecovision-ntsc` |
+| `runtime-coleco-colecovision` | `emu198x-runtime-coleco-colecovision` |
+
+This settles the question § "What is published, and why only these" left
+open: a permanent name for a `common-` crate. It's the same category-first
+shape the peripherals took (`emu198x-peripheral-commodore-amiga-floppy`).
+The other shape, system first (`emu198x-coleco-colecovision-runtime`), was
+considered and not taken: it would make family crates the one category that
+doesn't lead with its category. All 189 family crates fit crates.io's
+64-character limit this way; the longest is 49.
+
+A family's emulator binary isn't published to crates.io; it stays in this
+repository's suite release for now (`workspace-shape.md`, same amendment).
+
 ## Amendment 2026-08-26: published crates carry the `emu198x-` prefix
 
 **The table above governs crates that stay in this workspace. A crate that is
