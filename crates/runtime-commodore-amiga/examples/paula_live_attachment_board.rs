@@ -2,7 +2,7 @@
 use common_commodore_amiga::driver::AmigaDriver;
 use emu198x_shell::MachineCore;
 use runtime_commodore_amiga::{
-    AmigaA1200PalRuntime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
+    AmigaA500PlusPalRuntime, AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
     AmigaRuntime, Model,
 };
 use std::error::Error;
@@ -94,8 +94,8 @@ pub fn check_all() -> Result<(), Box<dyn Error>> {
             channel,
         )?;
         failures += check(
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, rom())?,
-            AmigaEcsRuntime::new(Model::A500PlusEcsPal, rom())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, rom())?,
+            AmigaA500PlusPalRuntime::new(Model::A500PlusEcsPal, rom())?,
             "ECS",
             channel,
         )?;

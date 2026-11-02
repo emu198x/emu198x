@@ -56,7 +56,22 @@ impl AmigaRuntimeKind {
                 rt.frame_count(),
                 &rt.pointer_seen,
             ),
-            Self::Ecs(rt) => (
+            Self::A500PlusPal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A500PlusNtsc(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A600Pal(rt) => (
+                rt.machine().denise_diagnostic_snapshot(),
+                rt.frame_count(),
+                &rt.pointer_seen,
+            ),
+            Self::A600Ntsc(rt) => (
                 rt.machine().denise_diagnostic_snapshot(),
                 rt.frame_count(),
                 &rt.pointer_seen,

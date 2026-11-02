@@ -266,6 +266,10 @@ impl Model {
     #[must_use]
     pub fn from_variant_id(id: &str) -> Option<Self> {
         match id {
+            "commodore-amiga-a500-plus-pal" => return Some(Self::A500PlusEcsPal),
+            "commodore-amiga-a500-plus-ntsc" => return Some(Self::A500PlusEcsNtsc),
+            "commodore-amiga-a600-pal" => return Some(Self::A600EcsPal),
+            "commodore-amiga-a600-ntsc" => return Some(Self::A600EcsNtsc),
             "commodore-amiga-a1200-pal" => return Some(Self::A1200AgaPal),
             "commodore-amiga-a1200-ntsc" => return Some(Self::A1200AgaNtsc),
             _ => {}
@@ -656,6 +660,10 @@ pub fn profile_for(model: Model) -> MachineProfile {
     let tick_hz = cck_hz.saturating_mul(2);
     MachineProfile {
         machine_id: match model {
+            Model::A500PlusEcsPal => MachineId::from("commodore-amiga-a500-plus-pal"),
+            Model::A500PlusEcsNtsc => MachineId::from("commodore-amiga-a500-plus-ntsc"),
+            Model::A600EcsPal => MachineId::from("commodore-amiga-a600-pal"),
+            Model::A600EcsNtsc => MachineId::from("commodore-amiga-a600-ntsc"),
             Model::A1200AgaPal => MachineId::from("commodore-amiga-a1200-pal"),
             Model::A1200AgaNtsc => MachineId::from("commodore-amiga-a1200-ntsc"),
             _ => MachineId::from("commodore-amiga"),

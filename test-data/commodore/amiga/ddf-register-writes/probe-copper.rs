@@ -1,6 +1,14 @@
 //! Connected Copper writes: retain the real admission, memory and service stages.
 use common_commodore_amiga::driver::AmigaDriver;
-use machine_commodore_amiga_ecs::AmigaEcs;
+use common_commodore_amiga_ecs::{AgnusRegion, Configuration, EcsCore, RamConfig};
+struct ProbePal;
+impl Configuration for ProbePal {
+    const REGION: AgnusRegion = AgnusRegion::Pal;
+    const HAS_GAYLE: bool = false;
+    const MACHINE_ID: &'static str = "test-ddf-ecs-pal";
+    const DEFAULT_RAM: RamConfig = RamConfig::bare();
+}
+type AmigaEcs = EcsCore<ProbePal>;
 use motorola_68000::cpu::State;
 use std::error::Error;
 

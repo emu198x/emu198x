@@ -1,6 +1,7 @@
 //! ECS programmable beam timing through the machine register bus.
 
-use machine_commodore_amiga_ecs::AmigaEcs;
+mod support;
+use support::AmigaEcs;
 
 fn parked_cpu_rom() -> Vec<u8> {
     let mut rom = vec![0u8; 256 * 1024];

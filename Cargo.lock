@@ -610,6 +610,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-commodore-amiga-ecs"
+version = "0.46.1"
+dependencies = [
+ "common-commodore-amiga",
+ "emu198x-commodore-agnus-ecs",
+ "emu198x-commodore-agnus-ocs",
+ "emu198x-commodore-amiga-autoconfig",
+ "emu198x-commodore-denise-ecs",
+ "emu198x-commodore-denise-ocs",
+ "emu198x-commodore-gary",
+ "emu198x-commodore-gayle",
+ "emu198x-commodore-paula-8364",
+ "emu198x-mos-cia-8520",
+ "emu198x-peripheral-commodore-amiga-floppy",
+ "emu198x-peripheral-commodore-amiga-keyboard",
+ "motorola-68000",
+ "png",
+ "serde",
+ "zip",
+]
+
+[[package]]
 name = "common-commodore-c128"
 version = "0.46.1"
 dependencies = [
@@ -4093,25 +4115,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-commodore-amiga-ecs"
+name = "machine-commodore-amiga-a500-plus-ntsc"
 version = "0.46.1"
 dependencies = [
- "common-commodore-amiga",
- "emu198x-commodore-agnus-ecs",
- "emu198x-commodore-agnus-ocs",
- "emu198x-commodore-amiga-autoconfig",
- "emu198x-commodore-denise-ecs",
- "emu198x-commodore-denise-ocs",
- "emu198x-commodore-gary",
- "emu198x-commodore-gayle",
- "emu198x-commodore-paula-8364",
- "emu198x-mos-cia-8520",
- "emu198x-peripheral-commodore-amiga-floppy",
- "emu198x-peripheral-commodore-amiga-keyboard",
- "motorola-68000",
- "png",
- "serde",
- "zip",
+ "common-commodore-amiga-ecs",
+]
+
+[[package]]
+name = "machine-commodore-amiga-a500-plus-pal"
+version = "0.46.1"
+dependencies = [
+ "common-commodore-amiga-ecs",
+]
+
+[[package]]
+name = "machine-commodore-amiga-a600-ntsc"
+version = "0.46.1"
+dependencies = [
+ "common-commodore-amiga-ecs",
+]
+
+[[package]]
+name = "machine-commodore-amiga-a600-pal"
+version = "0.46.1"
+dependencies = [
+ "common-commodore-amiga-ecs",
 ]
 
 [[package]]
@@ -6040,6 +6068,7 @@ version = "0.46.1"
 dependencies = [
  "common-commodore-amiga",
  "common-commodore-amiga-aga",
+ "common-commodore-amiga-ecs",
  "emu198x-commodore-agnus-ocs",
  "emu198x-commodore-denise-aga",
  "emu198x-commodore-denise-ocs",
@@ -6051,7 +6080,10 @@ dependencies = [
  "gvp-a530",
  "machine-commodore-amiga-a1200-ntsc",
  "machine-commodore-amiga-a1200-pal",
- "machine-commodore-amiga-ecs",
+ "machine-commodore-amiga-a500-plus-ntsc",
+ "machine-commodore-amiga-a500-plus-pal",
+ "machine-commodore-amiga-a600-ntsc",
+ "machine-commodore-amiga-a600-pal",
  "machine-commodore-amiga-ocs",
  "motorola-68000",
  "motorola-68k-common",

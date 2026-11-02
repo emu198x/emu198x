@@ -1,5 +1,5 @@
 [package]
-name = "machine-commodore-amiga-ecs"
+name = "common-commodore-amiga-ecs"
 description = "Commodore Amiga ECS machines — A500+ and A600 board configurations with ECS Agnus 8375, ECS Denise 8373, and optional A600 Gayle."
 edition.workspace = true
 version.workspace = true

@@ -9,9 +9,9 @@ use emu198x_shell::{
     NullAudioSink, NullFrameSink, NullTraceSink, SessionQueryProvider,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA1200PalRuntime, AmigaEcsRuntime,
-    AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime, AmigaRuntimeKind,
-    AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA500PlusPalRuntime, AmigaA600PalRuntime,
+    AmigaA1200PalRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime,
+    AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
 };
 use serde_json::{Value, json};
 
@@ -227,7 +227,7 @@ fn cpu_group_exposes_the_complete_bounded_schema() {
 #[test]
 fn cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models() {
     let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
-    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let ecs = AmigaA500PlusPalRuntime::blank();
     let aga = AmigaA1200PalRuntime::blank();
     let accelerated = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
 
@@ -414,7 +414,7 @@ fn agnus_queries_distinguish_early_ocs_from_a2000_fat_8372a() {
 
 #[test]
 fn installed_agnus_query_names_cover_enhanced_machine_variants() {
-    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let ecs = AmigaA500PlusPalRuntime::blank();
     let alice = AmigaA1200PalRuntime::blank();
 
     assert_eq!(query_value(&ecs, "agnus.installed_variant"), json!("ecs"),);
@@ -565,7 +565,7 @@ fn every_a1200_query_path_resolves() {
 
 #[test]
 fn every_ecs_query_path_resolves() {
-    let runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let runtime = AmigaA500PlusPalRuntime::blank();
     let provider = AmigaSessionQueryProvider;
     for path in provider.query_paths(&runtime, None) {
         let value = provider
@@ -577,7 +577,7 @@ fn every_ecs_query_path_resolves() {
 
 #[test]
 fn every_a600_query_path_resolves() {
-    let runtime = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let runtime = AmigaA600PalRuntime::blank();
     let provider = AmigaSessionQueryProvider;
     for path in provider.query_paths(&runtime, None) {
         let value = provider
@@ -615,7 +615,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         ],
     );
 
-    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let ecs = AmigaA500PlusPalRuntime::blank();
     assert_group_leaf_catalogue(
         &ecs,
         &[
@@ -641,7 +641,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         ],
     );
 
-    let a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let a600 = AmigaA600PalRuntime::blank();
     assert_group_leaf_catalogue(
         &a600,
         &[
@@ -1011,8 +1011,8 @@ fn agnus_group_exposes_complete_non_blitter_state_and_live_ocs_values() {
 #[test]
 fn gayle_discovery_matches_the_configured_board() {
     let provider = AmigaSessionQueryProvider;
-    let a500_plus = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
-    let mut a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let a500_plus = AmigaA500PlusPalRuntime::blank();
+    let mut a600 = AmigaA600PalRuntime::blank();
     let mut a1200 = AmigaA1200PalRuntime::blank();
 
     assert!(
@@ -1157,8 +1157,8 @@ fn expansion_queries_distinguish_generic_fast_ram_a530_and_absent_devices() {
     let bare = AmigaOcsRuntime::blank(Model::A500OcsPal);
     let generic = AmigaOcsRuntime::blank(Model::A500OcsPalMaxed);
     let a530 = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
-    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
-    let a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let ecs = AmigaA500PlusPalRuntime::blank();
+    let a600 = AmigaA600PalRuntime::blank();
     let a1200 = AmigaA1200PalRuntime::blank();
 
     assert_no_expansions(&bare);
@@ -1304,7 +1304,7 @@ fn denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset() {
     let mut ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
     assert_denise_board_pipeline(&mut ocs);
 
-    let mut ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut ecs = AmigaA500PlusPalRuntime::blank();
     assert_denise_board_pipeline(&mut ecs);
 
     let mut aga = AmigaA1200PalRuntime::blank();
@@ -1500,7 +1500,7 @@ fn assert_exact_object_fields(value: &Value, expected: &[&str]) {
 
 #[test]
 fn ecs_queries_expose_raw_routed_and_composed_hblank_state() {
-    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut runtime = AmigaA500PlusPalRuntime::blank();
     runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
     runtime.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
@@ -1542,7 +1542,7 @@ fn ecs_queries_expose_raw_routed_and_composed_hblank_state() {
 
 #[test]
 fn ecs_queries_expose_csync_samples_before_and_after_output() {
-    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut runtime = AmigaA500PlusPalRuntime::blank();
     for (register, value) in [
         (0x1C4, 0x40),
         (0x1C6, 0x48),
@@ -1578,7 +1578,7 @@ fn ecs_queries_expose_csync_samples_before_and_after_output() {
 
 #[test]
 fn ecs_killehb_query_uses_bplcon2_instead_of_bplcon3() {
-    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut runtime = AmigaA500PlusPalRuntime::blank();
     runtime.machine_mut().poke_word(0x00DF_F106, 0x0201);
     assert_eq!(
         query_value(&runtime, "denise.killehb_enabled"),

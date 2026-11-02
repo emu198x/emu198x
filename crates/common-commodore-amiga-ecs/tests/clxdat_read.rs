@@ -7,7 +7,8 @@
 //! OCS core). At reset, CLXDAT reads `$8000`: the collision latch is clear
 //! and bit 15 is fixed high (registered FS-UAE custom.cpp::CLXDAT).
 
-use machine_commodore_amiga_ecs::AmigaEcs;
+mod support;
+use support::AmigaEcs;
 
 #[test]
 fn clxdat_read_is_wired_not_open_bus() {

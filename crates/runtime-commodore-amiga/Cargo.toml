@@ -19,7 +19,11 @@ gvp-a530 = { path = "../gvp-a530", version = "0.46.0" }
 common-commodore-amiga-aga = { path = "../common-commodore-amiga-aga", version = "0.46.0" }
 machine-commodore-amiga-a1200-pal = { path = "../machine-commodore-amiga-a1200-pal", version = "0.46.0" }
 machine-commodore-amiga-a1200-ntsc = { path = "../machine-commodore-amiga-a1200-ntsc", version = "0.46.0" }
-machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs", version = "0.46.0" }
+common-commodore-amiga-ecs = { path = "../common-commodore-amiga-ecs", version = "0.46.0" }
+machine-commodore-amiga-a500-plus-pal = { path = "../machine-commodore-amiga-a500-plus-pal", version = "0.46.0" }
+machine-commodore-amiga-a500-plus-ntsc = { path = "../machine-commodore-amiga-a500-plus-ntsc", version = "0.46.0" }
+machine-commodore-amiga-a600-pal = { path = "../machine-commodore-amiga-a600-pal", version = "0.46.0" }
+machine-commodore-amiga-a600-ntsc = { path = "../machine-commodore-amiga-a600-ntsc", version = "0.46.0" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.46.0" }
 motorola-68000 = { path = "../motorola-68000", version = "0.46.0" }
 motorola-68k-common = { path = "../motorola-68k-common", version = "0.46.0" }

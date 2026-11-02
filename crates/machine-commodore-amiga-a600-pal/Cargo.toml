@@ -1,0 +1,14 @@
+[package]
+name = "machine-commodore-amiga-a600-pal"
+description = "Fixed Commodore Amiga A600 PAL owner."
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-commodore-amiga-ecs = { path = "../common-commodore-amiga-ecs", version = "0.46.0" }
+
+[lints]
+workspace = true

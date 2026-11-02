@@ -49,7 +49,11 @@ fn family_dispatch_and_reset_retain_the_fixed_owner() {
                     inner.machine().machine_id()
                 );
             }
-            AmigaRuntimeKind::Ocs(_) | AmigaRuntimeKind::Ecs(_) => assert!(!model.is_aga()),
+            AmigaRuntimeKind::Ocs(_)
+            | AmigaRuntimeKind::A500PlusPal(_)
+            | AmigaRuntimeKind::A500PlusNtsc(_)
+            | AmigaRuntimeKind::A600Pal(_)
+            | AmigaRuntimeKind::A600Ntsc(_) => assert!(!model.is_aga()),
         }
     }
 }

@@ -123,8 +123,8 @@ fn host_decimation_rejects_ultrasonic_aliases() {
     for (cases, failed) in [
         sweep(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsPal)),
         sweep(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc)),
-        sweep(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal)),
-        sweep(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc)),
+        sweep(crate::AmigaA500PlusPalRuntime::blank()),
+        sweep(crate::AmigaA500PlusNtscRuntime::blank()),
         sweep(crate::AmigaA1200PalRuntime::blank()),
         sweep(crate::AmigaA1200NtscRuntime::blank()),
     ] {
@@ -209,8 +209,8 @@ fn led_control_follows_the_delayed_signal_on_every_board() {
     led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc));
     led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A1000OcsPal));
     led_alignment(AmigaRuntime::<AmigaOcs>::blank(Model::A1000OcsNtsc));
-    led_alignment(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal));
-    led_alignment(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc));
+    led_alignment(crate::AmigaA500PlusPalRuntime::blank());
+    led_alignment(crate::AmigaA500PlusNtscRuntime::blank());
     led_alignment(crate::AmigaA1200PalRuntime::blank());
     led_alignment(crate::AmigaA1200NtscRuntime::blank());
 }
