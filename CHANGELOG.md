@@ -4,6 +4,16 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.46.2] - 2026-11-02
+
+
+### Fixed
+
+- Let the CPC and BBC accept keys as soon as the prompt shows
+- Run the Pentagon at 3.5 MHz, as the original did
+- Keep the A2000 onboard clock accessible without expansion RAM
+- Keep native video validation on its A500 board
+
 ## [0.46.1] - 2026-11-01
 
 
