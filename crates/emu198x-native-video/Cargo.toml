@@ -2,8 +2,10 @@
 name = "emu198x-native-video"
 description = "Shared native GPU video presentation for Emu198x frontends"
 edition.workspace = true
-version.workspace = true
-publish = false
+# Versioned on its own since 2026-11-02, when the platform crates were
+# first published for the family repositories
+# (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
+version = "0.46.2"
 license.workspace = true
 repository.workspace = true
 
