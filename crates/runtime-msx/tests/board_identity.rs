@@ -9,6 +9,16 @@ fn fixture(id: &str) -> Vec<u8> {
     )
     .expect("original save")
 }
+fn current_or_retained(model: Model) -> Vec<u8> {
+    if model != Model::SonyHb10p {
+        return fixture(model.variant_id());
+    }
+    let mut r = MsxRuntime::blank(model);
+    let mut rom = vec![0; 32768];
+    rom[..2].copy_from_slice(&[0xf3, 0x76]);
+    r.set_bios(rom).expect("current occupied Sony");
+    r.snapshot().expect("v11 Sony state")
+}
 #[test]
 fn all_named_profiles_preserve_their_physical_owner_and_bytes() {
     for (model, hardware, id) in [
@@ -43,7 +53,7 @@ fn all_named_profiles_preserve_their_physical_owner_and_bytes() {
         ),
     ] {
         let mut r = MsxRuntime::blank(model);
-        let old = fixture(model.variant_id());
+        let old = current_or_retained(model);
         r.restore(&old).expect("named legacy state");
         assert_eq!(r.machine().expect("machine").hardware(), hardware);
         assert_eq!(r.profile().machine_id.as_str(), id);
@@ -53,17 +63,19 @@ fn all_named_profiles_preserve_their_physical_owner_and_bytes() {
 #[test]
 fn wrong_named_envelopes_and_embedded_hardware_reject_atomically() {
     for target in Model::ALL {
-        let initial = fixture(target.variant_id());
+        let initial = current_or_retained(target);
         let mut r = MsxRuntime::blank(target);
         r.restore(&initial).expect("occupied receiver");
         for source in Model::ALL.into_iter().filter(|&m| m != target) {
-            let bytes = fixture(source.variant_id());
+            let bytes = current_or_retained(source);
             assert!(r.restore(&bytes).is_err());
             assert_eq!(r.snapshot().expect("unchanged"), initial);
-            let ((version, time, _), tail) =
+            let ((_, time, _), tail) =
                 postcard::take_from_bytes::<(u16, u64, String)>(&bytes).expect("old prefix");
+            let (target_version, _) =
+                postcard::take_from_bytes::<u16>(&initial).expect("target version");
             let mut forged =
-                postcard::to_allocvec(&(version, time, target.model_id())).expect("prefix");
+                postcard::to_allocvec(&(target_version, time, target.model_id())).expect("prefix");
             forged.extend(tail);
             assert!(r.restore(&forged).is_err(), "{source:?} into {target:?}");
             assert_eq!(r.snapshot().expect("unchanged"), initial);
@@ -89,7 +101,7 @@ fn all_retired_generic_selections_and_saves_fail_explicitly() {
         assert_eq!(Model::from_variant_id(id), None);
     }
     for target in Model::ALL {
-        let initial = fixture(target.variant_id());
+        let initial = current_or_retained(target);
         let mut r = MsxRuntime::blank(target);
         r.restore(&initial).expect("named receiver");
         for id in [
@@ -98,7 +110,13 @@ fn all_retired_generic_selections_and_saves_fail_explicitly() {
             "microsoft-msx2-ntsc",
             "microsoft-msx2-pal",
         ] {
-            let err = r.restore(&fixture(id)).expect_err("retired save");
+            let old = fixture(id);
+            let (_, tail) = postcard::take_from_bytes::<u16>(&old).expect("old version");
+            let (version, _) =
+                postcard::take_from_bytes::<u16>(&initial).expect("selected version");
+            let mut forged = postcard::to_allocvec(&version).expect("current version");
+            forged.extend(tail);
+            let err = r.restore(&forged).expect_err("retired save");
             assert!(err.to_string().contains("retired"), "{err}");
             assert_eq!(r.snapshot().expect("unchanged"), initial);
         }
