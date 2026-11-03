@@ -51,30 +51,8 @@ pub enum TimexModel {
     TS2068,
 }
 
-/// TS2068 NTSC frame timing. The PAL TC2068 reuses `TIMING_48K`.
-pub const TIMING_TS2068: FrameTiming = FrameTiming {
-    master_hz: 14_112_000,
-    cpu_divisor: 4,
-    tstates_per_line: 224,
-    halfcycles_per_line: 224 * 4,
-    lines_per_frame: 262,
-    halfcycles_per_frame: 224 * 4 * 262,
-    tstates_per_frame: 224 * 262,
-    first_border_line: 8,
-    first_screen_line: 35,
-    last_screen_line: 227,
-    last_border_line: 254,
-    first_screen_tstate: 24,
-    screen_pixels_per_line: 256,
-    left_border_tstate: 0,
-    right_border_tstate: 176,
-    contention_start_tstate: 14_336,
-    contention_pattern: [6, 5, 4, 3, 2, 1, 0, 0],
-    contention_phase: 0,
-    contention_tstates_per_line: 128,
-    interrupt_start_tstate: 0,
-    interrupt_length_tstates: 32,
-};
+/// Native TS2068 metadata comes from the SCLD that advances its counters.
+pub use emu198x_timex_scld::TIMING_TS2068;
 
 /// Original positional payload, decoded before fixed-board validation.
 #[derive(serde::Deserialize)]

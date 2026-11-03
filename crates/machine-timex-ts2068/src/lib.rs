@@ -87,9 +87,11 @@ mod tests {
         m.memory.write(0, 0);
         assert_eq!(m.memory.read(0), 0xf3, "ROM is immutable");
         m.port_write(0xff, 0x80);
-        assert_eq!(m.memory.read(0), 0xa5);
+        assert_eq!(m.memory.read(0), 0xf3, "FF7 alone keeps HOME selected");
         m.port_write(0xf4, 1);
-        assert_eq!(m.memory.read(0), 0xff);
+        assert_eq!(m.memory.read(0), 0xa5, "selected EXROM chunk");
+        m.port_write(0xff, 0);
+        assert_eq!(m.memory.read(0), 0xff, "selected empty DOCK chunk");
         m.port_write(0xf4, 0);
         m.port_write(0xff, 0);
         assert_eq!(m.memory.read(0), 0xf3);

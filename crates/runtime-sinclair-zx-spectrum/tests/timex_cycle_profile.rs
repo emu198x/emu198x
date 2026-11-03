@@ -53,7 +53,7 @@ fn sources() -> DebugSymbols {
 }
 
 #[test]
-fn every_dock_mask_matches_the_existing_memory_read_priority() {
+fn every_chunk_mask_combines_with_the_selected_external_source() {
     let mut memory = MemoryTimex::new();
     memory.load_rom_data(&[0x11; 16384]);
     memory.load_exrom_data(&[0x22; 8192]);
@@ -66,9 +66,11 @@ fn every_dock_mask_matches_the_existing_memory_read_priority() {
             memory.write_f4(mask);
             for slot in 0..8u16 {
                 let (source, byte) = if mask & (1 << slot) != 0 {
-                    (MemorySource::EmptyDock, 0xff)
-                } else if slot == 0 && exrom {
-                    (MemorySource::Exrom, 0x22)
+                    if exrom {
+                        (MemorySource::Exrom, 0x22)
+                    } else {
+                        (MemorySource::EmptyDock, 0xff)
+                    }
                 } else if slot < 2 {
                     (MemorySource::HomeRom, 0x11)
                 } else {
@@ -197,24 +199,26 @@ fn paging_out_own_home_code_preserves_the_out_instruction_source() {
 fn enabling_exrom_keeps_base_rom_costs_separate() {
     fn check<B: TimexBoard>() {
         let mut rom = [0; 16384];
-        rom[..4].copy_from_slice(&[0x3e, 0x80, 0xd3, 0xff]);
+        // Select EXROM through FF7, then select its chunk through F4.
+        rom[..8].copy_from_slice(&[0x3e, 0x80, 0xd3, 0xff, 0x3e, 0x01, 0xd3, 0xf4]);
         let mut exrom = [0; 8192];
-        exrom[4] = 0x76;
+        exrom[8] = 0x76;
         let mut runtime = SpectrumRuntime::<Timex2068<B>>::new_ts2068(rom, exrom);
         let counts = runtime
             .profile_cycles(1000)
             .expect("enable EXROM through CPU I/O");
         conserved(&counts);
-        assert_eq!(counts.mapped_addresses.len(), 3);
+        assert_eq!(counts.mapped_addresses.len(), 5);
         assert_eq!(
             counts.mapped_addresses[1].mapping.memory,
             ProfileMemory::Rom
         );
         assert_eq!(
-            counts.mapped_addresses[2].mapping.memory,
+            counts.mapped_addresses[4].mapping.memory,
             ProfileMemory::RomOverlay
         );
         assert_eq!(counts.mapped_addresses[2].address, 4);
+        assert_eq!(counts.mapped_addresses[4].address, 8);
     }
     check::<machine_timex_tc2068::Board>();
     check::<machine_timex_ts2068::Board>();

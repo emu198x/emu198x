@@ -3,8 +3,9 @@
 //! Loads the TS2068 main ROM + EXROM from
 //! `~/.emu198x/roms/timex-ts2068/{ts2068,exrom}.rom`, runs ~4 seconds
 //! of CPU time (240 frames at 60 Hz NTSC), and asserts that the boot
-//! screen has rendered enough non-zero bytes into screen RAM to
-//! constitute "boot".
+//! screen contains both expected copyright banners. Complete ROM identities,
+//! typed BASIC, native pixels and restore are checked by the runtime's
+//! `timex_original_boot` tests.
 //!
 //! `#[ignore]`d because not every developer has the ROMs locally — the
 //! runner prints a path hint and skips when they're missing.
@@ -47,12 +48,26 @@ fn boot_to_basic_renders_screen_content() {
         machine.run_frame();
     }
 
-    let nonzero: usize = (0x4000u16..0x5800)
-        .filter(|&addr| machine.memory.read(addr) != 0)
-        .count();
-
-    assert!(
-        nonzero > 50,
-        "TS2068 should boot with screen content (got {nonzero} non-zero bytes in screen RAM)"
-    );
+    let rom = std::fs::read(&main_rom).expect("font ROM");
+    assert_eq!(rom.len(), 16384);
+    for (row, text) in [
+        (21u16, "1982 Sinclair Research Ltd"),
+        (23, "1983 Timex Computer Corp"),
+    ] {
+        let matches = (0..=32 - text.len()).any(|column| {
+            text.bytes().enumerate().all(|(i, c)| {
+                (0..8u16).all(|scan| {
+                    let y = row * 8 + scan;
+                    let address = 0x4000
+                        | ((y & 0xc0) << 5)
+                        | ((y & 7) << 8)
+                        | ((y & 0x38) << 2)
+                        | u16::try_from(column + i).expect("screen column");
+                    machine.memory.read_screen(address)
+                        == rom[0x3c00 + usize::from(c) * 8 + usize::from(scan)]
+                })
+            })
+        });
+        assert!(matches, "normal startup banner {text}");
+    }
 }

@@ -2507,9 +2507,9 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sinclair-zx-spectrum-ula"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fc18c99f84203f0f67bf0c606a826fca08a64969accf54938314169c5c080f1"
+checksum = "eed635aa352bdaf1983393d6c809f19cb7ab04b9a5626b1f8519cae141cefe84"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
  "serde",
@@ -2708,9 +2708,9 @@ dependencies = [
 
 [[package]]
 name = "emu198x-timex-scld"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d17d4939ffb786395eeda5a06149c2f5b49c278e267fcea11d5fc3f4b19f4cfe"
+checksum = "c33c9bc577d42f08d556d2699c932c73100c8b66eb73b4c9ceaf50633d4e2f7f"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
  "emu198x-sinclair-zx-spectrum-ula",
@@ -6536,6 +6536,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "twox-hash",
 ]

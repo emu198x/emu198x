@@ -44,6 +44,7 @@ thiserror = { workspace = true }
 emu198x-zilog-z80 = "0.8.0"
 
 [dev-dependencies]
+sha2 = { workspace = true }
 common-sinclair-zx-spectrum-128k-class = { path = "../common-sinclair-zx-spectrum-128k-class", version = "0.46.0" }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 criterion = { workspace = true }

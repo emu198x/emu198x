@@ -1,4 +1,4 @@
-//! Original pre-split v17 envelopes and complete continued output.
+//! Current v18 continuation and immutable pre-correction v17 evidence.
 use emu198x_shell::{
     AudioCapture, FamilyRuntime, FirmwareImage, FirmwareSet, HostIo, InputEvent,
     LatestFrameCapture, MachineCore, NullTraceSink,
@@ -90,7 +90,7 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/timex-2068/board-split-v17")
 }
 #[test]
-fn original_saves_keep_pixels_audio_time_and_paging_on_both_boards() {
+fn v18_saves_keep_pixels_audio_time_and_paging_on_both_boards() {
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(check_original_saves)
@@ -120,22 +120,83 @@ fn check_original_saves() {
                 }
                 continue;
             }
-            let saved =
-                std::fs::read(root().join(format!("{name}.state"))).expect("original state");
-            let expected =
-                std::fs::read(root().join(format!("{name}.output"))).expect("original output");
-            assert!(state == saved, "{name}: original complete v17 save");
-            assert!(out == expected, "{name}: complete continued output");
+            let (version, _) = postcard::take_from_bytes::<u32>(&state).expect("v18 header");
+            assert_eq!(version, 18);
             let mut restored = runtime(model);
-            restored.restore(&saved).expect("original restore");
-            assert!(
-                restored.snapshot().expect("reencoded") == saved,
-                "{name}: unchanged save bytes"
+            restored.restore(&state).expect("current v18 restore");
+            assert_eq!(restored.snapshot().expect("reencoded"), state);
+            assert_eq!(
+                output(&mut restored),
+                out,
+                "{name}: exact v18 video/audio/clocks/state"
             );
-            assert!(
-                output(&mut restored) == expected,
-                "{name}: restored continuation"
-            );
+        }
+    }
+}
+
+#[test]
+fn original_v17_fixtures_remain_intact_and_saves_reject_before_decode() {
+    use emu198x_shell::MachineError;
+    use sha2::{Digest, Sha256};
+    let records = [
+        (
+            "timex-tc2068-mode0.output",
+            "4d02e2c4154792aa23c69c2692dd70b5ef626dee740c6ed75442ed33ed43321d",
+        ),
+        (
+            "timex-tc2068-mode0.state",
+            "7c3a9a555519e13e1965ec1fb741c284d158a05b02a1ecce39dd7bb63b7dcd63",
+        ),
+        (
+            "timex-tc2068-mode6.output",
+            "ca9d82c5d773aee4f0533e661c52f494261386ff62ab98cbe6988f4550aeaba4",
+        ),
+        (
+            "timex-tc2068-mode6.state",
+            "a4a269c795b54b3c8c5de5908261ebc0b4bf16796fcb9fda84c4ac2f4da663e9",
+        ),
+        (
+            "timex-ts2068-mode0.output",
+            "597be68c497a31ad58cb23b2c6eff40aa881f76e31d222b86d18fcb9d0f0ac9c",
+        ),
+        (
+            "timex-ts2068-mode0.state",
+            "f6073280b3d4b454865237a4ada9f932f5fd79e19a7a0f8e8a8bdeebc131bd9e",
+        ),
+        (
+            "timex-ts2068-mode6.output",
+            "d0ad87980ca94f4686201d8381f0ecdb1936645f290caacec4adccbad143f08c",
+        ),
+        (
+            "timex-ts2068-mode6.state",
+            "63b5a9ebdbdd6ef791b5a286b367e9a285686e450071a9a06ab637250a7df55c",
+        ),
+    ];
+    assert_eq!(records.len(), 8);
+    for (name, expected) in records {
+        let bytes = std::fs::read(root().join(name)).expect("retained original fixture");
+        let hash = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        assert_eq!(
+            hash, expected,
+            "original specimen {name} must not be regenerated"
+        );
+        if name.ends_with(".state") {
+            let model = if name.starts_with("timex-tc2068") {
+                Model::TimexTC2068
+            } else {
+                Model::TimexTS2068
+            };
+            let mut r = runtime(model);
+            let before = r.snapshot().expect("before");
+            for rejected in [&bytes[..], &[17u8][..]] {
+                assert!(
+                    matches!(r.restore(rejected),Err(MachineError::InvalidSnapshot{reason}) if reason=="unsupported snapshot version 17; expected 18")
+                );
+                assert_eq!(r.snapshot().expect("unchanged"), before);
+            }
         }
     }
 }
