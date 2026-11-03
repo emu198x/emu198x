@@ -205,9 +205,6 @@ members = [
     "crates/machine-sinclair-zx81",
     "crates/common-sinclair-zx81",
     "crates/machine-timex-ts1000",
-    "crates/emu198x-common-coleco-colecovision",
-    "crates/emu198x-machine-coleco-colecovision-ntsc",
-    "crates/emu198x-machine-coleco-colecovision-pal",
     "crates/common-mattel-aquarius",
     "crates/machine-mattel-aquarius",
     "crates/machine-mattel-aquarius-pal",
@@ -284,7 +281,6 @@ members = [
     "crates/runtime-atari-7800",
     "crates/runtime-atari-800xl",
     "crates/runtime-atari-st",
-    "crates/emu198x-runtime-coleco-colecovision",
     "crates/runtime-commodore-pet",
     "crates/runtime-commodore-vic-20",
     "crates/runtime-jupiter-ace",
@@ -502,3 +498,13 @@ inherits = "release"
 # 6000-frame headless 48K run measured within noise (19.3 s vs 18.9 s).
 # codegen-units = 1 stays: raising it added CPU (87 s) and 25% binary size.
 lto = false
+
+# A family repository's published crates build on the platform crates this
+# workspace builds from source. Without this, a published family runtime
+# would use crates.io's emu198x-shell while the binary here uses the in-tree
+# one: two different crates, so the runtime's MachineCore implementation
+# would not be for the binary's MachineCore. The patch applies only while the
+# in-tree shell's version satisfies what the family crate asks for; a
+# breaking shell release means republishing the family against it first.
+[patch.crates-io]
+emu198x-shell = { path = "crates/emu198x-shell" }

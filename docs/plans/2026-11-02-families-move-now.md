@@ -74,6 +74,38 @@ that are already published.
   against the published crates; the suite release still produces an
   installable ColecoVision binary.
 
+- **Done (3 November 2026).** The four crates are in
+  `emu198x/coleco-colecovision` with 115 commits of history, published as
+  0.46.2, byte-identical to the source they left here. `emu198x-colecovision`
+  and `emu198x-fleet-web` take the runtime from crates.io and pass as before
+  (16 and 13 tests).
+
+#### What the pilot taught
+
+Each is fixed, so the next family doesn't meet it:
+
+1. **The status scripts read a crate's category from its name.** A
+   published `emu198x-machine-…` wasn't a machine to them (#2247).
+2. **`extract-repo.py` assumed chips.** It copied path-based workspace
+   dependencies such as `emu198x-shell`, dry-ran publishing one crate at a
+   time (siblings can't resolve), pushed this repository's suite tags, and
+   gave the CI no Linux packages for the shell (#2249, #2251, #2252).
+3. **A moved board's evidence leaves with it.** `docs/status/systems.toml`
+   records it with `machine_repository`; the registry check then requires the
+   board to be a crates.io dependency its binary reaches, and the status page
+   says where its tests run.
+4. **Two copies of the shell.** A published runtime asks crates.io for
+   `emu198x-shell`; the binary here builds it from source. They are
+   different crates, so the runtime's traits didn't match the binary's.
+   `[patch.crates-io]` in the root manifest makes them one. The patch only
+   holds while the in-tree shell's version satisfies what the family asks
+   for, so **a breaking shell release means republishing every moved family
+   against it first.** That is the real cost of the split, and it grows with
+   each family that moves.
+5. **First publishes need Steve.** crates.io allows Trusted Publishing only
+   for crates that exist, so each new crate's first version needs his token,
+   and then a trusted publisher set per crate.
+
 ### 4. The rest
 
 After the pilot, write down what it taught us and order the remaining

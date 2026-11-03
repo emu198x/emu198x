@@ -166,8 +166,11 @@ def _usability(rows) -> str:
         machine = f"`{system['machine_id']}`"
         if cohabiting:
             machine += " ⚠️"
+        owned = str(len(own))
+        if repository := system.get("machine_repository"):
+            owned += f" (board tests in [{repository}](https://github.com/{repository}))"
         out.append(
-            f"| {machine} | `{system['crate']}` | {len(own)} | {len(shared)} "
+            f"| {machine} | `{system['crate']}` | {owned} | {len(shared)} "
             f"| [{system['label']}]({label_url(system['label'])}) "
             f"| [{system['milestone']}]({milestone_url(system['milestone'])}) |"
         )
