@@ -123,6 +123,33 @@ class RewriteManifest(unittest.TestCase):
             rewrite('[package]\nname = "a"\nversion = "0.1.0"\npublish = false\n', moving={"a"})
 
 
+class WorkspaceDependencies(unittest.TestCase):
+    def test_a_crate_left_behind_becomes_a_registry_version(self) -> None:
+        # A system family inherits emu198x-shell from this workspace, where
+        # it is a path that won't exist in the family's repository.
+        self.assertEqual(
+            extract_repo.registry_spec(
+                "emu198x-shell", '{ path = "crates/emu198x-shell", version = "0.44.2" }'
+            ),
+            '"0.44.2"',
+        )
+        self.assertEqual(
+            extract_repo.registry_spec(
+                "emu198x-ui",
+                '{ path = "crates/emu198x-ui", version = "0.46.2", default-features = false }',
+            ),
+            '{ version = "0.46.2", default-features = false }',
+        )
+
+    def test_a_registry_dependency_is_left_alone(self) -> None:
+        for spec in ('"1"', '{ version = "1", features = ["derive"] }'):
+            self.assertEqual(extract_repo.registry_spec("serde", spec), spec)
+
+    def test_a_path_without_a_version_cannot_move(self) -> None:
+        with self.assertRaises(SystemExit):
+            extract_repo.registry_spec("x", '{ path = "crates/x" }')
+
+
 class GeneratedGuidance(unittest.TestCase):
     def test_extracted_guidance_requires_accuracy_without_banning_bus_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
