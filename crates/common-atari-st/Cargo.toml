@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 motorola-68000 = { path = "../motorola-68000", version = "0.46.0" }
-emu198x-atari-st-glue-mmu = { path = "../emu198x-atari-st-glue-mmu", version = "0.1.0" }
+emu198x-atari-st-glue-mmu = { path = "../emu198x-atari-st-glue-mmu", version = "0.1.1" }
 emu198x-atari-st-shifter = { path = "../emu198x-atari-st-shifter", version = "0.1.0" }
 emu198x-motorola-mfp-68901 = "0.1.0"
 emu198x-motorola-acia-6850 = "0.1.0"

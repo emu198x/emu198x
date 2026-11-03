@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { workspace = true }
-emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.0" }
+emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.1" }
 common-atari-5200 = { path = "../common-atari-5200" }
 machine-atari-5200-ca018087 = { path = "../machine-atari-5200-ca018087" }
 machine-atari-5200-ca020108 = { path = "../machine-atari-5200-ca020108" }

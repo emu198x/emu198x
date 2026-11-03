@@ -14,7 +14,7 @@ keywords = ["agnus", "amiga", "ecs", "emulator"]
 categories = ["emulators"]
 
 [dependencies]
-emu198x-commodore-agnus-ocs = { path = "../emu198x-commodore-agnus-ocs", version = "0.1.0" }
+emu198x-commodore-agnus-ocs = { path = "../emu198x-commodore-agnus-ocs", version = "0.1.1" }
 serde = { workspace = true }
 
 [lints]

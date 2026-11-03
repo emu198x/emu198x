@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-gtia"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "postcard",
  "serde",
@@ -1517,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-st-glue-mmu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1619,7 +1619,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-agnus-ocs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
@@ -2199,7 +2199,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-nintendo-s-ppu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde-big-array",
@@ -2629,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-tape-playback"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Added
+
+- `Gtia::console_output()`: the CONSOL output latch that drives external
+  board wiring, as distinct from what a CONSOL read returns. The Atari 5200's
+  controller wiring uses it.
+
 ## 0.1.0
 
 ### Added
