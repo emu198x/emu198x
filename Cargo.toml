@@ -181,9 +181,6 @@ members = [
     "crates/machine-atari-5200-ca018087",
     "crates/machine-atari-5200-ca020108",
     "crates/machine-atari-5200-ca021374",
-    "crates/emu198x-machine-atari-7800",
-    "crates/emu198x-common-atari-7800",
-    "crates/emu198x-machine-atari-7800-pal",
     "crates/machine-atari-800xl",
     "crates/common-atari-800xl",
     "crates/machine-atari-800xl-pal",
@@ -281,7 +278,6 @@ members = [
     "crates/runtime-amstrad-cpc",
     "crates/runtime-atari-2600",
     "crates/runtime-atari-5200",
-    "crates/emu198x-runtime-atari-7800",
     "crates/runtime-atari-800xl",
     "crates/runtime-atari-st",
     "crates/runtime-commodore-pet",
@@ -511,3 +507,8 @@ lto = false
 # breaking shell release means republishing the family against it first.
 [patch.crates-io]
 emu198x-shell = { path = "crates/emu198x-shell" }
+# The Atari 7800 family (emu198x/atari-7800) takes these chips from crates.io;
+# its binary here builds them from source.
+emu198x-atari-maria = { path = "crates/emu198x-atari-maria" }
+emu198x-atari-pokey = { path = "crates/emu198x-atari-pokey" }
+emu198x-atari-tia = { path = "crates/emu198x-atari-tia" }

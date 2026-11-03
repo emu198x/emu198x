@@ -25,9 +25,9 @@ ui = ["dep:emu198x-ui"]
 emu198x-shell = { workspace = true }
 emu198x-atari-maria = { path = "../emu198x-atari-maria", version = "0.1.0" }
 emu198x-ui = { path = "../emu198x-ui", version = "0.46.0", optional = true }
-emu198x-machine-atari-7800 = { path = "../emu198x-machine-atari-7800", version = "0.46.0" }
+emu198x-machine-atari-7800 = "0.46.2"
 png = { workspace = true }
-emu198x-runtime-atari-7800 = { path = "../emu198x-runtime-atari-7800", version = "0.46.0" }
+emu198x-runtime-atari-7800 = "0.46.2"
 serde_json = { workspace = true }
 
 # Embeds the application icon in the Windows .exe (no-op elsewhere).

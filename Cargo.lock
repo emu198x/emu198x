@@ -1706,13 +1706,14 @@ dependencies = [
 [[package]]
 name = "emu198x-common-atari-7800"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d717bd8bffa26e033c556fd3e922c159ab1697272fc013b386a1144e63d73896"
 dependencies = [
  "emu198x-atari-maria",
  "emu198x-atari-pokey",
  "emu198x-atari-tia",
  "emu198x-mos-6502",
  "emu198x-mos-riot-6532",
- "postcard",
  "serde",
  "serde-big-array",
 ]
@@ -1904,6 +1905,8 @@ dependencies = [
 [[package]]
 name = "emu198x-machine-atari-7800"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17bdd8874705ddbf44f85483af09036f9bf914902294100408e9eda6580b4bbd"
 dependencies = [
  "emu198x-common-atari-7800",
 ]
@@ -1911,6 +1914,8 @@ dependencies = [
 [[package]]
 name = "emu198x-machine-atari-7800-pal"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3afb6e284e06febad61822d4bef940adb42edf0d8816162e7be36cdf221ee26"
 dependencies = [
  "emu198x-common-atari-7800",
 ]
@@ -2353,6 +2358,8 @@ dependencies = [
 [[package]]
 name = "emu198x-runtime-atari-7800"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3430eefca99af901efd10e18d64ed49d9c09b31c71d42c867be94541b5b0e09d"
 dependencies = [
  "emu198x-atari-maria",
  "emu198x-common-atari-7800",
