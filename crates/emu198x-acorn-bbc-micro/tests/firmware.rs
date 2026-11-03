@@ -3,8 +3,12 @@
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::time::Duration;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+mod support;
 
 use serde_json::{Value, json};
 
@@ -51,7 +55,8 @@ impl Drop for Fixture {
 }
 
 fn output(command: &mut Command) -> Value {
-    let output = command.output().expect("launch acorn-bbc-micro");
+    let case = format!("BBC CLI {command:?}");
+    let output = support::output(command, None, &case).expect("bounded BBC CLI");
     assert!(
         output.status.success(),
         "{}",
@@ -61,21 +66,14 @@ fn output(command: &mut Command) -> Value {
 }
 
 fn mcp(fixture: &Fixture, args: &[&str], requests: &[Value]) -> Vec<Value> {
-    let mut child = fixture
-        .command()
-        .arg("--mcp")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("MCP");
-    let mut stdin = child.stdin.take().expect("stdin");
+    let mut input = Vec::new();
     for request in requests {
-        writeln!(stdin, "{request}").expect("request");
+        writeln!(input, "{request}").expect("request");
     }
-    drop(stdin);
-    let output = child.wait_with_output().expect("output");
+    let mut command = fixture.command();
+    command.arg("--mcp").args(args);
+    let output = support::output(&mut command, Some(&input), &format!("BBC MCP {args:?}"))
+        .expect("bounded MCP output");
     assert!(
         output.status.success(),
         "{}",
@@ -86,6 +84,10 @@ fn mcp(fixture: &Fixture, args: &[&str], requests: &[Value]) -> Vec<Value> {
         .lines()
         .map(|line| serde_json::from_str(line).expect("JSON"))
         .collect()
+}
+
+fn raw_output(command: &mut Command, case: &str) -> std::process::Output {
+    support::output(command, None, &format!("{case}: {command:?}")).expect("bounded BBC process")
 }
 
 fn tool_body(response: &Value) -> Value {
@@ -189,58 +191,44 @@ fn missing_explicit_images_invalid_mos_and_missing_sideways_roms_fail_in_both_mo
             ["--sideways", "15=missing.rom"],
         ] {
             assert!(
-                !fixture
-                    .command()
-                    .arg(mode)
-                    .args(flags)
-                    .output()
-                    .expect("launch")
+                !raw_output(fixture.command().arg(mode).args(flags), "launch")
                     .status
                     .success()
             );
         }
         assert!(
-            !fixture
-                .command()
-                .arg(mode)
-                .arg("--mos")
-                .arg(&bad)
-                .output()
-                .expect("launch")
+            !raw_output(fixture.command().arg(mode).arg("--mos").arg(&bad), "launch")
                 .status
                 .success()
         );
         assert!(
-            !fixture
-                .command()
-                .arg(mode)
-                .env("EMU198X_BBC_SAA5050", "missing.rom")
-                .output()
-                .expect("launch")
-                .status
-                .success()
+            !raw_output(
+                fixture
+                    .command()
+                    .arg(mode)
+                    .env("EMU198X_BBC_SAA5050", "missing.rom"),
+                "launch"
+            )
+            .status
+            .success()
         );
     }
     assert!(
-        fixture
-            .command()
-            .env_clear()
-            .arg("--mcp")
-            .output()
-            .expect("blank")
+        raw_output(fixture.command().env_clear().arg("--mcp"), "blank")
             .status
             .success()
     );
     assert!(
-        !fixture
-            .command()
-            .env_clear()
-            .arg("--mcp")
-            .env("EMU198X_BBC_BASIC", fixture.0.join("basic.rom"))
-            .output()
-            .expect("partial firmware")
-            .status
-            .success()
+        !raw_output(
+            fixture
+                .command()
+                .env_clear()
+                .arg("--mcp")
+                .env("EMU198X_BBC_BASIC", fixture.0.join("basic.rom")),
+            "partial firmware"
+        )
+        .status
+        .success()
     );
 }
 
@@ -259,11 +247,22 @@ fn final_cli_report_warns_for_missing_teletext_font_but_not_bitmap_output() {
             mos[..8].copy_from_slice(&[0xa9, control, 0x8d, 0x20, 0xfe, 0x4c, 0x05, 0xc0]);
             mos[0x3ffc..0x3ffe].copy_from_slice(&0xc000_u16.to_le_bytes());
             std::fs::write(fixture.0.join("monitor.rom"), mos).expect("MOS");
-            let report = output(
-                fixture
-                    .command()
-                    .args(["--headless", "--frames", "1", "--rom-dir"])
-                    .arg(&fixture.0),
+            let mut command = fixture.command();
+            command
+                .args(["--headless", "--frames", "1", "--rom-dir"])
+                .arg(&fixture.0);
+            let case = format!("BBC frame: ULA={control:02x}, font={font_present}");
+            let result = support::output(&mut command, None, &case).expect("bounded frame request");
+            assert!(
+                result.status.success(),
+                "{case}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let report: Value = serde_json::from_slice(&result.stdout).expect("frame report");
+            assert_eq!(report["frames_run"], 1, "{case}: {report}");
+            assert_eq!(
+                report["run_result"]["stop_reason"], "ReachedTarget",
+                "{case}: {report}"
             );
             let warnings = report["warnings"]
                 .as_array()
@@ -283,4 +282,23 @@ fn final_cli_report_warns_for_missing_teletext_font_but_not_bitmap_output() {
             }
         }
     }
+}
+
+#[test]
+fn a_timed_out_bbc_child_is_killed_and_reaped_with_its_case_name() {
+    let fixture = Fixture::new();
+    let mut child = fixture
+        .command()
+        .args(["--headless", "--frames", "1000000"])
+        .spawn()
+        .expect("long-running BBC child");
+    let error = support::wait(
+        &mut child,
+        Duration::from_millis(40),
+        "intentional long BBC run",
+    )
+    .expect_err("a million frames exceeds the test deadline");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(error.to_string().contains("intentional long BBC run"));
+    assert!(child.try_wait().expect("reaped status").is_some());
 }
