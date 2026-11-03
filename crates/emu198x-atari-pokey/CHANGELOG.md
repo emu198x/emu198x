@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Added
+
+- A physical keyboard scanner: POKEY can scan a keyboard matrix itself, as
+  the Atari 5200's controllers need, and its saved state carries the
+  scanner's state when one is attached. States without it still load.
+
+### Fixed
+
+- SKRES clears the overrun and framing error bits without releasing the
+  sampled key and Shift inputs, instead of resetting SKSTAT to $FF.
+
 ## 0.1.0
 
 ### Added
