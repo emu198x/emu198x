@@ -191,9 +191,8 @@ pub struct MemoryMapper {
 
 /// Where the BIOS, the RAM and the cartridge ports sit.
 ///
-/// The RAM regions must not overlap in the address space: they share one
-/// 64 KB store, indexed by address. Every layout openMSX describes for an
-/// MSX1 fits that.
+/// RAM regions share one 64 KB physical store indexed by address. Different
+/// slots can select the same region, as on the Sony HB-10P PU-37 board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MsxLayout {
     /// The 32 KB Main-ROM at `$0000-$7FFF`.
@@ -547,6 +546,9 @@ pub struct MsxState {
     ram: Vec<u8>,
     /// Where the BIOS, RAM and cartridge ports sit.
     layout: MsxLayout,
+    /// Immutable board wiring, reattached by MsxCore after deserialization.
+    #[serde(skip)]
+    s3527_io: bool,
     /// The subslot register of each expanded primary slot.
     subslots: [u8; 4],
     /// Keyboard matrix: 11 rows × 8 columns, active-low (1 = released).
@@ -625,6 +627,7 @@ impl MsxState {
             cart2: CartridgeSlot::empty(),
             ram: vec![0u8; 65536],
             layout,
+            s3527_io: false,
             subslots: [0; 4],
             keyboard: [0xFF; 11],
             region,
@@ -1037,9 +1040,23 @@ impl MsxState {
         &self.layout
     }
 
+    fn decoded_io_port(&self, port: u16) -> u8 {
+        let port = port as u8;
+        if !self.s3527_io {
+            return port;
+        }
+        // Sony PU-37 schematic 5-12/13 and Yamaha S3527 pp. 4, 8:
+        // A2 is not connected to the engine. VDP uses its own A0 select.
+        match port {
+            0x98..=0x9f => 0x98 | (port & 1),
+            0xa0..=0xaf => port & !4,
+            _ => port,
+        }
+    }
+
     fn io_read(&mut self, port: u16) -> u8 {
         let pc = self.cpu.regs.pc;
-        let value = match port as u8 {
+        let value = match self.decoded_io_port(port) {
             port @ 0x98..=0x9B => self.video.read(port),
             0xB5 => self
                 .msx2
@@ -1094,7 +1111,7 @@ impl MsxState {
                 write: true,
             });
         }
-        match port as u8 {
+        match self.decoded_io_port(port) {
             port @ 0x98..=0x9B => self.video.write(port, value),
             0xB4 => {
                 if let Some(parts) = &mut self.msx2 {
