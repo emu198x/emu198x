@@ -9,14 +9,14 @@ two incompatible layouts that size alone cannot tell apart:
 
 MAME records which is which per title in `hash/a5200.xml`, a CC0-1.0 file
 carrying no redistribution burden. This script distils the two-chip titles
-into a sorted CRC32 table that `machine-atari-5200` uses as positive
+into a sorted CRC32 table that `common-atari-5200` uses as positive
 evidence: a 16 KB image whose CRC32 is in the table is two-chip, and
 everything else is linear -- the same default MAME applies to a headerless
 dump.
 
 Run from the repo root:
 
-    python3 tools/a5200-cart-layouts.py --out crates/machine-atari-5200/src/cart_layouts.rs
+    python3 tools/a5200-cart-layouts.py --out crates/common-atari-5200/src/cart_layouts.rs
 
 The vendored hash file lives in the umbrella tree at
 `198x/emulators/multi-system/mame/hash/a5200.xml`; pass `--hash-file` when

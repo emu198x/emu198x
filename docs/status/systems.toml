@@ -93,7 +93,22 @@ label = "system:atari-2600"
 milestone = "Atari 2600 100%"
 
 [[system]]
-machine_id = "atari-5200"
+machine_id = "atari-5200-ca018087"
+machine_crate = "machine-atari-5200-ca018087"
+crate = "emu198x-atari-5200"
+label = "system:atari-5200"
+milestone = "Atari 5200 100%"
+
+[[system]]
+machine_id = "atari-5200-ca020108"
+machine_crate = "machine-atari-5200-ca020108"
+crate = "emu198x-atari-5200"
+label = "system:atari-5200"
+milestone = "Atari 5200 100%"
+
+[[system]]
+machine_id = "atari-5200-ca021374"
+machine_crate = "machine-atari-5200-ca021374"
 crate = "emu198x-atari-5200"
 label = "system:atari-5200"
 milestone = "Atari 5200 100%"

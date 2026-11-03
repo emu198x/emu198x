@@ -11,7 +11,7 @@ use emu198x_shell::{
 };
 use runtime_atari_5200::{Atari5200Runtime, Model};
 
-const MODEL: Model = Model::A5200Ntsc;
+const MODEL: Model = Model::Ca018087;
 const WARMUP: u64 = 50_000;
 const LOCKSTEP: u64 = 100_000;
 

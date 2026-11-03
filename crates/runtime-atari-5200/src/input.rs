@@ -17,8 +17,8 @@
 //! Each physical controller retains its own axes, directions and fire state.
 //! Keypad switches remain held on the machine until individually released.
 
+use crate::machine::Atari5200Machine as Atari5200;
 use emu198x_shell::InputEvent;
-use machine_atari_5200::Atari5200;
 use serde::{Deserialize, Serialize};
 
 const POT_MIN: u8 = 0;
@@ -26,7 +26,7 @@ const POT_CENTRE: u8 = 114;
 const POT_MAX: u8 = 228;
 
 /// Host-side mirror of the analogue stick + fire.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ControllerCache {
     x: u8,
     y: u8,
@@ -156,6 +156,9 @@ pub(crate) fn apply_input_event(
         InputEvent::Key { .. } => 0,
         _ => return,
     };
+    if port >= machine.controller_ports() {
+        return;
+    }
     if let InputEvent::Button { name, pressed, .. } | InputEvent::Key { name, pressed } = event
         && let Some(code) = keypad_code(&name.to_ascii_lowercase())
     {

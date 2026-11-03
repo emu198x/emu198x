@@ -128,7 +128,7 @@ fn all_controller_routes_execute_through_the_guest() {
                             _ => vec![button(port, kind, true)],
                         };
                         let (cart, bios) = firmware(selector, skctl);
-                        let mut runtime = Atari5200Runtime::new(Model::A5200Ntsc, cart, bios)
+                        let mut runtime = Atari5200Runtime::new(Model::Ca018087, cart, bios)
                             .expect("original cartridge");
                         run(&mut runtime, &events);
                         let (trig, pots, kb, sk, irq, seen, seen_irq, count) = capture(&runtime);
@@ -148,7 +148,7 @@ fn all_controller_routes_execute_through_the_guest() {
                         // other channels against a fresh released control through the same guest.
                         let (cart, bios) = firmware(selector, skctl);
                         let mut idle =
-                            Atari5200Runtime::new(Model::A5200Ntsc, cart, bios).expect("control");
+                            Atari5200Runtime::new(Model::Ca018087, cart, bios).expect("control");
                         run(&mut idle, &[]);
                         let mut expected_pots = capture(&idle).1;
                         if let Some(i) = index
@@ -187,7 +187,7 @@ fn restore_retains_held_controls_and_rejects_old_layout_without_mutation() {
     for selector in 0..4 {
         for skctl in [1, 2, 3] {
             let (cart, bios) = firmware(selector, skctl);
-            let mut original = Atari5200Runtime::new(Model::A5200Ntsc, cart, bios).expect("guest");
+            let mut original = Atari5200Runtime::new(Model::Ca018087, cart, bios).expect("guest");
             let mut events = Vec::new();
             for port in 1..=4 {
                 for key in ["left", "right", "up", "fire1", "fire2", "1", "2"] {
@@ -198,7 +198,7 @@ fn restore_retains_held_controls_and_rejects_old_layout_without_mutation() {
             // Save between scan edges and at differing positions in the raster.
             original.machine_mut().expect("machine").step_instruction();
             let state = original.snapshot().expect("save held controls");
-            let mut restored = Atari5200Runtime::blank(Model::A5200Ntsc);
+            let mut restored = Atari5200Runtime::blank(Model::Ca018087);
             restored.restore(&state).expect("restore held controls");
             assert_eq!(restored.snapshot().expect("restored bytes"), state);
             // Releasing right must uncover the still-held left direction.
@@ -237,6 +237,62 @@ fn restore_retains_held_controls_and_rejects_old_layout_without_mutation() {
             run(&mut original, &[]);
             let triggers = capture(&original).0;
             assert_eq!(triggers, [1; 4], "reset releases host controls");
+        }
+    }
+}
+
+#[test]
+fn two_port_guest_ignores_absent_connectors_and_selectors() {
+    for port in 1..=4 {
+        for selector in 0..4 {
+            for kind in ["fire1", "fire2", "keypad", "x", "y"] {
+                let events = match kind {
+                    "keypad" => vec![button(port, "1", true)],
+                    "x" | "y" => vec![axis(port, kind, i16::MAX)],
+                    _ => vec![button(port, kind, true)],
+                };
+                let (cart, bios) = firmware(selector, 2);
+                let mut active = Atari5200Runtime::new(Model::Ca021374, cart.clone(), bios.clone())
+                    .expect("two-port probe");
+                let mut idle =
+                    Atari5200Runtime::new(Model::Ca021374, cart, bios).expect("released control");
+                run(&mut active, &events);
+                run(&mut idle, &[]);
+                let (trig, pots, _, _, _, seen, seen_irq, _) = capture(&active);
+                let connected = port <= 2;
+                let selected = connected && port == selector + 1;
+                let mut expected_trig = [1; 4];
+                if kind == "fire1" && connected {
+                    expected_trig[usize::from(port - 1)] = 0;
+                }
+                assert_eq!(trig, expected_trig, "{kind}/{port}/{selector}");
+                assert_eq!(
+                    seen & 4 != 0,
+                    kind == "keypad" && selected,
+                    "key/{port}/{selector}"
+                );
+                assert_eq!(
+                    seen & 8 != 0,
+                    kind == "fire2" && selected,
+                    "upper fire/{port}/{selector}"
+                );
+                assert_eq!(
+                    seen_irq & 0x80 != 0,
+                    kind == "fire2" && selected,
+                    "break/{port}/{selector}"
+                );
+                if !connected {
+                    assert_eq!(
+                        pots,
+                        capture(&idle).1,
+                        "absent axis must not drive a POKEY pin"
+                    );
+                    assert!(
+                        active.snapshot().expect("active") == idle.snapshot().expect("idle"),
+                        "absent input must not enter the machine or host cache"
+                    );
+                }
+            }
         }
     }
 }

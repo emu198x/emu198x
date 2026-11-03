@@ -6,8 +6,9 @@
 //! 800XL shape: a borrowing envelope for encode (no clone), an owning envelope
 //! for decode.
 
+use crate::machine::Atari5200Machine as Atari5200;
+use common_atari_5200::Atari5200State;
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_atari_5200::Atari5200;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::Atari5200Runtime;
@@ -58,7 +59,7 @@ struct Atari5200RuntimeSnapshotV2 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<Atari5200>,
+    machine: Option<Atari5200State>,
     controllers: [crate::input::ControllerCache; 4],
 }
 
@@ -102,9 +103,23 @@ pub(crate) fn decode(runtime: &mut Atari5200Runtime, bytes: &[u8]) -> Result<(),
             ),
         });
     }
+    if runtime.model() == crate::Model::Ca021374
+        && snapshot.controllers[2..]
+            .iter()
+            .any(|cache| *cache != crate::input::ControllerCache::default())
+    {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot holds inputs for absent controller ports".into(),
+        });
+    }
+    let machine = snapshot
+        .machine
+        .map(|state| Atari5200::from_state(runtime.model(), state))
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.controller_cache = snapshot.controllers;
     runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_machine(snapshot.machine);
+    runtime.set_machine(machine);
     Ok(())
 }
 
@@ -117,7 +132,7 @@ mod tests {
 
     #[test]
     fn version_19_is_rejected_without_mutating_live_state() {
-        let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
+        let mut runtime = Atari5200Runtime::blank(Model::Ca018087);
         runtime.set_time(emu198x_shell::MachineTime::new(12345));
         let before = super::encode(&runtime).expect("current snapshot");
         // Even a truncated old payload must fail at the version gate.
@@ -130,7 +145,7 @@ mod tests {
 
     #[test]
     fn old_layout_is_rejected_before_decoding_its_body() {
-        let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
+        let mut runtime = Atari5200Runtime::blank(Model::Ca018087);
         let bytes = postcard::to_allocvec(&10u16).expect("old version prefix");
         let error = decode(&mut runtime, &bytes).expect_err("old format must reject");
         assert!(
@@ -141,7 +156,7 @@ mod tests {
     /// A future-version envelope is rejected before any state is touched.
     #[test]
     fn decode_rejects_unsupported_version() {
-        let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
+        let mut runtime = Atari5200Runtime::blank(Model::Ca018087);
         let bytes = postcard::to_allocvec(&Atari5200RuntimeSnapshotRefV2 {
             version: 999,
             time: 0,
