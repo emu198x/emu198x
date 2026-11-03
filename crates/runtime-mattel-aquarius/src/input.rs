@@ -19,7 +19,7 @@ use emu198x_shell::InputEvent;
 
 /// Host-side mirror of one Aquarius hand controller: four directions plus the
 /// fire button, re-applied via [`Aquarius::set_joystick`] on every event.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
 struct JoystickCache {
     up: bool,
     down: bool,
@@ -45,7 +45,7 @@ impl JoystickCache {
 }
 
 /// Host-side mirror of both Aquarius hand controllers (ports 1 and 2).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ControllerCache {
     ports: [JoystickCache; 2],
 }
