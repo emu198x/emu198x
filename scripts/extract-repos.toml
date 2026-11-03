@@ -361,3 +361,29 @@ consumers = "Used by the NES, whose cartridge boards implement its PpuCartridge 
 # 96.28% line coverage on 2026-10-26.
 coverage_floor = 96
 
+[[repo]]
+name = "atari-7800"
+crates = [
+    "emu198x-common-atari-7800",
+    "emu198x-machine-atari-7800",
+    "emu198x-machine-atari-7800-pal",
+    "emu198x-runtime-atari-7800",
+]
+summary = "The Atari 7800 family: its shared wiring, the NTSC and PAL boards, and the headless runtime."
+consumers = "Used by the Emu198x Atari 7800 binary and the browser fleet."
+# 88.61% line coverage across the four crates on 2026-11-03.
+coverage_floor = 88
+data = [
+    "test-data/atari-7800/board-split-v6/README.md",
+    "test-data/atari-7800/board-split-v6/atari-7800-ntsc.state",
+    "test-data/atari-7800/board-split-v6/atari-7800-ntsc.after.state",
+    "test-data/atari-7800/board-split-v6/atari-7800-ntsc.audio",
+    "test-data/atari-7800/board-split-v6/atari-7800-ntsc.frames",
+    "test-data/atari-7800/board-split-v6/atari-7800-pal.state",
+    "test-data/atari-7800/board-split-v6/atari-7800-pal.after.state",
+    "test-data/atari-7800/board-split-v6/atari-7800-pal.audio",
+    "test-data/atari-7800/board-split-v6/atari-7800-pal.frames",
+    "test-data/atari/synthetic-cart/atari-7800.a78",
+    "test-data/synthetic-cartridges/atari-7800-logo.bin",
+    "test-data/atari-pokey/legacy-envelope-comparison.rs",
+]
