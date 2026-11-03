@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 106 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 107 machines across 34 shipping crates.
 
 ## How to read this
 
@@ -60,6 +60,7 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `commodore-c64-pal-breadbin` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
 | `commodore-c64c-ntsc` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
 | `commodore-c64c-pal` | `emu198x-c64` | 1 | 17 | [system:c64](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Ac64) | [C64 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22C64+100%25%22) |
+| `commodore-pet-2001-320008` | `emu198x-commodore-pet` | 1 | 8 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |
 | `commodore-pet-2001n-32k` | `emu198x-commodore-pet` | 1 | 8 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |
 | `commodore-pet-4032` | `emu198x-commodore-pet` | 1 | 8 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |
 | `commodore-pet-8032` | `emu198x-commodore-pet` | 1 | 8 | [system:pet](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Apet) | [PET 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22PET+100%25%22) |

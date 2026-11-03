@@ -192,6 +192,7 @@ members = [
     "crates/machine-atari-1040st-pal",
     "crates/machine-atari-1040st-ntsc",
     "crates/machine-commodore-pet-2001n-32k",
+    "crates/machine-commodore-pet-2001-320008",
     "crates/machine-commodore-pet-4032",
     "crates/machine-commodore-pet-8032",
     "crates/common-commodore-vic-20",
