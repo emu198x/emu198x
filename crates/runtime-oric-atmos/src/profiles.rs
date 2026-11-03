@@ -36,15 +36,29 @@ impl Model {
 
     #[must_use]
     pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
-        // Prefer a model-specific image; preserve the legacy shared filename.
-        let candidates: &'static [&'static str] = match self {
-            Self::Oric1 => &["oric-1.rom", "oric.rom"],
-            Self::Atmos => &["atmos.rom", "oric.rom"],
+        let (candidates, env_var): (&'static [&'static str], &'static str) = match self {
+            Self::Oric1 => (
+                &["oric-1.rom", "oric1.rom", "basic10.rom"],
+                "EMU198X_ORIC1_ROM",
+            ),
+            Self::Atmos => (
+                &["atmos.rom", "oric.rom", "basic11b.rom"],
+                "EMU198X_ORIC_ROM",
+            ),
         };
         vec![
-            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, candidates)
-                .with_env_var("EMU198X_ORIC_ROM"),
+            emu198x_shell::FirmwareSource::required(self.firmware_id(), candidates)
+                .with_env_var(env_var),
         ]
+    }
+
+    /// Stable firmware identity for the selected ROM profile.
+    #[must_use]
+    pub const fn firmware_id(self) -> &'static str {
+        match self {
+            Self::Oric1 => ORIC1_FIRMWARE_ID,
+            Self::Atmos => BIOS_FIRMWARE_ID,
+        }
     }
 
     /// Existing host budget, in 6502 clocks.
@@ -80,7 +94,10 @@ impl Model {
     }
 }
 
+/// Existing Atmos firmware identifier, retained for compatibility.
 pub const BIOS_FIRMWARE_ID: &str = "oric-rom";
+/// Oric-1 BASIC 1.0 firmware identifier.
+pub const ORIC1_FIRMWARE_ID: &str = "oric1-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
@@ -104,8 +121,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
         summary: "Oric — 6502A + 16 KiB BASIC/OS ROM, 64 KiB physical DRAM with 48 KiB below ROM, VIA + AY-via-VIA, TEXT + HIRES ULA.".into(),
         clock: ClockDesc::new("m6502-cycle", ClockRate::from_hz(1_000_000)),
         firmware: vec![FirmwareRequirement::new(
-            BIOS_FIRMWARE_ID,
-            "Oric BASIC + OS ROM (16 KB)",
+            model.firmware_id(),
+            match model { Model::Oric1 => "Oric-1 BASIC 1.0 + OS ROM (16 KB)", Model::Atmos => "Atmos BASIC 1.1 + OS ROM (16 KB)" },
             false,
         )],
         media_slots: vec![MediaSlot::new(

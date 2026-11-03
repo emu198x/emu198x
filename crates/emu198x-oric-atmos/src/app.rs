@@ -12,6 +12,8 @@ use serde_json::{Map, Value};
 #[derive(Debug, PartialEq, Eq)]
 pub struct Oric {
     pub firmware: FirmwareOverrides,
+    /// Resolve bare ROM paths only after all --model flags have been parsed.
+    rom_specs: Vec<String>,
     pub model: Model,
     /// Fit the 6551 serial card at `$031C-$031F`.
     pub serial_card: bool,
@@ -21,9 +23,26 @@ impl Default for Oric {
     fn default() -> Self {
         Self {
             firmware: FirmwareOverrides::none(),
+            rom_specs: Vec::new(),
             model: Model::Atmos,
             serial_card: false,
         }
+    }
+}
+
+impl Oric {
+    fn resolved_firmware(&self) -> Result<FirmwareOverrides, LaunchError> {
+        let mut firmware = self.firmware.clone();
+        for spec in &self.rom_specs {
+            firmware
+                .add_spec(
+                    spec,
+                    self.model.variant_id(),
+                    &self.model.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?;
+        }
+        Ok(firmware)
     }
 }
 
@@ -33,11 +52,15 @@ impl MachineApp for Oric {
 
     const BIN_NAME: &'static str = "emu198x-oric-atmos";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const MACHINE_OPTIONS: &'static str = "    --rom PATH|ID=PATH 16 KB BASIC + OS ROM; default
-                    ~/.emu198x/roms/oric/oric.rom (or set EMU198X_ORIC_ROM)
+    const MACHINE_OPTIONS: &'static str =
+        "    --rom PATH|ID=PATH 16 KiB BASIC + OS ROM for the selected model
     --rom-dir DIR   firmware directory (or set EMU198X_ORIC_ROM_DIR)
-                    firmware ID: oric-rom; tries oric-1.rom / atmos.rom before oric.rom
     --model NAME    oric-1 | atmos [default: atmos]
+                    Oric-1: oric1-rom; EMU198X_ORIC1_ROM;
+                    oric-1.rom / oric1.rom / basic10.rom
+                    Atmos: oric-rom; EMU198X_ORIC_ROM;
+                    atmos.rom / oric.rom / basic11b.rom
+                    both models have 64 KiB physical RAM, 48 KiB below ROM
     --serial        fit a 6551 ACIA serial card at $031C-$031F";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     Cmd/Ctrl+Shift+R  hard reset
@@ -48,14 +71,7 @@ impl MachineApp for Oric {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--rom" => self
-                .firmware
-                .add_spec(
-                    &args.value(flag)?,
-                    self.model.variant_id(),
-                    &self.model.firmware_sources(),
-                )
-                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--rom" => self.rom_specs.push(args.value(flag)?),
             "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
             "--model" => {
                 let id = args.value(flag)?;
@@ -78,15 +94,16 @@ impl MachineApp for Oric {
     }
 
     fn build_runtime(&self) -> Result<OricRuntime, LaunchError> {
-        let mut runtime = build_variant::<OricRuntime>(self.model, &self.firmware)
+        let mut runtime = build_variant::<OricRuntime>(self.model, &self.resolved_firmware()?)
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime.set_serial_card(self.serial_card);
         Ok(runtime)
     }
 
     fn build_mcp_runtime(&self) -> Result<OricRuntime, LaunchError> {
-        let mut runtime = build_variant_or_blank(self.model, &self.firmware, OricRuntime::blank)
-            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        let mut runtime =
+            build_variant_or_blank(self.model, &self.resolved_firmware()?, OricRuntime::blank)
+                .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime.set_serial_card(self.serial_card);
         Ok(runtime)
     }
@@ -146,7 +163,10 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(
-            app.firmware.by_id.get(runtime_oric_atmos::BIOS_FIRMWARE_ID),
+            app.resolved_firmware()
+                .expect("final model firmware")
+                .by_id
+                .get(runtime_oric_atmos::ORIC1_FIRMWARE_ID),
             Some(&PathBuf::from("oric.rom"))
         );
         assert_eq!(app.model, Model::Oric1);
@@ -162,5 +182,45 @@ mod tests {
             err,
             LaunchError::Usage("--model expects oric-1|atmos, got telestrat".to_owned())
         );
+    }
+}
+
+#[cfg(all(test, feature = "ui"))]
+mod ui_firmware_tests {
+    use super::*;
+    use emu198x_shell::launch::{Parsed, parse};
+    use emu198x_ui::launch::UiApp;
+    struct Directory(std::path::PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn window_resolves_bare_roms_against_the_final_model() {
+        let dir = Directory(
+            std::env::temp_dir().join(format!("oric-ui-firmware-{}", std::process::id())),
+        );
+        std::fs::create_dir_all(&dir.0).expect("fixture directory");
+        let path = dir.0.join("custom.rom");
+        std::fs::write(&path, vec![0x6a; 16384]).expect("custom ROM");
+        let path = path.display().to_string();
+        for model in Model::ALL {
+            for rom_first in [false, true] {
+                let args = if rom_first {
+                    vec!["--rom", path.as_str(), "--model", model.variant_id()]
+                } else {
+                    vec!["--model", model.variant_id(), "--rom", path.as_str()]
+                };
+                let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+                let Parsed::Run { app, .. } = parse::<Oric>(&args).expect("window arguments")
+                else {
+                    panic!("window launch")
+                };
+                let runtime = app.build_ui_runtime().expect("window firmware");
+                assert_eq!(runtime.model(), model);
+                assert_eq!(runtime.machine().expect("loaded").peek(0xc000), 0x6a);
+            }
+        }
     }
 }
