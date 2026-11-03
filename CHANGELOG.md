@@ -4,6 +4,33 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.47.0] - 2026-11-03
+
+
+### Added
+
+- Publish the ColecoVision libraries as emu198x-* crates
+- Give each Atari 5200 board its own machine owner
+- Publish the Atari 7800 libraries as emu198x-* crates
+- Emulate the original PET 2001 assembly 320008
+
+
+### Fixed
+
+- Route all four 5200 controllers through the physical keyboard scanner
+- Bound Linux test artifacts to fit the hosted runner
+- *(scripts)* Let extract-repo.py stand up a system family
+- *(scripts)* Keep this workspace's suite tags out of extracted repositories
+- Keep restored 5200 media through reset and firmware changes
+- *(scripts)* Install the shell's Linux packages in extracted repositories that use it
+- Keep Oric-1 firmware separate from Atmos BASIC
+- Release POKEY and TIA 0.1.1 with the changes made since 0.1.0
+- Release five crates whose code changed after they were published
+- Boot Timex firmware with correct paging and SCLD video
+- Record recaptured Spectrum routing without replacing catalogue oracles
+- Decode Sony HB-10P RAM mirrors and S3527 I/O aliases
+- Restore PET onboard IEEE PIA and preserve it in v6 saves
+
 ## [0.46.2] - 2026-11-02
 
 
