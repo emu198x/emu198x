@@ -4328,6 +4328,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "machine-commodore-pet-2001-320008"
+version = "0.46.2"
+dependencies = [
+ "common-commodore-pet",
+ "postcard",
+]
+
+[[package]]
 name = "machine-commodore-pet-2001n-32k"
 version = "0.46.2"
 dependencies = [
@@ -6239,6 +6247,7 @@ version = "0.46.2"
 dependencies = [
  "common-commodore-pet",
  "emu198x-shell",
+ "machine-commodore-pet-2001-320008",
  "machine-commodore-pet-2001n-32k",
  "machine-commodore-pet-4032",
  "machine-commodore-pet-8032",

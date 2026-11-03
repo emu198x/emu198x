@@ -21,8 +21,8 @@ pub const ACTIVE_WIDTH_80: u32 = 640;
 pub const ACTIVE_HEIGHT: u32 = 200;
 
 /// Border thickness around the active text display. The PET's
-/// monochrome P1 phosphor display always shows black around the
-/// green-on-black active region — no programmable border colour.
+/// monochrome display always shows black around the active region; the
+/// original 2001 is white, later owners green. No programmable border colour.
 pub const BORDER_LEFT: u32 = 32;
 pub const BORDER_RIGHT: u32 = 32;
 pub const BORDER_TOP: u32 = 24;
@@ -42,8 +42,7 @@ const AUDIO_SAMPLE_RATE: u64 = 48_000;
 #[derive(Serialize, Deserialize)]
 pub struct Pet {
     cpu: M6502,
-    #[serde(with = "BigArray")]
-    ram: [u8; 0x8000],
+    ram: Vec<u8>,
     #[serde(with = "BigArray")]
     video_ram: [u8; 0x0800],
     basic_rom: Vec<u8>,
@@ -109,7 +108,7 @@ impl Pet {
         cpu.reset();
         Self {
             cpu,
-            ram: [0; 0x8000],
+            ram: vec![0; board.ram_bytes()],
             video_ram: [0; 0x0800],
             basic_rom,
             editor_rom,
@@ -172,6 +171,9 @@ impl Pet {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
+            if self.board == Board::Pet2001Original8k {
+                self.cpu.data_in = self.cpu.data; // retain the last driven bus value
+            }
         }
     }
 
@@ -230,7 +232,10 @@ impl Pet {
             let code = self.video_ram[address];
             let bank = usize::from(self.via.ca2_out) * 1024;
             let inverse = (code & 0x80 != 0) ^ beam.reverse;
-            let glyph = if !beam.display {
+            let original_blanked = self.board == Board::Pet2001Original8k
+                && self.pia.cra() & 0x20 != 0
+                && self.pia.cra() & 8 == 0;
+            let glyph = if !beam.display || original_blanked {
                 0
             } else if beam.ra < 8 {
                 let byte = self
@@ -252,20 +257,24 @@ impl Pet {
                     break;
                 }
                 let on = glyph & (0x80 >> pixel) != 0;
-                self.framebuffer[(y * self.screen_width_px + x + pixel) as usize] =
-                    if on { 0xff00_ff00 } else { 0xff00_0000 };
+                self.framebuffer[(y * self.screen_width_px + x + pixel) as usize] = if on {
+                    if self.board == Board::Pet2001Original8k {
+                        0xffff_ffff
+                    } else {
+                        0xff00_ff00
+                    }
+                } else {
+                    0xff00_0000
+                };
             }
         }
     }
 
     /// Reject forged board metadata and inconsistent allocations before binding.
     pub fn validate(&self, board: Board) -> Result<(), String> {
-        let basic_len = if board == Board::Pet2001n32k {
-            8192
-        } else {
-            12288
-        };
+        let basic_len = if board.is_discrete() { 8192 } else { 12288 };
         if self.keyboard.rows() != self.contacts().rows()
+            || self.ram.len() != board.ram_bytes()
             || self.board != board
             || !self.video.matches(board)
             || self.screen_chars != board.columns()
@@ -309,10 +318,37 @@ impl Pet {
 
     fn mem_read(&mut self, addr: u16) -> u8 {
         self.update_ieee_lines(self.video.retrace_level());
+        if self.board == Board::Pet2001Original8k && (0xe800..=0xefff).contains(&addr) {
+            // Common 320130 sheet 1: independent select bits, so more than
+            // one chip can drive a read. No CRTC is fitted on this board.
+            let mut value = 0xff;
+            if addr & 0x10 != 0 {
+                self.update_keyboard();
+                value &= self.pia.read((addr & 3) as u8);
+            }
+            if addr & 0x20 != 0 {
+                value &= self.pia2.read((addr & 3) as u8);
+            }
+            if addr & 0x40 != 0 {
+                value &= self.via.read((addr & 15) as u8);
+            }
+            return if addr & 0x70 == 0 {
+                self.cpu.data_in
+            } else {
+                value
+            };
+        }
         match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize],
+            0x0000..=0x7FFF if usize::from(addr) < self.board.ram_bytes() => {
+                self.ram[addr as usize]
+            }
+            0x0000..=0x7fff => self.cpu.data_in,
+            0x8800..=0x8fff if self.board == Board::Pet2001Original8k => {
+                self.video_ram[usize::from(addr & 0x3ff)]
+            }
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
             0x8800..=0x8FFF => 0xFF,
+            0x9000..=0xbfff if self.board == Board::Pet2001Original8k => self.cpu.data_in,
             0x9000..=0xAFFF => 0xFF,
             0xB000..=0xDFFF => {
                 let Some(offset) = addr.checked_sub(self.board.basic_start()) else {
@@ -342,8 +378,25 @@ impl Pet {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if self.board == Board::Pet2001Original8k && (0xe800..=0xefff).contains(&addr) {
+            if addr & 0x10 != 0 {
+                self.pia.write((addr & 3) as u8, value);
+            }
+            if addr & 0x20 != 0 {
+                self.pia2.write((addr & 3) as u8, value);
+            }
+            if addr & 0x40 != 0 {
+                self.via.write((addr & 15) as u8, value);
+            }
+            return;
+        }
         match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize] = value,
+            0x0000..=0x7FFF if usize::from(addr) < self.board.ram_bytes() => {
+                self.ram[addr as usize] = value
+            }
+            0x8800..=0x8fff if self.board == Board::Pet2001Original8k => {
+                self.video_ram[usize::from(addr & 0x3ff)] = value
+            }
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()] = value,
             0xE810..=0xE81F => self.pia.write((addr & 0x03) as u8, value),
             0xE820..=0xE82F => self.pia2.write((addr & 3) as u8, value),
@@ -412,7 +465,12 @@ impl Pet {
     #[must_use]
     pub fn peek_memory(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize],
+            0x0000..=0x7FFF if usize::from(addr) < self.board.ram_bytes() => {
+                self.ram[addr as usize]
+            }
+            0x8800..=0x8fff if self.board == Board::Pet2001Original8k => {
+                self.video_ram[usize::from(addr & 0x3ff)]
+            }
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
             0xB000..=0xDFFF => self
                 .basic_rom
