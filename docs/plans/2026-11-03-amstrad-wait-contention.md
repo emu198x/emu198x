@@ -1,7 +1,8 @@
 # Correct the Amstrad contention signal
 
-Engineering-frontier continuation of #2265. Implementation and snapshot approval
-are pending: this is the concrete design for review, not an adopted decision.
+Engineering-frontier continuation of #2265. The user approved physical WAIT,
+publishing the changed chip contract, and Amstrad v20 rejecting v19 on
+2026-11-03. CPU qualification reuses existing phases without a schema change.
 
 ## Reproduction
 
@@ -89,3 +90,34 @@ Historical worktree/cache: /private/tmp/198x-plus3-bisect and
 All task processes and temporary source modifications must be removed before
 completion. Completed BBC, Aquarius, staged-cartridge, CPC and shared release
 changes have already merged independently; they do not depend on this design.
+
+## Qualification update
+
+- 40077 physical WAIT merged in amstrad-ula-40077#4; the conventional breaking
+  release filter was corrected in #5. Release #6 is v0.3.0. Both the change
+  and release passed normal CI. Registry publication still needs verification.
+- The Z80's original edge tests fail on rising-edge sampling and missing I/O
+  TW decoding time. The corrected core reuses existing phases, with no added
+  serialized fields. Workspace tests, all-target Clippy, nine existing bus
+  waveforms and the full FUSE corpus pass (1350 exact, six already accepted
+  discrepancies, zero unexpected). Draft zilog-z80#2 is not merged.
+- Patched MSX tests pass. CPC's frozen v5 fresh execution changes. A separate
+  user decision is pending: publish the corrected WAIT contract as Z80 0.9
+  for explicit Spectrum adoption, leaving CPC on 0.8 for its own timing/save
+  qualification, or expand this batch to CPC. Do not silently publish a
+  compatible patch which moves the CPC's saved execution.
+- The combined Amstrad regression removes the refresh-bank delay. Each
+  accepted memory WAIT adds two CPU edges / five master ticks across all
+  eight tested arrivals. The three-board native save matrix covers eight
+  offsets around WAIT and three resumed fields, comparing complete pixels,
+  audio bits, time and final save bytes. Real original v19 payloads, truncated
+  prefixes and forged old headers reject atomically.
+- All 130 Spectrum runtime unit tests pass after updating eight old rejection
+  messages to the approved v20 boundary. Catalogue expectations are untouched.
+- Cybernoid now reaches its intact control menu and produces audio without
+  suppressing contention or changing FDC pacing. The new frame/audio hashes
+  are 5a92a361551b3961 / 2117ceda81474346. These are observations, not adopted
+  oracles. Full 103-entry recapture and qualification remain required after
+  the published CPU/chip consumer is established.
+- Finished bisection worktree, historical build cache and headless reference
+  build have been removed after retaining their provenance and observations.
