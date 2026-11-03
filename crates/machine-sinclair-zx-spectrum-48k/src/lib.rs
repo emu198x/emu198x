@@ -3,9 +3,8 @@
 //! The 48K hardware composition (Z80 + Ferranti ULA + beeper + tape) is
 //! shared with the 16K and Spectrum+ via
 //! [`common_sinclair_zx_spectrum_48k_class::SpectrumMachineCore`]. This
-//! crate exposes the 48K alias plus the host-boundary
-//! [`machine::ApplyInputEvent`] extension trait — the only part of the
-//! machine surface that depends on `emu198x-shell`.
+//! crate exposes its hardware aliases. Host input adapters live in the family
+//! runtime, where every board can share them.
 
 pub mod machine;
 
@@ -20,6 +19,4 @@ pub use emu198x_ferranti_ula_6c001e::UlaRevision;
 pub use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::{
     KempstonButton, KempstonJoystick,
 };
-pub use machine::{
-    ApplyInputEvent, ApplyKempstonEvent, Spectrum48k, Spectrum48kIssue1, Spectrum48kIssue2,
-};
+pub use machine::{Spectrum48k, Spectrum48kIssue1, Spectrum48kIssue2};

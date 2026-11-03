@@ -6,7 +6,7 @@ use emu198x_shell::{
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
     ResetKind, SessionQueryProvider, read_media_asset,
 };
-use machine_sinclair_zx_spectrum_48k::ApplyInputEvent;
+use runtime_sinclair_zx_spectrum::ApplyInputEvent;
 use runtime_sinclair_zx_spectrum::*;
 use std::fs;
 use std::path::PathBuf;

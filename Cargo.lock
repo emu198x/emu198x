@@ -4743,7 +4743,6 @@ dependencies = [
  "common-sinclair-zx-spectrum-48k-class",
  "emu198x-ferranti-ula-6c001e",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
- "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format198x-sinclair-zx-spectrum-tap",

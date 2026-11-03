@@ -5,19 +5,13 @@
 //! [`common_sinclair_zx_spectrum_48k_class::SpectrumMachineCore`], because
 //! 16K, 48K, and Spectrum+ are electrically identical apart from memory
 //! size and badge. This crate is the 48K-flavoured wrapper: a type alias
-//! plus the [`ApplyInputEvent`] extension trait that maps host-boundary
-//! `InputEvent`s onto the keyboard matrix. Host-boundary types stay out
-//! of `common-sinclair-zx-spectrum` so the shared crate keeps its dep
-//! graph hardware-only.
+//! with input adapters supplied by the family runtime. Host-boundary types
+//! stay out of the hardware-only board implementation.
 
-use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
-use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum48kMemory};
+use common_sinclair_zx_spectrum::memory::Spectrum48kMemory;
 use common_sinclair_zx_spectrum_48k_class::{
     Spectrum48kIssue1Marker, Spectrum48kIssue2Marker, Spectrum48kMarker, SpectrumMachineCore,
-    Variant48kClass,
 };
-use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonButton;
-use emu198x_shell::InputEvent;
 
 /// Machine-local state for a stock ZX Spectrum 48K.
 pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
@@ -30,68 +24,12 @@ pub type Spectrum48kIssue1 = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kI
 /// with `UlaRevision::Ferranti5C`.
 pub type Spectrum48kIssue2 = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kIssue2Marker>;
 
-/// Maps a host-boundary [`InputEvent`] onto the Spectrum keyboard matrix.
-///
-/// Implemented for every 48K-class core — 16K and Spectrum+ wrappers will
-/// inherit this once they're scaffolded. Lives in the 48K crate (rather
-/// than the layer or common crate) because `InputEvent` is a host-shell
-/// type and `common-{family}` is hardware-only by convention.
-pub trait ApplyInputEvent {
-    /// Applies one host input event to the keyboard matrix.
-    ///
-    /// Returns `true` when the event maps to a physical key.
-    fn apply_input_event(&mut self, event: &InputEvent) -> bool;
-}
-
-impl<M: MemoryBus, V: Variant48kClass> ApplyInputEvent for SpectrumMachineCore<M, V> {
-    fn apply_input_event(&mut self, event: &InputEvent) -> bool {
-        let InputEvent::Key { name, pressed } = event else {
-            return false;
-        };
-        let Some(key) = SpectrumKey::from_name(name.as_ref()) else {
-            return false;
-        };
-        self.keyboard_mut().set_key(key, *pressed);
-        true
-    }
-}
-
-/// Maps a typed [`KempstonButton`] event onto the 48K-class Kempston
-/// peripheral.
-///
-/// Mirrors the runtime layer's `set_kempston_button` shape but takes
-/// the typed [`KempstonButton`] enum directly, for callers (tests,
-/// scripted-input bindings, direct machine manipulation) that already
-/// hold a typed button reference. Flips the peripheral's `attached`
-/// flag on first event — software that probes `$1F` for Kempston
-/// detection sees the floating bus until the user touches the pad.
-///
-/// **Deliberately not implemented for the Amstrad class.** The +2A /
-/// +2B / +3 broke the rear-connector pinout in 1987, so a Kempston
-/// interface cannot physically attach. The trait bound on
-/// `Variant48kClass` (paired with the matching `Variant128kClass`
-/// impl in the 128K crate) keeps this enforced at compile time —
-/// trying to call `apply_kempston_event` on an Amstrad-class machine
-/// will fail to resolve the trait, surfacing the architectural
-/// constraint at the type system rather than at runtime.
-pub trait ApplyKempstonEvent {
-    /// Applies one button state change to the Kempston joystick.
-    fn apply_kempston_event(&mut self, button: KempstonButton, pressed: bool);
-}
-
-impl<M: MemoryBus, V: Variant48kClass> ApplyKempstonEvent for SpectrumMachineCore<M, V> {
-    fn apply_kempston_event(&mut self, button: KempstonButton, pressed: bool) {
-        let kempston = self.kempston_mut();
-        kempston.attached = true;
-        kempston.set_button(button, pressed);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use common_sinclair_zx_spectrum::audio::SpeakerChannel;
     use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
+    use common_sinclair_zx_spectrum::memory::MemoryBus;
     use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
     use emu198x_ferranti_ula_6c001e::UlaRevision;
     use std::fs;
@@ -129,102 +67,6 @@ mod tests {
 
         assert!(machine.z80().regs.pc > 0 || machine.z80().halt);
         assert_eq!(machine.hc(), 0);
-    }
-
-    #[test]
-    fn machine_applies_host_key_events() {
-        let mut machine = Spectrum48k::new();
-        let pressed = InputEvent::Key {
-            name: "q".into(),
-            pressed: true,
-        };
-
-        assert!(machine.apply_input_event(&pressed));
-        assert_eq!(machine.read_fe(0xfbfe) & 0x01, 0x00);
-    }
-
-    #[test]
-    fn apply_input_event_returns_false_for_non_key_events() {
-        let mut machine = Spectrum48k::new();
-        // Button events go through the Kempston path, not the keyboard
-        // matrix; the trait declines them.
-        let button = InputEvent::Button {
-            port: 0,
-            name: "fire".into(),
-            pressed: true,
-        };
-        assert!(!machine.apply_input_event(&button));
-        // Axis events similarly aren't keyboard input.
-        let axis = InputEvent::Axis {
-            port: 0,
-            name: "horizontal".into(),
-            value: 16_000,
-        };
-        assert!(!machine.apply_input_event(&axis));
-    }
-
-    #[test]
-    fn apply_input_event_returns_false_for_unknown_key_names() {
-        let mut machine = Spectrum48k::new();
-        // The Spectrum doesn't have an "escape" or "F12" key; the
-        // name lookup falls through to None and the trait returns
-        // false without touching the matrix.
-        for unknown in ["escape", "F12", "", "πø"] {
-            let event = InputEvent::Key {
-                name: unknown.into(),
-                pressed: true,
-            };
-            assert!(
-                !machine.apply_input_event(&event),
-                "name {unknown:?} should not match any SpectrumKey",
-            );
-        }
-        // Matrix must remain untouched (all keys released).
-        assert_eq!(machine.read_fe(0xfffe) & 0x1F, 0x1F);
-    }
-
-    #[test]
-    fn apply_input_event_releases_pressed_keys() {
-        let mut machine = Spectrum48k::new();
-        let q_press = InputEvent::Key {
-            name: "q".into(),
-            pressed: true,
-        };
-        let q_release = InputEvent::Key {
-            name: "q".into(),
-            pressed: false,
-        };
-        assert!(machine.apply_input_event(&q_press));
-        assert_eq!(machine.read_fe(0xfbfe) & 0x01, 0x00);
-
-        assert!(machine.apply_input_event(&q_release));
-        // Q released — bit reads high again.
-        assert_eq!(machine.read_fe(0xfbfe) & 0x01, 0x01);
-    }
-
-    #[test]
-    fn apply_kempston_event_attaches_and_flips_bits() {
-        let mut machine = Spectrum48k::new();
-        // Defaults: unattached, all bits clear.
-        assert!(!machine.kempston_mut().attached);
-        assert_eq!(machine.kempston_mut().state, 0);
-
-        machine.apply_kempston_event(KempstonButton::Fire, true);
-        assert!(
-            machine.kempston_mut().attached,
-            "first event must attach the interface"
-        );
-        assert_eq!(machine.kempston_mut().state, 0b0001_0000, "fire bit");
-
-        machine.apply_kempston_event(KempstonButton::Right, true);
-        assert_eq!(machine.kempston_mut().state, 0b0001_0001, "fire + right");
-
-        machine.apply_kempston_event(KempstonButton::Fire, false);
-        assert_eq!(
-            machine.kempston_mut().state,
-            0b0000_0001,
-            "only right after fire release"
-        );
     }
 
     #[test]
