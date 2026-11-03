@@ -1,9 +1,11 @@
 //! Every Spectrum variant's picture geometry, across the whole family.
 //!
-//! The framebuffer is 352×296 for all of them, so nothing here can be caught
-//! by comparing dimensions. What differs is the clock the pixels come out at,
-//! and for the TS2068 the television standard itself — which is exactly why
-//! the presentation hook takes the runtime rather than a constant.
+//! The framebuffer is 352×296 for most of them and 704×296 for the Timex
+//! machines, whose frame holds the 512-dot high-resolution mode in every
+//! mode. What decides the picture's shape is the clock the pixels come out
+//! at, the frame's width, and for the TS2068 the television standard itself
+//! — which is exactly why the presentation hook takes the runtime rather
+//! than a constant.
 
 use emu198x_shell::MachineCore;
 use emu198x_shell::display::{active_lines, pixel_aspect_ratio};
@@ -66,16 +68,24 @@ fn the_48k_and_128k_classes_run_at_different_pixel_clocks() {
     );
 }
 
+/// How wide a variant's picture comes out on the television, in 48K-frame
+/// pixels: its pixel aspect times its frame's width, over the 352 a 48K's
+/// frame holds. A Timex frame has twice the pixels, each half as wide.
+fn picture_width(kind: &Kind) -> f64 {
+    let region = kind.profile().region;
+    let lines = active_lines(region).expect("a television");
+    let par = f64::from(
+        pixel_aspect_ratio(region, kind.pixel_clock_hz(), lines).expect("a pixel aspect"),
+    );
+    par * f64::from(kind.frame_width()) / 352.0
+}
+
 /// Nothing in the family is square, so presenting the framebuffer unstretched
 /// was wrong for all of them — not only the ones with unusual crystals.
 #[test]
 fn no_variant_has_square_pixels() {
     for name in VARIANTS {
-        let kind = variant(name);
-        let region = kind.profile().region;
-        let lines = active_lines(region).unwrap_or_else(|| panic!("{name} drove a television"));
-        let par = pixel_aspect_ratio(region, kind.pixel_clock_hz(), lines)
-            .unwrap_or_else(|| panic!("{name} should have a pixel aspect"));
+        let par = picture_width(&variant(name));
 
         assert!(
             (par - 1.0).abs() > 0.005,
@@ -87,6 +97,25 @@ fn no_variant_has_square_pixels() {
             "{name} at {par} is outside anything a Spectrum-class raster produces"
         );
     }
+}
+
+/// The TC2048 and TC2068 are PAL and run at the 48K's speed, so their
+/// pictures are the 48K's width, though their frames have twice the pixels.
+/// Counting two pixels per T-state for them showed every Timex picture twice
+/// as wide as it is.
+#[test]
+fn a_pal_timex_picture_is_as_wide_as_a_48ks() {
+    let fortyeight = picture_width(&variant("48K"));
+    for name in ["TC2048", "TC2068"] {
+        let kind = variant(name);
+        assert_eq!(kind.frame_width(), 704, "{name} has the double-width frame");
+        let timex = picture_width(&kind);
+        assert!(
+            (timex - fortyeight).abs() < 1e-9,
+            "{name}'s picture is {timex}, the 48K's {fortyeight}"
+        );
+    }
+    assert_eq!(variant("48K").frame_width(), 352);
 }
 
 /// The TS2068 is the family's NTSC machine, and NTSC's shorter active height
