@@ -78,6 +78,7 @@ fn three_real_boards_boot_and_type() {
                 Board::Pet2001n32k => "3032",
                 Board::Pet4032 => "4032",
                 Board::Pet8032 => "8032",
+                Board::Pet2001Original8k => "2001-320008-8k",
             };
             let dir = Path::new(&dir);
             std::fs::create_dir_all(dir).expect("capture directory");

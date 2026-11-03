@@ -35,14 +35,14 @@ impl MachineApp for CommodorePet {
     const BIN_NAME: &'static str = "emu198x-commodore-pet";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str = "    --kernal PATH   KERNAL ROM (4 KB)
-    --basic PATH    BASIC ROM (8 KB BASIC 2 / 12 KB BASIC 4)
+    --basic PATH    BASIC ROM (8 KB BASIC 1/2 / 12 KB BASIC 4)
     --editor PATH   editor ROM (2 KB)
     --char PATH     character ROM (2 KB)
                     ROM defaults: $EMU198X_PET_{KERNAL,BASIC,EDITOR,CHAR}, then
                     ~/.emu198x/roms/commodore-pet/ with model-specific part filenames
     --rom ID=PATH  pin one of the four catalogue ROM images
     --rom-dir DIR  firmware directory (or EMU198X_PET_ROM_DIR)
-    --model ID     commodore-pet-2001n-32k | commodore-pet-40col | commodore-pet-80col
+    --model ID     commodore-pet-2001-320008-8k | commodore-pet-2001n-32k | commodore-pet-40col | commodore-pet-80col
     --columns N     40 or 80 [default: 40]
     --prg PATH      load a .prg after boot and auto-RUN it";
     const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
@@ -172,6 +172,21 @@ mod tests {
         assert_eq!(common.video.as_deref(), Some("crt"));
         // A bare `--columns` is shared with the UI, so it opens the window.
         assert_eq!(mode, Mode::Ui);
+    }
+
+    #[test]
+    fn original_static_board_has_an_explicit_profile_choice() {
+        let parsed = parse::<CommodorePet>(&args(&[
+            "--model",
+            "commodore-pet-2001-320008-8k",
+            "--frames",
+            "120",
+        ]))
+        .expect("original board CLI");
+        let Parsed::Run { app, .. } = parsed else {
+            panic!("run");
+        };
+        assert_eq!(app.model, Model::Pet2001Original8k);
     }
 
     #[test]
