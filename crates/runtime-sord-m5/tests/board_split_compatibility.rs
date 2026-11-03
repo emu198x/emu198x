@@ -31,6 +31,20 @@ fn fixture(id: &str, suffix: &str) -> Vec<u8> {
     )
     .expect("frozen pre-split observation")
 }
+// Compare every legacy hardware byte after removing only the new envelope
+// field and version. This is a test oracle, never a production v5 writer.
+fn legacy_metadata(bytes: &[u8]) -> Vec<u8> {
+    let (version, time, model, machine, staged): (
+        u16,
+        u64,
+        String,
+        Option<common_sord_m5::M5State>,
+        Option<Vec<u8>>,
+    ) = postcard::from_bytes(bytes).expect("current envelope");
+    assert_eq!(version, 6);
+    assert!(staged.is_none(), "live machine owns its cartridge");
+    postcard::to_allocvec(&(5_u16, time, model, machine)).expect("legacy metadata")
+}
 fn identical(actual: &[u8], expected: &[u8], what: &str) {
     assert_eq!(actual.len(), expected.len(), "{what} length");
     let first = actual.iter().zip(expected).position(|(a, b)| a != b);
@@ -44,7 +58,7 @@ fn pre_split_v5_states_replay_identical_cpu_video_audio_and_inputs() {
         let mut runtime = M5Runtime::blank(model);
         runtime.restore(&initial).expect("v5 restore");
         identical(
-            &runtime.snapshot().expect("v5 encode"),
+            &legacy_metadata(&runtime.snapshot().expect("v6 encode")),
             &initial,
             "initial state",
         );
@@ -96,7 +110,7 @@ fn pre_split_v5_states_replay_identical_cpu_video_audio_and_inputs() {
         identical(&pixels, &fixture(id, "pixels"), "video");
         identical(&audio.0, &fixture(id, "audio"), "audio");
         identical(
-            &runtime.snapshot().expect("continued state"),
+            &legacy_metadata(&runtime.snapshot().expect("continued state")),
             &fixture(id, "after.state"),
             "continued state",
         );

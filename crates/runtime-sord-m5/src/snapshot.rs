@@ -21,32 +21,51 @@ use crate::runtime::M5Runtime;
 /// holds a 240-line buffer that a version-4 PAL machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 5;
+/// Version 6 also preserves a cartridge staged before firmware is installed.
+/// Version 5 live machines remain readable; empty v5 saves contain no media.
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct M5RuntimeSnapshotRefV3<'a> {
+struct M5RuntimeSnapshotRefV6<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
     machine: Option<&'a SordM5>,
+    staged_cartridge: Option<&'a [u8]>,
 }
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct M5RuntimeSnapshotV3 {
+struct M5RuntimeSnapshotV5 {
     version: u16,
     time: u64,
     model_id: String,
     machine: Option<SordM5>,
 }
 
+/// Current envelope; a live machine owns its cartridge, so the extra image is
+/// present only before firmware loading. Keep the legacy layout explicit.
+#[derive(Deserialize)]
+struct M5RuntimeSnapshotV6 {
+    version: u16,
+    time: u64,
+    model_id: String,
+    machine: Option<SordM5>,
+    staged_cartridge: Option<Vec<u8>>,
+}
+
 pub(crate) fn encode(runtime: &M5Runtime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = M5RuntimeSnapshotRefV3 {
+    let snapshot = M5RuntimeSnapshotRefV6 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        staged_cartridge: if runtime.machine().is_none() {
+            runtime.cart_bytes()
+        } else {
+            None
+        },
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -59,16 +78,40 @@ pub(crate) fn decode(runtime: &mut M5Runtime, bytes: &[u8]) -> Result<(), Machin
             reason: format!("decode failed: {reason}"),
         }
     })?;
-    if version != SNAPSHOT_VERSION {
+    let snapshot: M5RuntimeSnapshotV6 = match version {
+        5 => {
+            let legacy: M5RuntimeSnapshotV5 =
+                postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                    reason: format!("decode failed: {reason}"),
+                })?;
+            debug_assert_eq!(legacy.version, 5);
+            M5RuntimeSnapshotV6 {
+                version: SNAPSHOT_VERSION,
+                time: legacy.time,
+                model_id: legacy.model_id,
+                machine: legacy.machine,
+                staged_cartridge: None,
+            }
+        }
+        SNAPSHOT_VERSION => {
+            postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
+                reason: format!("decode failed: {reason}"),
+            })?
+        }
+        _ => {
+            return Err(MachineError::InvalidSnapshot {
+                reason: format!(
+                    "unsupported snapshot version {version}; expected 5 or {SNAPSHOT_VERSION}"
+                ),
+            });
+        }
+    };
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    if snapshot.machine.is_some() && snapshot.staged_cartridge.is_some() {
         return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+            reason: "snapshot has both a live machine and a staged cartridge".to_owned(),
         });
     }
-    let snapshot: M5RuntimeSnapshotV3 =
-        postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
-            reason: format!("decode failed: {reason}"),
-        })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -95,6 +138,11 @@ pub(crate) fn decode(runtime: &mut M5Runtime, bytes: &[u8]) -> Result<(), Machin
         machine.cpu_mut().rehydrate_walker_sequence();
     }
     runtime.set_machine(machine);
+    if let Some(cartridge) = snapshot.staged_cartridge {
+        // No BIOS/live machine exists here. Preserve even an explicitly empty
+        // low-level image; new-media admission rules do not apply to saves.
+        runtime.insert_cartridge(cartridge);
+    }
     Ok(())
 }
 
