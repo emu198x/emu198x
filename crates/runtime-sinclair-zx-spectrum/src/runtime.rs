@@ -658,6 +658,12 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         &self.machine
     }
 
+    /// Pixel width of the machine's framebuffer.
+    #[must_use]
+    pub fn frame_width(&self) -> u32 {
+        M::FRAME_WIDTH
+    }
+
     /// Returns mutable access to the wrapped machine.
     #[must_use]
     pub fn machine_mut(&mut self) -> &mut M {
