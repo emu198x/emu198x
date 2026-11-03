@@ -443,6 +443,13 @@ def extract(repo: str, ref: str = "main") -> tuple[pathlib.Path, dict, list[str]
     for data in entry.get("data", []):
         filter_args += ["--path", data]
     run("git", "filter-repo", "--force", "--quiet", *filter_args, cwd=repo_dir)
+    # filter-repo keeps this workspace's suite tags (v0.1.0 onwards), moved
+    # onto whichever filtered commit they now reach. They are this
+    # repository's releases, not the new one's, and `push.followTags` would
+    # send the annotated ones with `main`: the ColecoVision's first push
+    # carried v0.1.0. Release-plz tags the new repository's own releases.
+    for tag in run("git", "tag", "--list", cwd=repo_dir, capture=True).split():
+        run("git", "tag", "--delete", tag, cwd=repo_dir, capture=True)
     # filter-repo drops `origin` itself, so a push can't reach this repository.
     run("git", "checkout", "--quiet", "-b", "extract/skeleton", cwd=repo_dir)
 
@@ -518,8 +525,8 @@ def verify(repo_dir: pathlib.Path) -> None:
 def push(repo_dir: pathlib.Path, repo: str) -> None:
     remote = f"https://github.com/{ORG}/{repo}.git"
     run("git", "remote", "add", "origin", remote, cwd=repo_dir)
-    run("git", "push", "origin", "main", cwd=repo_dir)
-    run("git", "push", "-u", "origin", "extract/skeleton", cwd=repo_dir)
+    run("git", "push", "--no-follow-tags", "origin", "main", cwd=repo_dir)
+    run("git", "push", "--no-follow-tags", "-u", "origin", "extract/skeleton", cwd=repo_dir)
 
 
 def main() -> int:
