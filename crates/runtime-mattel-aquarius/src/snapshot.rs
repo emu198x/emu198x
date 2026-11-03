@@ -17,32 +17,38 @@ use crate::runtime::AquariusRuntime;
 /// draws. A snapshot carries the live machine, framebuffer included, so a
 /// version-3 snapshot holds a 320x192 buffer that a version-4 machine would
 /// never allocate.
-const SNAPSHOT_VERSION: u16 = 4;
+/// Version 5 preserves the logical held inputs of both hand controllers.
+/// Opposing directions share an electrical code with no held direction, so
+/// version 4 cannot recover the next-event behaviour and is rejected.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct AquariusRuntimeSnapshotRefV3<'a> {
+struct AquariusRuntimeSnapshotRefV5<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
     machine: Option<&'a Aquarius>,
+    controller_cache: crate::input::ControllerCache,
 }
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct AquariusRuntimeSnapshotV3 {
+struct AquariusRuntimeSnapshotV5 {
     version: u16,
     time: u64,
     model_id: String,
     machine: Option<AquariusState>,
+    controller_cache: crate::input::ControllerCache,
 }
 
 pub(crate) fn encode(runtime: &AquariusRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = AquariusRuntimeSnapshotRefV3 {
+    let snapshot = AquariusRuntimeSnapshotRefV5 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        controller_cache: runtime.controller_state(),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -60,7 +66,7 @@ pub(crate) fn decode(runtime: &mut AquariusRuntime, bytes: &[u8]) -> Result<(), 
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: AquariusRuntimeSnapshotV3 =
+    let snapshot: AquariusRuntimeSnapshotV5 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -84,6 +90,7 @@ pub(crate) fn decode(runtime: &mut AquariusRuntime, bytes: &[u8]) -> Result<(), 
     }
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_machine(machine);
+    runtime.set_controller_state(snapshot.controller_cache);
     Ok(())
 }
 

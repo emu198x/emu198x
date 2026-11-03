@@ -102,3 +102,15 @@ doctests. A binary-only selection reports that there is no doctest target, while
 its ordinary binaries continue through the collector. Add selection/failure
 controls and a real tiny-workspace test; never mask rustdoc failures or force
 unrelated packages into the selection merely to make Cargo accept it.
+
+## Aquarius verification
+
+Approved v5 now serializes both private controller caches and restores them only
+once the complete envelope and board have passed validation. All 32 next-release
+cases match uninterrupted electrical input, complete native video/audio and final
+state across both boards, both ports and clean/dirty targets. Twelve original v4
+specimens plus a version-only control reject before decode without changing either
+target. The original board-split v4 fixtures remain unchanged; their hardware
+payloads qualify current saves through explicit test-only envelopes, never a
+production legacy reader. Full runtime/CLI tests, formatting and all-target Clippy
+pass. The local real-firmware test remains explicitly ignored when ROMs are absent.

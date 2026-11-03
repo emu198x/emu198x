@@ -198,6 +198,14 @@ impl AquariusRuntime {
         self.model
     }
 
+    pub(crate) const fn controller_state(&self) -> crate::input::ControllerCache {
+        self.controller_cache
+    }
+
+    pub(crate) const fn set_controller_state(&mut self, state: crate::input::ControllerCache) {
+        self.controller_cache = state;
+    }
+
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
