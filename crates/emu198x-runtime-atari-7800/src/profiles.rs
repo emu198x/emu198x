@@ -28,10 +28,10 @@ impl Model {
             _ => None,
         }
     }
-    pub(crate) const fn machine_region(self) -> machine_atari_7800::Atari7800Region {
+    pub(crate) const fn machine_region(self) -> emu198x_machine_atari_7800::Atari7800Region {
         match self {
-            Self::A7800Ntsc => machine_atari_7800::Atari7800Region::Ntsc,
-            Self::A7800Pal => machine_atari_7800::Atari7800Region::Pal,
+            Self::A7800Ntsc => emu198x_machine_atari_7800::Atari7800Region::Ntsc,
+            Self::A7800Pal => emu198x_machine_atari_7800::Atari7800Region::Pal,
         }
     }
 

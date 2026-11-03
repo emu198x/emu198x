@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use common_atari_7800::{Atari7800Region, Atari7800State};
+use emu198x_common_atari_7800::{Atari7800Region, Atari7800State};
 
 fn first_cart(dir: &PathBuf) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;

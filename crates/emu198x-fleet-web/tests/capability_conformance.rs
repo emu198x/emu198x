@@ -245,7 +245,7 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
         ),
         (
             "atari-7800",
-            observe::<runtime_atari_7800::Atari7800Runtime>(),
+            observe::<emu198x_runtime_atari_7800::Atari7800Runtime>(),
         ),
         (
             "atari-800xl",

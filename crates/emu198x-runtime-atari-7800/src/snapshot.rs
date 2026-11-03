@@ -37,7 +37,7 @@ struct Atari7800RuntimeSnapshotV2 {
     version: u16,
     time: u64,
     model_id: String,
-    machine: Option<common_atari_7800::Atari7800State>,
+    machine: Option<emu198x_common_atari_7800::Atari7800State>,
 }
 
 pub(crate) fn encode(runtime: &Atari7800Runtime) -> Result<Vec<u8>, MachineError> {

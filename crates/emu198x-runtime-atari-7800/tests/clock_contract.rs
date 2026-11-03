@@ -1,8 +1,8 @@
+use emu198x_runtime_atari_7800::{Atari7800Runtime, Model};
 use emu198x_shell::{
     AudioPacket, AudioSink, FamilyRuntime, HostIo, MachineCore, MachineError, MachineTime,
     NullAudioSink, NullFrameSink, NullTraceSink,
 };
-use runtime_atari_7800::{Atari7800Runtime, Model};
 
 fn cartridge() -> Vec<u8> {
     let mut rom = vec![0xea; 32768];

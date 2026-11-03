@@ -1,8 +1,8 @@
 //! Family selection among fixed regional boards.
 use crate::Model;
-use common_atari_7800::*;
-use machine_atari_7800::Atari7800 as Ntsc;
-use machine_atari_7800_pal::Atari7800 as Pal;
+use emu198x_common_atari_7800::*;
+use emu198x_machine_atari_7800::Atari7800 as Ntsc;
+use emu198x_machine_atari_7800_pal::Atari7800 as Pal;
 /// Concrete physical owner held by the family runtime.
 pub enum Atari7800Machine {
     Ntsc(Ntsc),
@@ -32,10 +32,10 @@ impl Atari7800Machine {
     pub(crate) fn cold_boot(&self, region: Atari7800Region) -> Self {
         match region {
             Atari7800Region::Ntsc => {
-                dispatch!(self,m=>Self::Ntsc(m.cold_boot_for::<machine_atari_7800::Board>()))
+                dispatch!(self,m=>Self::Ntsc(m.cold_boot_for::<emu198x_machine_atari_7800::Board>()))
             }
             Atari7800Region::Pal => {
-                dispatch!(self,m=>Self::Pal(m.cold_boot_for::<machine_atari_7800_pal::Board>()))
+                dispatch!(self,m=>Self::Pal(m.cold_boot_for::<emu198x_machine_atari_7800_pal::Board>()))
             }
         }
     }

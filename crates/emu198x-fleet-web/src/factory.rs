@@ -28,7 +28,7 @@ pub(super) fn create(
         #[cfg(feature = "atari-5200")]
         "atari-5200" => build::<runtime_atari_5200::Atari5200Runtime>(variant, firmware),
         #[cfg(feature = "atari-7800")]
-        "atari-7800" => build::<runtime_atari_7800::Atari7800Runtime>(variant, firmware),
+        "atari-7800" => build::<emu198x_runtime_atari_7800::Atari7800Runtime>(variant, firmware),
         #[cfg(feature = "atari-800xl")]
         "atari-800xl" => build::<runtime_atari_800xl::Atari800xlRuntime>(variant, firmware),
         #[cfg(feature = "atari-st")]
@@ -143,7 +143,7 @@ pub(super) fn catalogue() -> Vec<Value> {
         "atari-5200",
     ));
     #[cfg(feature = "atari-7800")]
-    result.extend(profiles::<runtime_atari_7800::Atari7800Runtime>(
+    result.extend(profiles::<emu198x_runtime_atari_7800::Atari7800Runtime>(
         "atari-7800",
     ));
     #[cfg(feature = "atari-800xl")]

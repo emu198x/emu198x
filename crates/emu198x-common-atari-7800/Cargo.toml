@@ -1,8 +1,10 @@
 [package]
-name = "common-atari-7800"
+name = "emu198x-common-atari-7800"
 description = "Shared original atari-7800 wiring and state"
-version.workspace = true
-publish = false
+# Published, and versioned on its own, since 2026-11-03, when the Atari
+# 7800 moved to its own repository
+# (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
+version = "0.46.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

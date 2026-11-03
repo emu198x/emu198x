@@ -98,7 +98,7 @@ fn tool_body(response: &Value) -> Value {
 #[test]
 fn launch_and_script_select_both_regions_without_losing_the_cartridge() {
     let fixture = Fixture::new();
-    for model in runtime_atari_7800::Model::ALL {
+    for model in emu198x_runtime_atari_7800::Model::ALL {
         let report = output(
             fixture
                 .script(json!([
@@ -151,7 +151,7 @@ fn mcp_loads_flagged_and_positional_cartridges_and_preserves_failed_switches() {
         assert_eq!(tool_body(&responses[1])["bytes"], json!([0x5a]));
         assert_eq!(
             tool_body(&responses[2])["profile_id"],
-            runtime_atari_7800::Model::A7800Pal.profile_id()
+            emu198x_runtime_atari_7800::Model::A7800Pal.profile_id()
         );
         assert_eq!(responses[3]["result"]["isError"], true);
         assert_eq!(tool_body(&responses[4])["bytes"], json!([0x5a]));
@@ -193,7 +193,7 @@ fn mcp_switch_uses_cartridge_bytes_after_the_source_file_is_removed() {
     stdout.read_line(&mut line).expect("switch response");
     assert_eq!(
         tool_body(&serde_json::from_str(&line).expect("response"))["profile_id"],
-        runtime_atari_7800::Model::A7800Pal.profile_id()
+        emu198x_runtime_atari_7800::Model::A7800Pal.profile_id()
     );
     line.clear();
     stdout.read_line(&mut line).expect("read response");

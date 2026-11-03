@@ -1,6 +1,6 @@
 //! Fixed Atari 7800 NTSC board over the original common engine.
-use common_atari_7800::{Atari7800Board, Atari7800Core};
-pub use common_atari_7800::{
+use emu198x_common_atari_7800::{Atari7800Board, Atari7800Core};
+pub use emu198x_common_atari_7800::{
     Atari7800Region, Cartridge, M6502, Maria, MariaRegion, PokeyLocation, TiaAudio,
 };
 /// This board's fixed wiring.
@@ -15,7 +15,7 @@ pub type Atari7800 = Atari7800Core<Board>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_atari_7800::Atari7800State;
+    use emu198x_common_atari_7800::Atari7800State;
     fn cartridge() -> Vec<u8> {
         include_bytes!("../../../test-data/synthetic-cartridges/atari-7800-logo.bin").to_vec()
     }
