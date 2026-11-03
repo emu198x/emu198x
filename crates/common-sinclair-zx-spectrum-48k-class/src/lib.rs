@@ -1,26 +1,21 @@
-//! Shared 48K-class composition for the Spectrum family.
+//! Shared 48K-class Spectrum wiring, below the concrete physical board owners.
 //!
-//! Holds [`SpectrumMachineCore`], the Z80 + Ferranti ULA + beeper + tape
-//! composition that's identical across the 48K-class variants (16K, 48K,
-//! Spectrum+). Memory is the single point of variation, parameterised via
-//! `M: MemoryBus`. Each variant crate (`machine-sinclair-zx-spectrum-{16k,
-//! 48k,plus}`) is a thin alias.
-//!
-//! This crate sits one layer above `common-sinclair-zx-spectrum`: it
-//! bakes in the concrete Ferranti 6C001E ULA and Zilog Z80 chip crates,
-//! whereas common only carries traits and helpers.
-//!
-//! Variants outside the 48K-class — 128K-family, Pentagon, Scorpion,
-//! Timex — have their own ULAs and additional state (AY, paging, FDC)
-//! and keep their own machine implementations.
+//! Each machine crate fixes its PCB and fitted ULA. RAM population is the memory
+//! type; case and ROM revisions do not create a physical owner. The core saves
+//! its board independently so a relabelled envelope cannot choose new wiring.
+//! The current ULA backend qualifies functional 5C/6C behaviour; analog video,
+//! power circuitry and sub-cycle DRAM propagation margins remain unqualified.
 
+pub mod board;
+pub use board::PhysicalBoard;
+pub use emu198x_ferranti_ula_6c001e::{FerrantiUla, UlaRevision, UlaTick, hdl_model};
+pub use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::{
+    KempstonButton, KempstonJoystick,
+};
 pub mod core;
 pub mod tape_input;
 pub mod variant;
 
 pub use core::SpectrumMachineCore;
 pub use tape_input::TapeInput;
-pub use variant::{
-    Spectrum16kMarker, Spectrum48kIssue1Marker, Spectrum48kIssue2Marker, Spectrum48kMarker,
-    SpectrumPlusMarker, Variant48kClass,
-};
+pub use variant::Variant48kClass;

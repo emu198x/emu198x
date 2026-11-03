@@ -29,12 +29,20 @@ use emu198x_peripheral_sinclair_zx_spectrum_interface1::Interface1;
 use emu198x_shell::{QueryError, QueryResult};
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
-use machine_sinclair_zx_spectrum_16k::Spectrum16K;
-use machine_sinclair_zx_spectrum_48k::{
-    Spectrum48k, Spectrum48kIssue1, Spectrum48kIssue2, UlaRevision,
-};
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
+use machine_sinclair_zx_spectrum_issue1::{SpectrumIssue1With16k, SpectrumIssue1With48k};
+use machine_sinclair_zx_spectrum_issue2::{SpectrumIssue2With16k, SpectrumIssue2With48k};
+use machine_sinclair_zx_spectrum_issue3::{SpectrumIssue3With16k, SpectrumIssue3With48k};
+use machine_sinclair_zx_spectrum_issue3b::{SpectrumIssue3BWith16k, SpectrumIssue3BWith48k};
+use machine_sinclair_zx_spectrum_issue4a::{SpectrumIssue4AWith16k, SpectrumIssue4AWith48k};
+use machine_sinclair_zx_spectrum_issue4b::{SpectrumIssue4BWith16k, SpectrumIssue4BWith48k};
+use machine_sinclair_zx_spectrum_issue5_6c001e6::{
+    SpectrumIssue5Ula6c001e6With16k, SpectrumIssue5Ula6c001e6With48k,
+};
+use machine_sinclair_zx_spectrum_issue5_6c001e7::{
+    SpectrumIssue5Ula6c001e7With16k, SpectrumIssue5Ula6c001e7With48k,
+};
+use machine_sinclair_zx_spectrum_issue6a::{SpectrumIssue6AWith16k, SpectrumIssue6AWith48k};
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
@@ -88,23 +96,59 @@ use crate::queries::{
 };
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 
-/// ZX Spectrum 16K runtime.
-pub type Spectrum16kRuntime = SpectrumRuntime<Spectrum16K>;
+/// Fixed Issue 1, 16 KiB RAM runtime.
+pub type SpectrumIssue1Ram16kRuntime = SpectrumRuntime<SpectrumIssue1With16k>;
 
-/// ZX Spectrum 48K runtime.
-pub type Spectrum48kRuntime = SpectrumRuntime<Spectrum48k>;
+/// Fixed Issue 1, 48 KiB RAM runtime.
+pub type SpectrumIssue1Ram48kRuntime = SpectrumRuntime<SpectrumIssue1With48k>;
 
-/// ZX Spectrum 48K runtime on the Issue 1 board.
-pub type Spectrum48kIssue1Runtime = SpectrumRuntime<Spectrum48kIssue1>;
+/// Fixed Issue 2, 16 KiB RAM runtime.
+pub type SpectrumIssue2Ram16kRuntime = SpectrumRuntime<SpectrumIssue2With16k>;
 
-/// ZX Spectrum 48K runtime on the Issue 2 board.
-pub type Spectrum48kIssue2Runtime = SpectrumRuntime<Spectrum48kIssue2>;
+/// Fixed Issue 2, 48 KiB RAM runtime.
+pub type SpectrumIssue2Ram48kRuntime = SpectrumRuntime<SpectrumIssue2With48k>;
 
-/// ZX Spectrum+ runtime. The Spectrum+ is electrically identical to the
-/// 48K — same Ferranti ULA, same 16 KiB ROM, same 48 KiB RAM — so the
-/// underlying machine type is `SpectrumMachineCore<Spectrum48kMemory>`,
-/// the same as the 48K's. Catalogue identity comes from `Model::SpectrumPlus`.
-pub type SpectrumPlusRuntime = SpectrumRuntime<SpectrumPlus>;
+/// Fixed Issue 3, 16 KiB RAM runtime.
+pub type SpectrumIssue3Ram16kRuntime = SpectrumRuntime<SpectrumIssue3With16k>;
+
+/// Fixed Issue 3, 48 KiB RAM runtime.
+pub type SpectrumIssue3Ram48kRuntime = SpectrumRuntime<SpectrumIssue3With48k>;
+
+/// Fixed Issue 3B, 16 KiB RAM runtime.
+pub type SpectrumIssue3BRam16kRuntime = SpectrumRuntime<SpectrumIssue3BWith16k>;
+
+/// Fixed Issue 3B, 48 KiB RAM runtime.
+pub type SpectrumIssue3BRam48kRuntime = SpectrumRuntime<SpectrumIssue3BWith48k>;
+
+/// Fixed Issue 4A, 16 KiB RAM runtime.
+pub type SpectrumIssue4ARam16kRuntime = SpectrumRuntime<SpectrumIssue4AWith16k>;
+
+/// Fixed Issue 4A, 48 KiB RAM runtime.
+pub type SpectrumIssue4ARam48kRuntime = SpectrumRuntime<SpectrumIssue4AWith48k>;
+
+/// Fixed Issue 4B, 16 KiB RAM runtime.
+pub type SpectrumIssue4BRam16kRuntime = SpectrumRuntime<SpectrumIssue4BWith16k>;
+
+/// Fixed Issue 4B, 48 KiB RAM runtime.
+pub type SpectrumIssue4BRam48kRuntime = SpectrumRuntime<SpectrumIssue4BWith48k>;
+
+/// Fixed Issue 5 / 6C001E-6, 16 KiB RAM runtime.
+pub type SpectrumIssue5Ula6c001e6Ram16kRuntime = SpectrumRuntime<SpectrumIssue5Ula6c001e6With16k>;
+
+/// Fixed Issue 5 / 6C001E-6, 48 KiB RAM runtime.
+pub type SpectrumIssue5Ula6c001e6Ram48kRuntime = SpectrumRuntime<SpectrumIssue5Ula6c001e6With48k>;
+
+/// Fixed Issue 5 / 6C001E-7, 16 KiB RAM runtime.
+pub type SpectrumIssue5Ula6c001e7Ram16kRuntime = SpectrumRuntime<SpectrumIssue5Ula6c001e7With16k>;
+
+/// Fixed Issue 5 / 6C001E-7, 48 KiB RAM runtime.
+pub type SpectrumIssue5Ula6c001e7Ram48kRuntime = SpectrumRuntime<SpectrumIssue5Ula6c001e7With48k>;
+
+/// Fixed Issue 6A / Ferranti, 16 KiB RAM runtime.
+pub type SpectrumIssue6ARam16kRuntime = SpectrumRuntime<SpectrumIssue6AWith16k>;
+
+/// Fixed Issue 6A / Ferranti, 48 KiB RAM runtime.
+pub type SpectrumIssue6ARam48kRuntime = SpectrumRuntime<SpectrumIssue6AWith48k>;
 
 /// ZX Spectrum 128K / +2 runtime.
 pub type Spectrum128kRuntime = SpectrumRuntime<Spectrum128K>;
@@ -189,9 +233,9 @@ const SPECTRUM_PLUS2_BANNERS: &[&str] = &["Amstrad Consumer"];
 // across all three. Row 23 differs by model (+2A/+2B = "Drive M:
 // available.", +3 = "Drives A:, B: and M: available.") but the
 // row-22 banner is the same. Reachable now because `glyph_byte` on
-// `SpectrumPlus` reads the standard table from ROM 3 (the 48 BASIC
+// `SpectrumIssue3With48k` reads the standard table from ROM 3 (the 48 BASIC
 // sub-ROM in the +3 layout) — see `impl SpectrumMachine for
-// SpectrumPlus`.
+// SpectrumIssue3With48k`.
 const SPECTRUM_PLUS_BANNERS: &[&str] = &[
     "©1982, 1986, 1987 Amstrad Plc.",
     "(C)1982, 1986, 1987 Amstrad Plc.",
@@ -272,27 +316,20 @@ pub(crate) const AY_QUERY_PATHS: &[&str] = &[
     "ay.envelope_shape",
 ];
 
-const SPECTRUM_48K_QUERY_PATHS: &[&str] =
-    &["boot.detected", "boot.reason", "boot.row", "machine.issue"];
+const SPECTRUM_48K_QUERY_PATHS: &[&str] = &[
+    "boot.detected",
+    "boot.reason",
+    "boot.row",
+    "machine.issue",
+    "machine.physical_id",
+    "machine.ula_part",
+    "machine.memory_controller",
+];
 
 // 16K shares the 48K ROM image (same banner) and ships in the same
 // Issue 2 / Issue 3 boards, so it exposes exactly the same query
 // surface. Kept as its own constant rather than aliased so any future
 // 16K-only path lands in one obvious place.
-const SPECTRUM_16K_QUERY_PATHS: &[&str] =
-    &["boot.detected", "boot.reason", "boot.row", "machine.issue"];
-
-const SPECTRUM_16K_BANNERS: &[&str] = SPECTRUM_48K_BANNERS;
-
-// Spectrum+ boots the same 48K ROM, so banner detection runs against
-// the same set as the 48K and 16K. Its catalogue identity comes from
-// `Model::SpectrumPlus`, not from a different banner.
-const SPECTRUM_PROPER_PLUS_BANNERS: &[&str] = SPECTRUM_48K_BANNERS;
-const SPECTRUM_PROPER_PLUS_QUERY_PATHS: &[&str] = SPECTRUM_16K_QUERY_PATHS;
-
-// AY paths are advertised via `ay_query_paths()` (single-sourced from
-// `AY_QUERY_PATHS`), so the per-variant lists below carry only their
-// non-AY paths.
 const SPECTRUM_128K_QUERY_PATHS: &[&str] = &["boot.detected", "boot.reason", "boot.row"];
 
 // +2 shares the 128K's chip set and so exposes the same query surface.
@@ -385,31 +422,18 @@ fn resolve_ay_path(ay: &Ay3_8912, path: &str) -> Result<Option<QueryResult>, Que
     Ok(chip_field(path, "ay", ay_snapshot(ay)))
 }
 
-/// Maps a [`UlaRevision`] to the stable string identifier returned by
-/// the `spectrum.machine.issue` query path. The string values
-/// (`"issue2"` / `"issue3"`) are preserved for backward compatibility
-/// with the documented scripting API (see `docs/features/scripting.md`)
-/// — the internal type rename to `UlaRevision::Ferranti5C` /
-/// `UlaRevision::Ferranti6C` does not propagate to the JSON surface.
-fn ula_revision_name(revision: UlaRevision) -> &'static str {
-    match revision {
-        UlaRevision::Ferranti5C => "issue2",
-        UlaRevision::Ferranti6C => "issue3",
-    }
-}
-
 /// The 48K's machine interface, for every board that runs the 48K's ROM and
-/// memory map: the Issue 3 `Spectrum48k`, and the Issue 1 and Issue 2 boards,
+/// memory map: the Issue 3 `SpectrumIssue3With48k`, and the Issue 1 and Issue 2 boards,
 /// which differ only in their ULA and its wiring.
 macro_rules! impl_48k_board_machine {
-    ($machine:ty, $issue:expr, $fixed:expr) => {
+    ($machine:ty, $fixed:expr) => {
         impl SpectrumMachine for $machine {
             const FIXED_MODEL: Option<Model> = $fixed;
 
             /// The ULA family is the part of the saved state that names the
             /// board: 5C on the Issue 1 and 2, 6C on the Issue 3.
             fn accepts_restored(&self, restored: &Self) -> bool {
-                self.revision() == restored.revision()
+                self.has_valid_hardware() && restored.has_valid_hardware()
             }
 
             const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
@@ -548,8 +572,15 @@ macro_rules! impl_48k_board_machine {
                 }
                 let value = match path {
                     "machine.issue" => {
-                        json!($issue.unwrap_or_else(|| ula_revision_name(self.revision())))
+                        json!(self.physical_board().issue())
                     }
+                    "machine.physical_id" => json!(self.physical_machine_id()),
+                    "machine.ula_part" => json!(self.physical_board().ula_part()),
+                    "machine.memory_controller" => json!(if self.physical_board().has_zx8401() {
+                        "Mullard ZX8401"
+                    } else {
+                        "discrete TTL"
+                    }),
                     _ => return Ok(None),
                 };
                 Ok(Some(QueryResult {
@@ -620,418 +651,60 @@ macro_rules! impl_48k_board_machine {
     };
 }
 
-// `machine.issue` names the board where the ULA family alone doesn't: both
-// the Issue 1 and Issue 2 carry a 5C ULA, which reports as "issue2".
-impl_48k_board_machine!(Spectrum48k, None::<&str>, None);
+impl_48k_board_machine!(SpectrumIssue1With16k, Some(Model::SpectrumIssue1Ram16kPal));
+impl_48k_board_machine!(SpectrumIssue1With48k, Some(Model::SpectrumIssue1Ram48kPal));
+impl_48k_board_machine!(SpectrumIssue2With16k, Some(Model::SpectrumIssue2Ram16kPal));
+impl_48k_board_machine!(SpectrumIssue2With48k, Some(Model::SpectrumIssue2Ram48kPal));
+impl_48k_board_machine!(SpectrumIssue3With16k, Some(Model::SpectrumIssue3Ram16kPal));
+impl_48k_board_machine!(SpectrumIssue3With48k, Some(Model::SpectrumIssue3Ram48kPal));
 impl_48k_board_machine!(
-    Spectrum48kIssue1,
-    Some("issue1"),
-    Some(Model::Spectrum48KIssue1Pal)
+    SpectrumIssue3BWith16k,
+    Some(Model::SpectrumIssue3BRam16kPal)
 );
 impl_48k_board_machine!(
-    Spectrum48kIssue2,
-    Some("issue2"),
-    Some(Model::Spectrum48KIssue2Pal)
+    SpectrumIssue3BWith48k,
+    Some(Model::SpectrumIssue3BRam48kPal)
 );
-
-impl SpectrumMachine for Spectrum16K {
-    fn capture_cycle_counts(
-        &mut self,
-        ticks: u32,
-        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
-    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks, observer)
-    }
-    const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
-    const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
-
-    fn frame_halfcycles(&self) -> u32 {
-        TIMING_48K.halfcycles_per_frame
-    }
-    fn run_frame(&mut self) {
-        Spectrum16K::run_frame(self);
-    }
-    fn framebuffer(&self) -> &[u8] {
-        Spectrum16K::framebuffer(self)
-    }
-    fn audio_frame(&self) -> &[f32] {
-        Spectrum16K::audio_frame(self)
-    }
-    fn audio_controls(&self) -> AudioControls {
-        Spectrum16K::audio_controls(self)
-    }
-    fn set_audio_controls(&mut self, controls: AudioControls) {
-        Spectrum16K::set_audio_controls(self, controls);
-    }
-    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
-        Spectrum16K::set_audio_channel_enabled(self, channel, enabled);
-    }
-    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
-        Spectrum16K::set_audio_channel_gain(self, channel, gain);
-    }
-    fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
-        *self.keyboard_mut().rows_mut() = *rows;
-    }
-    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
-        apply_kempston_button_index(self.kempston_mut(), button, pressed)
-    }
-    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
-        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
-    }
-    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
-        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
-    }
-    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
-        Spectrum16K::attach_multiface(self, rom).map_err(|err| err.to_string())
-    }
-    fn press_nmi_button(&mut self) -> bool {
-        Spectrum16K::press_nmi_button(self)
-    }
-    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
-        Spectrum16K::attach_interface1(self, rom).map_err(|err| err.to_string())
-    }
-    fn interface1(&self) -> Option<&Interface1> {
-        Some(&self.interface1)
-    }
-    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
-        Some(&mut self.interface1)
-    }
-    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
-        Spectrum16K::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
-    }
-    fn divmmc(&self) -> Option<&DivMmc> {
-        Some(&self.divmmc)
-    }
-    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
-        Some(&mut self.divmmc)
-    }
-    fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
-        Spectrum16K::load_tape_blocks(self, blocks);
-    }
-    fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
-        Spectrum16K::load_tape_stream(self, stream);
-    }
-    fn tape_play(&mut self) {
-        self.play_tape();
-    }
-    fn tape_stop(&mut self) {
-        self.stop_tape();
-    }
-    fn tape_rewind(&mut self) {
-        self.rewind_tape();
-    }
-    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
-        self.seek_tape_block(direction)
-    }
-    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
-        Spectrum16K::recorded_tape_blocks(self)
-    }
-    fn clear_tape_recording(&mut self) {
-        Spectrum16K::clear_tape_recording(self);
-    }
-    fn reset_machine(&mut self) {
-        self.reset();
-    }
-    fn after_restore(&mut self) {
-        self.restore_volatile_refs();
-    }
-
-    fn read_byte(&self, addr: u16) -> u8 {
-        <Self as MemoryBus>::read(self, addr)
-    }
-    fn write_byte(&mut self, addr: u16, value: u8) {
-        <Self as MemoryBus>::write(self, addr, value);
-    }
-    fn apply_snapshot(&mut self, snap: &Snapshot) {
-        Spectrum16K::apply_snapshot(self, snap);
-    }
-    fn keyboard_rows(&self) -> &[u8; 8] {
-        Spectrum16K::keyboard(self).rows()
-    }
-    fn tape_is_loaded(&self) -> bool {
-        Spectrum16K::tape_is_loaded(self)
-    }
-    fn tape_is_playing(&self) -> bool {
-        Spectrum16K::tape_is_playing(self)
-    }
-
-    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
-        Spectrum16K::tape(self)
-    }
-    fn half_cycle_in_frame(&self) -> u32 {
-        Spectrum16K::hc(self)
-    }
-    fn tstate_in_frame(&self) -> u32 {
-        Spectrum16K::tstate_in_frame(self)
-    }
-
-    fn variant_query_paths() -> &'static [&'static str] {
-        SPECTRUM_16K_QUERY_PATHS
-    }
-
-    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
-        if COMMON_BOOT_PATHS.contains(&path) {
-            return resolve_boot_path(self, SPECTRUM_16K_BANNERS, path);
-        }
-        let value = match path {
-            "machine.issue" => json!(ula_revision_name(self.revision())),
-            _ => return Ok(None),
-        };
-        Ok(Some(QueryResult {
-            path: path.to_owned(),
-            value,
-        }))
-    }
-
-    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
-        Spectrum16K::start_memory_write_watch(self, addr, len);
-        Ok(())
-    }
-    fn stop_memory_write_watch(&mut self) {
-        Spectrum16K::stop_memory_write_watch(self);
-    }
-    fn memory_write_watch_records(
-        &self,
-    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
-        Spectrum16K::memory_write_watch_records(self)
-    }
-    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
-        Spectrum16K::memory_write_watch_range(self)
-    }
-    fn clear_memory_write_watch_records(&mut self) {
-        Spectrum16K::clear_memory_write_watch_records(self);
-    }
-    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
-        &self.z80().regs
-    }
-    fn z80_halted(&self) -> bool {
-        self.z80().halt
-    }
-    fn z80_instruction_complete(&self) -> bool {
-        self.z80().instruction_complete()
-    }
-
-    fn z80_instructions_retired(&self) -> u64 {
-        self.z80().instructions_retired()
-    }
-    fn port_read(&mut self, port: u16) -> u8 {
-        self.port_read(port)
-    }
-    fn port_write(&mut self, port: u16, value: u8) {
-        self.port_write(port, value);
-    }
-    fn supports_io_trace(&self) -> bool {
-        true
-    }
-    fn start_io_trace(&mut self) {
-        Spectrum16K::start_io_trace(self);
-    }
-    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
-        Spectrum16K::take_io_trace(self)
-    }
-}
-
-// Spectrum+ shares the 48K's hardware and ROM. Its impl mirrors the 48K
-// — same timing, same Ferranti ULA, same 48 BASIC ROM — but the
-// phantom marker keeps it as a distinct Rust type so snapshots can't
-// cross between the two and per-variant metadata can attach to the
-// marker rather than the runtime.
-impl SpectrumMachine for SpectrumPlus {
-    fn capture_cycle_counts(
-        &mut self,
-        ticks: u32,
-        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
-    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks, observer)
-    }
-    const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
-    const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
-
-    fn frame_halfcycles(&self) -> u32 {
-        TIMING_48K.halfcycles_per_frame
-    }
-    fn run_frame(&mut self) {
-        SpectrumPlus::run_frame(self);
-    }
-    fn framebuffer(&self) -> &[u8] {
-        SpectrumPlus::framebuffer(self)
-    }
-    fn audio_frame(&self) -> &[f32] {
-        SpectrumPlus::audio_frame(self)
-    }
-    fn audio_controls(&self) -> AudioControls {
-        SpectrumPlus::audio_controls(self)
-    }
-    fn set_audio_controls(&mut self, controls: AudioControls) {
-        SpectrumPlus::set_audio_controls(self, controls);
-    }
-    fn set_audio_channel_enabled(&mut self, channel: SpeakerChannel, enabled: bool) {
-        SpectrumPlus::set_audio_channel_enabled(self, channel, enabled);
-    }
-    fn set_audio_channel_gain(&mut self, channel: SpeakerChannel, gain: f32) {
-        SpectrumPlus::set_audio_channel_gain(self, channel, gain);
-    }
-    fn set_keyboard_rows(&mut self, rows: &[u8; 8]) {
-        *self.keyboard_mut().rows_mut() = *rows;
-    }
-    fn set_kempston_button(&mut self, button: u8, pressed: bool) -> bool {
-        apply_kempston_button_index(self.kempston_mut(), button, pressed)
-    }
-    fn move_kempston_mouse(&mut self, dx: i32, dy: i32) -> bool {
-        apply_mouse_motion(self.kempston_mouse_mut(), dx, dy)
-    }
-    fn set_kempston_mouse_button(&mut self, button: &str, pressed: bool) -> bool {
-        apply_mouse_button(self.kempston_mouse_mut(), button, pressed)
-    }
-    fn attach_multiface(&mut self, rom: &[u8]) -> Result<(), String> {
-        SpectrumPlus::attach_multiface(self, rom).map_err(|err| err.to_string())
-    }
-    fn press_nmi_button(&mut self) -> bool {
-        SpectrumPlus::press_nmi_button(self)
-    }
-    fn attach_interface1(&mut self, rom: &[u8]) -> Result<(), String> {
-        SpectrumPlus::attach_interface1(self, rom).map_err(|err| err.to_string())
-    }
-    fn interface1(&self) -> Option<&Interface1> {
-        Some(&self.interface1)
-    }
-    fn interface1_mut(&mut self) -> Option<&mut Interface1> {
-        Some(&mut self.interface1)
-    }
-    fn attach_divmmc(&mut self, eeprom: &[u8]) -> Result<(), String> {
-        SpectrumPlus::attach_divmmc(self, eeprom).map_err(|err| err.to_string())
-    }
-    fn divmmc(&self) -> Option<&DivMmc> {
-        Some(&self.divmmc)
-    }
-    fn divmmc_mut(&mut self) -> Option<&mut DivMmc> {
-        Some(&mut self.divmmc)
-    }
-    fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
-        SpectrumPlus::load_tape_blocks(self, blocks);
-    }
-    fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
-        SpectrumPlus::load_tape_stream(self, stream);
-    }
-    fn tape_play(&mut self) {
-        self.play_tape();
-    }
-    fn tape_stop(&mut self) {
-        self.stop_tape();
-    }
-    fn tape_rewind(&mut self) {
-        self.rewind_tape();
-    }
-    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
-        self.seek_tape_block(direction)
-    }
-    fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
-        SpectrumPlus::recorded_tape_blocks(self)
-    }
-    fn clear_tape_recording(&mut self) {
-        SpectrumPlus::clear_tape_recording(self);
-    }
-    fn reset_machine(&mut self) {
-        self.reset();
-    }
-    fn after_restore(&mut self) {
-        self.restore_volatile_refs();
-    }
-
-    fn read_byte(&self, addr: u16) -> u8 {
-        <Self as MemoryBus>::read(self, addr)
-    }
-    fn write_byte(&mut self, addr: u16, value: u8) {
-        <Self as MemoryBus>::write(self, addr, value);
-    }
-    fn apply_snapshot(&mut self, snap: &Snapshot) {
-        SpectrumPlus::apply_snapshot(self, snap);
-    }
-    fn keyboard_rows(&self) -> &[u8; 8] {
-        SpectrumPlus::keyboard(self).rows()
-    }
-    fn tape_is_loaded(&self) -> bool {
-        SpectrumPlus::tape_is_loaded(self)
-    }
-    fn tape_is_playing(&self) -> bool {
-        SpectrumPlus::tape_is_playing(self)
-    }
-
-    fn tape_player(&self) -> &emu198x_tape_playback::TapePlayer {
-        SpectrumPlus::tape(self)
-    }
-    fn half_cycle_in_frame(&self) -> u32 {
-        SpectrumPlus::hc(self)
-    }
-    fn tstate_in_frame(&self) -> u32 {
-        SpectrumPlus::tstate_in_frame(self)
-    }
-
-    fn variant_query_paths() -> &'static [&'static str] {
-        SPECTRUM_PROPER_PLUS_QUERY_PATHS
-    }
-
-    fn resolve_variant_query(&self, path: &str) -> Result<Option<QueryResult>, QueryError> {
-        if COMMON_BOOT_PATHS.contains(&path) {
-            return resolve_boot_path(self, SPECTRUM_PROPER_PLUS_BANNERS, path);
-        }
-        let value = match path {
-            "machine.issue" => json!(ula_revision_name(self.revision())),
-            _ => return Ok(None),
-        };
-        Ok(Some(QueryResult {
-            path: path.to_owned(),
-            value,
-        }))
-    }
-
-    fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
-        SpectrumPlus::start_memory_write_watch(self, addr, len);
-        Ok(())
-    }
-    fn stop_memory_write_watch(&mut self) {
-        SpectrumPlus::stop_memory_write_watch(self);
-    }
-    fn memory_write_watch_records(
-        &self,
-    ) -> Option<&[common_sinclair_zx_spectrum::MemoryWriteRecord]> {
-        SpectrumPlus::memory_write_watch_records(self)
-    }
-    fn memory_write_watch_range(&self) -> Option<(u16, u16)> {
-        SpectrumPlus::memory_write_watch_range(self)
-    }
-    fn clear_memory_write_watch_records(&mut self) {
-        SpectrumPlus::clear_memory_write_watch_records(self);
-    }
-    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
-        &self.z80().regs
-    }
-    fn z80_halted(&self) -> bool {
-        self.z80().halt
-    }
-    fn z80_instruction_complete(&self) -> bool {
-        self.z80().instruction_complete()
-    }
-
-    fn z80_instructions_retired(&self) -> u64 {
-        self.z80().instructions_retired()
-    }
-    fn port_read(&mut self, port: u16) -> u8 {
-        self.port_read(port)
-    }
-    fn port_write(&mut self, port: u16, value: u8) {
-        self.port_write(port, value);
-    }
-    fn supports_io_trace(&self) -> bool {
-        true
-    }
-    fn start_io_trace(&mut self) {
-        SpectrumPlus::start_io_trace(self);
-    }
-    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
-        SpectrumPlus::take_io_trace(self)
-    }
-}
+impl_48k_board_machine!(
+    SpectrumIssue4AWith16k,
+    Some(Model::SpectrumIssue4ARam16kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue4AWith48k,
+    Some(Model::SpectrumIssue4ARam48kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue4BWith16k,
+    Some(Model::SpectrumIssue4BRam16kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue4BWith48k,
+    Some(Model::SpectrumIssue4BRam48kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue5Ula6c001e6With16k,
+    Some(Model::SpectrumIssue5Ula6c001e6Ram16kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue5Ula6c001e6With48k,
+    Some(Model::SpectrumIssue5Ula6c001e6Ram48kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue5Ula6c001e7With16k,
+    Some(Model::SpectrumIssue5Ula6c001e7Ram16kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue5Ula6c001e7With48k,
+    Some(Model::SpectrumIssue5Ula6c001e7Ram48kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue6AWith16k,
+    Some(Model::SpectrumIssue6ARam16kPal)
+);
+impl_48k_board_machine!(
+    SpectrumIssue6AWith48k,
+    Some(Model::SpectrumIssue6ARam48kPal)
+);
 
 impl SpectrumMachine for Spectrum128K {
     fn capture_cycle_counts(

@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+emu198x-mullard-zx8401 = "0.1.0"
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.47.0" }
 emu198x-peripheral-sinclair-zx-spectrum-divmmc = "0.1.0"
 emu198x-ferranti-ula-6c001e = "0.2.0"

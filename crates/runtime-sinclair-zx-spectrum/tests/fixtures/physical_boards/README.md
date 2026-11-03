@@ -26,3 +26,18 @@ expectations explicit. Do not refresh this file to make a regression pass.
 The original 577 capture files and their individual fingerprints are retained in
 the task's verified private recovery archive. They are synthetic inputs/outputs;
 no manufacturer firmware is embedded in this manifest.
+
+The fixed-owner gate routes these originals to 352 comparisons across 296 unique
+current inputs. Old generic 16K/48K/Plus cases qualify the seven later 6C owners
+with matching RAM. Old Issue 1/2 cases cover both RAM populations of those boards.
+The other ten profiles keep their original routes and raw save fingerprints.
+
+For the new physical owners, save comparison removes only the new independent
+board tag and normalizes the approved envelope version/profile ID back to the
+original. Every remaining machine byte is compared unchanged. The new 5C/16 KiB
+profiles have no original matching RAM-population state, so their old state hash
+is not asserted; native output and exact current save/resume are still checked.
+The separate CPU sweeps and original-ROM BASIC checks cover fitted RAM directly.
+
+Five complete original v17 specimens are retained here with their original
+fingerprints for atomic rejection tests. They contain synthetic firmware only.

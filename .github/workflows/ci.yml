@@ -414,13 +414,14 @@ jobs:
       - name: Run the tests the provisioned firmware unlocks
         if: steps.store.outputs.configured == 'true'
         run: |
-          cargo test -p machine-sinclair-zx-spectrum-48k --test boot_test -- --ignored
-          cargo test -p machine-sinclair-zx-spectrum-48k --test float_bus_oracle -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_boot_test -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test physical_board_original_boot -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_float_bus_oracle -- --ignored
           # The authoritative I/O contention instrument: a whole-frame
           # differential against FUSE, currently at zero. The longest thing
           # here at ~17s, and worth it — this is the gate the contention
           # campaign closed on.
-          cargo test -p machine-sinclair-zx-spectrum-48k --test io_contention_oracle -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_io_contention_oracle -- --ignored
           cargo test -p runtime-sinclair-zx-spectrum --test boot_invariants -- --ignored
           # Only the goldens the 48K ROM covers. The 128K, +2 and +3 goldens
           # want their own ROMs, which this job does not provision — and

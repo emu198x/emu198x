@@ -82,18 +82,21 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// reject it before positional payload decoding.
 const SNAPSHOT_VERSION: u32 = 17;
 // Approved 2026-11-03: corrected Timex paging/video has a new execution
-// contract. Other Spectrum profiles retain their existing v17 envelope.
-const TIMEX_SNAPSHOT_VERSION: u32 = 18;
+// contract. Explicit 48K-class boards also use v18: the payload carries the
+// physical board identity. Other Spectrum profiles retain v17.
+
 fn version_for_profile(profile: &str) -> u32 {
-    if [
-        crate::Model::TimexTC2048,
-        crate::Model::TimexTC2068,
-        crate::Model::TimexTS2068,
-    ]
-    .iter()
-    .any(|model| model.profile_id() == profile)
-    {
-        TIMEX_SNAPSHOT_VERSION
+    if crate::Model::ALL.into_iter().any(|model| {
+        model.profile_id() == profile
+            && (model.physical_board().is_some()
+                || matches!(
+                    model,
+                    crate::Model::TimexTC2048
+                        | crate::Model::TimexTC2068
+                        | crate::Model::TimexTS2068
+                ))
+    }) {
+        18
     } else {
         SNAPSHOT_VERSION
     }
@@ -217,7 +220,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
 mod tests {
     use super::*;
     use crate::Model;
-    use crate::Spectrum48kRuntime;
+    use crate::SpectrumIssue3Ram48kRuntime;
     use crate::variants::{Spectrum128kRuntime, SpectrumPlus3Runtime};
     use emu198x_shell::MachineCore;
     use machine_sinclair_zx_spectrum_128k::Spectrum128K;
@@ -242,7 +245,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_completely_corrupt_bytes() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let err = runtime
             .restore(&[0xFFu8; 8])
             .expect_err("corrupt postcard bytes must not decode");
@@ -270,7 +273,7 @@ mod tests {
     #[test]
     fn decode_rejects_version_2_before_payload_decode() {
         let bytes = postcard::to_allocvec(&2_u32).expect("legacy version should encode");
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let err = runtime
             .restore(&bytes)
             .expect_err("version 2 snapshots must be rejected");
@@ -287,13 +290,13 @@ mod tests {
 
     #[test]
     fn decode_rejects_version_4_before_payload_decode() {
-        let mut runtime = crate::Spectrum48kRuntime::blank();
+        let mut runtime = crate::SpectrumIssue3Ram48kRuntime::blank();
         let bytes = postcard::to_allocvec(&4_u32).expect("version encodes");
         let error = decode(&mut runtime, &bytes).expect_err("old version must be rejected");
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 17")
+                .contains("unsupported snapshot version 4; expected 18")
         );
     }
 

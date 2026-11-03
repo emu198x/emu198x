@@ -896,6 +896,7 @@ version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-ferranti-ula-6c001e",
+ "emu198x-mullard-zx8401",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse",
  "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface",
@@ -2131,6 +2132,12 @@ dependencies = [
  "runtime-msx",
  "serde_json",
 ]
+
+[[package]]
+name = "emu198x-mullard-zx8401"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09baff7955e5bc4da46cf6fd5dde205a9cbd775bb34c34a7bcc811fedc9a5fdb"
 
 [[package]]
 name = "emu198x-native-video"
@@ -4726,38 +4733,75 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-sinclair-zx-spectrum-16k"
+name = "machine-sinclair-zx-spectrum-issue1"
 version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
- "emu198x-ferranti-ula-6c001e",
- "emu198x-test-skip",
 ]
 
 [[package]]
-name = "machine-sinclair-zx-spectrum-48k"
+name = "machine-sinclair-zx-spectrum-issue2"
 version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
- "emu198x-ferranti-ula-6c001e",
- "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
- "emu198x-test-skip",
- "emu198x-zilog-z80",
- "format198x-sinclair-zx-spectrum-tap",
- "png",
- "serde",
 ]
 
 [[package]]
-name = "machine-sinclair-zx-spectrum-plus"
+name = "machine-sinclair-zx-spectrum-issue3"
 version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
- "emu198x-ferranti-ula-6c001e",
- "emu198x-test-skip",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue3b"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue4a"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue4b"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue5-6c001e6"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue5-6c001e7"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue6a"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
 ]
 
 [[package]]
@@ -6532,9 +6576,15 @@ dependencies = [
  "machine-pentagon-128",
  "machine-scorpion-zs256",
  "machine-sinclair-zx-spectrum-128k",
- "machine-sinclair-zx-spectrum-16k",
- "machine-sinclair-zx-spectrum-48k",
- "machine-sinclair-zx-spectrum-plus",
+ "machine-sinclair-zx-spectrum-issue1",
+ "machine-sinclair-zx-spectrum-issue2",
+ "machine-sinclair-zx-spectrum-issue3",
+ "machine-sinclair-zx-spectrum-issue3b",
+ "machine-sinclair-zx-spectrum-issue4a",
+ "machine-sinclair-zx-spectrum-issue4b",
+ "machine-sinclair-zx-spectrum-issue5-6c001e6",
+ "machine-sinclair-zx-spectrum-issue5-6c001e7",
+ "machine-sinclair-zx-spectrum-issue6a",
  "machine-sinclair-zx-spectrum-plus2",
  "machine-sinclair-zx-spectrum-plus2a",
  "machine-sinclair-zx-spectrum-plus2b",

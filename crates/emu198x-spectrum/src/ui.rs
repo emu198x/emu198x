@@ -81,14 +81,8 @@ const IF2_AXES: AxisInputMap = AxisInputMap::new(&[
 /// Whether a model's machine hosts the Kempston mouse: the 48K- and
 /// 128K-class machines.
 fn hosts_kempston_mouse(model: Model) -> bool {
-    matches!(
-        model,
-        Model::Spectrum16KPal
-            | Model::Spectrum48KPal
-            | Model::SpectrumPlus
-            | Model::Spectrum128KPal
-            | Model::SpectrumPlus2
-    )
+    model.physical_board().is_some()
+        || matches!(model, Model::Spectrum128KPal | Model::SpectrumPlus2)
 }
 
 fn uses_if2(model: Model) -> bool {
@@ -180,7 +174,7 @@ impl UiApp for Spectrum {
                 .machine
                 .as_deref()
                 .and_then(Model::from_variant_id)
-                .unwrap_or(Model::Spectrum48KPal),
+                .unwrap_or(Model::SpectrumIssue3Ram48kPal),
             kempston_mouse: self.kempston_mouse,
         }
     }
@@ -406,7 +400,7 @@ mod tests {
     #[test]
     fn the_mouse_is_captured_only_when_asked_and_hosted() {
         let mut system = SpectrumSystem {
-            current: Model::Spectrum48KPal,
+            current: Model::SpectrumIssue3Ram48kPal,
             kempston_mouse: false,
         };
         assert_eq!(system.mouse_device(), None);
@@ -419,11 +413,11 @@ mod tests {
     #[test]
     fn a_kempston_count_is_one_framebuffer_pixel() {
         let system = SpectrumSystem {
-            current: Model::Spectrum48KPal,
+            current: Model::SpectrumIssue3Ram48kPal,
             kempston_mouse: true,
         };
-        let runtime = SpectrumRuntimeKind::Spectrum48K(Box::new(
-            runtime_sinclair_zx_spectrum::Spectrum48kRuntime::blank(),
+        let runtime = SpectrumRuntimeKind::Issue3Ram48k(Box::new(
+            runtime_sinclair_zx_spectrum::SpectrumIssue3Ram48kRuntime::blank(),
         ));
         assert_eq!(system.guest_pointer(&runtime), None, "no system pointer");
         assert_eq!(system.pointer_counts_per_pixel(&runtime), (1.0, 1.0));
@@ -432,7 +426,7 @@ mod tests {
     fn check_host_characters() {
         use emu198x_shell::InputEvent;
         let system = SpectrumSystem {
-            current: Model::Spectrum48KPal,
+            current: Model::SpectrumIssue3Ram48kPal,
             kempston_mouse: false,
         };
         let runtime = Spectrum::default().build_runtime().expect("configured ROM");
@@ -492,7 +486,7 @@ mod tests {
     #[test]
     fn host_keyword_modifier_is_left_alt_and_shift_left_alt() {
         let system = SpectrumSystem {
-            current: Model::Spectrum48KPal,
+            current: Model::SpectrumIssue3Ram48kPal,
             kempston_mouse: false,
         };
         let keyword = system
@@ -559,7 +553,7 @@ mod tests {
             tap(session, &keys);
         }
         let system = SpectrumSystem {
-            current: Model::Spectrum48KPal,
+            current: Model::SpectrumIssue3Ram48kPal,
             kempston_mouse: false,
         };
         let runtime = Spectrum::default().build_runtime().expect("configured ROM");
@@ -614,7 +608,7 @@ mod tests {
     fn check_desktop_tape_roundtrip() {
         use runtime_sinclair_zx_spectrum::{tap_key, tap_symbol_combo};
         let system = SpectrumSystem {
-            current: Model::Spectrum48KPal,
+            current: Model::SpectrumIssue3Ram48kPal,
             kempston_mouse: false,
         };
         let app = Spectrum::default();
@@ -679,7 +673,7 @@ mod tests {
         assert_eq!(app.ui_system().current, Model::SpectrumPlus3);
         assert_eq!(
             Spectrum::default().ui_system().current,
-            Model::Spectrum48KPal
+            Model::SpectrumIssue3Ram48kPal
         );
     }
 
@@ -701,7 +695,7 @@ mod tests {
     fn amstrad_class_uses_if2_others_kempston() {
         assert!(uses_if2(Model::SpectrumPlus2A));
         assert!(uses_if2(Model::SpectrumPlus3));
-        assert!(!uses_if2(Model::Spectrum48KPal));
+        assert!(!uses_if2(Model::SpectrumIssue3Ram48kPal));
         assert!(!uses_if2(Model::Spectrum128KPal));
     }
 }

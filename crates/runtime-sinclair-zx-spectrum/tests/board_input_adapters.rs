@@ -1,10 +1,10 @@
 //! Shared host adapters exercise the physical keyboard and Kempston inputs.
 use emu198x_shell::InputEvent;
-use machine_sinclair_zx_spectrum_48k::{KempstonButton, Spectrum48k};
+use machine_sinclair_zx_spectrum_issue3::{KempstonButton, SpectrumIssue3With48k};
 use runtime_sinclair_zx_spectrum::{ApplyInputEvent, ApplyKempstonEvent};
 #[test]
 fn machine_applies_host_key_events() {
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     let pressed = InputEvent::Key {
         name: "q".into(),
         pressed: true,
@@ -16,7 +16,7 @@ fn machine_applies_host_key_events() {
 
 #[test]
 fn apply_input_event_returns_false_for_non_key_events() {
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     // Button events go through the Kempston path, not the keyboard
     // matrix; the trait declines them.
     let button = InputEvent::Button {
@@ -36,7 +36,7 @@ fn apply_input_event_returns_false_for_non_key_events() {
 
 #[test]
 fn apply_input_event_returns_false_for_unknown_key_names() {
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     // The Spectrum doesn't have an "escape" or "F12" key; the
     // name lookup falls through to None and the trait returns
     // false without touching the matrix.
@@ -56,7 +56,7 @@ fn apply_input_event_returns_false_for_unknown_key_names() {
 
 #[test]
 fn apply_input_event_releases_pressed_keys() {
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     let q_press = InputEvent::Key {
         name: "q".into(),
         pressed: true,
@@ -75,7 +75,7 @@ fn apply_input_event_releases_pressed_keys() {
 
 #[test]
 fn apply_kempston_event_attaches_and_flips_bits() {
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     // Defaults: unattached, all bits clear.
     assert!(!machine.kempston_mut().attached);
     assert_eq!(machine.kempston_mut().state, 0);

@@ -29,10 +29,9 @@
 //! Code198x curriculum pipeline is the consumer that exercises them.
 
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
-use machine_sinclair_zx_spectrum_16k::Spectrum16K;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With16k;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
@@ -196,7 +195,7 @@ fn golden_spectrum_16k_boot() {
         return;
     }
     let bytes = std::fs::read(&rom).expect("read 48K ROM");
-    let mut machine = Spectrum16K::new();
+    let mut machine = SpectrumIssue3With16k::new();
     machine.load_rom_bytes(&bytes).expect("load 16 KiB ROM");
     run_frames(200, || machine.run_frame());
     compare_or_update("spectrum-16k", machine.framebuffer());
@@ -214,7 +213,7 @@ fn golden_spectrum_48k_boot() {
         return;
     }
     let bytes = std::fs::read(&rom).expect("read 48K ROM");
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     machine.load_rom_bytes(&bytes).expect("load 16 KiB ROM");
     run_frames(200, || machine.run_frame());
     compare_or_update("spectrum-48k", machine.framebuffer());
@@ -232,7 +231,7 @@ fn golden_spectrum_plus_boot() {
         return;
     }
     let bytes = std::fs::read(&rom).expect("read 48K ROM");
-    let mut machine = SpectrumPlus::new();
+    let mut machine = SpectrumIssue3With48k::new();
     machine.load_rom_bytes(&bytes).expect("load 16 KiB ROM");
     run_frames(200, || machine.run_frame());
     compare_or_update("spectrum-plus", machine.framebuffer());
