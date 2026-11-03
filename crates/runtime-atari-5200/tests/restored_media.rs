@@ -1,6 +1,6 @@
 //! The live machine owns media bytes and positive cartridge-decode evidence.
+use common_atari_5200::CartLayout;
 use emu198x_shell::{MachineCore, ResetKind, SessionQueryProvider};
-use machine_atari_5200::CartLayout;
 use runtime_atari_5200::{Atari5200Runtime, Atari5200SessionQueryProvider, Model};
 
 fn typed_cart(kind: u32, size: usize) -> Vec<u8> {
@@ -19,10 +19,10 @@ fn restored_media_survives_reset_and_firmware_replacement() {
         (4, 32768, CartLayout::Linear),
     ] {
         let original =
-            Atari5200Runtime::new(Model::A5200Ntsc, typed_cart(kind, size), vec![0xaa; 2048])
+            Atari5200Runtime::new(Model::Ca018087, typed_cart(kind, size), vec![0xaa; 2048])
                 .expect("typed cart");
         let snapshot = original.snapshot().expect("save media");
-        let mut restored = Atari5200Runtime::blank(Model::A5200Ntsc);
+        let mut restored = Atari5200Runtime::blank(Model::Ca018087);
         restored
             .restore(&snapshot)
             .expect("restore into blank runtime");

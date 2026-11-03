@@ -138,6 +138,7 @@ mod tests {
         let mut firmware = emu198x_shell::FirmwareOverrides::none();
         firmware.pin(runtime_atari_5200::BIOS_FIRMWARE_ID, bios);
         let app = Atari5200 {
+            board: Some(runtime_atari_5200::Model::Ca018087),
             firmware,
             cart: Some(cart.clone()),
         };

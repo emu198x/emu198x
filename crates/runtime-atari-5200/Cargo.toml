@@ -10,7 +10,10 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { workspace = true }
 emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.0" }
-machine-atari-5200 = { path = "../machine-atari-5200", version = "0.46.0" }
+common-atari-5200 = { path = "../common-atari-5200" }
+machine-atari-5200-ca018087 = { path = "../machine-atari-5200-ca018087" }
+machine-atari-5200-ca020108 = { path = "../machine-atari-5200-ca020108" }
+machine-atari-5200-ca021374 = { path = "../machine-atari-5200-ca021374" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

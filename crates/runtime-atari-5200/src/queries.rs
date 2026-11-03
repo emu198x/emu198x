@@ -1,7 +1,7 @@
 //! Family-owned query surface for the Atari 5200 runtime.
 
+use crate::machine::Atari5200Machine as Atari5200;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use machine_atari_5200::Atari5200;
 use serde_json::json;
 
 use crate::runtime::Atari5200Runtime;

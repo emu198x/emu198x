@@ -15,13 +15,21 @@ use emu198x_shell::{
 /// PAL model to select.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
-    /// Atari 5200 NTSC.
-    A5200Ntsc,
+    /// Original four-port board.
+    Ca018087,
+    /// Four-port universal board.
+    Ca020108,
+    /// Two-port universal board.
+    Ca021374,
 }
 
 impl Model {
-    pub const ALL: [Self; 1] = [Self::A5200Ntsc];
-    pub const VARIANT_IDS: [&'static str; 1] = [Self::A5200Ntsc.variant_id()];
+    pub const ALL: [Self; 3] = [Self::Ca018087, Self::Ca020108, Self::Ca021374];
+    pub const VARIANT_IDS: [&'static str; 3] = [
+        Self::Ca018087.variant_id(),
+        Self::Ca020108.variant_id(),
+        Self::Ca021374.variant_id(),
+    ];
 
     #[must_use]
     pub const fn variant_id(self) -> &'static str {
@@ -50,7 +58,9 @@ impl Model {
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
-            Self::A5200Ntsc => "atari-5200-ntsc",
+            Self::Ca018087 => "atari-5200-ca018087",
+            Self::Ca020108 => "atari-5200-ca020108",
+            Self::Ca021374 => "atari-5200-ca021374",
         }
     }
     #[must_use]
@@ -60,13 +70,23 @@ impl Model {
     #[must_use]
     pub const fn display_name(self) -> &'static str {
         match self {
-            Self::A5200Ntsc => "Atari 5200 (NTSC)",
+            Self::Ca018087 => "Atari 5200 CA018087 (four-port NTSC)",
+            Self::Ca020108 => "Atari 5200 CA020108 (four-port universal NTSC)",
+            Self::Ca021374 => "Atari 5200 CA021374 (two-port universal NTSC)",
+        }
+    }
+    #[must_use]
+    pub fn machine_id(self) -> MachineId {
+        match self {
+            Self::Ca018087 => MachineId::from("atari-5200-ca018087"),
+            Self::Ca020108 => MachineId::from("atari-5200-ca020108"),
+            Self::Ca021374 => MachineId::from("atari-5200-ca021374"),
         }
     }
     #[must_use]
     pub const fn region(self) -> Region {
         match self {
-            Self::A5200Ntsc => Region::Ntsc,
+            Self::Ca018087 | Self::Ca020108 | Self::Ca021374 => Region::Ntsc,
         }
     }
 }
@@ -81,13 +101,13 @@ pub fn profiles() -> Vec<MachineProfile> {
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     MachineProfile {
-        machine_id: MachineId::from("atari-5200"),
+        machine_id: model.machine_id(),
         profile_id: ProfileId::from(model.profile_id()),
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
         release_year: 1982,
-        summary: "Atari 5200 — 6502C + ANTIC + GTIA + POKEY, 16 KB RAM, optional 2 KB BIOS, cartridge required.".into(),
+        summary: "Atari 5200 — 6502C + ANTIC + GTIA + POKEY, 16 KB RAM, optional 2 KB BIOS, cartridge required. VCS adaptor and analogue calibration remain unqualified.".into(),
         clock: ClockDesc::new("colour-clock", ClockRate::from_hz(3_579_545)),
         firmware: vec![FirmwareRequirement::new(
             BIOS_FIRMWARE_ID,
@@ -115,7 +135,7 @@ mod tests {
 
     #[test]
     fn profile_declares_optional_bios() {
-        let p = profile_for(Model::A5200Ntsc);
+        let p = profile_for(Model::Ca018087);
         assert_eq!(p.firmware.len(), 1);
         assert!(p.firmware[0].optional);
     }

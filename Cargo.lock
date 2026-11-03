@@ -497,6 +497,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-atari-5200"
+version = "0.46.2"
+dependencies = [
+ "emu198x-atari-antic",
+ "emu198x-atari-gtia",
+ "emu198x-atari-pokey",
+ "emu198x-mos-6502",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "common-atari-7800"
 version = "0.46.2"
 dependencies = [
@@ -1417,7 +1430,6 @@ dependencies = [
  "emu198x-atari-gtia",
  "emu198x-shell",
  "emu198x-ui",
- "machine-atari-5200",
  "png",
  "runtime-atari-5200",
  "serde_json",
@@ -4038,16 +4050,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-atari-5200"
+name = "machine-atari-5200-ca018087"
 version = "0.46.2"
 dependencies = [
- "emu198x-atari-antic",
- "emu198x-atari-gtia",
- "emu198x-atari-pokey",
- "emu198x-mos-6502",
+ "common-atari-5200",
  "postcard",
- "serde",
- "serde-big-array",
+]
+
+[[package]]
+name = "machine-atari-5200-ca020108"
+version = "0.46.2"
+dependencies = [
+ "common-atari-5200",
+ "postcard",
+]
+
+[[package]]
+name = "machine-atari-5200-ca021374"
+version = "0.46.2"
+dependencies = [
+ "common-atari-5200",
+ "postcard",
 ]
 
 [[package]]
@@ -6061,9 +6084,12 @@ dependencies = [
 name = "runtime-atari-5200"
 version = "0.46.2"
 dependencies = [
+ "common-atari-5200",
  "emu198x-atari-gtia",
  "emu198x-shell",
- "machine-atari-5200",
+ "machine-atari-5200-ca018087",
+ "machine-atari-5200-ca020108",
+ "machine-atari-5200-ca021374",
  "postcard",
  "serde",
  "serde_json",

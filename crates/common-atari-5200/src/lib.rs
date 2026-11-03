@@ -48,15 +48,18 @@
 //! line-level pipeline stalls the CPU for its DMA budget at the
 //! start of each line, then frees it for the remainder.
 
+mod board;
+pub use board::{Atari5200Board, Atari5200Core};
+
 mod cart_layouts;
 mod cartridge;
 
 pub use cartridge::{CartLayout, Cartridge};
 
-use emu198x_atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
-use emu198x_atari_gtia::Gtia;
-use emu198x_atari_pokey::Pokey;
-use emu198x_mos_6502::M6502;
+pub use emu198x_atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
+pub use emu198x_atari_gtia::Gtia;
+pub use emu198x_atari_pokey::Pokey;
+pub use emu198x_mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -142,9 +145,13 @@ impl emu198x_atari_antic::AnticMemory for AnticView<'_> {
 mod controller;
 use controller::Controller;
 
-/// Atari 5200 machine.
+fn legacy_controller_ports() -> usize {
+    4
+}
+
+/// Serialized Atari 5200 family hardware payload.
 #[derive(Serialize, Deserialize)]
-pub struct Atari5200 {
+pub struct Atari5200State {
     cpu: M6502,
     antic: Antic,
     gtia: Gtia,
@@ -161,9 +168,12 @@ pub struct Atari5200 {
     /// CPU cycle counter within the current scan line.
     line_cycle: u16,
     controllers: [Controller; 4],
+    // Fixed owner restores this wiring; it is not part of the v20 payload.
+    #[serde(skip, default = "legacy_controller_ports")]
+    controller_ports: usize,
 }
 
-impl Atari5200 {
+impl Atari5200State {
     /// Create a new Atari 5200. `bios` may be empty to fall back to
     /// the cartridge's `$FFFC/$FFFD` mirror for the reset vector.
     pub fn new(rom: Vec<u8>, bios: Vec<u8>, region: Atari5200Region) -> Result<Self, String> {
@@ -198,6 +208,7 @@ impl Atari5200 {
             frame_count: 0,
             line_cycle: 0,
             controllers: [Controller::default(); 4],
+            controller_ports: 4,
         }
     }
 
@@ -471,6 +482,9 @@ impl Atari5200 {
 
     /// Set a physical controller's axes; indices are zero-based.
     pub fn set_controller_joystick(&mut self, port: usize, x: u8, y: u8) {
+        if port >= self.controller_ports {
+            return;
+        }
         if let Some(controller) = self.controllers.get_mut(port) {
             controller.pots = [x.min(POT_MAX), y.min(POT_MAX)];
         }
@@ -483,6 +497,9 @@ impl Atari5200 {
 
     /// Drive lower fire to GTIA or upper fire to the selected POKEY KR2 line.
     pub fn set_controller_fire(&mut self, port: usize, upper: bool, pressed: bool) {
+        if port >= self.controller_ports {
+            return;
+        }
         if let Some(controller) = self.controllers.get_mut(port) {
             if upper {
                 controller.upper_fire = pressed;
@@ -499,6 +516,9 @@ impl Atari5200 {
 
     /// Hold/release one switch independently of the other keypad switches.
     pub fn set_controller_keypad(&mut self, port: usize, code: u8, pressed: bool) {
+        if port >= self.controller_ports {
+            return;
+        }
         if code > 0x1e || code & 1 != 0 || code == 0 {
             return;
         }
@@ -518,13 +538,19 @@ impl Atari5200 {
             for (axis, &position) in controller.pots.iter().enumerate() {
                 self.pokey.set_pot(
                     (port * 2 + axis) as u8,
-                    if output & 4 != 0 { position } else { POT_MAX },
+                    if port < self.controller_ports && output & 4 != 0 {
+                        position
+                    } else {
+                        POT_MAX
+                    },
                 );
             }
         }
         let selected = &self.controllers[usize::from(output & 3)];
-        let key = selected.key_at(self.pokey.keyboard_scan_address());
-        self.pokey.set_keyboard_returns(key, selected.upper_fire);
+        let connected = usize::from(output & 3) < self.controller_ports;
+        let key = connected && selected.key_at(self.pokey.keyboard_scan_address());
+        self.pokey
+            .set_keyboard_returns(key, connected && selected.upper_fire);
     }
 
     /// Immutable firmware retained by the live machine and its snapshot.
@@ -587,7 +613,7 @@ impl Atari5200 {
     }
 }
 
-impl Atari5200 {
+impl Atari5200State {
     /// Read one byte with no side effects: RAM, cartridge ROM, and BIOS;
     /// `$FF` for GTIA / ANTIC / POKEY (read side effects).
     #[must_use]
@@ -632,6 +658,7 @@ impl Atari5200 {
 
 #[cfg(test)]
 mod tests {
+    use super::Atari5200State as Atari5200;
     use super::*;
 
     #[test]

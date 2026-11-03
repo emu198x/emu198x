@@ -1,11 +1,12 @@
 //! Runtime wrapper for the Atari 5200.
 
+use crate::machine::Atari5200Machine as Atari5200;
+use common_atari_5200::{CartLayout, Cartridge};
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_atari_5200::{Atari5200, Atari5200Region, CartLayout, Cartridge};
 
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;
@@ -136,10 +137,6 @@ impl Atari5200Runtime {
             self.machine = None;
             return Ok(());
         };
-        let region = match self.model.region() {
-            emu198x_shell::Region::Pal => Atari5200Region::Pal,
-            _ => Atari5200Region::Ntsc,
-        };
         let cart = match self.cart_layout {
             Some(layout) => Cartridge::from_rom_with_layout(&rom, layout),
             None => Cartridge::from_rom(&rom),
@@ -150,7 +147,7 @@ impl Atari5200Runtime {
         })?;
         self.cart_layout = Some(cart.layout());
         self.cart_bytes = Some(cart.rom_bytes().to_vec());
-        let machine = Atari5200::from_cartridge(cart, self.bios_bytes.clone(), region);
+        let machine = Atari5200::from_cartridge(cart, self.bios_bytes.clone(), self.model);
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

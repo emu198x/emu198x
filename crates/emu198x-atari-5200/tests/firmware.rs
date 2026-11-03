@@ -26,6 +26,7 @@ impl Fixture {
 
     fn command(&self) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_emu198x-atari-5200"));
+        command.args(["--board", "ca018087"]);
         // The file convention must work without HOME or installed ROMs.
         command.env_clear();
         command.env("EMU198X_A5200_BIOS", self.0.join("monitor.rom"));
@@ -256,5 +257,22 @@ fn mcp_loads_bios_and_parsed_cartridge_without_adding_a_switch_tool() {
         );
         assert_eq!(tool_body(&responses[1])["bytes"], json!([0x3c]));
         assert_eq!(tool_body(&responses[2])["bytes"], json!([0x5a]));
+    }
+}
+
+#[test]
+fn a_retired_implicit_board_cannot_launch_in_headless_or_mcp_mode() {
+    let fixture = Fixture::new();
+    for mode in ["--headless", "--mcp"] {
+        let result = Command::new(env!("CARGO_BIN_EXE_emu198x-atari-5200"))
+            .env_clear()
+            .arg(mode)
+            .arg("--cart")
+            .arg(fixture.0.join("game.rom"))
+            .args(["--frames", "0"])
+            .output()
+            .expect("launch without board");
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("select a physical 5200 board"));
     }
 }

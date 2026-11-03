@@ -66,7 +66,7 @@ MAME's software lists record the layout per title. `hash/a5200.xml` is
 **CC0-1.0** — a public-domain dedication, so distilling it carries no
 attribution or share-alike obligation, unlike the emulator source beside
 it. `tools/a5200-cart-layouts.py` reads the vendored copy in the umbrella
-tree and emits `crates/machine-atari-5200/src/cart_layouts.rs`: the CRC32
+tree and emits `crates/common-atari-5200/src/cart_layouts.rs`: the CRC32
 of every two-chip cart, sorted for binary search.
 
 Three constraints on doing this again:

@@ -21,7 +21,7 @@ use emu198x_shell::{
 };
 use runtime_atari_5200::{Atari5200Runtime, Model};
 
-const MODEL: Model = Model::A5200Ntsc;
+const MODEL: Model = Model::Ca018087;
 /// Colour clocks in one NTSC frame, near enough for a sixty-frame settle.
 const FRAME_TICKS: u64 = 114 * 262;
 

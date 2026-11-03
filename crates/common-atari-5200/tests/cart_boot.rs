@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_atari_5200::{Atari5200, Atari5200Region};
+use common_atari_5200::{Atari5200Region, Atari5200State as Atari5200};
 
 fn first_cart(dir: &PathBuf) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;

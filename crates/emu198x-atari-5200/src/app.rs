@@ -7,10 +7,11 @@ use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant};
 use runtime_atari_5200::{Atari5200Runtime, Atari5200SessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
-/// Launch options; the runtime owns the single NTSC model and BIOS catalogue.
+/// Launch options; select a fixed NTSC board from the shared BIOS catalogue.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Atari5200 {
     pub cart: Option<PathBuf>,
+    pub board: Option<Model>,
     pub firmware: FirmwareOverrides,
 }
 
@@ -21,7 +22,7 @@ impl MachineApp for Atari5200 {
     const BIN_NAME: &'static str = "emu198x-atari-5200";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
-        "    --cart PATH     Atari 5200 cartridge ROM (required; a bare PATH is accepted too)
+        "    --board ID      required: ca018087, ca020108 or ca021374\n    --cart PATH     Atari 5200 cartridge ROM (required; a bare PATH is accepted too)
     --bios PATH     Atari 5200 BIOS ROM (2 KB); default
                     ~/.emu198x/roms/atari-5200/bios.rom or 5200.rom (or set EMU198X_A5200_BIOS)
     --rom PATH|ID=PATH pin the optional BIOS (firmware ID: atari-5200-bios)
@@ -38,6 +39,15 @@ impl MachineApp for Atari5200 {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
+            "--board" => {
+                let id = args.value(flag)?.to_ascii_lowercase();
+                self.board = Model::from_variant_id(&format!("atari-5200-{id}"));
+                if self.board.is_none() {
+                    return Err(LaunchError::Usage(format!(
+                        "unknown 5200 board {id}; choose ca018087, ca020108 or ca021374"
+                    )));
+                }
+            }
             "--cart" => self.cart = Some(args.path(flag)?),
             "--bios" => self
                 .firmware
@@ -46,8 +56,8 @@ impl MachineApp for Atari5200 {
                 .firmware
                 .add_spec(
                     &args.value(flag)?,
-                    Model::A5200Ntsc.variant_id(),
-                    &Model::A5200Ntsc.firmware_sources(),
+                    Model::Ca018087.variant_id(),
+                    &Model::Ca018087.firmware_sources(),
                 )
                 .map_err(|err| LaunchError::Usage(err.to_string()))?,
             "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
@@ -81,7 +91,7 @@ impl MachineApp for Atari5200 {
     }
 
     fn frame_ticks(&self) -> u64 {
-        Model::A5200Ntsc.frame_ticks()
+        Model::Ca018087.frame_ticks()
     }
 
     fn query_provider(&self) -> Atari5200SessionQueryProvider {
@@ -105,7 +115,8 @@ impl MachineApp for Atari5200 {
 
     /// BIOS lookup is shared with normal launch; MCP may wait for a cartridge.
     fn build_mcp_runtime(&self) -> Result<Atari5200Runtime, LaunchError> {
-        build_variant::<Atari5200Runtime>(Model::A5200Ntsc, &self.firmware)
+        let board = self.board.ok_or_else(|| LaunchError::Usage("select a physical 5200 board with --board ca018087, ca020108 or ca021374; the generic profile is retired".into()))?;
+        build_variant::<Atari5200Runtime>(board, &self.firmware)
             .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
@@ -152,7 +163,7 @@ mod tests {
             panic!("expected a run");
         };
         assert!(app.cart.is_none());
-        assert_eq!(app.frame_ticks(), Model::A5200Ntsc.frame_ticks());
+        assert_eq!(app.frame_ticks(), Model::Ca018087.frame_ticks());
     }
 
     #[test]
@@ -170,7 +181,7 @@ mod tests {
             app.firmware.by_id.get(runtime_atari_5200::BIOS_FIRMWARE_ID),
             Some(&PathBuf::from("5200.rom"))
         );
-        assert_eq!(app.frame_ticks(), Model::A5200Ntsc.frame_ticks());
+        assert_eq!(app.frame_ticks(), Model::Ca018087.frame_ticks());
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
@@ -193,6 +204,34 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Model::A5200Ntsc.frame_ticks(), 262 * 228);
+        assert_eq!(Model::Ca018087.frame_ticks(), 262 * 228);
+    }
+}
+
+#[cfg(test)]
+mod board_selection_tests {
+    use super::*;
+    use emu198x_shell::launch::{Parsed, parse};
+    #[test]
+    fn native_launch_requires_an_explicit_physical_board() {
+        let app = Atari5200::default();
+        assert!(
+            app.build_mcp_runtime()
+                .err()
+                .expect("generic launch must reject")
+                .to_string()
+                .contains("select a physical 5200 board")
+        );
+        for id in ["ca018087", "ca020108", "ca021374"] {
+            let Parsed::Run { app, .. } =
+                parse::<Atari5200>(&["--board".into(), id.into()]).expect("explicit board")
+            else {
+                panic!("run");
+            };
+            assert_eq!(
+                app.board.expect("selected").model_id(),
+                format!("atari-5200-{id}")
+            );
+        }
     }
 }

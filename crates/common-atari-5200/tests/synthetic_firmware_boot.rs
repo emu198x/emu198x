@@ -19,7 +19,7 @@
 
 use std::path::PathBuf;
 
-use machine_atari_5200::{Atari5200, Atari5200Region};
+use common_atari_5200::{Atari5200Region, Atari5200State as Atari5200};
 
 /// What `COLBK = $44` renders. ANTIC's DMA is off at power-on, so with no
 /// display list fetched the whole raster is the background register — this
