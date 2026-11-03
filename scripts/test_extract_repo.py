@@ -150,6 +150,34 @@ class WorkspaceDependencies(unittest.TestCase):
             extract_repo.registry_spec("x", '{ path = "crates/x" }')
 
 
+class GeneratedCi(unittest.TestCase):
+    def ci(self, deps: set[str]) -> str:
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.object(
+            extract_repo,
+            "workspace_dependencies",
+            return_value={"emu198x-shell": '"0.44.2"', "serde": '"1"'},
+        ):
+            target = pathlib.Path(tmp)
+            extract_repo.skeleton(
+                {"name": "test-family", "summary": "fixture", "coverage_floor": 70},
+                target,
+                ["test-crate"],
+                deps,
+            )
+            return (target / ".github/workflows/ci.yml").read_text()
+
+    def test_a_repository_on_the_shell_installs_its_linux_packages(self) -> None:
+        # The ColecoVision's first CI run failed to build alsa-sys and
+        # libudev-sys without these.
+        self.assertIn(
+            "linux-packages: pkg-config libasound2-dev libudev-dev",
+            self.ci({"emu198x-shell", "serde"}),
+        )
+
+    def test_a_chip_without_the_shell_installs_nothing(self) -> None:
+        self.assertNotIn("linux-packages", self.ci({"serde"}))
+
+
 class GeneratedGuidance(unittest.TestCase):
     def test_extracted_guidance_requires_accuracy_without_banning_bus_shapes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

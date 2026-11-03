@@ -394,7 +394,15 @@ An interface shape alone neither proves accuracy nor justifies a rewrite.
 """,
         "release-plz.toml": RELEASE_PLZ,
         ".github/dependabot.yml": DEPENDABOT,
-        ".github/workflows/ci.yml": CI.format(floor=entry.get("coverage_floor", 50)),
+        ".github/workflows/ci.yml": CI.format(
+            floor=entry.get("coverage_floor", 50),
+            linux=(
+                "\n      # emu198x-shell's audio and gamepad backends.\n"
+                f"      linux-packages: {SHELL_LINUX_PACKAGES}"
+                if "emu198x-shell" in deps
+                else ""
+            ),
+        ),
         ".github/workflows/codeql.yml": CODEQL,
         ".github/workflows/pr-title.yml": PR_TITLE,
         ".github/workflows/release-plz.yml": RELEASE_PLZ_WORKFLOW,
@@ -636,8 +644,13 @@ jobs:
     with:
       # Ratchet up as tests grow; never down. Corpus tests are ignored here
       # and run nightly, so this measures the unit and fixture-free tests.
-      coverage-floor: {floor}
+      coverage-floor: {floor}{linux}
 """
+
+# What `emu198x-shell` needs on Linux: ALSA for its audio (cpal) and udev for
+# its gamepads (gilrs). A repository that depends on the shell, such as a
+# system family, can't build without them; chips never did.
+SHELL_LINUX_PACKAGES = "pkg-config libasound2-dev libudev-dev"
 
 CODEQL = """\
 name: CodeQL
