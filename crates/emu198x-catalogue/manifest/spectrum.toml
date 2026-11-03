@@ -79,7 +79,10 @@ audio_routing_version = 4
 #   malformed TAP to the [a] dump. See each entry.
 #
 # The other 36 entries are byte-identical to the 2026-08-10 capture.
-frame_routing_version = 5
+# Routing 6 recapture ran all 103 entries: 93 match. Ten pre-existing +3
+# differences reproduce byte-for-byte before the Timex fix (#2265). Keep
+# every expected hash unchanged so these cases still fail verification.
+frame_routing_version = 6
 
 [[system.firmware]]
 variant = "48k"
