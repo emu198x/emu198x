@@ -508,7 +508,9 @@ jobs:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
       - name: Check the test selection never skips a reachable crate
-        run: python3 scripts/ci/test_affected_packages.py
+        run: |
+          python3 scripts/ci/test_affected_packages.py
+          python3 scripts/ci/test_run_doctests.py
 
       - name: Choose what to test
         id: plan
@@ -624,8 +626,8 @@ jobs:
         # being checked. Once, in the first shard, reusing its build.
         if: matrix.shard == 1
         run: >-
-          cargo test --doc
-          ${{ needs.test-plan.outputs.packages || '--workspace' }}
+          python3 scripts/ci/run_doctests.py
+          ${{ needs.test-plan.outputs.packages }}
 
       - name: Upload this shard's results
         if: always()
