@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Changed
+
+- Documentation only: the 8361/8367 Agnus is used in the early German A2000
+  as well as the A1000, per Commodore's Release 2 *Getting Started* chip
+  table.
+
 ## 0.1.0
 
 ### Added

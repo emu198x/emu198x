@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Added
+
+- `physical_banks()`: the RAM fitted in each bank, independent of how the
+  guest configured the MMU, so a fixed ST configuration can be checked.
+
 ### Added
 
 - The ST GLUE and MMU: 50, 60 and 71 Hz line and frame timing, display

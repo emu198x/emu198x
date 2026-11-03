@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Added
+
+- `has_valid_memory_layout()`: checks restored VRAM, OAM and frame-buffer
+  sizes before a machine installs a saved state.
+
 ### Added
 
 - The SNES S-PPU1 (5C77) and S-PPU2 (5C78) picture processor pair, stepped

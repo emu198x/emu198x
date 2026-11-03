@@ -5,7 +5,7 @@ description = "Atari GTIA video output chip — Atari 5200, 800XL, 130XE"
 # published crate whose version communicates *its* changes to consumers, so it
 # bumps when it changes rather than on every Emu198x suite release. Started at
 # 0.1.0 when it took the emu198x- prefix to publish.
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
