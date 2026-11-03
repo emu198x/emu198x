@@ -86,3 +86,29 @@ explicitly identifies Mullard ZX84/01 replacing six 74LS packages with no
 change in circuit functions; Issue 6A permits Ferranti or SAGA. The supplied
 6A drawing is the Ferranti circuit. SAGA behaviour remains unqualified until
 primary device/wiring evidence can establish it.
+
+## ZX8401 prerequisite completed
+
+Steve approved the independent dependency/repository on 2026-11-03.
+`emu198x/mullard-zx8401` now publishes `emu198x-mullard-zx8401` 0.1.0.
+Commit/tag: ad2347a02efb46922efe28d82b45d7d084638a65 /
+`emu198x-mullard-zx8401-v0.1.0`. Downloaded registry package SHA-256:
+`09baff7955e5bc4da46cf6fd5dde205a9cbd775bb34c34a7bcc811fedc9a5fdb`.
+The downloaded source, tests and README match the reviewed checkout.
+
+The dependency-free no_std API takes electrical levels and evaluates settled
+DMA0–6, MA0–7 and CASL. Every one of 8,388,608 address/control combinations
+matches an independent discrete-gate oracle. Reversed DMA selection, wrong
+TS strap and wrong read/write gating mutations each fail through that oracle.
+Local fmt, Clippy, tests, packaging and 100% line/region coverage passed;
+GitHub Linux CI 41667694301 passed. Required checks protect the new main branch.
+Propagation delays, DRAM and display-bus arbitration remain outside its claim.
+
+Primary-source navigation and PDF identities are in umbrella PR #303. The
+Sinclair scan lacks referenced timing diagrams; Cygnus's original replacement
+schematic supplies inspectable settled gate connections. No source image is
+redistributed in the chip package. Canonical chip checkout:
+`/Users/stevehill/Projects/198x/Emu198x/mullard-zx8401`.
+
+The physical-owner/runtime migration in tasks 4–7 remains outstanding. Publishing
+the prerequisite does not establish that Issue 5/6A board wiring uses it yet.
