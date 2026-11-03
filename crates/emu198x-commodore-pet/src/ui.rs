@@ -183,7 +183,7 @@ mod tests {
     use runtime_commodore_pet::{BASIC_FIRMWARE_ID, KERNAL_FIRMWARE_ID};
 
     #[test]
-    fn window_constructor_installs_catalogue_roms_and_sizes_both_profiles() {
+    fn window_constructor_installs_catalogue_roms_and_sizes_every_board() {
         let dir = std::env::temp_dir().join(format!("pet-ui-catalogue-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("directory");
         for model in Model::ALL {
@@ -205,7 +205,19 @@ mod tests {
             };
             let mut runtime = app.build_ui_runtime().expect("window runtime");
             let mut system = app.ui_system();
-            assert_eq!(system.variants().len(), 3);
+            assert_eq!(
+                system
+                    .variants()
+                    .iter()
+                    .map(|variant| variant.id.as_ref())
+                    .collect::<Vec<_>>(),
+                [
+                    "commodore-pet-2001n-32k",
+                    "commodore-pet-40col",
+                    "commodore-pet-80col",
+                    "commodore-pet-2001-320008-8k",
+                ]
+            );
             assert_eq!(
                 system.current_variant().as_deref(),
                 Some(model.variant_id())
