@@ -112,3 +112,23 @@ redistributed in the chip package. Canonical chip checkout:
 
 The physical-owner/runtime migration in tasks 4–7 remains outstanding. Publishing
 the prerequisite does not establish that Issue 5/6A board wiring uses it yet.
+
+## Retained regression gate
+
+`crates/runtime-sinclair-zx-spectrum/tests/board_owner_baseline.rs` now checks
+all 192 captured cases against immutable SHA-256 fingerprints in
+`tests/fixtures/physical_boards/pre_split_77440f443.json`. The first run passed
+with complete initial/final save equality and first-resumed native outputs.
+A deliberately wrong complete-output fingerprint failed the assertion; the
+original manifest was restored. This does not qualify analog differences or
+assign an old generic profile a PCB identity.
+
+Original capture files, generator and chip evidence were individually verified
+inside `.git/recovery/2026-11-03-spectrum-board-prerequisites.tar.gz` in the main
+source repository. SHA-256:
+`978ce4a0a5e80ef103e30ccdc474f516b97bca6b2bcddf948174dc8b9d37c879`.
+The original private capture generator was removed from the worktree after
+archive verification; the public test now consumes the frozen fingerprints.
+The completed reference worktree and standalone chip build cache were removed.
+The source worktree, shared build cache and current evidence directory remain
+for tasks 4–7; remove them after the board migration is verified and retained.
