@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Preserve both controllers’ logical held inputs in version-5 snapshots; reject version 4 before decoding because its electrical bytes cannot recover opposing directions
+
 - Advance live-machine snapshots to version 3 and rehydrate the Z80 walker sequence before resumed execution; version 2 cannot preserve accepted interrupt response identity
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-mattel-aquarius-v0.2.0) - 2026-06-04
