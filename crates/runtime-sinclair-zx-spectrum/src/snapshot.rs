@@ -81,6 +81,23 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// Version 16 omits these causal states and cannot resume exact output;
 /// reject it before positional payload decoding.
 const SNAPSHOT_VERSION: u32 = 17;
+// Approved 2026-11-03: corrected Timex paging/video has a new execution
+// contract. Other Spectrum profiles retain their existing v17 envelope.
+const TIMEX_SNAPSHOT_VERSION: u32 = 18;
+fn version_for_profile(profile: &str) -> u32 {
+    if [
+        crate::Model::TimexTC2048,
+        crate::Model::TimexTC2068,
+        crate::Model::TimexTS2068,
+    ]
+    .iter()
+    .any(|model| model.profile_id() == profile)
+    {
+        TIMEX_SNAPSHOT_VERSION
+    } else {
+        SNAPSHOT_VERSION
+    }
+}
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -118,7 +135,7 @@ pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
     postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV7 {
-        version: SNAPSHOT_VERSION,
+        version: version_for_profile(runtime.profile().profile_id.as_str()),
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
         keyboard_rows: *runtime.keyboard_rows(),
@@ -145,9 +162,10 @@ pub(crate) fn decode<M: SpectrumMachine>(
         }
     })?;
 
-    if version != SNAPSHOT_VERSION {
+    let expected_version = version_for_profile(runtime.profile().profile_id.as_str());
+    if version != expected_version {
         return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+            reason: format!("unsupported snapshot version {version}; expected {expected_version}"),
         });
     }
 
@@ -155,7 +173,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    debug_assert_eq!(snapshot.version, expected_version);
 
     if snapshot.profile_id != runtime.profile().profile_id.as_str() {
         return Err(MachineError::InvalidSnapshot {

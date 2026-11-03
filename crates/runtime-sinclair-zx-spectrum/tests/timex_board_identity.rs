@@ -81,13 +81,13 @@ fn other_board_payload_is_rejected_before_time_or_hardware_changes() {
             (Model::TimexTS2068, Model::TimexTC2068),
         ] {
             for mode in [0, 6] {
-                let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-                    "../../test-data/timex-2068/board-split-v17/{}-mode{mode}.state",
-                    source.model_id()
-                ));
-                let bytes = std::fs::read(path).expect("original complete v17 state");
+                let mut source_runtime = runtime(source);
+                source_runtime.port_write(0xff, mode);
+                let bytes = source_runtime
+                    .snapshot()
+                    .expect("current source board state");
                 let (version, tail) = postcard::take_from_bytes::<u32>(&bytes).expect("version");
-                assert_eq!(version, 17);
+                assert_eq!(version, 18);
                 let (profile, payload) =
                     postcard::take_from_bytes::<String>(tail).expect("profile");
                 assert_eq!(profile, source.profile_id());

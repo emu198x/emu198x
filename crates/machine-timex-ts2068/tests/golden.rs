@@ -135,13 +135,10 @@ fn golden_ts2068_boot() {
         .load_exrom(&exrom)
         .expect("TS2068 EXROM should load");
 
-    // TS2068 boots into a diagnostic stripe pattern. On real
-    // hardware that pattern resolves into the Timex/Sinclair menu
-    // after a few seconds, but our implementation currently sits
-    // on the stripes. The locked golden reflects that current
-    // state honestly — when the boot path is extended to reach
-    // BASIC, the golden refresh will catch it. 240 frames at 60 Hz
-    // NTSC ≈ 4 s, more than enough to settle on the pattern.
+    // Original-ROM identity, both startup banners, keyboard-entered BASIC
+    // and native pixels are qualified in runtime-sinclair-zx-spectrum's
+    // timex_original_boot tests. The old stripe golden is retained in the
+    // #52 correction evidence; it came from incorrect F4/FF bank decoding.
     for _ in 0..240 {
         machine.run_frame();
     }
