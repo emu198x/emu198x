@@ -510,20 +510,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common-atari-7800"
-version = "0.46.2"
-dependencies = [
- "emu198x-atari-maria",
- "emu198x-atari-pokey",
- "emu198x-atari-tia",
- "emu198x-mos-6502",
- "emu198x-mos-riot-6532",
- "postcard",
- "serde",
- "serde-big-array",
-]
-
-[[package]]
 name = "common-atari-800xl"
 version = "0.46.2"
 dependencies = [
@@ -1441,11 +1427,11 @@ version = "0.46.2"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-atari-maria",
+ "emu198x-machine-atari-7800",
+ "emu198x-runtime-atari-7800",
  "emu198x-shell",
  "emu198x-ui",
- "machine-atari-7800",
  "png",
- "runtime-atari-7800",
  "serde_json",
 ]
 
@@ -1718,6 +1704,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-common-atari-7800"
+version = "0.46.2"
+dependencies = [
+ "emu198x-atari-maria",
+ "emu198x-atari-pokey",
+ "emu198x-atari-tia",
+ "emu198x-mos-6502",
+ "emu198x-mos-riot-6532",
+ "postcard",
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "emu198x-common-coleco-colecovision"
 version = "0.46.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1777,6 +1777,7 @@ version = "0.46.2"
 dependencies = [
  "emu198x-fleet-web",
  "emu198x-pointer",
+ "emu198x-runtime-atari-7800",
  "emu198x-runtime-coleco-colecovision",
  "emu198x-shell",
  "emu198x-spectrum-web",
@@ -1788,7 +1789,6 @@ dependencies = [
  "runtime-amstrad-cpc",
  "runtime-atari-2600",
  "runtime-atari-5200",
- "runtime-atari-7800",
  "runtime-atari-800xl",
  "runtime-atari-st",
  "runtime-commodore-amiga",
@@ -1899,6 +1899,20 @@ name = "emu198x-konami-scc"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-machine-atari-7800"
+version = "0.46.2"
+dependencies = [
+ "emu198x-common-atari-7800",
+]
+
+[[package]]
+name = "emu198x-machine-atari-7800-pal"
+version = "0.46.2"
+dependencies = [
+ "emu198x-common-atari-7800",
 ]
 
 [[package]]
@@ -2334,6 +2348,20 @@ name = "emu198x-ricoh-rp5c01"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-runtime-atari-7800"
+version = "0.46.2"
+dependencies = [
+ "emu198x-atari-maria",
+ "emu198x-common-atari-7800",
+ "emu198x-machine-atari-7800",
+ "emu198x-machine-atari-7800-pal",
+ "emu198x-shell",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4090,20 +4118,6 @@ name = "machine-atari-520st-pal"
 version = "0.46.2"
 dependencies = [
  "common-atari-st",
-]
-
-[[package]]
-name = "machine-atari-7800"
-version = "0.46.2"
-dependencies = [
- "common-atari-7800",
-]
-
-[[package]]
-name = "machine-atari-7800-pal"
-version = "0.46.2"
-dependencies = [
- "common-atari-7800",
 ]
 
 [[package]]
@@ -6095,20 +6109,6 @@ dependencies = [
  "machine-atari-5200-ca018087",
  "machine-atari-5200-ca020108",
  "machine-atari-5200-ca021374",
- "postcard",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "runtime-atari-7800"
-version = "0.46.2"
-dependencies = [
- "common-atari-7800",
- "emu198x-atari-maria",
- "emu198x-shell",
- "machine-atari-7800",
- "machine-atari-7800-pal",
  "postcard",
  "serde",
  "serde_json",

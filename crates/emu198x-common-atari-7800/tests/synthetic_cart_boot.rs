@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use common_atari_7800::{Atari7800Region, Atari7800State};
+use emu198x_common_atari_7800::{Atari7800Region, Atari7800State};
 
 /// NTSC palette entry `$0E`, selected by writing `$1C` to `BACKGRND`.
 const EXPECTED: u32 = 0xFFD4_D478;

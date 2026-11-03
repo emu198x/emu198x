@@ -1,5 +1,5 @@
+use emu198x_runtime_atari_7800::{Atari7800Runtime, Model};
 use emu198x_shell::{FamilyRuntime, FirmwareSet, MachineCore, ResetKind};
-use runtime_atari_7800::{Atari7800Runtime, Model};
 
 #[test]
 fn restored_cartridge_survives_reset_and_regional_replacement() {

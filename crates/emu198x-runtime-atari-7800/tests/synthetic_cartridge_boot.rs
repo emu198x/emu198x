@@ -9,10 +9,10 @@
 
 use std::path::PathBuf;
 
+use emu198x_runtime_atari_7800::{Atari7800Runtime, Model};
 use emu198x_shell::{
     HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
-use runtime_atari_7800::{Atari7800Runtime, Model};
 
 const MODEL: Model = Model::A7800Ntsc;
 const FRAME_TICKS: u64 = MODEL.frame_ticks();

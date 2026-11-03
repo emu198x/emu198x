@@ -17,7 +17,7 @@ acorn-electron = ["dep:runtime-acorn-electron"]
 amstrad-cpc = ["dep:runtime-amstrad-cpc"]
 atari-2600 = ["dep:runtime-atari-2600"]
 atari-5200 = ["dep:runtime-atari-5200"]
-atari-7800 = ["dep:runtime-atari-7800"]
+atari-7800 = ["dep:emu198x-runtime-atari-7800"]
 atari-800xl = ["dep:runtime-atari-800xl"]
 atari-st = ["dep:runtime-atari-st"]
 coleco-colecovision = ["dep:emu198x-runtime-coleco-colecovision"]
@@ -61,7 +61,7 @@ runtime-acorn-electron = { path = "../runtime-acorn-electron", version = "0.46.0
 runtime-amstrad-cpc = { path = "../runtime-amstrad-cpc", version = "0.46.0", optional = true }
 runtime-atari-2600 = { path = "../runtime-atari-2600", version = "0.46.0", optional = true }
 runtime-atari-5200 = { path = "../runtime-atari-5200", version = "0.46.0", optional = true }
-runtime-atari-7800 = { path = "../runtime-atari-7800", version = "0.46.0", optional = true }
+emu198x-runtime-atari-7800 = { path = "../emu198x-runtime-atari-7800", version = "0.46.0", optional = true }
 runtime-atari-800xl = { path = "../runtime-atari-800xl", version = "0.46.0", optional = true }
 runtime-atari-st = { path = "../runtime-atari-st", version = "0.46.0", optional = true }
 emu198x-runtime-coleco-colecovision = { version = "0.46.2", optional = true }

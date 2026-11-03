@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
+use emu198x_runtime_atari_7800::{Atari7800Runtime, Atari7800SessionQueryProvider, Model};
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
 use emu198x_shell::{FirmwareOverrides, build_variant};
-use runtime_atari_7800::{Atari7800Runtime, Atari7800SessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
 /// The machine configuration the flags build up.

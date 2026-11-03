@@ -1,6 +1,6 @@
 //! Atari 7800 joystick / console-switch input mapping.
 //!
-//! `machine-atari-7800` exposes *full-state* setters — `set_joystick(up,
+//! `emu198x-machine-atari-7800` exposes *full-state* setters — `set_joystick(up,
 //! down, left, right)` (P0, active-low on RIOT port A) and
 //! `set_console(reset, select, pause)` — so the host cache mirrors the
 //! current control state and re-applies the whole vector on every event.
@@ -8,7 +8,7 @@
 //! Both [`InputEvent::Button`] (the canonical joystick door) and
 //! [`InputEvent::Key`] (keyboard-as-pad convenience) are accepted. Player 1's
 //! two fire buttons map via `fire`/`fire1` and `fire2`; the P1 port (second
-//! controller) is not yet exposed by `machine-atari-7800`.
+//! controller) is not yet exposed by `emu198x-machine-atari-7800`.
 
 use crate::machine::Atari7800Machine as Atari7800;
 use emu198x_shell::InputEvent;

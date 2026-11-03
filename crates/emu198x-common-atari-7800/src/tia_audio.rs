@@ -1,6 +1,6 @@
 //! TIA audio and controller inputs for the Atari 7800.
 //!
-//! Adapted from `Emu198x-Oldest/crates/machine-atari-7800/src/tia_audio.rs`
+//! Adapted from `Emu198x-Oldest/crates/emu198x-machine-atari-7800/src/tia_audio.rs`
 //! (RULES.md rule 27).
 //!
 //! In 7800 mode the TIA does sound and the controller **fire-button** reads —

@@ -7,7 +7,7 @@ mod queries;
 mod runtime;
 mod snapshot;
 
-pub use machine_atari_7800::Atari7800Region;
+pub use emu198x_machine_atari_7800::Atari7800Region;
 pub use profiles::{Model, profile_for, profiles};
 pub use queries::Atari7800SessionQueryProvider;
 pub use runtime::Atari7800Runtime;

@@ -11,10 +11,10 @@
 
 use std::time::Duration;
 
+use emu198x_runtime_atari_7800::{Atari7800Runtime, Model};
 use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
-use runtime_atari_7800::{Atari7800Runtime, Model};
 use std::borrow::Cow;
 
 use crate::app::Atari7800;
@@ -23,7 +23,7 @@ const DEFAULT_SCALE: u32 = 3;
 
 /// Player-1 control: joystick directions, the two fire buttons, and the two
 /// gamepad menu buttons mapped to the console Select / Reset switches. The
-/// names are the ones `runtime-atari-7800`'s `set_control` understands.
+/// names are the ones `emu198x-runtime-atari-7800`'s `set_control` understands.
 const ATARI_7800_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Up, ButtonTarget::new(1, "up")),
     (HostControl::Down, ButtonTarget::new(1, "down")),

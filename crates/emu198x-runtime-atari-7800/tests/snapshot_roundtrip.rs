@@ -6,10 +6,10 @@
 //! the shared `MachineCore` surface, so it needs no firmware and runs on every
 //! push.
 
+use emu198x_runtime_atari_7800::{Atari7800Runtime, Model};
 use emu198x_shell::{
     HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
-use runtime_atari_7800::{Atari7800Runtime, Model};
 
 const MODEL: Model = Model::A7800Ntsc;
 const WARMUP: u64 = 50_000;

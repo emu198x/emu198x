@@ -1,0 +1,14 @@
+[package]
+name = "emu198x-machine-atari-7800-pal"
+description = "Fixed Atari 7800 Pal board"
+# Published, and versioned on its own, since 2026-11-03, when the Atari
+# 7800 moved to its own repository
+# (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
+version = "0.46.2"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+emu198x-common-atari-7800 = { path = "../emu198x-common-atari-7800", version = "0.46.0" }
+[lints]
+workspace = true

@@ -3,7 +3,7 @@
 Captured before owner extraction from the original engine/runtime at
 `056bf9b7f`. The Atari 2600 profile-clock correction changes only metadata;
 these original state and output files also replay after that correction.
-The private test recipe is `runtime-atari-7800/src/board_baseline_tests.rs`.
+The private test recipe is `emu198x-runtime-atari-7800/src/board_baseline_tests.rs`.
 Every cartridge is project-owned synthetic input.
 
 Each case freezes complete initial/continued state, all pixels, dimensions,
