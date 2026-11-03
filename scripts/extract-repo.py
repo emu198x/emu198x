@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import json
 import pathlib
 import re
 import shutil
@@ -99,6 +98,26 @@ def workspace_dependencies() -> dict[str, str]:
         if match:
             specs[match.group(1)] = match.group(2).strip()
     return specs
+
+
+def registry_spec(name: str, spec: str) -> str:
+    """A `[workspace.dependencies]` spec as the extracted repository needs it.
+
+    A crate that stays here, such as `emu198x-shell` for a system family, is
+    a path in this workspace and a registry version in the new one: its
+    `path` goes and its `version` stays, as `rewrite_manifest` does for a
+    crate's own dependencies.
+    """
+    if not re.search(r'path = "crates/', spec):
+        return spec
+    version = re.search(r'version = "([^"]+)"', spec)
+    if not version:
+        sys.exit(f"workspace dependency {name} has no version to publish against")
+    rest = re.sub(r'path = "crates/[^"]+",?\s*', "", spec).strip()
+    rest = rest.removeprefix("{").removesuffix("}").strip().rstrip(",").strip()
+    if rest == f'version = "{version.group(1)}"':
+        return f'"{version.group(1)}"'
+    return f"{{ {rest} }}"
 
 
 def published(name: str, version: str) -> bool:
@@ -275,7 +294,9 @@ def skeleton(entry: dict, repo_dir: pathlib.Path, crates: list[str], deps: set[s
     missing = sorted(dep for dep in deps if dep not in specs)
     if missing:
         sys.exit(f"workspace dependencies with no single-line spec here: {missing}")
-    dependency_lines = "\n".join(f"{dep} = {specs[dep]}" for dep in sorted(deps))
+    dependency_lines = "\n".join(
+        f"{dep} = {registry_spec(dep, specs[dep])}" for dep in sorted(deps)
+    )
     crate_rows = "\n".join(
         f"| [`{crate}`](crates/{crate}) | [crates.io](https://crates.io/crates/{crate}) |"
         for crate in crates
@@ -285,9 +306,9 @@ def skeleton(entry: dict, repo_dir: pathlib.Path, crates: list[str], deps: set[s
 # {name}: {entry["summary"]}
 #
 # Moved out of emu198x/emu198x with its history on {datetime.date.today().isoformat()},
-# under knowledge/decisions/workspace-shape.md § Amendment there: one repository
-# per CPU and per chip, published, so each system family and sibling takes it
-# from crates.io.
+# under knowledge/decisions/workspace-shape.md there: one repository per CPU,
+# chip and system family, published, so the rest of the family and its
+# siblings take it from crates.io.
 [workspace]
 resolver = "2"
 members = ["crates/*"]
@@ -488,9 +509,10 @@ def verify(repo_dir: pathlib.Path) -> None:
     if patches:
         print("skipping cargo publish --dry-run until its patched dependencies are published")
         return
-    metadata = run("cargo", "metadata", "--no-deps", "--format-version", "1", cwd=repo_dir, capture=True)
-    for package in json.loads(metadata)["packages"]:
-        run("cargo", "publish", "--dry-run", "-p", package["name"], cwd=repo_dir)
+    # One workspace-wide run, not one per crate: a family's crates depend on
+    # each other, and only a workspace publish resolves a sibling that isn't
+    # on crates.io yet. It packages and verifies them in dependency order.
+    run("cargo", "publish", "--dry-run", "--workspace", cwd=repo_dir)
 
 
 def push(repo_dir: pathlib.Path, repo: str) -> None:
