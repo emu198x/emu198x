@@ -75,3 +75,30 @@ ReachedTarget for each named font/mode case. An intentional million-frame child
 is killed/reaped at a short test deadline; changing its timeout result makes the
 regression fail. Restored positive checks pass all six firmware tests and Clippy.
 This does not promise cleanup after the test process is forcibly killed by the OS.
+
+## Staged cartridge reproduction and proposed compatibility policy
+
+Both M5 and the published ColecoVision source reproduce #2186 for NTSC/PAL and
+two valid cartridges each. The eight original v5 saves are retained with full
+SHA-256 identities; each region's two cartridge choices produce identical old
+save bytes, proving their data never entered the envelope.
+
+Proposed policy: write v6 with an optional staged cartridge only when the live
+machine is absent. Keep explicit v5 readers: live saves retain their own media,
+while old empty saves remain empty because missing cartridge bytes cannot be
+recovered. Validate contradictory new payloads before mutation; do not reapply
+new-load admission checks to original saved media. Qualify empty/staged/dirty
+states, two BIOS-executed cartridge guests, source immutability and exact old
+running-machine continuation. ColecoVision's fix must publish before the umbrella
+updates its existing runtime dependency. Compatibility approval is pending.
+
+## BBC CI doctest selection
+
+The narrowly selected binary-only BBC package builds its test executables, but
+CI then fails `cargo test --doc --package emu198x-acorn-bbc-micro` with “no library
+targets found”. Select actual library doctest targets from successful Cargo
+metadata, reject unknown/missing selection data, and run every selected library's
+doctests. A binary-only selection reports that there is no doctest target, while
+its ordinary binaries continue through the collector. Add selection/failure
+controls and a real tiny-workspace test; never mask rustdoc failures or force
+unrelated packages into the selection merely to make Cargo accept it.
