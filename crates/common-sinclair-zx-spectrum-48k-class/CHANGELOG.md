@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Variant48kClass::SPIDER`, true by default: without the spider, the ULA holds up every I/O cycle, not just its own port's
+- `Spectrum48kIssue1Marker` and `Spectrum48kIssue2Marker`
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/common-sinclair-zx-spectrum-48k-class-v0.2.0) - 2026-06-04
 
 ### Other

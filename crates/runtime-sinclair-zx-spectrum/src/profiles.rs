@@ -23,8 +23,14 @@ use emu198x_shell::{
 pub enum Model {
     /// ZX Spectrum 16K PAL.
     Spectrum16KPal,
-    /// ZX Spectrum 48K PAL.
+    /// ZX Spectrum 48K PAL, on the Issue 3 board and later (6C ULA).
     Spectrum48KPal,
+    /// ZX Spectrum 48K PAL on the Issue 1 board: 5C ULA, no "spider", so
+    /// every I/O cycle contends.
+    Spectrum48KIssue1Pal,
+    /// ZX Spectrum 48K PAL on the Issue 2 board: 5C ULA, whose port-254 bit 6
+    /// follows MIC as well as EAR.
+    Spectrum48KIssue2Pal,
     /// ZX Spectrum+ PAL (1984, full-stroke keyboard, electrically identical to 48K).
     SpectrumPlus,
     /// ZX Spectrum 128K PAL ("toastrack").
@@ -56,6 +62,8 @@ impl Model {
         match self {
             Self::Spectrum16KPal => "sinclair-zx-spectrum-16k",
             Self::Spectrum48KPal => "sinclair-zx-spectrum-48k",
+            Self::Spectrum48KIssue1Pal => "sinclair-zx-spectrum-48k-issue1",
+            Self::Spectrum48KIssue2Pal => "sinclair-zx-spectrum-48k-issue2",
             Self::SpectrumPlus => "sinclair-zx-spectrum-plus",
             Self::Spectrum128KPal => "sinclair-zx-spectrum-128k",
             Self::SpectrumPlus2 => "sinclair-zx-spectrum-plus2",
@@ -76,6 +84,8 @@ impl Model {
         match self {
             Self::Spectrum16KPal => "sinclair-zx-spectrum-16k-pal",
             Self::Spectrum48KPal => "sinclair-zx-spectrum-48k-pal",
+            Self::Spectrum48KIssue1Pal => "sinclair-zx-spectrum-48k-issue1-pal",
+            Self::Spectrum48KIssue2Pal => "sinclair-zx-spectrum-48k-issue2-pal",
             Self::SpectrumPlus => "sinclair-zx-spectrum-plus-pal",
             Self::Spectrum128KPal => "sinclair-zx-spectrum-128k-pal",
             Self::SpectrumPlus2 => "sinclair-zx-spectrum-plus2-pal",
@@ -96,6 +106,8 @@ impl Model {
         match self {
             Self::Spectrum16KPal => "ZX Spectrum 16K (PAL)",
             Self::Spectrum48KPal => "ZX Spectrum 48K (PAL)",
+            Self::Spectrum48KIssue1Pal => "ZX Spectrum 48K Issue 1 (PAL)",
+            Self::Spectrum48KIssue2Pal => "ZX Spectrum 48K Issue 2 (PAL)",
             Self::SpectrumPlus => "ZX Spectrum+ (PAL)",
             Self::Spectrum128KPal => "ZX Spectrum 128K (PAL)",
             Self::SpectrumPlus2 => "ZX Spectrum +2 (PAL)",
@@ -114,9 +126,11 @@ impl Model {
     /// 128K → +2 → +2A → +2B → +3) then the five exotics (Pentagon →
     /// Scorpion → TC2048 → TC2068 → TS2068). Stable order matters for
     /// the window's variant menu.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::Spectrum16KPal,
         Self::Spectrum48KPal,
+        Self::Spectrum48KIssue1Pal,
+        Self::Spectrum48KIssue2Pal,
         Self::SpectrumPlus,
         Self::Spectrum128KPal,
         Self::SpectrumPlus2,
@@ -131,9 +145,11 @@ impl Model {
     ];
 
     /// Every variant id, in [`Self::ALL`] order.
-    pub const VARIANT_IDS: [&'static str; 13] = [
+    pub const VARIANT_IDS: [&'static str; 15] = [
         "spectrum_16k",
         "spectrum_48k",
+        "spectrum_48k_issue1",
+        "spectrum_48k_issue2",
         "spectrum_plus",
         "spectrum_128k",
         "spectrum_plus2",
@@ -154,6 +170,8 @@ impl Model {
         match self {
             Self::Spectrum16KPal => "spectrum_16k",
             Self::Spectrum48KPal => "spectrum_48k",
+            Self::Spectrum48KIssue1Pal => "spectrum_48k_issue1",
+            Self::Spectrum48KIssue2Pal => "spectrum_48k_issue2",
             Self::SpectrumPlus => "spectrum_plus",
             Self::Spectrum128KPal => "spectrum_128k",
             Self::SpectrumPlus2 => "spectrum_plus2",
@@ -180,6 +198,8 @@ impl Model {
         match self {
             Self::Spectrum16KPal => "ZX Spectrum 16K",
             Self::Spectrum48KPal => "ZX Spectrum 48K",
+            Self::Spectrum48KIssue1Pal => "ZX Spectrum 48K Issue 1",
+            Self::Spectrum48KIssue2Pal => "ZX Spectrum 48K Issue 2",
             Self::SpectrumPlus => "ZX Spectrum+",
             Self::Spectrum128KPal => "ZX Spectrum 128",
             Self::SpectrumPlus2 => "ZX Spectrum +2",
@@ -206,7 +226,11 @@ impl Model {
     #[must_use]
     pub fn firmware_sources(self) -> Vec<FirmwareSource> {
         match self {
-            Self::Spectrum16KPal | Self::Spectrum48KPal | Self::SpectrumPlus => {
+            Self::Spectrum16KPal
+            | Self::Spectrum48KPal
+            | Self::Spectrum48KIssue1Pal
+            | Self::Spectrum48KIssue2Pal
+            | Self::SpectrumPlus => {
                 vec![FirmwareSource::required(
                     "sinclair-zx-spectrum-48k-rom",
                     &["sinclair-zx-spectrum-48k/48.rom"],
@@ -293,7 +317,10 @@ impl Model {
     #[must_use]
     pub const fn release_year(self) -> u16 {
         match self {
-            Self::Spectrum16KPal | Self::Spectrum48KPal => 1982,
+            Self::Spectrum16KPal
+            | Self::Spectrum48KPal
+            | Self::Spectrum48KIssue1Pal
+            | Self::Spectrum48KIssue2Pal => 1982,
             Self::SpectrumPlus => 1984,
             Self::Spectrum128KPal | Self::TimexTC2048 => 1985,
             Self::SpectrumPlus2 | Self::SpectrumPlus2A | Self::SpectrumPlus3 => 1986,
@@ -313,6 +340,8 @@ pub fn profiles() -> Vec<MachineProfile> {
     vec![
         profile_for(Model::Spectrum16KPal),
         profile_for(Model::Spectrum48KPal),
+        profile_for(Model::Spectrum48KIssue1Pal),
+        profile_for(Model::Spectrum48KIssue2Pal),
         profile_for(Model::SpectrumPlus),
         profile_for(Model::Spectrum128KPal),
         profile_for(Model::SpectrumPlus2),
@@ -398,14 +427,23 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("variant-switch"),
             ]),
         },
-        Model::Spectrum48KPal => MachineProfile {
+        Model::Spectrum48KPal | Model::Spectrum48KIssue1Pal | Model::Spectrum48KIssue2Pal => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),
             profile_id: ProfileId::from(model.profile_id()),
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
             release_year: 1982,
-            summary: "48K PAL baseline for the first reference Spectrum implementation.".into(),
+            summary: match model {
+                Model::Spectrum48KIssue1Pal => {
+                    "48K on the Issue 1 board: the 5C ULA, without the spider, so every I/O cycle contends."
+                }
+                Model::Spectrum48KIssue2Pal => {
+                    "48K on the Issue 2 board: the 5C ULA, whose port-254 bit 6 follows MIC as well as EAR."
+                }
+                _ => "48K PAL baseline for the first reference Spectrum implementation.",
+            }
+            .into(),
             clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
             firmware: vec![FirmwareRequirement::new(
                 "sinclair-zx-spectrum-48k-rom",

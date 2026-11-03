@@ -468,7 +468,7 @@ mod tests {
     }
 
     /// The exotics are reachable too — `from_script_id` has always
-    /// accepted all 13 variants even though the `set_machine` error
+    /// accepted every variant even though the `set_machine` error
     /// message used to name only the SOLID 8.
     #[test]
     fn machine_flag_accepts_the_exotics() {

@@ -13,9 +13,13 @@ pub use common_sinclair_zx_spectrum::{
     AudioControls, SpeakerChannel,
     keyboard::{KeyboardMatrix, SpectrumKey},
 };
-pub use common_sinclair_zx_spectrum_48k_class::{Spectrum48kMarker, TapeInput};
+pub use common_sinclair_zx_spectrum_48k_class::{
+    Spectrum48kIssue1Marker, Spectrum48kIssue2Marker, Spectrum48kMarker, TapeInput,
+};
 pub use emu198x_ferranti_ula_6c001e::UlaRevision;
 pub use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::{
     KempstonButton, KempstonJoystick,
 };
-pub use machine::{ApplyInputEvent, ApplyKempstonEvent, Spectrum48k};
+pub use machine::{
+    ApplyInputEvent, ApplyKempstonEvent, Spectrum48k, Spectrum48kIssue1, Spectrum48kIssue2,
+};

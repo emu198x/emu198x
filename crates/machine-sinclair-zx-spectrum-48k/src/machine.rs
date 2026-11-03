@@ -13,13 +13,22 @@
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum48kMemory};
 use common_sinclair_zx_spectrum_48k_class::{
-    Spectrum48kMarker, SpectrumMachineCore, Variant48kClass,
+    Spectrum48kIssue1Marker, Spectrum48kIssue2Marker, Spectrum48kMarker, SpectrumMachineCore,
+    Variant48kClass,
 };
 use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonButton;
 use emu198x_shell::InputEvent;
 
 /// Machine-local state for a stock ZX Spectrum 48K.
 pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
+
+/// A ZX Spectrum 48K on the Issue 1 board: 5C ULA, no spider, so every I/O
+/// cycle contends. Build it with the 5C ULA, `UlaRevision::Ferranti5C`.
+pub type Spectrum48kIssue1 = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kIssue1Marker>;
+
+/// A ZX Spectrum 48K on the Issue 2 board: 5C ULA, with the spider. Build it
+/// with `UlaRevision::Ferranti5C`.
+pub type Spectrum48kIssue2 = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kIssue2Marker>;
 
 /// Maps a host-boundary [`InputEvent`] onto the Spectrum keyboard matrix.
 ///

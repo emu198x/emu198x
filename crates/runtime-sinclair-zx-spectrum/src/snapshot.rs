@@ -185,6 +185,15 @@ pub(crate) fn decode<M: SpectrumMachine>(
         });
     }
 
+    if !runtime.machine().accepts_restored(&snapshot.machine) {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!(
+                "snapshot holds another board's state for profile {}",
+                runtime.profile().profile_id.as_str()
+            ),
+        });
+    }
+
     let card = runtime
         .machine_mut()
         .divmmc_mut()

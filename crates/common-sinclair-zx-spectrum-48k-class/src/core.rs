@@ -759,9 +759,16 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M,
     }
     #[inline(always)]
     fn tick_ula(&mut self) {
+        // Without the spider, A0 never reaches the ULA's /IOREQ pin, so it
+        // treats every I/O cycle as its own when deciding contention.
+        let addr = if !V::SPIDER && self.z80.iorq {
+            self.z80.addr & !1
+        } else {
+            self.z80.addr
+        };
         self.ula.tick(
             &self.memory,
-            self.z80.addr,
+            addr,
             self.z80.mreq,
             self.z80.iorq,
             self.z80.rfsh,

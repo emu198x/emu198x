@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- the 48K Issue 1 and Issue 2 boards as their own models, profiles and variants (`spectrum_48k_issue1`, `spectrum_48k_issue2`)
+- a 48K save is refused when its payload holds the other ULA family's state
+
 ### Changed
 
 - Advance live-machine snapshots to version 3; version 2 cannot preserve accepted Z80 interrupt response identity
