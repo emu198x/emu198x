@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve cartridges staged before BIOS loading in version-6 saves, with explicit version-5 readers retaining live media and leaving legacy empty saves empty.
+
 ### Changed
 
 - Advance live-machine snapshots to version 3 and rehydrate the Z80 walker sequence before resumed execution; version 2 cannot preserve accepted interrupt response identity

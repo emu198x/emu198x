@@ -90,7 +90,7 @@ recovered. Validate contradictory new payloads before mutation; do not reapply
 new-load admission checks to original saved media. Qualify empty/staged/dirty
 states, two BIOS-executed cartridge guests, source immutability and exact old
 running-machine continuation. ColecoVision's fix must publish before the umbrella
-updates its existing runtime dependency. Compatibility approval is pending.
+updates its existing runtime dependency. The user approved v6 with explicit v5 readers on 2026-11-03.
 
 ## BBC CI doctest selection
 
@@ -114,3 +114,19 @@ target. The original board-split v4 fixtures remain unchanged; their hardware
 payloads qualify current saves through explicit test-only envelopes, never a
 production legacy reader. Full runtime/CLI tests, formatting and all-target Clippy
 pass. The local real-firmware test remains explicitly ignored when ROMs are absent.
+
+## Verified implementation
+
+Version 6 stores a borrowed staged image only while the live machine is absent.
+Decode checks version, complete payload, board/profile identity and exclusive
+cartridge ownership before installing anything. The v5 reader uses the explicit
+old layout. Low-level saved media, including an explicitly empty image, retain
+their original admission semantics. No Rust API or dependency changes.
+
+Both regions and two BIOS-executed cartridges survive blank and dirty targets
+(eight cases). Original v5 empty captures clear stale BIOS/media without inventing
+missing bytes. Existing frozen v5 live machines retain exact hardware, native
+video, audio and final state; comparison normalizes only the new envelope version
+and absent staging field. Contradictory/truncated/future payloads reject atomically.
+Dropping staged bytes deliberately makes the execution regression fail; restored
+positive suites and all-target Clippy pass. All original specimen hashes match.
