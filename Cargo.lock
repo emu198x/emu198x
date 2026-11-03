@@ -1720,12 +1720,13 @@ dependencies = [
 [[package]]
 name = "emu198x-common-coleco-colecovision"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a960e8eea27607658a5a0f6cdaa1ae7497519d8bbd00a99eba8c8b96e9eb5f1c"
 dependencies = [
  "emu198x-ti-sn76489",
  "emu198x-ti-tms9918",
  "emu198x-z80-cadence",
  "emu198x-zilog-z80",
- "postcard",
  "serde",
  "serde-big-array",
 ]
@@ -1903,17 +1904,19 @@ dependencies = [
 [[package]]
 name = "emu198x-machine-coleco-colecovision-ntsc"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b54d0bf57aafa5d3ba07c62482d381fa26f3aa133036a773ceab27306edd1eb"
 dependencies = [
  "emu198x-common-coleco-colecovision",
- "emu198x-zilog-z80",
 ]
 
 [[package]]
 name = "emu198x-machine-coleco-colecovision-pal"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cec2ab40cdce1a5dc0ec26c708419d9da8dc500cd083b168fd4bd99933fb29f9"
 dependencies = [
  "emu198x-common-coleco-colecovision",
- "emu198x-zilog-z80",
 ]
 
 [[package]]
@@ -2336,6 +2339,8 @@ dependencies = [
 [[package]]
 name = "emu198x-runtime-coleco-colecovision"
 version = "0.46.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f74840446ed681b19b1156c50c446b6d75a2493d5d543b897b5bdb70a4c97dad"
 dependencies = [
  "emu198x-common-coleco-colecovision",
  "emu198x-machine-coleco-colecovision-ntsc",

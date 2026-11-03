@@ -138,6 +138,42 @@ def machine_dependency_problems(root: pathlib.Path) -> list[str]:
     return problems
 
 
+def moved_board_problems(system: dict, owner: str, lock: dict) -> list[str]:
+    """A board in another repository must still be what its binary runs.
+
+    Its crate comes from crates.io, so it is checked in `Cargo.lock` rather
+    than as a directory here: a registry package, reachable from the binary.
+    """
+    machine = system["machine_id"]
+    repository = system["machine_repository"]
+    problems = []
+    if not re.fullmatch(r"emu198x/[a-z0-9-]+", repository):
+        problems.append(f"{machine}: machine_repository {repository} is not an emu198x repository")
+    if not category(owner).startswith("machine-"):
+        problems.append(f"{machine}: unknown machine_crate {owner}")
+    packages = lock.get("package", [])
+    entries = [p for p in packages if p["name"] == owner]
+    if not entries:
+        return problems + [f"{machine}: machine_crate {owner} is not in Cargo.lock"]
+    if not all(p.get("source", "").startswith("registry+") for p in entries):
+        problems.append(
+            f"{machine}: machine_crate {owner} is in machine_repository but not from crates.io"
+        )
+    users: dict[str, list[str]] = {}
+    for package in packages:
+        for dependency in package.get("dependencies", []):
+            users.setdefault(dependency.split(" ")[0], []).append(package["name"])
+    reached, stack = set(), [owner]
+    while stack:
+        name = stack.pop()
+        if name not in reached:
+            reached.add(name)
+            stack.extend(users.get(name, []))
+    if system["crate"] not in reached:
+        problems.append(f"{machine}: {system['crate']} does not depend on {owner}")
+    return problems
+
+
 def gh(args: list[str]):
     out = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=False)
     if out.returncode != 0 or not out.stdout.strip():
@@ -161,7 +197,11 @@ def main() -> int:
     for crate in sorted(listed_crates - shipping_crates()):
         problems.append(f"registry names crate {crate}, which does not ship")
 
+    lock = tomllib.loads((ROOT / "Cargo.lock").read_text())
     for system in systems:
+        if (owner := system.get("machine_crate")) and system.get("machine_repository"):
+            problems += moved_board_problems(system, owner, lock)
+            continue
         if owner := system.get("machine_crate"):
             manifest = ROOT / "crates" / owner / "Cargo.toml"
             if not category(owner).startswith("machine-") or not manifest.is_file():

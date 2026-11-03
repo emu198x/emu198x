@@ -361,31 +361,3 @@ consumers = "Used by the NES, whose cartridge boards implement its PpuCartridge 
 # 96.28% line coverage on 2026-10-26.
 coverage_floor = 96
 
-[[repo]]
-name = "coleco-colecovision"
-crates = [
-    "emu198x-common-coleco-colecovision",
-    "emu198x-machine-coleco-colecovision-ntsc",
-    "emu198x-machine-coleco-colecovision-pal",
-    "emu198x-runtime-coleco-colecovision",
-]
-summary = "The ColecoVision family: its shared wiring, the NTSC and PAL boards, and the headless runtime."
-consumers = "Used by the Emu198x ColecoVision binary and the browser fleet. The first system family to move (pilot)."
-# 74.64% line coverage across the four crates on 2026-11-03; the tests that
-# need the real BIOS skip without it.
-coverage_floor = 74
-data = [
-    "test-data/colecovision/split-v5/README.md",
-    "test-data/colecovision/split-v5/manifest.json",
-    "test-data/colecovision/split-v5/coleco-colecovision-ntsc.state",
-    "test-data/colecovision/split-v5/coleco-colecovision-ntsc.after.state",
-    "test-data/colecovision/split-v5/coleco-colecovision-ntsc.audio",
-    "test-data/colecovision/split-v5/coleco-colecovision-ntsc.pixels",
-    "test-data/colecovision/split-v5/coleco-colecovision-ntsc.times.json",
-    "test-data/colecovision/split-v5/coleco-colecovision-pal.state",
-    "test-data/colecovision/split-v5/coleco-colecovision-pal.after.state",
-    "test-data/colecovision/split-v5/coleco-colecovision-pal.audio",
-    "test-data/colecovision/split-v5/coleco-colecovision-pal.pixels",
-    "test-data/colecovision/split-v5/coleco-colecovision-pal.times.json",
-    "test-data/synthetic-firmware/coleco-colecovision.rom",
-]

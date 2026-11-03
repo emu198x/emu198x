@@ -64,7 +64,7 @@ runtime-atari-5200 = { path = "../runtime-atari-5200", version = "0.46.0", optio
 runtime-atari-7800 = { path = "../runtime-atari-7800", version = "0.46.0", optional = true }
 runtime-atari-800xl = { path = "../runtime-atari-800xl", version = "0.46.0", optional = true }
 runtime-atari-st = { path = "../runtime-atari-st", version = "0.46.0", optional = true }
-emu198x-runtime-coleco-colecovision = { path = "../emu198x-runtime-coleco-colecovision", version = "0.46.0", optional = true }
+emu198x-runtime-coleco-colecovision = { version = "0.46.2", optional = true }
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.46.0", optional = true }
 runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.46.0", optional = true }
 runtime-commodore-pet = { path = "../runtime-commodore-pet", version = "0.46.0", optional = true }

@@ -13,12 +13,19 @@ def partitions(
     Older rows still use their shipping crate as the evidence root. Explicit
     machine_crate rows own only that concrete board's exclusive dependencies;
     the family host/runtime and genuinely common wiring remain shared.
+
+    A row with `machine_repository` names a board whose crate, and whose
+    tests, have moved to that repository and come from crates.io. Nothing in
+    this workspace is that board's own evidence, so it owns no crates here;
+    the binary's crates stay shared.
     """
     reach: dict[str, set[str]] = defaultdict(set)
     for binary in {s["crate"] for s in systems}:
         for member in closures[binary]:
             reach[member].add(binary)
-    board_rows = [s for s in systems if "machine_crate" in s]
+    board_rows = [
+        s for s in systems if "machine_crate" in s and "machine_repository" not in s
+    ]
     roots = [s["machine_crate"] for s in board_rows]
     if len(roots) != len(set(roots)):
         raise ValueError("two machine identities name the same concrete machine crate")
@@ -40,7 +47,10 @@ def partitions(
             for s in systems
             if s["crate"] == binary and s["machine_id"] != row["machine_id"]
         )
-        if "machine_crate" in row:
+        if "machine_repository" in row:
+            own = set()
+            shared = set(closures[binary])
+        elif "machine_crate" in row:
             root = row["machine_crate"]
             own = {
                 c

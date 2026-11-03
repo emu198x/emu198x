@@ -61,6 +61,18 @@ class BoardEvidenceTests(unittest.TestCase):
             (["chip", "emu198x-machine-ntsc"], ["app"], []),
         )
 
+    def test_a_board_in_another_repository_owns_nothing_here(self) -> None:
+        # Its crate and tests moved; this workspace has only the binary.
+        systems = [
+            {"machine_id": "ntsc", "machine_crate": "emu198x-machine-ntsc",
+             "machine_repository": "emu198x/family", "crate": "app"},
+            {"machine_id": "pal", "machine_crate": "emu198x-machine-pal",
+             "machine_repository": "emu198x/family", "crate": "app"},
+        ]
+        result = partitions(systems, {"app": {"app"}})
+        self.assertEqual(result["ntsc"], ([], ["app"], ["pal"]))
+        self.assertEqual(result["pal"], ([], ["app"], ["ntsc"]))
+
     def test_two_machine_ids_cannot_claim_the_same_concrete_crate(self) -> None:
         with self.assertRaises(ValueError):
             partitions(
