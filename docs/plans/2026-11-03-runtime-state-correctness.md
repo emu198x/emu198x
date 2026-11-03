@@ -130,3 +130,19 @@ video, audio and final state; comparison normalizes only the new envelope versio
 and absent staging field. Contradictory/truncated/future payloads reject atomically.
 Dropping staged bytes deliberately makes the execution regression fail; restored
 positive suites and all-target Clippy pass. All original specimen hashes match.
+
+## Published ColecoVision consumer
+
+Family fix PR 2 and release PR 4 are merged. Runtime 0.46.3 is published with
+registry checksum 4c1f8b81c49e40142e5f753f67e0bd5fc854f38ba19b997e4402082f587ce75c.
+The umbrella consumes that registry version with no local override. Its resolved
+crate passes the same eight public staged-cartridge/BIOS execution cases in a
+bounded temporary consumer probe retained in the task evidence. All M5/runtime
+and both CLI test suites plus all-target Clippy pass. Only the existing runtime
+package version/checksum changes in Cargo.lock; no registry package is added.
+
+Release preparation exposed missing ALSA/udev headers in the shared workflow.
+Shared workflows PR 12 supplies the existing optional Linux-package setup to both
+release jobs. Main CI and the real ColecoVision pilot passed before immutable
+v1.13.1 was published and its documented v1 alias moved. The ColecoVision caller
+is restored to v1. Semver checking stayed enabled throughout.
