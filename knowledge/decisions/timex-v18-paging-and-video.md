@@ -36,3 +36,13 @@ continued video/audio/clocks/state are checked. Full input hashes and strict
 fixture gates prevent another ROM or a missing fixture from passing as proof.
 The old TS2068 stripe golden is retained in the docs qualification evidence;
 its replacement is accepted only after these independent boot checks.
+
+## Catalogue routing 6
+
+The complete 103-entry recapture matches 93 stored frame/audio pairs. Ten
++3 disk cases differ; the pre-Timex a7536e6d build reproduces every changed
+PNG and WAV byte-for-byte, alongside one matching +3 control. Steve approved
+landing routing marker 6 with every expected hash unchanged. Real-ROM
+verification therefore retains all ten failures, tracked in #2265. No
+capture is accepted as a replacement oracle. The complete result and
+baseline comparison are retained in the docs qualification evidence.
