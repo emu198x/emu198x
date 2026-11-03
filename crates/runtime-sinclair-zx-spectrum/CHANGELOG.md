@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Breaking:** Spectrum saves other than the Timex's move to version 19, which adds the ULA's snow state; version 17 is rejected before decoding (18 is the Timex's)
+
 ### Added
 
 - the 48K Issue 1 and Issue 2 boards as their own models, profiles and variants (`spectrum_48k_issue1`, `spectrum_48k_issue2`)

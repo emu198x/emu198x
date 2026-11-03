@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- snow, through the Ferranti ULA 0.3: a snowed fetch keeps its column and takes the refresh's row, and only the fetch pair a refresh lands on is hit, as on a real 48K
+
 ### Added
 
 - `Variant48kClass::SPIDER`, true by default: without the spider, the ULA holds up every I/O cycle, not just its own port's
