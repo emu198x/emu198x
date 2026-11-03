@@ -19,7 +19,11 @@ fn catalogue_switches_real_models_and_preserves_media_on_failure() {
     for model in Model::ALL {
         assert_eq!(OricRuntime::model_from_id(model.variant_id()), Some(model));
         assert_eq!(OricRuntime::model_from_id(model.profile_id()), Some(model));
-        session.swap_machine(model, &firmware).expect("switch");
+        let mut selected_firmware = FirmwareSet::new();
+        selected_firmware.push(FirmwareImage::new(model.firmware_id(), &rom));
+        session
+            .swap_machine(model, &selected_firmware)
+            .expect("switch");
         assert_eq!(session.native_frame_ticks(), model.frame_ticks());
         assert_eq!(
             session.machine().profile().profile_id.as_str(),
@@ -45,8 +49,16 @@ fn catalogue_switches_real_models_and_preserves_media_on_failure() {
         assert_eq!(session.machine().model(), model);
         assert!(session.machine().machine().expect("machine").tape_loaded());
     }
+    let before = session
+        .machine()
+        .snapshot()
+        .expect("before rejected switch");
+    assert!(session.swap_machine(Model::Oric1, &firmware).is_err());
+    assert_eq!(session.machine().snapshot().expect("unchanged"), before);
+    let mut oric1_firmware = FirmwareSet::new();
+    oric1_firmware.push(FirmwareImage::new(Model::Oric1.firmware_id(), &rom));
     session
-        .swap_machine(Model::Oric1, &firmware)
+        .swap_machine(Model::Oric1, &oric1_firmware)
         .expect("eject on final switch");
     assert!(!session.machine().machine().expect("machine").tape_loaded());
     session.run_frames(1).expect("one native frame");

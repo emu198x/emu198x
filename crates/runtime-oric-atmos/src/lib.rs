@@ -7,6 +7,6 @@ mod runtime;
 mod snapshot;
 
 pub use machine_oric_atmos::OricModel;
-pub use profiles::{BIOS_FIRMWARE_ID, Model, profile_for, profiles};
+pub use profiles::{BIOS_FIRMWARE_ID, Model, ORIC1_FIRMWARE_ID, profile_for, profiles};
 pub use queries::OricSessionQueryProvider;
 pub use runtime::OricRuntime;

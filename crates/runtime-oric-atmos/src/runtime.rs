@@ -8,7 +8,7 @@ use emu198x_shell::{
 use machine_oric_atmos::{FB_HEIGHT, FB_WIDTH, OricAtmos, OricModel};
 
 use crate::input::apply_input_event;
-use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
+use crate::profiles::{Model, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
@@ -109,9 +109,9 @@ impl OricRuntime {
         firmware.validate_for_profile(&profile)?;
         let bytes =
             firmware
-                .bytes(BIOS_FIRMWARE_ID)
+                .bytes(model.firmware_id())
                 .ok_or_else(|| MachineError::MissingFirmware {
-                    id: BIOS_FIRMWARE_ID.to_owned(),
+                    id: model.firmware_id().to_owned(),
                 })?;
         Self::new(model, bytes.to_vec())
     }
@@ -124,7 +124,7 @@ impl OricRuntime {
     pub fn set_bios(&mut self, bios: Vec<u8>) -> Result<(), MachineError> {
         if bios.len() != BIOS_SIZE {
             return Err(MachineError::InvalidFirmware {
-                id: BIOS_FIRMWARE_ID.to_owned(),
+                id: self.model.firmware_id().to_owned(),
                 reason: format!("ROM is {} bytes; expected {BIOS_SIZE}", bios.len()),
             });
         }
