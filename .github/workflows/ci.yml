@@ -433,53 +433,13 @@ jobs:
           # that covers the emulator around it.
           cargo test -p common-atari-800xl --test altirraos_boot -- --ignored
 
-  # Cross-platform smoke build. Catches Windows compile regressions without
-  # paying the cost of a full test run there. The full test suite still runs
-  # only on Linux, via the `test` job below; this job checks compilation,
-  # plus a synthetic-ROM Spectrum startup regression on the Windows 1 MiB
-  # main-thread stack, which exposed #1792. cpal and gilrs pick up native
-  # audio/gamepad backends on Windows, so no platform install is needed.
-  #
-  # macOS was dropped on 2026-11-02, at Steve's request. It needed one of
-  # GitHub's scarce Apple Silicon runners, and as a required check a
-  # shortage blocked every pull request. macOS is the primary development
-  # host, so a compile break there shows on the first local build, and every
-  # release still builds and signs for both macOS architectures.
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest]
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Read pinned toolchain
-        id: toolchain
-        shell: bash
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-${{ matrix.os }}
-
-      - name: Build workspace
-        run: cargo check --workspace --all-targets
-
-      - name: Exercise Spectrum startup on the Windows main-thread stack
-        if: runner.os == 'Windows'
-        run: cargo test --profile dist -p emu198x-spectrum --no-default-features --test script_startup
+  # Pull requests build and test on Linux only. macOS left on 2026-11-02 and
+  # Windows on 2026-11-03, at Steve's request: GitHub's runners for them were
+  # slow and scarce enough to block pull requests across the family. Every
+  # release still builds both macOS architectures and Windows. The Windows
+  # Spectrum startup regression (#1792), which this smoke build used to run,
+  # is now a manual run: dispatch test-linux-packages.yml with
+  # `windows_startup_regression`.
 
   # The workspace's test runner. Deliberately *not* gated on fmt +
   # clippy: those are seconds, this is minutes, and making it wait
