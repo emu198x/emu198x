@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-tape-playback = { path = "../emu198x-tape-playback", version = "0.1.1" }
-format-tzx = { path = "../format-tzx", version = "0.46.0" }
+format-tzx = { path = "../format-tzx", version = "0.47.0" }
 
 [lints]
 workspace = true

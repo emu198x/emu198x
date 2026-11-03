@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-amiga-ocs = { path = "../common-commodore-amiga-ocs", version = "0.46.0" }
+common-commodore-amiga-ocs = { path = "../common-commodore-amiga-ocs", version = "0.47.0" }
 
 [lints]
 workspace = true
