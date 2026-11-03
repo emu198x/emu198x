@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+### Added
+
+- `Tia::frame_sync_pending()`, so a host can stop a native frame at the
+  video boundary the TIA actually reached.
+
 ## 0.1.0
 
 ### Added
