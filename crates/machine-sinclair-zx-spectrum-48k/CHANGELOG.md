@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Spectrum48kIssue1` and `Spectrum48kIssue2`, the 5C ULA boards; the Issue 1 has no spider
+
 ### Fixed
 
 - require HALT2INT's complete source-defined `HALT: Early` classification instead of the obsolete self-golden

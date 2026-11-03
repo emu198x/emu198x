@@ -119,7 +119,7 @@ fn every_family_profile_resumes_exact_pixels_audio_clock_and_state() {
             }
         }
         assert_eq!(
-            cases, 176,
+            cases, 192,
             "every profile, video mode and phase was exercised"
         );
     });

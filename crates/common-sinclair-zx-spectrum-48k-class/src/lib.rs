@@ -20,4 +20,7 @@ pub mod variant;
 
 pub use core::SpectrumMachineCore;
 pub use tape_input::TapeInput;
-pub use variant::{Spectrum16kMarker, Spectrum48kMarker, SpectrumPlusMarker, Variant48kClass};
+pub use variant::{
+    Spectrum16kMarker, Spectrum48kIssue1Marker, Spectrum48kIssue2Marker, Spectrum48kMarker,
+    SpectrumPlusMarker, Variant48kClass,
+};

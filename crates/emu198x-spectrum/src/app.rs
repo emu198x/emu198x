@@ -221,7 +221,8 @@ impl MachineApp for Spectrum {
                     +2:          sinclair-zx-spectrum-plus2-rom-{0,1}
                     +2A/+3:      sinclair-zx-spectrum-plus3-rom-{0..3}
     --machine ID    boot this variant instead of the default 48K.
-                    One of: spectrum_16k, spectrum_48k, spectrum_plus,
+                    One of: spectrum_16k, spectrum_48k, spectrum_48k_issue1,
+                    spectrum_48k_issue2, spectrum_plus,
                     spectrum_128k, spectrum_plus2, spectrum_plus2a,
                     spectrum_plus2b, spectrum_plus3, pentagon_128,
                     scorpion_zs256, timex_tc2048, timex_tc2068,
@@ -262,7 +263,7 @@ impl MachineApp for Spectrum {
     Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)
     Alt                Symbol Shift
     Gamepad            Kempston on 16K/48K/+/128K/+2; IF2 on +2A/+2B/+3
-    Machine menu       switch between the 13 variants live
+    Machine menu       switch between the 15 variants live
     File > Open State  load a .sna / .z80 / .emu198x-state file";
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {

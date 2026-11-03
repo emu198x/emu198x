@@ -18,8 +18,8 @@
 //!
 //! ## Variant coverage
 //!
-//! All 13 Spectrum-family variants — the SOLID 8 (16K, 48K, +, 128K, +2,
-//! +2A, +2B, +3) plus the five exotics (Pentagon 128, Scorpion ZS-256,
+//! All 15 Spectrum-family variants — the SOLID 8 (16K, 48K, +, 128K, +2,
+//! +2A, +2B, +3), the 48K's Issue 1 and Issue 2 boards, and the five exotics (Pentagon 128, Scorpion ZS-256,
 //! Timex TC2048 / TC2068 / TS2068). The Timex 2068 models use distinct fixed board owners and dispatch arms, and
 //! each gets its own catalogue identity through the inner runtime's
 //! profile.
@@ -34,10 +34,10 @@ use common_sinclair_zx_spectrum::io_trace::IoEvent as SpectrumIoEvent;
 use crate::queries::SpectrumSessionQueryProvider;
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 use crate::variants::{
-    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTC2068Runtime,
-    TimexTS2068Runtime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kIssue1Runtime,
+    Spectrum48kIssue2Runtime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumPlus2ARuntime,
+    SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumPlusRuntime,
+    TimexTC2048Runtime, TimexTC2068Runtime, TimexTS2068Runtime,
 };
 use emu198x_shell::display::Display;
 
@@ -265,6 +265,10 @@ pub enum SpectrumRuntimeKind {
     Spectrum16K(Box<Spectrum16kRuntime>),
     /// ZX Spectrum 48K.
     Spectrum48K(Box<Spectrum48kRuntime>),
+    /// ZX Spectrum 48K on the Issue 1 board.
+    Spectrum48KIssue1(Box<Spectrum48kIssue1Runtime>),
+    /// ZX Spectrum 48K on the Issue 2 board.
+    Spectrum48KIssue2(Box<Spectrum48kIssue2Runtime>),
     /// ZX Spectrum+ (electrically identical to 48K; identity is in the
     /// profile).
     SpectrumPlus(Box<SpectrumPlusRuntime>),
@@ -315,7 +319,11 @@ impl SpectrumRuntimeKind {
         };
         use machine_timex_ts2068::TIMING_TS2068;
         let timing = match self {
-            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => &TIMING_48K,
+            Self::Spectrum16K(_)
+            | Self::Spectrum48K(_)
+            | Self::Spectrum48KIssue1(_)
+            | Self::Spectrum48KIssue2(_)
+            | Self::SpectrumPlus(_) => &TIMING_48K,
             Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => &TIMING_128K,
             Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
                 &TIMING_PLUS2A
@@ -335,9 +343,11 @@ impl SpectrumRuntimeKind {
         };
         use machine_timex_ts2068::TIMING_TS2068;
         match self {
-            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => {
-                TIMING_48K.halfcycles_per_frame
-            }
+            Self::Spectrum16K(_)
+            | Self::Spectrum48K(_)
+            | Self::Spectrum48KIssue1(_)
+            | Self::Spectrum48KIssue2(_)
+            | Self::SpectrumPlus(_) => TIMING_48K.halfcycles_per_frame,
             Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => TIMING_128K.halfcycles_per_frame,
             Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
                 TIMING_PLUS2A.halfcycles_per_frame
@@ -388,6 +398,12 @@ impl FamilyRuntime for SpectrumRuntimeKind {
             crate::Model::Spectrum48KPal => {
                 Self::Spectrum48K(build_boxed(|| Spectrum48kRuntime::from_firmware(firmware))?)
             }
+            crate::Model::Spectrum48KIssue1Pal => Self::Spectrum48KIssue1(build_boxed(|| {
+                Spectrum48kIssue1Runtime::from_firmware(firmware)
+            })?),
+            crate::Model::Spectrum48KIssue2Pal => Self::Spectrum48KIssue2(build_boxed(|| {
+                Spectrum48kIssue2Runtime::from_firmware(firmware)
+            })?),
             crate::Model::SpectrumPlus => Self::SpectrumPlus(build_boxed(|| {
                 SpectrumPlusRuntime::from_firmware(firmware)
             })?),
@@ -486,6 +502,8 @@ macro_rules! match_kind {
         match $self {
             SpectrumRuntimeKind::Spectrum16K($rt) => $body,
             SpectrumRuntimeKind::Spectrum48K($rt) => $body,
+            SpectrumRuntimeKind::Spectrum48KIssue1($rt) => $body,
+            SpectrumRuntimeKind::Spectrum48KIssue2($rt) => $body,
             SpectrumRuntimeKind::SpectrumPlus($rt) => $body,
             SpectrumRuntimeKind::Spectrum128K($rt) => $body,
             SpectrumRuntimeKind::SpectrumPlus2($rt) => $body,

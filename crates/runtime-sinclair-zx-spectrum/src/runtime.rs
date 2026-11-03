@@ -238,6 +238,14 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// boundaries reload as a coherent CPU.
     fn after_restore(&mut self) {}
 
+    /// Whether a decoded save's board-specific state belongs on this board,
+    /// checked before anything is restored. Default: yes. A board whose
+    /// identity lives in its saved state (the 48K boards' ULA family) refuses
+    /// another board's state even under a matching header.
+    fn accepts_restored(&self, _restored: &Self) -> bool {
+        true
+    }
+
     /// Applies one parsed `.sna` / `.z80` snapshot to the machine's
     /// CPU registers, border, memory pages, and (where applicable)
     /// paging / AY register state. Used by the binary's

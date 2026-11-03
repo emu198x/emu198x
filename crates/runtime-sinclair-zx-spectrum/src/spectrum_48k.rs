@@ -8,7 +8,9 @@
 
 use common_sinclair_zx_spectrum::error::RomImageError;
 use emu198x_shell::{FirmwareSet, MachineError, MachineProfile, known_capability};
-use machine_sinclair_zx_spectrum_48k::{Spectrum48k, UlaRevision};
+use machine_sinclair_zx_spectrum_48k::{
+    Spectrum48k, Spectrum48kIssue1, Spectrum48kIssue2, UlaRevision,
+};
 
 use crate::runtime::SpectrumRuntime;
 use crate::{Model, profile_for};
@@ -21,7 +23,7 @@ impl SpectrumRuntime<Spectrum48k> {
             Model::Spectrum48KPal,
             Spectrum48k::with_rom(UlaRevision::Ferranti6C, rom),
         );
-        *runtime.profile_mut() = boots_profile_with_export();
+        *runtime.profile_mut() = boots_profile_with_export(Model::Spectrum48KPal);
         runtime
     }
 
@@ -66,11 +68,72 @@ impl SpectrumRuntime<Spectrum48k> {
     }
 }
 
+/// The Issue 1 and Issue 2 boards: the 48K's ROM and memory on the 5C ULA,
+/// built like the Issue 3 48K above.
+macro_rules! impl_48k_board_runtime {
+    ($machine:ty, $model:expr, $board:literal) => {
+        impl SpectrumRuntime<$machine> {
+            #[doc = concat!("Builds a 48K runtime on the ", $board, " board, with the 5C ULA.")]
+            #[must_use]
+            pub fn new_48k(rom: [u8; 16 * 1024]) -> Self {
+                let mut runtime = SpectrumRuntime::new(
+                    $model,
+                    <$machine>::with_rom(UlaRevision::Ferranti5C, rom),
+                );
+                *runtime.profile_mut() = boots_profile_with_export($model);
+                runtime
+            }
+
+            /// Builds the runtime from a borrowed 16 KiB ROM byte slice.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the slice is not exactly 16 KiB.
+            pub fn from_rom_bytes(rom: &[u8]) -> Result<Self, RomImageError> {
+                let rom: [u8; 16 * 1024] = rom
+                    .try_into()
+                    .map_err(|_| RomImageError::WrongSize { actual: rom.len() })?;
+                Ok(Self::new_48k(rom))
+            }
+
+            /// Builds the runtime from the profile-declared firmware set.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if required firmware is missing, if unknown
+            /// firmware is supplied, or if the ROM image fails validation.
+            pub fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+                let profile = profile_for($model);
+                let rom_id = "sinclair-zx-spectrum-48k-rom";
+                firmware.validate_for_profile(&profile)?;
+                let rom = firmware
+                    .bytes(rom_id)
+                    .ok_or_else(|| MachineError::MissingFirmware {
+                        id: rom_id.to_owned(),
+                    })?;
+                Self::from_rom_bytes(rom).map_err(|reason| MachineError::InvalidFirmware {
+                    id: rom_id.to_owned(),
+                    reason: reason.to_string(),
+                })
+            }
+
+            /// Builds a runtime backed by a zero-filled ROM image.
+            #[must_use]
+            pub fn blank() -> Self {
+                Self::new_48k([0; 16 * 1024])
+            }
+        }
+    };
+}
+
+impl_48k_board_runtime!(Spectrum48kIssue1, Model::Spectrum48KIssue1Pal, "Issue 1");
+impl_48k_board_runtime!(Spectrum48kIssue2, Model::Spectrum48KIssue2Pal, "Issue 2");
+
 /// 48K-only profile: the base 48K profile plus the snapshot-export
 /// capability the bespoke runtime adds. It extends the base set rather than
 /// replacing it, so every capability the profile declares stays declared.
-fn boots_profile_with_export() -> MachineProfile {
-    let mut profile = profile_for(Model::Spectrum48KPal);
+fn boots_profile_with_export(model: Model) -> MachineProfile {
+    let mut profile = profile_for(model);
     for capability in [
         known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
         known_capability("cycle-profile"),
