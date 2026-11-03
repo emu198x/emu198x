@@ -179,7 +179,7 @@ impl Spectrum {
                     Model::VARIANT_IDS.join(", ")
                 ))
             }),
-            None => Ok(Model::Spectrum48KPal),
+            None => Ok(Model::SpectrumIssue3Ram48kPal),
         }
     }
 }
@@ -220,15 +220,20 @@ impl MachineApp for Spectrum {
                     128K:        sinclair-zx-spectrum-128k-rom-{0,1}
                     +2:          sinclair-zx-spectrum-plus2-rom-{0,1}
                     +2A/+3:      sinclair-zx-spectrum-plus3-rom-{0..3}
-    --machine ID    boot this variant instead of the default 48K.
-                    One of: spectrum_16k, spectrum_48k, spectrum_48k_issue1,
-                    spectrum_48k_issue2, spectrum_plus,
-                    spectrum_128k, spectrum_plus2, spectrum_plus2a,
-                    spectrum_plus2b, spectrum_plus3, pentagon_128,
-                    scorpion_zs256, timex_tc2048, timex_tc2068,
-                    timex_ts2068. Use a mid-script
-                    { \"action\": \"set_machine\" } step to swap variant
-                    during a run.
+    --machine ID    boot this profile (default: spectrum_issue3_48k).
+                    One of:
+                    spectrum_issue1_16k, spectrum_48k_issue1, spectrum_issue2_16k,
+                    spectrum_48k_issue2, spectrum_issue3_16k, spectrum_issue3_48k,
+                    spectrum_issue3b_16k, spectrum_issue3b_48k, spectrum_issue4a_16k,
+                    spectrum_issue4a_48k, spectrum_issue4b_16k, spectrum_issue4b_48k,
+                    spectrum_issue5_6c001e6_16k, spectrum_issue5_6c001e6_48k,
+                    spectrum_issue5_6c001e7_16k, spectrum_issue5_6c001e7_48k,
+                    spectrum_issue6a_16k, spectrum_issue6a_48k, spectrum_128k,
+                    spectrum_plus2, spectrum_plus2a, spectrum_plus2b, spectrum_plus3,
+                    pentagon_128, scorpion_zs256, timex_tc2048, timex_tc2068,
+                    timex_ts2068
+                    Use a mid-script { \"action\": \"set_machine\" }
+                    step to change profile during a run.
     --tape PATH     TAP/TZX image or zip containing one tape candidate,
                     loaded into slot tape-1 (a bare PATH argument means
                     the same)
@@ -236,14 +241,14 @@ impl MachineApp for Spectrum {
     --autoload-tape wait for boot, type LOAD \"\", and start tape-1
     --turbo-tape    (accepted; arm fast-load in the UI with Cmd/Ctrl+Shift+F)
     --kempston-mouse  capture the host mouse as a Kempston mouse
-                    (16K, 48K, +, 128K and +2)
+                    (all classic PCB/RAM profiles, 128K and +2)
     --multiface PATH
                     plug in a Multiface with this 8 KB ROM image: a
                     Multiface 128, or a Multiface 3 on the +2A/+2B/+3.
                     F5 is its red button
     --interface1 PATH
                     plug in an Interface 1 with this 8 KB ROM image, on
-                    the 16K/48K/+/128K/+2
+                    classic PCB/RAM profiles and the 128K/+2
     --microdrive PATH
                     an .mdr cartridge for the next Microdrive, 1 to 8;
                     repeatable, needs --interface1

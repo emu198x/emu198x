@@ -155,7 +155,7 @@ fn omitted_machine_keeps_explicit_48k_firmware() {
         .collect();
     assert_eq!(
         body(&responses[0])["result"]["value"],
-        "sinclair-zx-spectrum-48k-pal"
+        "sinclair-zx-spectrum-issue3-48k-pal"
     );
     assert_eq!(body(&responses[1])["bytes"], json!([0x40]));
 }

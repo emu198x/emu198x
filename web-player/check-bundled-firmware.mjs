@@ -36,11 +36,14 @@ try {
 // Only the 48K variant is marked, and only when the build embedded the ROM.
 const families=JSON.parse(readFileSync(new URL('./families.json',import.meta.url)));
 const profiles=families.flatMap(({family})=>family==='sinclair-zx-spectrum'
- ?['spectrum_16k','spectrum_48k','spectrum_128k'].map(id=>({family,id,name:id,machineId:family,firmware:[{id:`${id}-rom`,display_name:'ROM',optional:false}],slots:[]}))
+ ?['spectrum_issue3_16k','spectrum_issue3_48k','spectrum_128k'].map(id=>({family,id,name:id,machineId:family,firmware:[{id:`${id}-rom`,display_name:'ROM',optional:false}],slots:[]}))
  :[{family,id:'default',name:family,machineId:family,firmware:[{id:'rom',display_name:'ROM',optional:false}],slots:[{id:'slot',kind:'Cartridge',display_name:'Cartridge',required:false}]}]);
 const bundled=entries=>entries.flatMap(entry=>entry.variants.filter(v=>v.firmware.some(f=>f.bundled)).map(v=>`${entry.family}/${v.id}`));
 assert.deepEqual(bundled(makeCatalogue(profiles)),[]);
-assert.deepEqual(bundled(makeCatalogue(profiles,{bundledSpectrum48k:true})),['sinclair-zx-spectrum/spectrum_48k']);
+assert.deepEqual(bundled(makeCatalogue(profiles,{bundledSpectrum48k:true})),['sinclair-zx-spectrum/spectrum_issue3_48k']);
+const spectrum=makeCatalogue(profiles,{bundledSpectrum48k:true}).find(entry=>entry.id==='sinclair-zx-spectrum');
+assert.equal(spectrum.defaultVariant,'spectrum_issue3_48k');
+assert.ok(spectrum.variants.some(variant=>variant.id===spectrum.defaultVariant));
 console.log('Bundled firmware: unset builds bring-your-own; wrong, short and patched images are refused, by the web player and the npm build; only the Spectrum 48K is marked.');
 // The ROM may reach a visitor only inside the Spectrum module's wasm.
 const dist=process.argv[2];

@@ -9,14 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Breaking:** Spectrum saves other than the Timex's move to version 19, which adds the ULA's snow state; version 17 is rejected before decoding (18 is the Timex's)
+- **Breaking:** Explicit 48K-class board profiles use version 20, preserving both the ULA snow state and independent PCB/fitting identity. Version 19 and earlier are rejected before decoding. Timex stays at version 18; the other profiles use version 19.
 
 ### Added
+
+- Nine fixed PCB/ULA owners covering Issues 1, 2, 3, 3B, 4A, 4B, both documented Issue 5 fittings, and Ferranti Issue 6A, with separate 16/48 KiB profiles
 
 - the 48K Issue 1 and Issue 2 boards as their own models, profiles and variants (`spectrum_48k_issue1`, `spectrum_48k_issue2`)
 - a 48K save is refused when its payload holds the other ULA family's state
 
 ### Changed
+
+- **Breaking:** Retire generic 16K/48K/Spectrum+ selectors in favour of explicit PCB/RAM profiles; retain the existing Issue 1/2 48 KiB selectors
 
 - Advance live-machine snapshots to version 3; version 2 cannot preserve accepted Z80 interrupt response identity
 

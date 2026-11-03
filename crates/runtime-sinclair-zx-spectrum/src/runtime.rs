@@ -1273,7 +1273,7 @@ fn tap_blocks_to_tape_blocks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Spectrum48kRuntime;
+    use crate::SpectrumIssue3Ram48kRuntime;
     use common_sinclair_zx_spectrum::memory::MemoryBus;
     use emu198x_shell::{
         ControlCommand, MachineCore, MediaImage, MediaSet, MediaTransportAction,
@@ -1332,7 +1332,7 @@ mod tests {
     /// state, and zeroes the runtime time counter.
     #[test]
     fn reset_clears_keyboard_and_zeroes_time() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         // Dirty the keyboard cache by pressing a key.
         use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
         runtime.keyboard_mut().press_key(SpectrumKey::Q);
@@ -1353,7 +1353,7 @@ mod tests {
     /// surface is what the native UI and script runner drive.
     #[test]
     fn command_media_transport_routes_to_tape_play_and_stop() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         // Without a loaded tape, play/stop are no-ops on the
         // machine but must complete without error on the runtime.
         let start = ControlCommand::MediaTransport(MediaTransportCommand::new(
@@ -1374,7 +1374,7 @@ mod tests {
     /// disk insertion is a separate `load_media` call.
     #[test]
     fn command_media_transport_unknown_slot_errors() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let bad = ControlCommand::MediaTransport(MediaTransportCommand::new(
             "disk-a",
             MediaTransportAction::Start,
@@ -1391,7 +1391,7 @@ mod tests {
     /// multi-deck variants would extend this surface.
     #[test]
     fn load_media_unknown_tape_slot_errors() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let mut set = MediaSet::new();
         // A real TAP block: flag 0x00, one byte 0x42, checksum 0x42.
         let tap_bytes = [0x03, 0x00, 0x00, 0x42, 0x42];
@@ -1411,7 +1411,7 @@ mod tests {
     /// Disk through this path. Snapshots load via `restore`.
     #[test]
     fn load_media_snapshot_kind_errors() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let mut set = MediaSet::new();
         set.push(MediaImage::new(
             "snap-1",
@@ -1431,7 +1431,7 @@ mod tests {
     /// only supported on +3.
     #[test]
     fn load_media_disk_on_non_disk_variant_errors() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let mut set = MediaSet::new();
         set.push(MediaImage::new(
             "disk-a",
@@ -1450,7 +1450,7 @@ mod tests {
     /// snapshot-export pair from the boots-tier promotion.
     #[test]
     fn capabilities_match_profile_capabilities() {
-        let runtime = Spectrum48kRuntime::blank();
+        let runtime = SpectrumIssue3Ram48kRuntime::blank();
         let caps = runtime.capabilities();
         assert!(caps.contains(&emu198x_shell::known_capability("beeper-audio")));
         assert!(caps.contains(&emu198x_shell::known_capability("keyboard-matrix")));
@@ -1459,7 +1459,7 @@ mod tests {
     /// `time_value` starts at default (zero) for a fresh runtime.
     #[test]
     fn time_value_starts_at_default() {
-        let runtime = Spectrum48kRuntime::blank();
+        let runtime = SpectrumIssue3Ram48kRuntime::blank();
         assert_eq!(runtime.time_value(), MachineTime::default());
     }
 
@@ -1468,7 +1468,7 @@ mod tests {
     /// through the immutable accessor.
     #[test]
     fn machine_mut_mutation_visible_through_machine_accessor() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         runtime.machine_mut().write(0x4000, 0x99);
         assert_eq!(runtime.machine().read(0x4000), 0x99);
     }

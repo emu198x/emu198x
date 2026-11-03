@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 const read=name=>JSON.parse(readFileSync(new URL(name,import.meta.url)));
 const legacy=read('./src/catalog.json');
 const families=read('./families.json');
-const defaults={'commodore-amiga':'a500-a501','commodore-c64':'pal','nintendo-game-boy':'dmg','nintendo-nes':'nintendo-nes-ntsc','sega-mega-drive':'mega-drive-europe','sinclair-zx-spectrum':'spectrum_48k'};
+const defaults={'commodore-amiga':'a500-a501','commodore-c64':'pal','nintendo-game-boy':'dmg','nintendo-nes':'nintendo-nes-ntsc','sega-mega-drive':'mega-drive-europe','sinclair-zx-spectrum':'spectrum_issue3_48k'};
 const formats={
  'acorn-atom':{Tape:'.uef',Program:'.atm'},'acorn-bbc-micro':{Tape:'.uef'},'acorn-electron':{Tape:'.uef',Disk:'.adf,.adl'},
  'amstrad-cpc':{Tape:'.cdt,.tzx'},'atari-2600':{Cartridge:'.a26,.bin'},'atari-5200':{Cartridge:'.a52,.bin'},'atari-7800':{Cartridge:'.a78,.bin'},
@@ -40,7 +40,7 @@ export function makeCatalogue(profiles,{bundledSpectrum48k=false}={}) {
     for(const slot of variant.slots)if(slot.kind==='Disk')slot.accept=slot.id==='drive-9'?'.d81':'.d64,.g64';
   }
   if(family==='sinclair-zx-spectrum')for(const variant of variants)variant.slots.push({id:'snapshot',kind:'Snapshot',display_name:'Snapshot',accept:'.sna,.z80',required:false});
-  if(family==='sinclair-zx-spectrum' && bundledSpectrum48k)for(const variant of variants)if(variant.id==='spectrum_48k')variant.firmware=variant.firmware.map(firmware=>({...firmware,bundled:true}));
+  if(family==='sinclair-zx-spectrum' && bundledSpectrum48k)for(const variant of variants)if(variant.id==='spectrum_issue3_48k')variant.firmware=variant.firmware.map(firmware=>({...firmware,bundled:true}));
   // The optional L0 ROM keeps its MAME name, 000-lo.lo.
   if(family==='snk-neo-geo')for(const variant of variants)variant.firmware=variant.firmware.map(firmware=>firmware.id==='neo-geo-l0'?{...firmware,accept:'.lo,.rom,.bin'}:firmware);
   const defaultVariant=defaults[family] || variants[0].id;

@@ -21,10 +21,9 @@ use emu198x_shell::{
 };
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
-use machine_sinclair_zx_spectrum_16k::Spectrum16K;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With16k;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
@@ -34,10 +33,10 @@ use machine_timex_tc2068::TimexTC2068;
 use machine_timex_ts2068::{TIMING_TS2068, TimexTS2068};
 use runtime_sinclair_zx_spectrum::TimexTC2068Runtime;
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime,
-    SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumRuntime,
-    SpectrumSessionQueryProvider, TimexTC2048Runtime, TimexTS2068Runtime,
+    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime,
+    SpectrumIssue3Ram16kRuntime, SpectrumIssue3Ram48kRuntime, SpectrumMachine,
+    SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime,
+    SpectrumRuntime, SpectrumSessionQueryProvider, TimexTC2048Runtime, TimexTS2068Runtime,
 };
 
 #[derive(Default)]
@@ -119,7 +118,10 @@ fn spectrum_plus_runtime_emits_frame_at_48k_dimensions() {
     // Spectrum+ shares the 48K's hardware exactly — same Ferranti ULA,
     // same memory layout, same timing. Catalogue identity comes from
     // the runtime model alone.
-    let runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     let (frames, audio, dims) = run_single_frame(runtime, TIMING_48K.halfcycles_per_frame);
     assert_eq!(frames, 1);
     assert_eq!(audio, 1);
@@ -128,11 +130,17 @@ fn spectrum_plus_runtime_emits_frame_at_48k_dimensions() {
 
 #[test]
 fn spectrum_plus_runtime_round_trips_through_snapshot() {
-    let mut runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     run_single_frame_by_ref(&mut runtime, TIMING_48K.halfcycles_per_frame);
     let bytes = runtime.snapshot().expect("snapshot should encode");
 
-    let mut restored = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let mut restored = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     restored
         .restore(&bytes)
         .expect("snapshot should restore into a fresh runtime");
@@ -145,7 +153,10 @@ fn spectrum_plus_runtime_round_trips_through_snapshot() {
 
 #[test]
 fn spectrum_16k_runtime_emits_frame_and_audio_at_48k_dimensions() {
-    let runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let runtime = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     let (frames, audio, dims) = run_single_frame(runtime, TIMING_48K.halfcycles_per_frame);
     assert_eq!(frames, 1);
     assert_eq!(audio, 1);
@@ -154,11 +165,17 @@ fn spectrum_16k_runtime_emits_frame_and_audio_at_48k_dimensions() {
 
 #[test]
 fn spectrum_16k_runtime_round_trips_through_snapshot() {
-    let mut runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let mut runtime = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     run_single_frame_by_ref(&mut runtime, TIMING_48K.halfcycles_per_frame);
     let bytes = runtime.snapshot().expect("snapshot should encode");
 
-    let mut restored = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let mut restored = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     restored
         .restore(&bytes)
         .expect("snapshot should restore into a fresh runtime");
@@ -833,7 +850,7 @@ fn variant_runtime_rejects_unknown_transport_slot() {
 #[test]
 fn each_variant_accepts_tzx_via_runtime() {
     // Drives the `load_tape_stream` arm of each `SpectrumMachine`
-    // impl. Tape-only variants share the path; the SpectrumPlus impl
+    // impl. Tape-only variants share the path; the SpectrumIssue3With48k impl
     // covers all three Plus models since they reuse the same machine
     // type.
     let mut runtime128 = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
@@ -1212,7 +1229,10 @@ fn timex_ts2068_runtime_exposes_ay_register_queries() {
 fn non_ay_variants_do_not_advertise_ay_paths() {
     let provider = SpectrumSessionQueryProvider;
 
-    let runtime48 = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
+    let runtime48 = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     let paths_48 = provider.query_paths(&runtime48, Some("ay."));
     assert!(
         paths_48.is_empty(),
@@ -1748,15 +1768,24 @@ fn every_variant_rewinds_and_searches_its_tape() {
     run_with_large_stack(|| {
         rewinds_to_the_start(
             "16K",
-            Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new()),
+            SpectrumIssue3Ram16kRuntime::new(
+                Model::SpectrumIssue3Ram16kPal,
+                SpectrumIssue3With16k::new(),
+            ),
         );
         rewinds_to_the_start(
             "48K",
-            Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new()),
+            SpectrumIssue3Ram48kRuntime::new(
+                Model::SpectrumIssue3Ram48kPal,
+                SpectrumIssue3With48k::new(),
+            ),
         );
         rewinds_to_the_start(
             "Plus",
-            SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new()),
+            SpectrumIssue3Ram48kRuntime::new(
+                Model::SpectrumIssue3Ram48kPal,
+                SpectrumIssue3With48k::new(),
+            ),
         );
         rewinds_to_the_start(
             "128K",

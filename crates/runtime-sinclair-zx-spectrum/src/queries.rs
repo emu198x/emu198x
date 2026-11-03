@@ -336,12 +336,12 @@ pub(crate) fn chip_field(path: &str, chip: &str, snapshot: Value) -> Option<Quer
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::variants::Spectrum48kRuntime;
+    use crate::variants::SpectrumIssue3Ram48kRuntime;
     use common_sinclair_zx_spectrum::memory::MemoryBus;
-    use machine_sinclair_zx_spectrum_48k::Spectrum48k;
+    use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 
     fn write_screen_cell(
-        machine: &mut Spectrum48k,
+        machine: &mut SpectrumIssue3With48k,
         text_row: usize,
         text_col: usize,
         glyph: [u8; 8],
@@ -365,7 +365,7 @@ mod tests {
             (ROM_TEXT_GLYPH_BASE as usize) + (usize::from(b'A' - ROM_TEXT_GLYPH_FIRST) * 8);
         rom[glyph_base..glyph_base + 8].copy_from_slice(&glyph_a);
 
-        let mut machine = Spectrum48k::new();
+        let mut machine = SpectrumIssue3With48k::new();
         machine
             .load_rom_bytes(&rom)
             .expect("synthetic ROM should load into the 48K machine");
@@ -393,7 +393,7 @@ mod tests {
     fn provider_returns_none_for_unrecognised_path() {
         // The unknown-path arm must surface as Ok(None) so the
         // session layer can report `UnknownPath`.
-        let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
             .expect("dummy ROM should construct");
         let provider = SpectrumSessionQueryProvider;
 
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn provider_resolves_variant_specific_issue_path_via_trait() {
-        let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
             .expect("dummy ROM should construct");
         let provider = SpectrumSessionQueryProvider;
 

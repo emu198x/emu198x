@@ -57,7 +57,7 @@ fn machine() -> WebMachine<SpectrumRuntimeKind> {
     let rom = [0u8; 16 * 1024];
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new("sinclair-zx-spectrum-48k-rom", &rom));
-    let runtime = SpectrumRuntimeKind::from_firmware(Model::Spectrum48KPal, &firmware)
+    let runtime = SpectrumRuntimeKind::from_firmware(Model::SpectrumIssue3Ram48kPal, &firmware)
         .expect("a zeroed ROM is a valid 16K image");
     WebMachine::new(runtime)
 }

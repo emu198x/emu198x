@@ -25,7 +25,7 @@ use machine_pentagon_128::Pentagon128;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumMachine,
+    Model, Pentagon128Runtime, Spectrum128kRuntime, SpectrumIssue3Ram48kRuntime, SpectrumMachine,
     SpectrumPlus3Runtime,
 };
 
@@ -58,12 +58,12 @@ fn home_rom_48k() -> Option<PathBuf> {
 
 /// Waypoint: dummy 16 KiB ROM constructs a runtime cleanly.
 ///
-/// Catches regression: any change to `Spectrum48kRuntime::from_rom_bytes`
+/// Catches regression: any change to `SpectrumIssue3Ram48kRuntime::from_rom_bytes`
 /// shape — a moving validation envelope or a stricter size check would
 /// fail this immediately.
 #[test]
 fn dummy_rom_constructs_runtime() {
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
         .expect("dummy 16 KiB ROM should construct cleanly");
     assert_eq!(runtime.time(), MachineTime::default());
 }
@@ -74,7 +74,7 @@ fn dummy_rom_constructs_runtime() {
 /// run loop, the half-cycle Z80 dispatch, or the frame-emission path.
 #[test]
 fn run_until_advances_past_first_frame() -> Result<(), Box<dyn Error>> {
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let mut host = null_host();
     let target = MachineTime::new(80_000);
     runtime.run_until(target, &mut host)?;
@@ -93,11 +93,11 @@ fn run_until_advances_past_first_frame() -> Result<(), Box<dyn Error>> {
 /// Catches regression: any chip-state field that fails to round-trip.
 #[test]
 fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error>> {
-    let mut original = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut original = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let mut host = null_host();
     original.run_until(MachineTime::new(50_000), &mut host)?;
     let bytes_a = original.snapshot()?;
-    let mut restored = Spectrum48kRuntime::blank();
+    let mut restored = SpectrumIssue3Ram48kRuntime::blank();
     restored.restore(&bytes_a)?;
     let bytes_b = restored.snapshot()?;
     assert_eq!(bytes_a, bytes_b, "snapshot drift after restore");
@@ -126,7 +126,7 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// the canonical INT timing.
 #[test]
 fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
 
     // Step one frame forward, then position just before the INT
     // window. After this advance, scan should be at 248 and pixel
@@ -266,7 +266,7 @@ fn display_fetches_match_the_physical_counter() {
 /// floating bus leak fetched data into the border / vblank window.
 #[test]
 fn floating_bus_idles_outside_active_fetch_window() -> Result<(), Box<dyn Error>> {
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
 
     // Run to a point firmly in vertical blank (scan ≥ 312 wraps to
     // 0, so use a small T-state count just past frame start). At
@@ -296,7 +296,7 @@ fn floating_bus_idles_outside_active_fetch_window() -> Result<(), Box<dyn Error>
 /// "implicit attach on first event" contract. Seam 2 follow-up.
 #[test]
 fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> {
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     // Fresh machine: Kempston unattached, state byte clear.
     assert!(
         !runtime.machine().kempston.attached,
@@ -337,7 +337,7 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
 /// on `$FADF`.
 #[test]
 fn kempston_mouse_follows_host_pointer_events_48k() -> Result<(), Box<dyn Error>> {
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     assert!(!runtime.machine().kempston_mouse.attached);
 
     let events = [
@@ -380,7 +380,7 @@ fn the_nmi_key_runs_the_multiface_48k() -> Result<(), Box<dyn Error>> {
     let mut multiface_rom = vec![0; 0x2000];
     // LD A,$5A; LD ($8000),A; JR $
     multiface_rom[0x66..0x6D].copy_from_slice(&[0x3E, 0x5A, 0x32, 0x00, 0x80, 0x18, 0xFE]);
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&rom)?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)?;
     runtime.attach_multiface(&multiface_rom)?;
     runtime.run_until(MachineTime::new(10_000), &mut null_host())?;
 
@@ -399,7 +399,7 @@ fn the_nmi_key_runs_the_multiface_48k() -> Result<(), Box<dyn Error>> {
     assert!(runtime.machine().multiface.is_paged());
     assert_eq!(runtime.machine().read_byte(0x8000), 0x5A);
 
-    let mut restored = Spectrum48kRuntime::blank();
+    let mut restored = SpectrumIssue3Ram48kRuntime::blank();
     restored.restore(&runtime.snapshot()?)?;
     assert!(restored.machine().multiface.is_paged());
     Ok(())
@@ -414,13 +414,13 @@ fn microdrive_cartridges_load_export_and_survive_a_snapshot_48k() -> Result<(), 
 
     let mut mdr: Vec<u8> = (0..10 * 543).map(|i| i as u8).collect();
     mdr.push(1);
-    let load = |runtime: &mut Spectrum48kRuntime, slot: &'static str| {
+    let load = |runtime: &mut SpectrumIssue3Ram48kRuntime, slot: &'static str| {
         let mut media = MediaSet::new();
         media.push(MediaImage::new(slot, MediaKind::Cartridge, &mdr));
         runtime.load_media(&media)
     };
 
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     assert!(
         load(&mut runtime, "microdrive-1").is_err(),
         "no Interface 1, no Microdrives"
@@ -431,7 +431,7 @@ fn microdrive_cartridges_load_export_and_survive_a_snapshot_48k() -> Result<(), 
     assert_eq!(runtime.export_media("microdrive-1", "mdr")?, mdr);
     assert!(runtime.export_media("microdrive-2", "mdr").is_err());
 
-    let mut restored = Spectrum48kRuntime::blank();
+    let mut restored = SpectrumIssue3Ram48kRuntime::blank();
     restored.restore(&runtime.snapshot()?)?;
     assert_eq!(restored.export_media("microdrive-1", "mdr")?, mdr);
 
@@ -449,13 +449,13 @@ fn the_sd_card_loads_exports_and_stays_across_a_state_load_48k() -> Result<(), B
     use runtime_sinclair_zx_spectrum::SD_CARD_SLOT;
 
     let card: Vec<u8> = (0..512 * 1024).map(|i| (i / 512) as u8).collect();
-    let load = |runtime: &mut Spectrum48kRuntime| {
+    let load = |runtime: &mut SpectrumIssue3Ram48kRuntime| {
         let mut media = MediaSet::new();
         media.push(MediaImage::new(SD_CARD_SLOT, MediaKind::Disk, &card));
         runtime.load_media(&media)
     };
 
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     assert!(load(&mut runtime).is_err(), "no DivMMC, no card slot");
     runtime.attach_divmmc(&[0xFF; 0x2000])?;
     load(&mut runtime)?;
@@ -489,17 +489,17 @@ fn the_sd_card_loads_exports_and_stays_across_a_state_load_48k() -> Result<(), B
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v19() -> Result<(), Box<dyn Error>> {
+fn physical_board_snapshot_envelope_version_is_v20() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 19.
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    // and matches the value, so byte 0 of the snapshot bytes == 20.
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 19,
-        "snapshot envelope must be at version 19 (the ULA's snow state); \
+        bytes[0], 20,
+        "snapshot envelope must be at version 20 (independent physical board identity); \
          see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())
@@ -767,7 +767,7 @@ fn if2_port1_fire_closes_keyboard_zero_on_plus3() -> Result<(), Box<dyn Error>> 
 /// — IF2 events route through the keyboard matrix only.
 #[test]
 fn if2_port2_fire_closes_keyboard_five_on_48k() -> Result<(), Box<dyn Error>> {
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
 
     let press = InputEvent::Button {
         port: 2,
@@ -854,7 +854,7 @@ fn real_48k_rom_runs_thirty_frames() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let rom = std::fs::read(&rom_path)?;
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&rom)?;
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)?;
     let mut host = null_host();
     // 30 frames at 69_888 t-states/frame, half-cycle units.
     let target = MachineTime::new(30 * 2 * 69_888);

@@ -23,19 +23,19 @@ fn runtime(model: Model) -> SpectrumRuntimeKind {
 
 const BOARDS: [(Model, &str, &str); 3] = [
     (
-        Model::Spectrum48KIssue1Pal,
+        Model::SpectrumIssue1Ram48kPal,
         "spectrum_48k_issue1",
         "sinclair-zx-spectrum-48k-issue1-pal",
     ),
     (
-        Model::Spectrum48KIssue2Pal,
+        Model::SpectrumIssue2Ram48kPal,
         "spectrum_48k_issue2",
         "sinclair-zx-spectrum-48k-issue2-pal",
     ),
     (
-        Model::Spectrum48KPal,
-        "spectrum_48k",
-        "sinclair-zx-spectrum-48k-pal",
+        Model::SpectrumIssue3Ram48kPal,
+        "spectrum_issue3_48k",
+        "sinclair-zx-spectrum-issue3-48k-pal",
     ),
 ];
 
@@ -47,9 +47,9 @@ fn each_board_is_its_own_variant_and_profile() {
             let r = runtime(model);
             assert_eq!(r.profile().profile_id.as_str(), profile);
             let kind = match &r {
-                SpectrumRuntimeKind::Spectrum48KIssue1(_) => Model::Spectrum48KIssue1Pal,
-                SpectrumRuntimeKind::Spectrum48KIssue2(_) => Model::Spectrum48KIssue2Pal,
-                SpectrumRuntimeKind::Spectrum48K(_) => Model::Spectrum48KPal,
+                SpectrumRuntimeKind::Issue1Ram48k(_) => Model::SpectrumIssue1Ram48kPal,
+                SpectrumRuntimeKind::Issue2Ram48k(_) => Model::SpectrumIssue2Ram48kPal,
+                SpectrumRuntimeKind::Issue3Ram48k(_) => Model::SpectrumIssue3Ram48kPal,
                 _ => panic!("{variant} built another family member"),
             };
             assert_eq!(kind, model);
@@ -81,10 +81,22 @@ fn each_board_saves_and_restores_as_itself() {
 fn another_ula_familys_state_is_refused_under_a_matching_header() {
     on_stack(|| {
         for (target, source) in [
-            (Model::Spectrum48KPal, Model::Spectrum48KIssue1Pal),
-            (Model::Spectrum48KPal, Model::Spectrum48KIssue2Pal),
-            (Model::Spectrum48KIssue1Pal, Model::Spectrum48KPal),
-            (Model::Spectrum48KIssue2Pal, Model::Spectrum48KPal),
+            (
+                Model::SpectrumIssue3Ram48kPal,
+                Model::SpectrumIssue1Ram48kPal,
+            ),
+            (
+                Model::SpectrumIssue3Ram48kPal,
+                Model::SpectrumIssue2Ram48kPal,
+            ),
+            (
+                Model::SpectrumIssue1Ram48kPal,
+                Model::SpectrumIssue3Ram48kPal,
+            ),
+            (
+                Model::SpectrumIssue2Ram48kPal,
+                Model::SpectrumIssue3Ram48kPal,
+            ),
         ] {
             let bytes = runtime(source).snapshot().expect("source save");
             let (version, tail) = postcard::take_from_bytes::<u32>(&bytes).expect("version");

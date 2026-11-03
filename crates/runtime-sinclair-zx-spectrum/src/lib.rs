@@ -13,6 +13,7 @@
 
 mod autoload;
 mod basic_loader;
+mod board_runtime;
 mod debug;
 mod family_runtime;
 mod input;
@@ -24,9 +25,6 @@ mod runtime;
 mod scorpion_zs256;
 mod snapshot;
 mod spectrum_128k;
-mod spectrum_16k;
-mod spectrum_48k;
-mod spectrum_plus;
 mod spectrum_plus2;
 mod spectrum_plus2a;
 mod spectrum_plus2b;
@@ -46,15 +44,21 @@ pub use basic_loader::{
 pub use common_sinclair_zx_spectrum::BlockSeek;
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use family_runtime::{SpectrumLiveAccess, SpectrumRuntimeKind};
-pub use input::NMI_KEY;
+pub use input::{ApplyInputEvent, ApplyKempstonEvent, NMI_KEY};
 pub use profiles::{Model, profile_for, profiles};
 pub use queries::{SpectrumBootStatus, SpectrumSessionQueryProvider};
 pub use runtime::{SD_CARD_SLOT, SpectrumMachine, SpectrumRuntime};
 pub use variants::{
-    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kIssue1Runtime,
-    Spectrum48kIssue2Runtime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumPlus2ARuntime,
-    SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumPlusRuntime,
-    TimexTC2048Runtime, TimexTC2068Runtime, TimexTS2068Runtime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumIssue1Ram16kRuntime,
+    SpectrumIssue1Ram48kRuntime, SpectrumIssue2Ram16kRuntime, SpectrumIssue2Ram48kRuntime,
+    SpectrumIssue3BRam16kRuntime, SpectrumIssue3BRam48kRuntime, SpectrumIssue3Ram16kRuntime,
+    SpectrumIssue3Ram48kRuntime, SpectrumIssue4ARam16kRuntime, SpectrumIssue4ARam48kRuntime,
+    SpectrumIssue4BRam16kRuntime, SpectrumIssue4BRam48kRuntime,
+    SpectrumIssue5Ula6c001e6Ram16kRuntime, SpectrumIssue5Ula6c001e6Ram48kRuntime,
+    SpectrumIssue5Ula6c001e7Ram16kRuntime, SpectrumIssue5Ula6c001e7Ram48kRuntime,
+    SpectrumIssue6ARam16kRuntime, SpectrumIssue6ARam48kRuntime, SpectrumPlus2ARuntime,
+    SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, TimexTC2048Runtime,
+    TimexTC2068Runtime, TimexTS2068Runtime,
 };
 
 mod signal;

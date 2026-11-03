@@ -1,16 +1,6 @@
-//! Shared 48K-class machine composition.
-//!
-//! The 16K, 48K, and Spectrum+ share the same Ferranti-ULA-driven
-//! composition (Z80, beeper, tape). This type carries that composition
-//! parameterised over both the memory map (`M`) and a phantom variant
-//! marker (`V`). Variant crates alias it (e.g.
-//! `pub type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;`)
-//! so that snapshots cannot cross variants and per-machine metadata can
-//! attach at the marker level.
-//!
-//! Variants outside the 48K-class — 128K-family, Pentagon, Scorpion,
-//! Timex — have their own ULAs and additional state (AY, paging, FDC)
-//! and keep their own machine implementations.
+//! Shared crystal-driven Spectrum composition with a fixed physical identity.
+//! The independently serialized board tag is validated before runtime restore;
+//! memory buffers must also match the selected RAM population.
 
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
@@ -65,6 +55,7 @@ fn make_audio() -> BeeperAudio {
 /// the type level.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
+    board: crate::PhysicalBoard,
     z80: Z80,
     /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
     /// turns it on. Outside the snapshot: a saved state carries the
@@ -123,10 +114,19 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// Creates a 48K-class machine for the requested ULA revision and
     /// caller-supplied memory map.
     #[must_use]
-    pub fn with_revision_and_memory(revision: UlaRevision, memory: M) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_revision_and_memory(revision: UlaRevision, memory: M) -> Self
+    where
+        V: crate::variant::LegacyUlaSelection,
+    {
+        Self::construct(revision, memory)
+    }
+
+    fn construct(revision: UlaRevision, memory: M) -> Self {
         let audio = make_audio();
         let audio_frame = vec![0.0; audio.samples_per_frame()];
         Self {
+            board: V::BOARD,
             z80: Z80::new(),
             io_trace: IoTrace::default(),
             ula: FerrantiUla::new(revision),
@@ -149,6 +149,24 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             write_watch: None,
             _variant: PhantomData,
         }
+    }
+
+    /// Fixed physical machine identifier supplied by the concrete owner.
+    #[must_use]
+    pub const fn physical_machine_id(&self) -> &'static str {
+        V::MODEL_ID
+    }
+
+    /// Independently saved PCB and ULA fitting.
+    #[must_use]
+    pub const fn physical_board(&self) -> crate::PhysicalBoard {
+        self.board
+    }
+
+    /// Whether the saved board and chip family agree with this fixed owner.
+    #[must_use]
+    pub fn has_expected_board(&self) -> bool {
+        self.board == V::BOARD && self.revision() == V::BOARD.ula_family()
     }
 
     /// Begin tracing every Z80 memory write whose target falls
@@ -315,10 +333,16 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         &self.ula
     }
 
-    /// Mutable ULA access, for arming the half-cycle recorder.
+    /// Arm the half-cycle recorder without exposing replaceable chip hardware.
     #[doc(hidden)]
-    pub fn ula_mut(&mut self) -> &mut FerrantiUla {
-        &mut self.ula
+    pub fn start_ula_trace(&mut self) {
+        self.ula.debug_trace_start();
+    }
+
+    /// Take the captured ULA pin observations.
+    #[doc(hidden)]
+    pub fn take_ula_trace(&mut self) -> Vec<emu198x_ferranti_ula_6c001e::UlaTick> {
+        self.ula.debug_trace_take()
     }
 
     /// Reattaches `&'static` references that don't survive serde's
@@ -548,9 +572,8 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Resets the pin-level CPU and ULA while keeping the loaded ROM and RAM.
     pub fn reset(&mut self) {
-        let revision = self.revision();
         self.z80 = Z80::new();
-        self.ula = FerrantiUla::new(revision);
+        self.ula = FerrantiUla::new(V::BOARD.ula_family());
         self.multiface.reset();
         self.interface1.reset();
         self.divmmc.reset();
@@ -611,7 +634,10 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                     .or_else(|| self.divmmc.read_memory(addr))
                 {
                     Some(value) => value,
-                    None => self.memory.read(addr),
+                    None => V::BOARD.cpu_memory_address(addr, false).map_or_else(
+                        || self.ula.floating_bus(),
+                        |decoded| self.memory.read(decoded),
+                    ),
                 };
                 if self.z80.m1 {
                     self.interface1.after_m1(addr);
@@ -625,8 +651,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                 if !self.multiface.write_memory(self.z80.addr, self.z80.data)
                     && !self.interface1.write_memory(self.z80.addr, self.z80.data)
                     && !self.divmmc.write_memory(self.z80.addr, self.z80.data)
+                    && let Some(decoded) = V::BOARD.cpu_memory_address(self.z80.addr, true)
                 {
-                    self.memory.write(self.z80.addr, self.z80.data);
+                    self.memory.write(decoded, self.z80.data);
                 }
             }
             Some(BusOp::IoRead) => {
@@ -844,24 +871,45 @@ impl<M: MemoryBus, V: Variant48kClass> MemoryBus for SpectrumMachineCore<M, V> {
     }
 }
 
-// 48K-class shortcuts (Spectrum48kMemory backed: 48K + Spectrum+).
+// 48 KiB population of each fixed physical board.
 impl<V: Variant48kClass> SpectrumMachineCore<Spectrum48kMemory, V> {
-    /// Creates a Ferranti 6C 48K-class machine (Issue 3+) with
-    /// deterministic startup state.
+    /// Construct this fixed board with the supplied ROM; its ULA is not selectable.
+    #[must_use]
+    pub fn with_board_rom(rom: [u8; 16 * 1024]) -> Self {
+        Self::construct(V::BOARD.ula_family(), Spectrum48kMemory::with_rom(rom))
+    }
+
+    /// Validate independent saved identity and the actual fitted memory buffers.
+    #[must_use]
+    pub fn has_valid_hardware(&self) -> bool {
+        self.has_expected_board()
+            && self.memory.rom().len() == 16384
+            && self.memory.ram().len() == 49152
+    }
+
+    /// Creates this fixed board with 48 KiB RAM and deterministic startup state.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_revision(UlaRevision::Ferranti6C)
+        Self::construct(V::BOARD.ula_family(), Spectrum48kMemory::new())
     }
 
     /// Creates a 48K-class machine for the requested ULA revision.
     #[must_use]
-    pub fn with_revision(revision: UlaRevision) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_revision(revision: UlaRevision) -> Self
+    where
+        V: crate::variant::LegacyUlaSelection,
+    {
         Self::with_revision_and_memory(revision, Spectrum48kMemory::new())
     }
 
     /// Creates a 48K-class machine with the supplied 16 KiB ROM image.
     #[must_use]
-    pub fn with_rom(revision: UlaRevision, rom: [u8; 16 * 1024]) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_rom(revision: UlaRevision, rom: [u8; 16 * 1024]) -> Self
+    where
+        V: crate::variant::LegacyUlaSelection,
+    {
         Self::with_revision_and_memory(revision, Spectrum48kMemory::with_rom(rom))
     }
 
@@ -881,26 +929,36 @@ impl<V: Variant48kClass> Default for SpectrumMachineCore<Spectrum48kMemory, V> {
     }
 }
 
-// 16K-specific shortcuts. Only `Spectrum16kMarker` uses this memory map,
-// so the V parameter is fixed to that marker — no other variant currently
-// shares the half-RAM hardware.
-impl SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum16kMarker> {
+// 16 KiB is a RAM population of each fixed physical board.
+impl<V: Variant48kClass> SpectrumMachineCore<Spectrum16kMemory, V> {
+    /// Construct this fixed board with the supplied ROM; its ULA is not selectable.
+    #[must_use]
+    pub fn with_board_rom(rom: [u8; 16 * 1024]) -> Self {
+        Self::construct(V::BOARD.ula_family(), Spectrum16kMemory::with_rom(rom))
+    }
+
+    /// Validate independent saved identity and the actual fitted memory buffers.
+    #[must_use]
+    pub fn has_valid_hardware(&self) -> bool {
+        self.has_expected_board()
+            && self.memory.rom().len() == 16384
+            && self.memory.ram().len() == 16384
+    }
+
     /// Creates a Ferranti 6C 16K machine (Issue 3+) with deterministic
     /// startup state.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_revision(UlaRevision::Ferranti6C)
-    }
-
-    /// Creates a 16K machine for the requested ULA revision.
-    #[must_use]
-    pub fn with_revision(revision: UlaRevision) -> Self {
-        Self::with_revision_and_memory(revision, Spectrum16kMemory::new())
+        Self::construct(V::BOARD.ula_family(), Spectrum16kMemory::new())
     }
 
     /// Creates a 16K machine with the supplied 16 KiB ROM image.
     #[must_use]
-    pub fn with_rom(revision: UlaRevision, rom: [u8; 16 * 1024]) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_rom(revision: UlaRevision, rom: [u8; 16 * 1024]) -> Self
+    where
+        V: crate::variant::LegacyUlaSelection,
+    {
         Self::with_revision_and_memory(revision, Spectrum16kMemory::with_rom(rom))
     }
 
@@ -914,7 +972,7 @@ impl SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum16kMarker> {
     }
 }
 
-impl Default for SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum16kMarker> {
+impl<V: Variant48kClass> Default for SpectrumMachineCore<Spectrum16kMemory, V> {
     fn default() -> Self {
         Self::new()
     }
@@ -1427,11 +1485,8 @@ mod tests {
         assert!(machine.load_rom_bytes(&[0u8; 16 * 1024]).is_ok());
     }
 
-    /// The 16K wrapper's constructors mirror the 48K shape: `new()`,
-    /// `with_revision`, `with_rom`, plus `load_rom_bytes`. The 16K
-    /// variant lives in this layer crate (rather than the dedicated
-    /// machine-sinclair-zx-spectrum-16k wrapper) because the memory
-    /// type differs but the rest of the composition is identical.
+    /// Test-only ULA selection exercises the shared 16 KiB memory composition.
+    /// Shipping owners expose only their fixed board constructor.
     #[test]
     fn spectrum_16k_constructors_round_trip() {
         use crate::variant::Spectrum16kMarker;
@@ -1443,7 +1498,7 @@ mod tests {
         assert_eq!(machine.read(0x0000), 0x55);
         assert_eq!(machine.revision(), UlaRevision::Ferranti5C);
 
-        // Default::default() routes through new() → with_revision().
+        // Default::default() uses the fixed test marker's board.
         let defaulted: Spectrum16k = Default::default();
         assert_eq!(defaulted.revision(), UlaRevision::Ferranti6C);
     }

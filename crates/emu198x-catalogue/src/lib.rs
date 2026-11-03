@@ -33,9 +33,9 @@ use runtime_commodore_c64::{
 };
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum16kRuntime, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, Spectrum128kRuntime, SpectrumPlus2ARuntime,
+    SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumRuntimeKind,
+    SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde::Deserialize;
 use thiserror::Error;
@@ -889,10 +889,10 @@ pub fn run_spectrum_entry_with_snapshot_check(
         ));
     }
     verify_routing_versions(manifest)?;
+    if let Some(model) = spectrum_board_model(&entry.variant) {
+        return snapshot_check_board(manifest, entry, media_root, firmware_root, model);
+    }
     match entry.variant.as_str() {
-        "16k" => snapshot_check_16k(manifest, entry, media_root, firmware_root),
-        "48k" => snapshot_check_48k(manifest, entry, media_root, firmware_root),
-        "plus" => snapshot_check_plus(manifest, entry, media_root, firmware_root),
         "128k" => snapshot_check_128k(manifest, entry, media_root, firmware_root),
         "plus2" => snapshot_check_plus2(manifest, entry, media_root, firmware_root),
         "plus2a" => snapshot_check_plus2a(manifest, entry, media_root, firmware_root),
@@ -1093,10 +1093,10 @@ fn run_spectrum_entry(
     media_root: &Path,
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
+    if let Some(model) = spectrum_board_model(&entry.variant) {
+        return run_spectrum_board_entry(manifest, entry, media_root, firmware_root, model);
+    }
     match entry.variant.as_str() {
-        "16k" => run_spectrum_16k_entry(manifest, entry, media_root, firmware_root),
-        "48k" => run_spectrum_48k_entry(manifest, entry, media_root, firmware_root),
-        "plus" => run_spectrum_plus_entry(manifest, entry, media_root, firmware_root),
         "128k" => run_spectrum_128k_entry(manifest, entry, media_root, firmware_root),
         "plus2" => run_spectrum_plus2_entry(manifest, entry, media_root, firmware_root),
         "plus2a" => run_spectrum_plus2a_entry(manifest, entry, media_root, firmware_root),
@@ -1106,52 +1106,16 @@ fn run_spectrum_entry(
     }
 }
 
-fn run_spectrum_16k_entry(
-    manifest: &Manifest,
-    entry: &Entry,
-    media_root: &Path,
-    firmware_root: &Path,
-) -> Result<RunResult, CatalogueError> {
-    let files = lookup_firmware(manifest, &entry.variant)?;
-    if files.len() != 1 {
-        return Err(CatalogueError::FirmwareCountMismatch {
-            variant: entry.variant.clone(),
-            expected: 1,
-            actual: files.len(),
-        });
-    }
-    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
-
-    let mut firmware_set = FirmwareSet::new();
-    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
-
-    let runtime = Spectrum16kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("16K runtime: {err}")))?;
-
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    let media = entry
-        .media
-        .as_ref()
-        .ok_or_else(|| CatalogueError::Session("16K entry requires media".into()))?;
-    let media_kind = load_media_spec(&mut session, media, media_root)?;
-
-    autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
-        .map_err(|err| CatalogueError::Session(format!("16K autoload: {err}")))?;
-
-    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
-    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
+fn spectrum_board_model(variant: &str) -> Option<Model> {
+    Model::from_variant_id(variant).filter(|model| model.physical_board().is_some())
 }
 
-fn run_spectrum_plus_entry(
+fn run_spectrum_board_entry(
     manifest: &Manifest,
     entry: &Entry,
     media_root: &Path,
     firmware_root: &Path,
+    model: Model,
 ) -> Result<RunResult, CatalogueError> {
     let files = lookup_firmware(manifest, &entry.variant)?;
     if files.len() != 1 {
@@ -1166,8 +1130,8 @@ fn run_spectrum_plus_entry(
     let mut firmware_set = FirmwareSet::new();
     firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
 
-    let runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("Spectrum+ runtime: {err}")))?;
+    let runtime = SpectrumRuntimeKind::from_firmware(model, &firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("{} runtime: {err}", model.profile_id())))?;
 
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -1175,55 +1139,14 @@ fn run_spectrum_plus_entry(
         SpectrumSessionQueryProvider,
     );
 
-    let media = entry
-        .media
-        .as_ref()
-        .ok_or_else(|| CatalogueError::Session("Spectrum+ entry requires media".into()))?;
+    let media = entry.media.as_ref().ok_or_else(|| {
+        CatalogueError::Session("physical Spectrum board entry requires media".into())
+    })?;
     let media_kind = load_media_spec(&mut session, media, media_root)?;
 
-    autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
-        .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
-
-    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
-    run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
-}
-
-fn run_spectrum_48k_entry(
-    manifest: &Manifest,
-    entry: &Entry,
-    media_root: &Path,
-    firmware_root: &Path,
-) -> Result<RunResult, CatalogueError> {
-    let files = lookup_firmware(manifest, &entry.variant)?;
-    if files.len() != 1 {
-        return Err(CatalogueError::FirmwareCountMismatch {
-            variant: entry.variant.clone(),
-            expected: 1,
-            actual: files.len(),
-        });
-    }
-    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
-
-    let mut firmware_set = FirmwareSet::new();
-    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
-
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("48K runtime: {err}")))?;
-
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    let media = entry
-        .media
-        .as_ref()
-        .ok_or_else(|| CatalogueError::Session("48K entry requires media".into()))?;
-    let media_kind = load_media_spec(&mut session, media, media_root)?;
-
-    autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
-        .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
+    autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).map_err(
+        |err| CatalogueError::Session(format!("{} autoload: {err}", model.profile_id())),
+    )?;
 
     wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
@@ -2113,11 +2036,12 @@ where
     Ok((audio_hash, audio_wav, gap_end_frame_hash))
 }
 
-fn snapshot_check_16k(
+fn snapshot_check_board(
     manifest: &Manifest,
     entry: &Entry,
     media_root: &Path,
     firmware_root: &Path,
+    model: Model,
 ) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
     let files = lookup_firmware(manifest, &entry.variant)?;
     if files.len() != 1 {
@@ -2132,18 +2056,17 @@ fn snapshot_check_16k(
     let mut firmware_set = FirmwareSet::new();
     firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
 
-    let original_runtime = Spectrum16kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("16K runtime: {err}")))?;
+    let original_runtime = SpectrumRuntimeKind::from_firmware(model, &firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("{} runtime: {err}", model.profile_id())))?;
     let mut original = HeadlessSession::new_with_query_provider(
         original_runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
         SpectrumSessionQueryProvider,
     );
 
-    let media = entry
-        .media
-        .as_ref()
-        .ok_or_else(|| CatalogueError::Session("16K entry requires media".into()))?;
+    let media = entry.media.as_ref().ok_or_else(|| {
+        CatalogueError::Session("physical Spectrum board entry requires media".into())
+    })?;
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
     autoload_basic_tape(
@@ -2151,125 +2074,13 @@ fn snapshot_check_16k(
         &media.slot,
         DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     )
-    .map_err(|err| CatalogueError::Session(format!("16K autoload: {err}")))?;
+    .map_err(|err| CatalogueError::Session(format!("{} autoload: {err}", model.profile_id())))?;
     wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
-    let fresh_runtime = Spectrum16kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("16K fresh runtime: {err}")))?;
-    let mut restored = HeadlessSession::new_with_query_provider(
-        fresh_runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    finalize_snapshot_check(
-        &mut original,
-        &mut restored,
-        entry,
-        spectrum_frames_per_sec(&TIMING_48K),
-    )
-}
-
-fn snapshot_check_plus(
-    manifest: &Manifest,
-    entry: &Entry,
-    media_root: &Path,
-    firmware_root: &Path,
-) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
-    let files = lookup_firmware(manifest, &entry.variant)?;
-    if files.len() != 1 {
-        return Err(CatalogueError::FirmwareCountMismatch {
-            variant: entry.variant.clone(),
-            expected: 1,
-            actual: files.len(),
-        });
-    }
-    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
-
-    let mut firmware_set = FirmwareSet::new();
-    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
-
-    let original_runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("Spectrum+ runtime: {err}")))?;
-    let mut original = HeadlessSession::new_with_query_provider(
-        original_runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    let media = entry
-        .media
-        .as_ref()
-        .ok_or_else(|| CatalogueError::Session("Spectrum+ entry requires media".into()))?;
-    let media_kind = load_media_spec(&mut original, media, media_root)?;
-
-    autoload_basic_tape(
-        &mut original,
-        &media.slot,
-        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    )
-    .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
-    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
-
-    let fresh_runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("Spectrum+ fresh runtime: {err}")))?;
-    let mut restored = HeadlessSession::new_with_query_provider(
-        fresh_runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    finalize_snapshot_check(
-        &mut original,
-        &mut restored,
-        entry,
-        spectrum_frames_per_sec(&TIMING_48K),
-    )
-}
-
-fn snapshot_check_48k(
-    manifest: &Manifest,
-    entry: &Entry,
-    media_root: &Path,
-    firmware_root: &Path,
-) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
-    let files = lookup_firmware(manifest, &entry.variant)?;
-    if files.len() != 1 {
-        return Err(CatalogueError::FirmwareCountMismatch {
-            variant: entry.variant.clone(),
-            expected: 1,
-            actual: files.len(),
-        });
-    }
-    let rom_bytes = read_firmware_bytes(firmware_root, &files[0])?;
-
-    let mut firmware_set = FirmwareSet::new();
-    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &rom_bytes));
-
-    let original_runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("48K runtime: {err}")))?;
-    let mut original = HeadlessSession::new_with_query_provider(
-        original_runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
-        SpectrumSessionQueryProvider,
-    );
-
-    let media = entry
-        .media
-        .as_ref()
-        .ok_or_else(|| CatalogueError::Session("48K entry requires media".into()))?;
-    let media_kind = load_media_spec(&mut original, media, media_root)?;
-
-    autoload_basic_tape(
-        &mut original,
-        &media.slot,
-        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    )
-    .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
-    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
-
-    let fresh_runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("48K fresh runtime: {err}")))?;
+    let fresh_runtime =
+        SpectrumRuntimeKind::from_firmware(model, &firmware_set).map_err(|err| {
+            CatalogueError::Session(format!("{} fresh runtime: {err}", model.profile_id()))
+        })?;
     let mut restored = HeadlessSession::new_with_query_provider(
         fresh_runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2746,6 +2557,22 @@ fn spectrum_frames_per_sec(timing: &common_sinclair_zx_spectrum::timing::FrameTi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spectrum_catalogue_routes_every_explicit_board_profile() {
+        let models: Vec<_> = Model::ALL
+            .into_iter()
+            .filter(|model| model.physical_board().is_some())
+            .collect();
+        assert_eq!(models.len(), 18);
+        for model in models {
+            assert_eq!(spectrum_board_model(model.variant_id()), Some(model));
+        }
+        for retired in ["spectrum_16k", "spectrum_48k", "spectrum_plus"] {
+            assert_eq!(spectrum_board_model(retired), None, "{retired}");
+            assert_eq!(Model::from_variant_id(retired), None, "{retired}");
+        }
+    }
 
     fn manifest_with_entry_steps(steps: &str) -> String {
         format!(
@@ -3269,7 +3096,7 @@ patch_guest_memory = true
 id = "spectrum"
 
 [[system.firmware]]
-variant = "48k"
+variant = "spectrum_issue3_48k"
 files = [
     { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
 ]
@@ -3286,7 +3113,7 @@ id = "manic-miner"
 title = "Manic Miner"
 year = 1983
 publisher = "Bug-Byte"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -3305,7 +3132,7 @@ hash = "xxh64:0000000000000000"
         let manifest: Manifest = toml::from_str(toml_text).expect("manifest parses");
         assert_eq!(manifest.system.id, "spectrum");
         assert_eq!(manifest.system.firmware.len(), 2);
-        assert_eq!(manifest.system.firmware[0].variant, "48k");
+        assert_eq!(manifest.system.firmware[0].variant, "spectrum_issue3_48k");
         assert_eq!(manifest.system.firmware[0].files.len(), 1);
         assert_eq!(manifest.system.firmware[1].variant, "128k");
         assert_eq!(manifest.system.firmware[1].files.len(), 2);
@@ -3320,7 +3147,7 @@ hash = "xxh64:0000000000000000"
                 frame_routing_version: None,
                 firmware: vec![
                     VariantFirmware {
-                        variant: "48k".into(),
+                        variant: "spectrum_issue3_48k".into(),
                         files: vec![FirmwareSpec {
                             id: "rom".into(),
                             path: "48.rom".into(),
@@ -3344,7 +3171,12 @@ hash = "xxh64:0000000000000000"
             entry: vec![],
         };
 
-        assert_eq!(lookup_firmware(&manifest, "48k").expect("48k").len(), 1);
+        assert_eq!(
+            lookup_firmware(&manifest, "spectrum_issue3_48k")
+                .expect("spectrum_issue3_48k")
+                .len(),
+            1
+        );
         assert_eq!(lookup_firmware(&manifest, "128k").expect("128k").len(), 2);
         assert!(matches!(
             lookup_firmware(&manifest, "+3"),
@@ -3630,7 +3462,7 @@ hash = "xxh64:0000000000000000"
             title: "dummy".into(),
             year: 0,
             publisher: "".into(),
-            variant: "48k".into(),
+            variant: "spectrum_issue3_48k".into(),
             media: None,
             boot: Boot {
                 wait_frames: 0,

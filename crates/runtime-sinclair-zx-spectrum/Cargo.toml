@@ -8,6 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+machine-sinclair-zx-spectrum-issue1 = { path = "../machine-sinclair-zx-spectrum-issue1", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue2 = { path = "../machine-sinclair-zx-spectrum-issue2", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue3 = { path = "../machine-sinclair-zx-spectrum-issue3", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue3b = { path = "../machine-sinclair-zx-spectrum-issue3b", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue4a = { path = "../machine-sinclair-zx-spectrum-issue4a", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue4b = { path = "../machine-sinclair-zx-spectrum-issue4b", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue5-6c001e6 = { path = "../machine-sinclair-zx-spectrum-issue5-6c001e6", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue5-6c001e7 = { path = "../machine-sinclair-zx-spectrum-issue5-6c001e7", version = "0.47.0" }
+machine-sinclair-zx-spectrum-issue6a = { path = "../machine-sinclair-zx-spectrum-issue6a", version = "0.47.0" }
 emu198x-tape-playback = { path = "../emu198x-tape-playback", version = "0.1.1" }
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.47.0" }
 common-sinclair-zx-spectrum-48k-class = { path = "../common-sinclair-zx-spectrum-48k-class", version = "0.47.0" }
@@ -21,10 +30,7 @@ format-sinclair-zx-spectrum-tzx = { path = "../format-sinclair-zx-spectrum-tzx",
 emu198x-gi-ay-3-8912 = "0.1.0"
 machine-pentagon-128 = { path = "../machine-pentagon-128", version = "0.47.0" }
 machine-scorpion-zs256 = { path = "../machine-scorpion-zs256", version = "0.47.0" }
-machine-sinclair-zx-spectrum-16k = { path = "../machine-sinclair-zx-spectrum-16k", version = "0.47.0" }
-machine-sinclair-zx-spectrum-48k = { path = "../machine-sinclair-zx-spectrum-48k", version = "0.47.0" }
 machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k", version = "0.47.0" }
-machine-sinclair-zx-spectrum-plus = { path = "../machine-sinclair-zx-spectrum-plus", version = "0.47.0" }
 machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-plus2", version = "0.47.0" }
 machine-sinclair-zx-spectrum-plus2a = { path = "../machine-sinclair-zx-spectrum-plus2a", version = "0.47.0" }
 machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-plus2b", version = "0.47.0" }

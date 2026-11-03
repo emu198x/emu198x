@@ -43,9 +43,67 @@
 //! works for every `SpectrumRuntime<M>` instantiation.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
+use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum_48k_class::{SpectrumMachineCore, Variant48kClass};
+use emu198x_peripheral_kempston_sinclair_zx_spectrum_joystick::KempstonButton;
 use emu198x_shell::InputEvent;
 
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
+
+/// Maps a host-boundary [`InputEvent`] onto the Spectrum keyboard matrix.
+///
+/// Shared by every 48K-class board. Keeping the adapter in the runtime
+/// lets machine owners remain independent hardware-only crates.
+pub trait ApplyInputEvent {
+    /// Applies one host input event to the keyboard matrix.
+    ///
+    /// Returns `true` when the event maps to a physical key.
+    fn apply_input_event(&mut self, event: &InputEvent) -> bool;
+}
+
+impl<M: MemoryBus, V: Variant48kClass> ApplyInputEvent for SpectrumMachineCore<M, V> {
+    fn apply_input_event(&mut self, event: &InputEvent) -> bool {
+        let InputEvent::Key { name, pressed } = event else {
+            return false;
+        };
+        let Some(key) = SpectrumKey::from_name(name.as_ref()) else {
+            return false;
+        };
+        self.keyboard_mut().set_key(key, *pressed);
+        true
+    }
+}
+
+/// Maps a typed [`KempstonButton`] event onto the 48K-class Kempston
+/// peripheral.
+///
+/// Mirrors the runtime layer's `set_kempston_button` shape but takes
+/// the typed [`KempstonButton`] enum directly, for callers (tests,
+/// scripted-input bindings, direct machine manipulation) that already
+/// hold a typed button reference. Flips the peripheral's `attached`
+/// flag on first event — software that probes `$1F` for Kempston
+/// detection sees the floating bus until the user touches the pad.
+///
+/// **Deliberately not implemented for the Amstrad class.** The +2A /
+/// +2B / +3 broke the rear-connector pinout in 1987, so a Kempston
+/// interface cannot physically attach. The trait bound on
+/// `Variant48kClass` (paired with the matching `Variant128kClass`
+/// impl in the 128K crate) keeps this enforced at compile time —
+/// trying to call `apply_kempston_event` on an Amstrad-class machine
+/// will fail to resolve the trait, surfacing the architectural
+/// constraint at the type system rather than at runtime.
+pub trait ApplyKempstonEvent {
+    /// Applies one button state change to the Kempston joystick.
+    fn apply_kempston_event(&mut self, button: KempstonButton, pressed: bool);
+}
+
+impl<M: MemoryBus, V: Variant48kClass> ApplyKempstonEvent for SpectrumMachineCore<M, V> {
+    fn apply_kempston_event(&mut self, button: KempstonButton, pressed: bool) {
+        let kempston = self.kempston_mut();
+        kempston.attached = true;
+        kempston.set_button(button, pressed);
+    }
+}
 
 /// Threshold for axis-to-button conversion. The Kempston is a digital
 /// joystick (5 buttons, no analogue range), so we discretise host axes

@@ -225,18 +225,18 @@ pub fn load_basic_program_with_writer<D: SessionDriver>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Spectrum48kRuntime;
+    use crate::SpectrumIssue3Ram48kRuntime;
     use crate::runtime::SpectrumMachine;
     use emu198x_shell::{FirmwareImage, FirmwareSet, QueryResult};
     use serde_json::json;
 
-    fn loaded_runtime() -> Spectrum48kRuntime {
+    fn loaded_runtime() -> SpectrumIssue3Ram48kRuntime {
         let mut firmware = FirmwareSet::new();
         firmware.push(FirmwareImage::new(
             "sinclair-zx-spectrum-48k-rom",
             &[0; 16 * 1024],
         ));
-        Spectrum48kRuntime::from_firmware(&firmware).expect("dummy firmware should boot")
+        SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("dummy firmware should boot")
     }
 
     /// Provider that reports a detected boot status and a row-23 K
@@ -244,8 +244,12 @@ mod tests {
     /// real ROM.
     struct ReadyPromptProvider;
 
-    impl SessionQueryProvider<Spectrum48kRuntime> for ReadyPromptProvider {
-        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+    impl SessionQueryProvider<SpectrumIssue3Ram48kRuntime> for ReadyPromptProvider {
+        fn query_paths(
+            &self,
+            _machine: &SpectrumIssue3Ram48kRuntime,
+            _prefix: Option<&str>,
+        ) -> Vec<String> {
             vec![
                 "boot.detected".to_owned(),
                 "boot.reason".to_owned(),
@@ -256,7 +260,7 @@ mod tests {
 
         fn query(
             &self,
-            _machine: &Spectrum48kRuntime,
+            _machine: &SpectrumIssue3Ram48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
@@ -357,14 +361,18 @@ mod tests {
     /// Provider returning a non-K prompt — drives the PromptNotReady arm.
     struct StuckPromptProvider;
 
-    impl SessionQueryProvider<Spectrum48kRuntime> for StuckPromptProvider {
-        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+    impl SessionQueryProvider<SpectrumIssue3Ram48kRuntime> for StuckPromptProvider {
+        fn query_paths(
+            &self,
+            _machine: &SpectrumIssue3Ram48kRuntime,
+            _prefix: Option<&str>,
+        ) -> Vec<String> {
             vec!["boot.detected".to_owned(), "screen.text.lines".to_owned()]
         }
 
         fn query(
             &self,
-            _machine: &Spectrum48kRuntime,
+            _machine: &SpectrumIssue3Ram48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
@@ -424,14 +432,18 @@ mod tests {
         }
     }
 
-    impl SessionQueryProvider<Spectrum48kRuntime> for RepaintingPromptProvider {
-        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+    impl SessionQueryProvider<SpectrumIssue3Ram48kRuntime> for RepaintingPromptProvider {
+        fn query_paths(
+            &self,
+            _machine: &SpectrumIssue3Ram48kRuntime,
+            _prefix: Option<&str>,
+        ) -> Vec<String> {
             vec!["boot.detected".to_owned(), "screen.text.lines".to_owned()]
         }
 
         fn query(
             &self,
-            _machine: &Spectrum48kRuntime,
+            _machine: &SpectrumIssue3Ram48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
