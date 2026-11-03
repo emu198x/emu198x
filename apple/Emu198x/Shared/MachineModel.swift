@@ -3,7 +3,7 @@ import Emu198xKit
 import Foundation
 
 /// The machines the apps can run. The raw value is the name a library
-/// entry uses for it; the Spectrum's are the runtime's variant names.
+/// entry uses for it. `variant` selects the concrete runtime profile.
 enum MachineModel: String, Codable, CaseIterable {
     case spectrum48k = "spectrum_48k"
     case spectrum128k = "spectrum_128k"
@@ -36,7 +36,9 @@ enum MachineModel: String, Codable, CaseIterable {
     /// The family's own name for this model.
     var variant: String {
         switch self {
-        case .spectrum48k, .spectrum128k: rawValue
+        // Keep the persisted software-version key while selecting an explicit PCB.
+        case .spectrum48k: "spectrum_issue3_48k"
+        case .spectrum128k: rawValue
         case .nes: "nintendo-nes-ntsc"
         case .masterSystem: "sms-pal"
         case .gameGear: "game-gear"
