@@ -17,7 +17,8 @@ use crate::runtime::PetRuntime;
 // it.
 // Version 4 preserves the VIA timer 2 load phase (#1677).
 // Version 5 fixes board/video identity, queued audio and pending PRG fidelity.
-const SNAPSHOT_VERSION: u16 = 5;
+// Version 6 adds the missing onboard IEEE-488 PIA and rejects v5 before decode.
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
