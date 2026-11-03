@@ -536,9 +536,8 @@ impl Model {
     }
 }
 
-/// Returns the full Spectrum family catalogue. All 11 entries have a
-/// working machine crate; only `Spectrum48KPal` currently has a
-/// MachineCore runtime wrapper.
+/// Returns every current family profile, each backed by a concrete machine
+/// owner and a `MachineCore` runtime wrapper.
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
     Model::ALL.into_iter().map(profile_for).collect()

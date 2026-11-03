@@ -188,7 +188,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Spectrum oracle field {field}: max byte delta {max}, {ms:.3} ms");
     }
     let rom = fs::read("../roms/48.rom")?;
-    let mut spectrum = runtime_sinclair_zx_spectrum::Spectrum48kRuntime::from_rom_bytes(&rom)?;
+    let mut spectrum =
+        runtime_sinclair_zx_spectrum::SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)?;
     let frame = capture(&mut spectrum, 279552 * 120)?;
     let (bytes, ms) = decode(&device, &queue, &frame, false)?;
     let live_oracle = Experiment::new(Receiver {

@@ -66,3 +66,13 @@ producer passed through `makeCatalogue` yields 28 unique Spectrum profiles, the
 explicit Issue 3 / 48 KiB default and its bundled firmware marker. The updated
 firmware guard passes after reproducing the old-selector failure. The original
 pre-snow manifest and all 103 catalogue expectations are unchanged.
+
+## CI consumer correction
+
+CI Clippy and the browser canvas job both found the same missed caller in
+`tools/spectrum-composite/src/validate_live.rs`, compiled as native-video's
+`validate-signal` example. Replace its retired `Spectrum48kRuntime` with the
+explicit Issue 3 / 48 KiB runtime. Native-video Clippy with all targets/features
+passes after the fix. Its published package excludes these external examples,
+so the registry library payload and version remain unchanged. A full Rust-source
+search finds no remaining use of the retired runtime/model names.
