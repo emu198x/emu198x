@@ -134,8 +134,15 @@ fn discrete_video_on_has_the_reference_edges_and_no_crtc_registers() {
 #[test]
 fn via_pb5_obeys_the_real_input_and_direction_register() {
     let mut m = machine(Board::Pet4032);
-    m.video.tick();
-    m.via.pb_in = 0xdf;
+    // Reach a real low PB5 level; the board now resolves all onboard pins
+    // on a bus read, so manually overriding its input mask would not model it.
+    for _ in 0..20_001 {
+        m.tick();
+        if m.via.pb_in & 0x20 == 0 {
+            break;
+        }
+    }
+    assert_eq!(m.via.pb_in & 0x20, 0, "bounded real retrace transition");
     m.poke(0xe842, 0);
     assert_eq!(m.mem_read(0xe840) & 0x20, 0);
     m.poke(0xe840, 0x20);
@@ -158,4 +165,111 @@ fn malformed_framebuffer_is_refused_before_owner_binding() {
     let mut m = machine(Board::Pet4032);
     m.framebuffer.pop();
     assert!(m.validate(Board::Pet4032).is_err());
+}
+
+#[test]
+fn second_pia_has_real_registers_and_reads_back_the_disconnected_ieee_data_bus() {
+    for board in [Board::Pet2001n32k, Board::Pet4032, Board::Pet8032] {
+        let mut m = machine(board);
+        assert_eq!(m.mem_read(0xe820), 0, "PIA2 DDRA resets as input");
+        m.poke(0xe823, 0); // DDRB selected
+        m.poke(0xe822, 0xff);
+        m.poke(0xe823, 4); // ORB selected
+        m.poke(0xe822, 0x5a);
+        m.poke(0xe821, 4); // read IEEE data on port A
+        assert_eq!(m.mem_read(0xe820), 0x5a, "own driver is visible on the bus");
+        assert_eq!(m.mem_read(0xe822), 0x5a, "output register");
+        m.poke(0xe823, 0);
+        m.poke(0xe822, 0x0f);
+        m.poke(0xe823, 4);
+        m.poke(0xe822, 5);
+        assert_eq!(
+            m.mem_read(0xe820),
+            0xf5,
+            "input-configured lines float high"
+        );
+        assert_eq!(m.mem_read(0xe800), 0xff, "no chip selected");
+    }
+}
+#[test]
+fn ieee_atn_from_the_via_reaches_second_pia_edge_detection() {
+    let mut m = machine(Board::Pet2001n32k);
+    for _ in 0..20 {
+        m.tick();
+    } // finish the CPU reset sequence first
+    m.poke(0xe821, 5); // data access, falling-edge CA1 IRQ enabled
+    m.poke(0xe842, 4); // VIA PB2 drives ATN
+    m.poke(0xe840, 0); // assert it low
+    m.tick();
+    assert_eq!(m.mem_read(0xe821) & 0x80, 0x80, "PIA2 ATN edge");
+    assert!(m.cpu.irq, "PIA2 contributes to the CPU IRQ input");
+    let _ = m.mem_read(0xe820); // acknowledge port A interrupt
+    m.tick();
+    assert_eq!(m.mem_read(0xe821) & 0x80, 0);
+}
+
+#[test]
+fn second_pia_is_visible_to_a_real_6502_guest() {
+    let mut m = machine(Board::Pet2001n32k);
+    let mut code = Vec::new();
+    for (addr, value) in [
+        (0xe823u16, 0),
+        (0xe822, 0x0f),
+        (0xe823, 4),
+        (0xe822, 5),
+        (0xe821, 4),
+    ] {
+        code.extend([0xa9, value, 0x8d]);
+        code.extend(addr.to_le_bytes());
+    }
+    code.extend([0xad, 0x20, 0xe8, 0x8d, 0, 2]);
+    let end = 0xf000u16 + code.len() as u16;
+    code.push(0x4c);
+    code.extend(end.to_le_bytes());
+    m.kernal_rom[..code.len()].copy_from_slice(&code);
+    for _ in 0..1000 {
+        m.tick();
+    }
+    assert_eq!(m.peek(0x200), 0xf5, "guest reads own IEEE data driver");
+}
+#[test]
+fn second_pia_live_driver_and_pending_irq_survive_exact_restore() {
+    let mut m = machine(Board::Pet2001n32k);
+    for _ in 0..20 {
+        m.tick();
+    }
+    for (addr, value) in [
+        (0xe823, 0),
+        (0xe822, 0x0f),
+        (0xe823, 4),
+        (0xe822, 5),
+        (0xe821, 5),
+        (0xe842, 4),
+        (0xe840, 0),
+    ] {
+        m.poke(addr, value);
+    }
+    m.tick();
+    assert!(m.pia2.irq_pending());
+    let bytes = postcard::to_allocvec(&m).expect("live state");
+    let mut restored: Pet = postcard::from_bytes(&bytes).expect("current decode");
+    assert_eq!(
+        restored.mem_read(0xe821) & 0x80,
+        0x80,
+        "pending edge retained"
+    );
+    assert_eq!(
+        restored.mem_read(0xe820),
+        0xf5,
+        "drive direction and register retained"
+    );
+    assert_eq!(m.mem_read(0xe820), 0xf5);
+    for _ in 0..2 {
+        m.run_frame();
+        restored.run_frame();
+    }
+    assert_eq!(
+        postcard::to_allocvec(&m).expect("original"),
+        postcard::to_allocvec(&restored).expect("restored")
+    );
 }
