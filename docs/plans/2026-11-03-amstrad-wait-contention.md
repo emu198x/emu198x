@@ -95,7 +95,11 @@ changes have already merged independently; they do not depend on this design.
 
 - 40077 physical WAIT merged in amstrad-ula-40077#4; the conventional breaking
   release filter was corrected in #5. Release #6 is v0.3.0. Both the change
-  and release passed normal CI. Registry publication still needs verification.
+  and release passed normal CI. Registry v0.3.0 is published; its archive
+  SHA-256 is d9a613f051383a4c637d9b93eb317d99d5173d086f20655ee1c1bf604cd5a719.
+  Its complete chip source matches the reviewed implementation, and both
+  combined clock regressions and the native save matrix pass against the
+  published chip (the CPU still uses the pending draft override).
 - The Z80's original edge tests fail on rising-edge sampling and missing I/O
   TW decoding time. The corrected core reuses existing phases, with no added
   serialized fields. Workspace tests, all-target Clippy, nine existing bus
@@ -121,3 +125,16 @@ changes have already merged independently; they do not depend on this design.
   the published CPU/chip consumer is established.
 - Finished bisection worktree, historical build cache and headless reference
   build have been removed after retaining their provenance and observations.
+
+The combined machine-clock test also fails against registry Z80 0.8.0 with
+`arrival 0: full TW pairs` (62 edges versus the required 56). This negative
+control demonstrates why the corrected CPU is required rather than optional.
+The old-CPU test is retained as evidence, not as an ignored or weakened test.
+
+Remaining active workspaces: /private/tmp/198x-runtime-state-correctness holds
+the uncommitted runtime implementation; /private/tmp/198x-z80-wait-edges holds
+the draft CPU source needed by its temporary command-line test override;
+/private/tmp/198x-runtime-state-target is their reusable build cache. Keep these
+until the CPU compatibility decision and registry consumer qualification are
+complete, then retain final refs/evidence and remove them. No path override is
+to be committed. The finished chip clone can be removed after publication proof.
