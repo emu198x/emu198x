@@ -53,6 +53,8 @@ pub struct Pet {
     video: Video,
     board: Board,
     pia: Pia6520,
+    /// Onboard IEEE-488 data/control PIA, including its live IRQ state.
+    pia2: Pia6520,
     via: Via6522,
     keyboard: KeyboardState,
     pressed_keys: Vec<PetKey>,
@@ -116,6 +118,7 @@ impl Pet {
             video,
             board,
             pia: Pia6520::new(),
+            pia2: Pia6520::new(),
             via: Via6522::new(),
             keyboard: KeyboardState::new(),
             pressed_keys: Vec::new(),
@@ -159,17 +162,40 @@ impl Pet {
         self.master_clock += 1;
         self.tick_display();
         let sync = self.video.retrace_level();
-        self.via.pb_in = if sync { 0xff } else { !0x20 };
+        self.update_ieee_lines(sync);
         self.via.tick();
         self.tick_audio();
         self.pia.set_cb1(sync);
-        self.cpu.irq = self.pia.irq_pending() || self.via.irq;
+        self.cpu.irq = self.pia.irq_pending() || self.pia2.irq_pending() || self.via.irq;
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
+    }
+
+    /// Resolve the onboard drivers with no external IEEE devices attached.
+    /// Primary: Commodore PET common logic 320130, PIA2/VIA/MC3446 wiring.
+    /// Implementation cross-check: VICE 3.10 petpia2.c and petvia.c.
+    fn update_ieee_lines(&mut self, sync: bool) {
+        let via = self.via.port_b_drive_state();
+        let nrfd = via & 2 != 0;
+        let atn = via & 4 != 0;
+        // Existing PIA supports its firmware-used set/reset outputs. Pulse
+        // and handshake output phases remain a shared chip limitation.
+        let ndac = self.pia2.cra() & 0x20 == 0 || self.pia2.cra() & 8 != 0;
+        let dav = self.pia2.cb2_output().unwrap_or(true);
+        let eoi = self.pia.cra() & 0x20 == 0 || self.pia.cra() & 8 != 0;
+        let data = self.pia2.port_b_output() | !self.pia2.ddr_b();
+        self.pia2.set_port_a_input(data);
+        self.pia2.set_ca1(atn);
+        self.pia2.set_cb1(true); // SRQ released on the disconnected bus
+        self.pia.set_port_a_input(if eoi { 0xff } else { 0xbf });
+        self.via.pb_in = (if ndac { 0xff } else { !1 })
+            & if sync { 0xff } else { !0x20 }
+            & if nrfd { 0xff } else { !0x40 }
+            & if dav { 0xff } else { !0x80 };
     }
 
     /// Sample the piezo speaker into the audio buffer, downsampling the 1 MHz
@@ -282,6 +308,7 @@ impl Pet {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
+        self.update_ieee_lines(self.video.retrace_level());
         match addr {
             0x0000..=0x7FFF => self.ram[addr as usize],
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
@@ -302,6 +329,7 @@ impl Pet {
                 self.update_keyboard();
                 self.pia.read((addr & 0x03) as u8)
             }
+            0xE820..=0xE82F => self.pia2.read((addr & 3) as u8),
             0xE840..=0xE84F => self.via.read((addr & 0x0F) as u8),
             0xE880 => self.video.read_status(),
             0xE881 => self.video.read_data(),
@@ -318,6 +346,7 @@ impl Pet {
             0x0000..=0x7FFF => self.ram[addr as usize] = value,
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()] = value,
             0xE810..=0xE81F => self.pia.write((addr & 0x03) as u8, value),
+            0xE820..=0xE82F => self.pia2.write((addr & 3) as u8, value),
             0xE840..=0xE84F => self.via.write((addr & 0x0F) as u8, value),
             0xE880 => self.video.write_address(value),
             0xE881 => {
