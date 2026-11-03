@@ -140,6 +140,33 @@ jobs:
       - name: Check the status pages are current
         run: python3 scripts/status/render_status.py --check
 
+  # publish-crates.yml publishes a version only when crates.io lacks it, so a
+  # published crate changed without a new version is never released. Seven
+  # had drifted that way by 2026-11-03, found only when the Atari 7800 moved
+  # out and took POKEY from crates.io. This fails while any publishable
+  # crate's packaged files differ from its published version.
+  published-crates:
+    name: Published crates match their versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Compare every publishable crate with crates.io
+        run: python3 scripts/check-published-crates.py --self-test
+
   # emu198x-shell is the interface every machine family builds on, and the
   # family repositories take it from crates.io (knowledge/decisions/
   # workspace-shape.md, § Amendment 2026-11-02). This compares a pull
