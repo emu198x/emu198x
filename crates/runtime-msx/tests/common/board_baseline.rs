@@ -116,7 +116,27 @@ fn prepared(model: Model) -> MsxRuntime {
     r
 }
 pub fn all(root: &Path, capture: bool) -> Result<(), Box<dyn Error>> {
+    let mut checked = 0;
+    let mut sony_checked = 0;
     for model in Model::ALL {
+        if model == Model::SonyHb10p {
+            // This owner's corrected topology explicitly rejects v10.
+            // Its immutable specimens and current continuation are checked below.
+            assert!(!capture, "never regenerate original Sony v10 specimens");
+
+            let mut original = prepared(Model::SonyHb10p);
+            let saved = original.snapshot()?;
+            let (version, _) = postcard::take_from_bytes::<u16>(&saved)?;
+            assert_eq!(version, 11);
+            let expected = continued(&mut original)?;
+            let mut restored = MsxRuntime::blank(Model::SonyHb10p);
+            restored.restore(&saved)?;
+            assert_eq!(restored.snapshot()?, saved);
+            assert_eq!(continued(&mut restored)?, expected);
+            sony_checked += 1;
+            continue;
+        }
+        checked += 1;
         let id = model.variant_id();
         let mut r = prepared(model);
         let initial = r.snapshot()?;
@@ -148,5 +168,7 @@ pub fn all(root: &Path, capture: bool) -> Result<(), Box<dyn Error>> {
             );
         }
     }
+    assert_eq!(checked, 8, "every unaffected named v10 board ran");
+    assert_eq!(sony_checked, 1, "corrected Sony v11 case ran");
     Ok(())
 }

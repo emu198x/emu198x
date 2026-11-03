@@ -244,11 +244,21 @@ impl Model {
     #[must_use]
     pub fn ram_kb(self) -> u32 {
         let layout = self.layout();
-        let plain: u32 = layout
+        // Regions in different slots can alias the same physical RAM (HB-10P).
+        // The common engine indexes this store by address, so count its union.
+        let mut ranges: Vec<_> = layout
             .ram
             .iter()
-            .map(|region| (u32::from(region.end) - u32::from(region.start) + 1) / 1024)
-            .sum();
+            .map(|region| (u32::from(region.start), u32::from(region.end) + 1))
+            .collect();
+        ranges.sort_unstable();
+        let mut previous_end = 0;
+        let mut bytes = 0;
+        for (start, end) in ranges {
+            bytes += end.saturating_sub(start.max(previous_end));
+            previous_end = previous_end.max(end);
+        }
+        let plain = bytes / 1024;
         plain + layout.mapper.map_or(0, |mapper| u32::from(mapper.size_kb))
     }
 }

@@ -1,8 +1,8 @@
-//! Compare all old profiles' live states and restored native output.
+//! Preserve eight unchanged v10 boards and Sony's corrected v11 continuation.
 #[path = "common/board_baseline.rs"]
 mod baseline;
 #[test]
-fn original_version_10_profiles_continue_identically() {
+fn eight_v10_boards_and_corrected_sony_v11_continue_exactly() {
     baseline::all(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/msx/board-split-v10"),
