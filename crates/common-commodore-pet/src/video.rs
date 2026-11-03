@@ -1,5 +1,6 @@
-//! Discrete 320349 counters and CRTC boards. Evidence: primary PET board sheets
-//! 320349-6/7/8, 8032029-3/10; VICE 3.10 pet.c and crtc.c.
+//! Original 320026/320008 and later 320349 discrete counters, plus CRTC boards.
+//! Evidence: primary sheets 320026-3, 320349-6/7/8, 8032029-3/10;
+//! VICE 3.10 pet.c and crtc.c (non-CRTC: 64 clocks × 260 lines).
 //! The existing MC6845 counter stages cover the validated non-interlaced
 //! editor rasters. Full MOS 6545 personality/interlace remains #166; this
 //! board split does not qualify those unimplemented modes.
@@ -12,8 +13,19 @@ pub enum Board {
     Pet2001n32k,
     Pet4032,
     Pet8032,
+    Pet2001Original8k,
 }
 impl Board {
+    pub const fn is_discrete(self) -> bool {
+        matches!(self, Self::Pet2001n32k | Self::Pet2001Original8k)
+    }
+    pub const fn ram_bytes(self) -> usize {
+        if matches!(self, Self::Pet2001Original8k) {
+            8192
+        } else {
+            32768
+        }
+    }
     pub const fn columns(self) -> u32 {
         if matches!(self, Self::Pet8032) {
             80
@@ -36,11 +48,7 @@ impl Board {
         }
     }
     pub const fn basic_start(self) -> u16 {
-        if matches!(self, Self::Pet2001n32k) {
-            0xc000
-        } else {
-            0xb000
-        }
+        if self.is_discrete() { 0xc000 } else { 0xb000 }
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -59,7 +67,7 @@ pub(crate) struct Beam {
 }
 impl Video {
     pub fn new(board: Board) -> Self {
-        if board == Board::Pet2001n32k {
+        if board.is_discrete() {
             return Self::Discrete {
                 x: 0,
                 y: 0,
@@ -176,9 +184,9 @@ impl Video {
     }
     pub fn matches(&self, board: Board) -> bool {
         match self {
-            Self::Discrete { x, y, .. } => board == Board::Pet2001n32k && *x < 64 && *y < 260,
+            Self::Discrete { x, y, .. } => board.is_discrete() && *x < 64 && *y < 260,
             Self::Crtc { chip, y } => {
-                board != Board::Pet2001n32k
+                !board.is_discrete()
                     && *y <= 4128
                     && chip.variant() == emu198x_motorola_6845::Crtc6845Variant::Mc6845
             }

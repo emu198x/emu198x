@@ -208,6 +208,18 @@ impl PetRuntime {
     /// Returns an error when no machine is loaded, the image is too short, or
     /// the launch command would not fit the ten-character keyboard buffer.
     pub fn autoload_prg(&mut self, bytes: &[u8]) -> Result<(), String> {
+        // Original 2001-8 user manual, detailed memory map: decimal
+        // 122/124/126/128 are BASIC pointers, 525/527 keyboard count/buffer.
+        // VICE petrom.c independently selects these for KERNAL 1.
+        let original = self.model == Model::Pet2001Original8k;
+        let txttab = if original { 0x007a } else { BASIC_TXTTAB };
+        let pointers = if original {
+            [0x007c, 0x007e, 0x0080]
+        } else {
+            [BASIC_VARTAB, BASIC_ARYTAB, BASIC_STREND]
+        };
+        let buffer = if original { 0x020f } else { KEYBOARD_BUFFER };
+        let count_address = if original { 0x020d } else { KEYBOARD_COUNT };
         let machine = self.machine.as_mut().ok_or("PET not initialised")?;
         if bytes.len() < 3 {
             return Err("PRG image too short".into());
@@ -221,10 +233,10 @@ impl PetRuntime {
         let end = load.wrapping_add(body);
 
         let [lo, hi] = load.to_le_bytes();
-        machine.poke(BASIC_TXTTAB, lo);
-        machine.poke(BASIC_TXTTAB + 1, hi);
+        machine.poke(txttab, lo);
+        machine.poke(txttab + 1, hi);
         let [lo, hi] = end.to_le_bytes();
-        for base in [BASIC_VARTAB, BASIC_ARYTAB, BASIC_STREND] {
+        for base in pointers {
             machine.poke(base, lo);
             machine.poke(base + 1, hi);
         }
@@ -235,10 +247,10 @@ impl PetRuntime {
         }
         for (i, &byte) in command.iter().enumerate() {
             let offset = u16::try_from(i).map_err(|_| "launch command too long")?;
-            machine.poke(KEYBOARD_BUFFER + offset, byte);
+            machine.poke(buffer + offset, byte);
         }
         let count = u8::try_from(command.len()).map_err(|_| "launch command too long")?;
-        machine.poke(KEYBOARD_COUNT, count);
+        machine.poke(count_address, count);
         Ok(())
     }
 
