@@ -21,7 +21,7 @@ fn hash(bytes: &[u8]) -> u64 {
 }
 
 fn main() -> Result<(), String> {
-    let mut fleet = Fleet::new("sinclair-zx-spectrum", "spectrum_48k")?;
+    let mut fleet = Fleet::new("sinclair-zx-spectrum", "spectrum_issue3_48k")?;
     fleet.firmware("sinclair-zx-spectrum-48k-rom", &beeper::beeper_rom())?;
     fleet.boot()?;
     fleet.configure_audio(48_000)?;

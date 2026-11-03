@@ -36,7 +36,7 @@ try:
     with tempfile.TemporaryDirectory(prefix='spectrum-startup-') as folder:
         rom = Path(folder) / 'synthetic.rom'
         rom.write_bytes(bytes(16384))
-        result = subprocess.run([str(args.binary.resolve()), '--machine', 'spectrum_48k', '--rom', str(rom), '--script', str(script.resolve())], capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
+        result = subprocess.run([str(args.binary.resolve()), '--machine', 'spectrum_issue3_48k', '--rom', str(rom), '--script', str(script.resolve())], capture_output=True, text=True, encoding='utf-8', timeout=15, check=False)
     (args.output / 'stdout.txt').write_text(result.stdout, encoding='utf-8')
     (args.output / 'stderr.txt').write_text(result.stderr, encoding='utf-8')
     report['exit_code'] = result.returncode

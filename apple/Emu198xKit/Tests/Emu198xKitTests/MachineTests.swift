@@ -36,7 +36,7 @@ import Testing
             return error?.kind == .refused && error?.message.contains("unknown compiled variant") == true
         }
 
-        let unbooted = try Machine(family: "sinclair-zx-spectrum", variant: "spectrum_48k")
+        let unbooted = try Machine(family: "sinclair-zx-spectrum", variant: "spectrum_issue3_48k")
         #expect(throws: EmulatorError(kind: .refused, message: "boot the machine first")) {
             try unbooted.step()
         }
@@ -93,7 +93,7 @@ import Testing
 
     @Test func theCatalogueListsTheSpectrum() throws {
         let json = String(decoding: try Machine.catalogue(), as: UTF8.self)
-        #expect(json.contains("\"id\":\"spectrum_48k\""))
+        #expect(json.contains("\"id\":\"spectrum_issue3_48k\""))
     }
 
     @Test func theCommandCatalogueDecodes() throws {

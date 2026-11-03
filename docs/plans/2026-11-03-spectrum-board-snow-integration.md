@@ -76,3 +76,25 @@ explicit Issue 3 / 48 KiB runtime. Native-video Clippy with all targets/features
 passes after the fix. Its published package excludes these external examples,
 so the registry library payload and version remain unchanged. A full Rust-source
 search finds no remaining use of the retired runtime/model names.
+
+## Remaining host selector migration
+
+The first Linux test shard reproduced six failures in Apple C-interface tests:
+their direct runtime selector was still `spectrum_48k`. Migrate those tests and
+the Apple baseline/C-link probe/Swift-kit fixtures to `spectrum_issue3_48k`.
+The Windows release qualification scripts must pass the same explicit selector.
+
+The Apple app's persisted library key `spectrum_48k` is a software-version key,
+not a physical runtime ID. Preserve it and its existing game recipes/firmware
+lookup; map `MachineModel.spectrum48k.variant` explicitly to Issue 3 / 48 KiB.
+This preserves existing library data without adding a retired runtime alias.
+Document that distinction in the local-content README. Verify the C-interface
+suite (including identified-ROM paths), examples, Python bootstrap regressions,
+Swift parsing and a full source search separating historical keys from callers.
+
+The Apple bridge passes all 22 Rust tests locally, including real-ROM boot and
+autoload, and all-target Clippy. The C probe links against the newly built static
+library and executes successfully on its 512 KiB worker stack. The thirteen
+existing content-bootstrap regressions pass; the changed Swift files parse.
+All three other Linux shards passed on the preceding head; the only reported
+shard failures were the six stale Apple selectors corrected here.

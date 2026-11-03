@@ -310,7 +310,7 @@ def main() -> None:
         report['package'] = {'sha256': digest(data), 'code_sha256': digest(code), 'blocks': 6}
         startup = args.output / 'startup-session.json'
         startup.write_text(json.dumps([{'action': 'query_cpu'}]), encoding='utf-8')
-        run('startup', [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(startup)], args.work, timeout=30)
+        run('startup', [binaries['emu198x-spectrum'], '--machine', 'spectrum_issue3_48k', '--rom', str(args.firmware), '--script', str(startup)], args.work, timeout=30)
 
 
         def boot(label: str, medium: Path, capture: bool) -> dict:
@@ -321,7 +321,7 @@ def main() -> None:
                 steps.append({'action': 'save_screenshot', 'path': str(args.output / 'title.png')})
             session = args.output / f'{label}-session.json'
             session.write_text(json.dumps(steps, indent=2) + '\n', encoding='utf-8')
-            text = run(label, [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(session)], args.work, timeout=360 if target == 'x86_64-apple-darwin' else 180)
+            text = run(label, [binaries['emu198x-spectrum'], '--machine', 'spectrum_issue3_48k', '--rom', str(args.firmware), '--script', str(session)], args.work, timeout=360 if target == 'x86_64-apple-darwin' else 180)
             return json.loads(text)
 
         verify_boot(boot('positive', tape, True), code, symbols['phase'], rom)
@@ -345,7 +345,7 @@ def main() -> None:
         session = debug / 'session.json'
         session.write_bytes(session_bytes)
         run('debug-asm', [asm, '--dialect', 'pasmo', '--cpu', 'z80', '--tapbas', '--debug', '--message-format=json', 'first-program.asm', '-o', 'first-program.tap'], debug)
-        observed = json.loads(run('debug-runtime', [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(session)], debug, timeout=120))
+        observed = json.loads(run('debug-runtime', [binaries['emu198x-spectrum'], '--machine', 'spectrum_issue3_48k', '--rom', str(args.firmware), '--script', str(session)], debug, timeout=120))
         check_source_debug(debug, observed)
         bad = copy.deepcopy(observed)
         next(o for o in bad['observations'] if o['kind'] == 'run_until_line')['stopped_at']['line'] = 7
@@ -357,7 +357,7 @@ def main() -> None:
             raise ValueError('Wrong source location incorrectly passed')
         missing_debug = debug / 'missing-sidecar.json'
         missing_debug.write_text(json.dumps([{'action': 'run_until_line', 'file': 'first-program.asm', 'line': 9, 'max_steps': 16}]), encoding='utf-8')
-        run('missing-sidecar', [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(missing_debug)], debug, expected_exit=1)
+        run('missing-sidecar', [binaries['emu198x-spectrum'], '--machine', 'spectrum_issue3_48k', '--rom', str(args.firmware), '--script', str(missing_debug)], debug, expected_exit=1)
         error = (args.output / 'missing-sidecar.stderr').read_text(encoding='utf-8')
         if 'needs debug info' not in error or 'load_debug_info' not in error:
             raise ValueError('Missing sidecar failed for an unexpected reason')
