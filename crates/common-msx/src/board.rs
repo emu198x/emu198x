@@ -18,6 +18,8 @@ pub trait MsxBoard {
     const HARDWARE: MsxHardware;
     const REGION: MsxRegion;
     const IS_MSX2: bool;
+    /// Immutable integrated-engine I/O wiring, reattached after restore.
+    const S3527_IO: bool = false;
     fn layout() -> MsxLayout;
 }
 /// Fixed physical owner with unchanged legacy state serialization.
@@ -36,7 +38,7 @@ impl<B: MsxBoard> MsxCore<B> {
         if B::IS_MSX2 != sub.is_some() {
             return Err("SUB-ROM presence does not match this MSX board".into());
         }
-        let state = if B::IS_MSX2 {
+        let mut state = if B::IS_MSX2 {
             MsxState::msx2(
                 bios,
                 sub.ok_or("MSX2 SUB-ROM missing")?,
@@ -46,13 +48,14 @@ impl<B: MsxBoard> MsxCore<B> {
         } else {
             MsxState::with_layout(bios, B::REGION, B::layout())
         };
+        state.s3527_io = B::S3527_IO;
         Ok(Self {
             state,
             board: std::marker::PhantomData,
         })
     }
     /// Bind original state after validating physical board topology and video.
-    pub fn from_state(state: MsxState) -> Result<Self, String> {
+    pub fn from_state(mut state: MsxState) -> Result<Self, String> {
         if state.region() != B::REGION
             || state.is_msx2() != B::IS_MSX2
             || state.v9938().is_some() != B::IS_MSX2
@@ -60,6 +63,7 @@ impl<B: MsxBoard> MsxCore<B> {
         {
             return Err("snapshot topology or video belongs to another MSX board".into());
         }
+        state.s3527_io = B::S3527_IO;
         Ok(Self {
             state,
             board: std::marker::PhantomData,

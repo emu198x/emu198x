@@ -31,6 +31,14 @@ use crate::runtime::MsxRuntime;
 /// an older snapshot without that latch could insert the wait twice or omit it
 /// when resuming in the middle of an opcode fetch.
 const SNAPSHOT_VERSION: u16 = 10;
+const SONY_HB10P_SNAPSHOT_VERSION: u16 = 11;
+fn version_for_model(model: crate::Model) -> u16 {
+    if model == crate::Model::SonyHb10p {
+        SONY_HB10P_SNAPSHOT_VERSION
+    } else {
+        SNAPSHOT_VERSION
+    }
+}
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -52,7 +60,7 @@ struct MsxRuntimeSnapshotV5 {
 
 pub(crate) fn encode(runtime: &MsxRuntime) -> Result<Vec<u8>, MachineError> {
     let snapshot = MsxRuntimeSnapshotRefV5 {
-        version: SNAPSHOT_VERSION,
+        version: version_for_model(runtime.model()),
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
@@ -68,16 +76,17 @@ pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), Machi
             reason: format!("decode failed: {reason}"),
         }
     })?;
-    if version != SNAPSHOT_VERSION {
+    let expected = version_for_model(runtime.model());
+    if version != expected {
         return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+            reason: format!("unsupported snapshot version {version}; expected {expected}"),
         });
     }
     let snapshot: MsxRuntimeSnapshotV5 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    debug_assert_eq!(snapshot.version, expected);
     if crate::Model::is_retired_id(&snapshot.model_id) {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -110,7 +119,7 @@ pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), Machi
 
 #[cfg(test)]
 mod tests {
-    use super::{SNAPSHOT_VERSION, decode, encode};
+    use super::{decode, encode, version_for_model};
     use crate::profiles::Model;
     use crate::runtime::MsxRuntime;
     use emu198x_shell::MachineError;
@@ -118,7 +127,7 @@ mod tests {
     #[test]
     fn decode_rejects_future_version_before_payload_decode() {
         let mut runtime = MsxRuntime::blank(Model::SonyHb10p);
-        let future_version = SNAPSHOT_VERSION + 1;
+        let future_version = version_for_model(runtime.model()) + 1;
         let bytes = postcard::to_allocvec(&future_version).expect("future version should encode");
 
         let err = decode(&mut runtime, &bytes).expect_err("future version should reject");
