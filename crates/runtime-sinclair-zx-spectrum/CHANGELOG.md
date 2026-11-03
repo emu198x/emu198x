@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the Timex TC2048, TC2068 and TS2068 show their pictures at the right width; their 704-pixel frames were presented at the 48K's pixel clock, twice as wide as they are
 - **Breaking:** Explicit 48K-class board profiles use version 20, preserving both the ULA snow state and independent PCB/fitting identity. Version 19 and earlier are rejected before decoding. Timex stays at version 18; the other profiles use version 19.
 
 ### Added

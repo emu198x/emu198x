@@ -334,9 +334,12 @@ impl SpectrumRuntimeKind {
     /// at the 48K rate, and the TC2068/TS2068 at their SCLD rate.
     /// Framebuffer pixels emitted per second for the active variant.
     ///
-    /// Two pixels per T-state across the whole family, so this is the CPU
-    /// clock doubled — and the CPU clock is the master crystal over the
-    /// variant's divisor, which is where the classes part company. The 48K
+    /// A 352-pixel frame takes two pixels per T-state, so its clock is the
+    /// CPU clock doubled. The Timex machines' frames are 704 pixels wide in
+    /// every mode, so they take four, and their clock is doubled again;
+    /// counting two would present every Timex picture twice as wide as it
+    /// is. The CPU clock is the master crystal over the variant's divisor,
+    /// which is where the classes part company. The 48K
     /// runs 14 MHz ÷ 4 for 7.00 MHz; the 128K runs four times the PAL colour
     /// subcarrier ÷ 5 for 7.09 MHz. Close enough to look like rounding, far
     /// enough that the picture is a different shape.
@@ -346,7 +349,7 @@ impl SpectrumRuntimeKind {
     #[must_use]
     pub fn pixel_clock_hz(&self) -> f64 {
         use common_sinclair_zx_spectrum::timing::{
-            TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
+            SCREEN_WIDTH, TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
         };
         use machine_timex_ts2068::TIMING_TS2068;
         let timing = match self {
@@ -377,7 +380,8 @@ impl SpectrumRuntimeKind {
             Self::TimexTC2048(_) | Self::TimexTC2068(_) => &TIMING_48K,
             Self::TimexTS2068(_) => &TIMING_TS2068,
         };
-        timing.master_hz as f64 / f64::from(timing.cpu_divisor) * 2.0
+        let pixels_per_tstate = 2.0 * f64::from(self.frame_width()) / SCREEN_WIDTH as f64;
+        timing.master_hz as f64 / f64::from(timing.cpu_divisor) * pixels_per_tstate
     }
 
     #[must_use]
@@ -633,6 +637,13 @@ macro_rules! match_kind {
 }
 
 impl SpectrumRuntimeKind {
+    /// Pixel width of the active variant's framebuffer: 352, or 704 on the
+    /// Timex machines, whose frame holds the 512-dot high-resolution mode.
+    #[must_use]
+    pub fn frame_width(&self) -> u32 {
+        match_kind!(self, |rt| rt.frame_width())
+    }
+
     /// Flushes any captured tape `SAVE` on the active variant to `.tap` bytes,
     /// or `None` if nothing was recorded (or the variant does not yet capture).
     #[must_use]
