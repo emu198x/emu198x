@@ -453,7 +453,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Spectrum48kRuntime;
+    use crate::SpectrumIssue3Ram48kRuntime;
     use crate::SpectrumSessionQueryProvider;
     use crate::family_runtime::SpectrumLiveAccess;
     use emu198x_shell::{
@@ -463,14 +463,18 @@ mod tests {
 
     struct FakePromptProvider;
 
-    impl SessionQueryProvider<Spectrum48kRuntime> for FakePromptProvider {
-        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+    impl SessionQueryProvider<SpectrumIssue3Ram48kRuntime> for FakePromptProvider {
+        fn query_paths(
+            &self,
+            _machine: &SpectrumIssue3Ram48kRuntime,
+            _prefix: Option<&str>,
+        ) -> Vec<String> {
             vec!["screen.text.lines".to_owned()]
         }
 
         fn query(
             &self,
-            _machine: &Spectrum48kRuntime,
+            _machine: &SpectrumIssue3Ram48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             if path != "screen.text.lines" {
@@ -493,8 +497,8 @@ mod tests {
             "sinclair-zx-spectrum-48k-rom",
             &[0; 16 * 1024],
         ));
-        let runtime =
-            Spectrum48kRuntime::from_firmware(&firmware).expect("dummy firmware should boot");
+        let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware)
+            .expect("dummy firmware should boot");
         let mut session =
             HeadlessSession::new_with_query_provider(runtime, 1, SpectrumSessionQueryProvider);
 
@@ -519,8 +523,8 @@ mod tests {
             "sinclair-zx-spectrum-48k-rom",
             &[0; 16 * 1024],
         ));
-        let runtime =
-            Spectrum48kRuntime::from_firmware(&firmware).expect("dummy firmware should boot");
+        let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware)
+            .expect("dummy firmware should boot");
         let session = HeadlessSession::new_with_query_provider(runtime, 1, FakePromptProvider);
 
         assert!(basic_prompt_ready(&session).expect("prompt query should succeed"));
@@ -531,8 +535,12 @@ mod tests {
     /// path without needing a real ROM.
     struct ReadyPromptProvider;
 
-    impl SessionQueryProvider<Spectrum48kRuntime> for ReadyPromptProvider {
-        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+    impl SessionQueryProvider<SpectrumIssue3Ram48kRuntime> for ReadyPromptProvider {
+        fn query_paths(
+            &self,
+            _machine: &SpectrumIssue3Ram48kRuntime,
+            _prefix: Option<&str>,
+        ) -> Vec<String> {
             vec![
                 "boot.detected".to_owned(),
                 "boot.reason".to_owned(),
@@ -544,7 +552,7 @@ mod tests {
 
         fn query(
             &self,
-            machine: &Spectrum48kRuntime,
+            machine: &SpectrumIssue3Ram48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
@@ -574,14 +582,18 @@ mod tests {
     /// `wait_for_boot` returns immediately.
     struct StuckPromptProvider;
 
-    impl SessionQueryProvider<Spectrum48kRuntime> for StuckPromptProvider {
-        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+    impl SessionQueryProvider<SpectrumIssue3Ram48kRuntime> for StuckPromptProvider {
+        fn query_paths(
+            &self,
+            _machine: &SpectrumIssue3Ram48kRuntime,
+            _prefix: Option<&str>,
+        ) -> Vec<String> {
             vec!["boot.detected".to_owned(), "screen.text.lines".to_owned()]
         }
 
         fn query(
             &self,
-            machine: &Spectrum48kRuntime,
+            machine: &SpectrumIssue3Ram48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
@@ -604,14 +616,14 @@ mod tests {
         }
     }
 
-    fn loaded_runtime() -> Spectrum48kRuntime {
+    fn loaded_runtime() -> SpectrumIssue3Ram48kRuntime {
         let mut firmware = FirmwareSet::new();
         firmware.push(FirmwareImage::new(
             "sinclair-zx-spectrum-48k-rom",
             &[0; 16 * 1024],
         ));
-        let mut runtime =
-            Spectrum48kRuntime::from_firmware(&firmware).expect("dummy firmware should boot");
+        let mut runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware)
+            .expect("dummy firmware should boot");
         // Minimal 19-byte tape header so `tape_is_loaded()` returns true.
         let blocks = vec![common_sinclair_zx_spectrum::tape::TapeBlock {
             flag: 0x00,

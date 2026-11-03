@@ -10,8 +10,8 @@ use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::HeadlessSession;
 use format198x_sinclair_zx_spectrum_tap::decode;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumSessionQueryProvider, tap_key,
-    tap_symbol_combo,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumIssue3Ram48kRuntime, SpectrumSessionQueryProvider,
+    tap_key, tap_symbol_combo,
 };
 
 fn local_48k_rom() -> Vec<u8> {
@@ -23,7 +23,7 @@ fn local_48k_rom() -> Vec<u8> {
 #[test]
 #[ignore = "FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn save_captures_a_reloadable_tap() {
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&local_48k_rom())
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&local_48k_rom())
         .expect("local 48K ROM should construct a runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,

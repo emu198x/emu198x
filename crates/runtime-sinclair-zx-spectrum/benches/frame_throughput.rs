@@ -30,8 +30,8 @@ use common_sinclair_zx_spectrum::timing::{
     CPU_HZ_48K, CPU_HZ_128K, TSTATES_PER_FRAME_48K, TSTATES_PER_FRAME_128K,
 };
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 
 /// Frames to run before measurement so the machine is past its boot
 /// settle and into the BASIC editor's quiescent key-poll loop.
@@ -67,8 +67,8 @@ fn rom_label(source: &RomSource) -> &'static str {
     }
 }
 
-fn warm_spectrum48k() -> (Spectrum48k, RomSource) {
-    let mut machine = Spectrum48k::new();
+fn warm_spectrum48k() -> (SpectrumIssue3With48k, RomSource) {
+    let mut machine = SpectrumIssue3With48k::new();
     let source = match rom_48k_path().and_then(|p| std::fs::read(&p).ok()) {
         Some(rom) => {
             machine

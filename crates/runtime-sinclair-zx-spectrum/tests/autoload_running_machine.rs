@@ -66,7 +66,7 @@ fn autoload_loads_a_tape_on_a_machine_that_has_already_been_used() {
     let rom = std::fs::read(rom_path()).expect("needs the 48K ROM");
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new("sinclair-zx-spectrum-48k-rom", &rom));
-    let runtime = SpectrumRuntimeKind::from_firmware(Model::Spectrum48KPal, &firmware)
+    let runtime = SpectrumRuntimeKind::from_firmware(Model::SpectrumIssue3Ram48kPal, &firmware)
         .expect("the 48K builds from its ROM");
     let frame_ticks = u64::from(runtime.frame_halfcycles());
     let mut session = HeadlessSession::new_with_query_provider(

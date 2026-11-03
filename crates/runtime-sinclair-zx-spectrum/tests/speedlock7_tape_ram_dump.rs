@@ -24,7 +24,7 @@ use common_sinclair_zx_spectrum::tape::TapeSpan;
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use format_sinclair_zx_spectrum_tzx::tzx_to_stream;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumMachine,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumIssue3Ram48kRuntime, SpectrumMachine,
     SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 
@@ -44,7 +44,7 @@ fn spectrum_tzx_root() -> PathBuf {
 }
 
 fn dump_window(
-    session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    session: &HeadlessSession<SpectrumIssue3Ram48kRuntime, SpectrumSessionQueryProvider>,
     label: &str,
 ) {
     eprintln!("\n=== RAM @ ${LOADER_BASE:04x}..+0x80 after {label} ===");
@@ -78,7 +78,7 @@ fn dump_window(
 }
 
 fn count_in_fe(
-    session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    session: &HeadlessSession<SpectrumIssue3Ram48kRuntime, SpectrumSessionQueryProvider>,
 ) -> usize {
     let mut count = 0;
     for off in 0..LOADER_LEN - 1 {
@@ -117,7 +117,8 @@ fn dump_speedlock7_loader_ram() {
         &rom_bytes.bytes,
     ));
 
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime from firmware");
+    let runtime =
+        SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime from firmware");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -288,7 +289,7 @@ fn find_feb3_write_in_green_beret() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -335,7 +336,7 @@ fn find_feb3_write_in_green_beret() {
             "sinclair-zx-spectrum-48k-rom".to_owned(),
             &rom_bytes.bytes,
         ));
-        let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+        let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
         session = HeadlessSession::new_with_query_provider(
             runtime,
             u64::from(TIMING_48K.halfcycles_per_frame),
@@ -439,7 +440,7 @@ fn measure_one(label: &str, tzx_relative_path: &str) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -535,7 +536,7 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -689,7 +690,7 @@ fn measure_n_instructions(label: &str, n: usize, opcode_bytes: &[u8]) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -779,7 +780,7 @@ fn time_byte_decoder(label: &str, tzx_relative_path: &str) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -951,7 +952,7 @@ fn probe_one_loader_status_abs(label: &str, tzx_path: &std::path::Path) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1042,7 +1043,7 @@ fn probe_one_loader_status(label: &str, tzx_relative_path: &str) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1245,7 +1246,7 @@ fn green_beret_with_extended_pause() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1326,7 +1327,7 @@ fn check_90ef_writes_in_green_beret() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1397,7 +1398,7 @@ fn check_90ef_writes_in_green_beret() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime2 = Spectrum48kRuntime::from_firmware(&firmware2).expect("48K runtime");
+    let runtime2 = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware2).expect("48K runtime");
     let mut session2 = HeadlessSession::new_with_query_provider(
         runtime2,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1434,7 +1435,7 @@ fn check_90ef_writes_in_green_beret() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1531,7 +1532,7 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1653,7 +1654,7 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -1816,7 +1817,7 @@ fn trace_speedlock7_byte_decoder_b_values() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2127,7 +2128,7 @@ fn sample_border_color_through_loader() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2207,7 +2208,7 @@ fn check_speedlock_loader_alive(label: &str, tzx_relative_path: &str) -> Result<
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2302,7 +2303,7 @@ fn probe_tape_and_pc(label: &str, tzx_relative_path: &str) {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2419,7 +2420,7 @@ fn head_over_heels_speedlock2_reaches_game_code() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2471,7 +2472,7 @@ fn dump_speedlock2_head_over_heels_tape_state() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2568,7 +2569,7 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),
@@ -2700,7 +2701,7 @@ fn dump_speedlock7_decrypted_loader() {
         "sinclair-zx-spectrum-48k-rom".to_owned(),
         &rom_bytes.bytes,
     ));
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware).expect("48K runtime");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware).expect("48K runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(TIMING_48K.halfcycles_per_frame),

@@ -32,7 +32,7 @@ fn query_cpu_starts_a_48k_session_without_running_frames() {
     fs::write(&script, r#"[{"action":"query_cpu"}]"#).expect("startup query");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_emu198x-spectrum"))
-        .args(["--machine", "spectrum_48k", "--rom"])
+        .args(["--machine", "spectrum_issue3_48k", "--rom"])
         .arg(&rom)
         .arg("--script")
         .arg(&script)

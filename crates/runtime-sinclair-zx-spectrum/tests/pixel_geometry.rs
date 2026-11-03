@@ -11,9 +11,9 @@ use emu198x_shell::machine::Region;
 use runtime_sinclair_zx_spectrum::SpectrumRuntimeKind as Kind;
 use runtime_sinclair_zx_spectrum::TimexTC2068Runtime;
 use runtime_sinclair_zx_spectrum::{
-    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumIssue3Ram16kRuntime,
+    SpectrumIssue3Ram48kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime,
+    SpectrumPlus2Runtime, SpectrumPlus3Runtime, TimexTC2048Runtime, TimexTS2068Runtime,
 };
 
 /// Every variant by name. Built one at a time on purpose: each runtime holds
@@ -26,9 +26,9 @@ const VARIANTS: &[&str] = &[
 
 fn variant(name: &str) -> Kind {
     match name {
-        "16K" => Kind::Spectrum16K(Box::new(Spectrum16kRuntime::blank())),
-        "48K" => Kind::Spectrum48K(Box::new(Spectrum48kRuntime::blank())),
-        "+" => Kind::SpectrumPlus(Box::new(SpectrumPlusRuntime::blank())),
+        "16K" => Kind::Issue3Ram16k(Box::new(SpectrumIssue3Ram16kRuntime::blank())),
+        "48K" => Kind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank())),
+        "+" => Kind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank())),
         "128K" => Kind::Spectrum128K(Box::new(Spectrum128kRuntime::blank())),
         "+2" => Kind::SpectrumPlus2(Box::new(SpectrumPlus2Runtime::blank())),
         "+2A" => Kind::SpectrumPlus2A(Box::new(SpectrumPlus2ARuntime::blank())),
@@ -48,7 +48,8 @@ fn variant(name: &str) -> Kind {
 /// colour subcarrier and divides by five.
 #[test]
 fn the_48k_and_128k_classes_run_at_different_pixel_clocks() {
-    let fortyeight = Kind::Spectrum48K(Box::new(Spectrum48kRuntime::blank())).pixel_clock_hz();
+    let fortyeight =
+        Kind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank())).pixel_clock_hz();
     let one_two_eight = Kind::Spectrum128K(Box::new(Spectrum128kRuntime::blank())).pixel_clock_hz();
 
     assert!(

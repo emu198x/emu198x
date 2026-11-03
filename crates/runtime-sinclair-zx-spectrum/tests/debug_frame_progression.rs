@@ -3,14 +3,14 @@
 
 use emu198x_shell::{DebugTarget, HeadlessSession, MachineCore};
 use runtime_sinclair_zx_spectrum::{
-    Spectrum48kRuntime, SpectrumLiveAccess, SpectrumMachine, SpectrumRuntimeKind,
+    SpectrumIssue3Ram48kRuntime, SpectrumLiveAccess, SpectrumMachine, SpectrumRuntimeKind,
 };
 
-fn runtime() -> Spectrum48kRuntime {
+fn runtime() -> SpectrumIssue3Ram48kRuntime {
     let mut rom = [0; 16 * 1024];
     // DI; LD A,4; OUT ($FE),A; JR $0005. Green is produced by execution.
     rom[..7].copy_from_slice(&[0xF3, 0x3E, 4, 0xD3, 0xFE, 0x18, 0xFE]);
-    Spectrum48kRuntime::new_48k(rom)
+    SpectrumIssue3Ram48kRuntime::new_board(rom)
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn frame_execution_after_debug_steps_settles_the_border_and_keeps_time() {
     let runtime = runtime();
     let frame_ticks = u64::from(runtime.machine().frame_halfcycles());
     let mut session = HeadlessSession::new(
-        SpectrumRuntimeKind::Spectrum48K(Box::new(runtime)),
+        SpectrumRuntimeKind::Issue3Ram48k(Box::new(runtime)),
         frame_ticks,
     );
     let mut elapsed = 0;
@@ -61,7 +61,7 @@ fn frame_execution_after_debug_steps_settles_the_border_and_keeps_time() {
     session.machine_mut().resync();
     assert_eq!(session.time().get(), elapsed);
     session.run_frames(2).expect("resume frame execution");
-    let SpectrumRuntimeKind::Spectrum48K(runtime) = session.machine() else {
+    let SpectrumRuntimeKind::Issue3Ram48k(runtime) = session.machine() else {
         panic!("48K fixture");
     };
     // Two native completions consume the remaining partial field plus one
@@ -74,7 +74,7 @@ fn frame_execution_after_debug_steps_settles_the_border_and_keeps_time() {
     );
 
     let mut normal = HeadlessSession::new(
-        SpectrumRuntimeKind::Spectrum48K(Box::new(self::runtime())),
+        SpectrumRuntimeKind::Issue3Ram48k(Box::new(self::runtime())),
         frame_ticks,
     );
     normal.run_frames(3).expect("ordinary frames");

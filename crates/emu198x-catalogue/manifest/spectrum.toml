@@ -85,28 +85,109 @@ audio_routing_version = 4
 frame_routing_version = 6
 
 [[system.firmware]]
-variant = "48k"
+variant = "spectrum_issue1_16k"
 files = [
     { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
 ]
 
-# Spectrum+ is electrically identical to the 48K — same ROM image, same
-# memory map, same Ferranti ULA. The catalogue duplicates the 48K title
-# set against the dedicated -plus crate so any future drift between the
-# two surfaces immediately. See knowledge/decisions/october-catalogue.md.
 [[system.firmware]]
-variant = "plus"
+variant = "spectrum_48k_issue1"
 files = [
     { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
 ]
 
-# 16K Spectrum: same Z80, same Ferranti ULA, same 48 BASIC ROM as the
-# 48K — only RAM size differs (16 KiB vs 48 KiB). The catalogue picks
-# titles small enough to fit in 16K (typically 1982-83 single-screen
-# action games), exercising memory-bound behaviour the 48K and Spectrum+
-# entries can't.
 [[system.firmware]]
-variant = "16k"
+variant = "spectrum_issue2_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_48k_issue2"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue3_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue3_48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue3b_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue3b_48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue4a_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue4a_48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue4b_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue4b_48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue5_6c001e6_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue5_6c001e6_48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue5_6c001e7_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue5_6c001e7_48k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue6a_16k"
+files = [
+    { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
+]
+
+[[system.firmware]]
+variant = "spectrum_issue6a_48k"
 files = [
     { id = "sinclair-zx-spectrum-48k-rom", path = "sinclair-zx-spectrum-48k/48.rom" },
 ]
@@ -162,7 +243,7 @@ id = "manic-miner"
 title = "Manic Miner"
 year = 1983
 publisher = "Bug-Byte"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -190,7 +271,7 @@ id = "knight-lore"
 title = "Knight Lore"
 year = 1984
 publisher = "Ultimate Play The Game"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -213,7 +294,7 @@ id = "jet-set-willy"
 title = "Jet Set Willy"
 year = 1984
 publisher = "Software Projects"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -240,7 +321,7 @@ id = "atic-atac"
 title = "Atic Atac"
 year = 1983
 publisher = "Ultimate Play The Game"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -265,7 +346,7 @@ id = "skool-daze"
 title = "Skool Daze"
 year = 1984
 publisher = "Microsphere"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -288,7 +369,7 @@ id = "chuckie-egg"
 title = "Chuckie Egg"
 year = 1983
 publisher = "A'n'F"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -311,7 +392,7 @@ id = "saboteur"
 title = "Saboteur!"
 year = 1985
 publisher = "Durell"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # The [a] dump. The [a2] dump this entry used until 2026-10-06 is a
@@ -341,7 +422,7 @@ id = "sabre-wulf"
 title = "Sabre Wulf"
 year = 1984
 publisher = "Ultimate Play The Game"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -367,7 +448,7 @@ id = "lords-of-midnight"
 title = "Lords of Midnight"
 year = 1984
 publisher = "Beyond"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -393,7 +474,7 @@ id = "head-over-heels"
 title = "Head over Heels"
 year = 1987
 publisher = "Ocean"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -433,7 +514,7 @@ id = "ace-of-aces-tape-alkatraz"
 title = "Ace of Aces (Alkatraz)"
 year = 1986
 publisher = "U.S. Gold"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # U.S. Gold WWII flight-sim, Alkatraz Protection System (Pavel
@@ -463,7 +544,7 @@ id = "back-to-skool-tape-microsphere"
 title = "Back to Skool (Microsphere)"
 year = 1985
 publisher = "Microsphere"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Skool Daze sequel using Microsphere's custom fast loader (1985-
@@ -498,7 +579,7 @@ id = "back-to-the-future-tape-bleepload"
 title = "Back to the Future (Bleepload)"
 year = 1985
 publisher = "Electric Dreams"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Don Priestley's Bleepload was Firebird / Electric Dreams' house
@@ -539,7 +620,7 @@ id = "operation-wolf-tape-speedlock"
 title = "Operation Wolf (Speedlock 7)"
 year = 1991
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad budget re-release of Ocean's 1988 arcade conversion.
@@ -573,7 +654,7 @@ id = "robocop-tape-speedlock"
 title = "RoboCop (Speedlock 7)"
 year = 1991
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Ocean's 1988 RoboCop movie tie-in. Same
@@ -603,7 +684,7 @@ id = "dragon-ninja-tape-speedlock"
 title = "Dragon Ninja (Speedlock 7)"
 year = 1991
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Imagine's 1988 Bad Dudes vs Dragon Ninja
@@ -632,7 +713,7 @@ id = "renegade-tape-speedlock"
 title = "Renegade (Speedlock 7)"
 year = 1990
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Imagine/Ocean's 1987 conversion of
@@ -660,7 +741,7 @@ id = "combat-school-tape-speedlock"
 title = "Combat School (Speedlock 7)"
 year = 1990
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Imagine's 1987 conversion of Konami's
@@ -689,7 +770,7 @@ id = "rambo-tape-speedlock"
 title = "Rambo (Speedlock 7)"
 year = 1989
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Ocean's 1985 Rambo: First Blood Part II
@@ -717,7 +798,7 @@ id = "star-wars-tape-speedlock"
 title = "Star Wars (Speedlock 7)"
 year = 1990
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Domark's 1987 conversion of Atari's 1983
@@ -744,7 +825,7 @@ id = "mikie-tape-speedlock"
 title = "Mikie (Speedlock 7)"
 year = 1990
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Imagine's 1985 Spectrum port of Konami's
@@ -773,7 +854,7 @@ id = "nemesis-tape-speedlock"
 title = "Nemesis (Speedlock 7)"
 year = 1990
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Konami's 1986 Spectrum port of their
@@ -801,7 +882,7 @@ id = "salamander-tape-speedlock"
 title = "Salamander (Speedlock 7)"
 year = 1990
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Imagine's 1987 Spectrum port of Konami's
@@ -829,7 +910,7 @@ id = "bubble-bobble-tape-speedlock"
 title = "Bubble Bobble (Speedlock 5)"
 year = 1992
 publisher = "Hit Squad, The"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Hit Squad re-release of Firebird's 1987 Bubble Bobble — the only
@@ -864,7 +945,7 @@ id = "green-beret-tape-speedlock"
 title = "Green Beret (Speedlock 2)"
 year = 1986
 publisher = "Imagine"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Imagine's 1986 Spectrum conversion of Konami's coin-op infiltration
@@ -901,7 +982,7 @@ id = "arkanoid-tape"
 title = "Arkanoid"
 year = 1987
 publisher = "Imagine"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Floating-bus regression bench per the architecture review's Seam 1
@@ -948,7 +1029,7 @@ id = "manic-miner-plus"
 title = "Manic Miner"
 year = 1983
 publisher = "Bug-Byte"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -969,7 +1050,7 @@ id = "knight-lore-plus"
 title = "Knight Lore"
 year = 1984
 publisher = "Ultimate Play The Game"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -990,7 +1071,7 @@ id = "jet-set-willy-plus"
 title = "Jet Set Willy"
 year = 1984
 publisher = "Software Projects"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -1011,7 +1092,7 @@ id = "atic-atac-plus"
 title = "Atic Atac"
 year = 1983
 publisher = "Ultimate Play The Game"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -1032,7 +1113,7 @@ id = "skool-daze-plus"
 title = "Skool Daze"
 year = 1984
 publisher = "Microsphere"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -1053,7 +1134,7 @@ id = "chuckie-egg-plus"
 title = "Chuckie Egg"
 year = 1983
 publisher = "A'n'F"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -1074,7 +1155,7 @@ id = "saboteur-plus"
 title = "Saboteur!"
 year = 1985
 publisher = "Durell"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # The [a] dump; see `saboteur` for why not [a2].
@@ -1096,7 +1177,7 @@ id = "sabre-wulf-plus"
 title = "Sabre Wulf"
 year = 1984
 publisher = "Ultimate Play The Game"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -1117,7 +1198,7 @@ id = "lords-of-midnight-plus"
 title = "Lords of Midnight"
 year = 1984
 publisher = "Beyond"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -1138,7 +1219,7 @@ id = "head-over-heels-plus"
 title = "Head over Heels"
 year = 1987
 publisher = "Ocean"
-variant = "plus"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 kind = "tape"
@@ -2608,7 +2689,7 @@ id = "jet-pac"
 title = "Jet Pac"
 year = 1983
 publisher = "Ultimate Play The Game"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2631,7 +2712,7 @@ id = "pssst"
 title = "Pssst"
 year = 1983
 publisher = "Ultimate Play The Game"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2654,7 +2735,7 @@ id = "cookie"
 title = "Cookie"
 year = 1983
 publisher = "Ultimate Play The Game"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2677,7 +2758,7 @@ id = "tranz-am"
 title = "Tranz Am"
 year = 1983
 publisher = "Ultimate Play The Game"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2700,7 +2781,7 @@ id = "hungry-horace"
 title = "Hungry Horace"
 year = 1982
 publisher = "Sinclair Research"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2725,7 +2806,7 @@ id = "horace-goes-skiing"
 title = "Horace Goes Skiing"
 year = 1983
 publisher = "Sinclair Research"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2752,7 +2833,7 @@ id = "penetrator"
 title = "Penetrator"
 year = 1982
 publisher = "Melbourne House"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2775,7 +2856,7 @@ id = "football-manager"
 title = "Football Manager"
 year = 1982
 publisher = "Addictive Games"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2799,7 +2880,7 @@ id = "time-gate"
 title = "4D Time-Gate"
 year = 1982
 publisher = "Quicksilva"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"
@@ -2831,7 +2912,7 @@ id = "sabre-wulf-kempston-start"
 title = "Sabre Wulf (Kempston start)"
 year = 1984
 publisher = "Ultimate Play The Game"
-variant = "48k"
+variant = "spectrum_issue3_48k"
 
 [entry.media]
 # Same TAP image as entry `sabre-wulf`; the discriminator is the
@@ -2932,7 +3013,7 @@ id = "gulpman"
 title = "Gulpman"
 year = 1982
 publisher = "Campbell Systems"
-variant = "16k"
+variant = "spectrum_issue3_16k"
 
 [entry.media]
 kind = "tape"

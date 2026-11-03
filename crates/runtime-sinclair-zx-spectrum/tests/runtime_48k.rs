@@ -6,15 +6,15 @@ use emu198x_shell::{
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NullTraceSink, PixelFormat,
     ResetKind, SessionQueryProvider, read_media_asset,
 };
-use machine_sinclair_zx_spectrum_48k::ApplyInputEvent;
+use runtime_sinclair_zx_spectrum::ApplyInputEvent;
 use runtime_sinclair_zx_spectrum::*;
 use std::fs;
 use std::path::PathBuf;
 
 #[test]
 fn runtime_loads_tap_media_into_tape_slot() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let tap = minimal_tap();
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
@@ -35,7 +35,7 @@ fn runtime_can_boot_from_declared_firmware_set() {
         &[0; 16 * 1024],
     ));
 
-    let runtime = Spectrum48kRuntime::from_firmware(&firmware);
+    let runtime = SpectrumIssue3Ram48kRuntime::from_firmware(&firmware);
     assert!(
         runtime.is_ok(),
         "declared 48K firmware should boot the runtime"
@@ -44,8 +44,8 @@ fn runtime_can_boot_from_declared_firmware_set() {
 
 #[test]
 fn audio_controls_mutate_machine_speaker_mixer() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
 
     runtime.set_audio_channel_enabled(SpeakerChannel::Speaker, false);
     runtime.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
@@ -57,8 +57,8 @@ fn audio_controls_mutate_machine_speaker_mixer() {
 
 #[test]
 fn runtime_rejects_unknown_media_slot() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let tap = minimal_tap();
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-9", MediaKind::Tape, &tap));
@@ -74,8 +74,8 @@ fn runtime_rejects_unknown_media_slot() {
 
 #[test]
 fn runtime_run_until_emits_frame_and_audio_packets() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let mut frame_sink = RecordingFrameSink::default();
     let mut audio_sink = RecordingAudioSink::default();
     let mut trace_sink = NullTraceSink;
@@ -109,8 +109,8 @@ fn runtime_run_until_emits_frame_and_audio_packets() {
 
 #[test]
 fn runtime_command_controls_tape_transport() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let tap = minimal_tap();
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
@@ -137,8 +137,8 @@ fn runtime_command_controls_tape_transport() {
 
 #[test]
 fn runtime_snapshot_roundtrips_machine_state() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let tap = minimal_tap();
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
@@ -175,7 +175,7 @@ fn runtime_snapshot_roundtrips_machine_state() {
 
     let snapshot = runtime.snapshot().expect("snapshot should encode");
     let before_restore = snapshot.clone();
-    let mut restored = Spectrum48kRuntime::blank();
+    let mut restored = SpectrumIssue3Ram48kRuntime::blank();
     restored
         .restore(&snapshot)
         .expect("snapshot should restore into blank runtime");
@@ -188,8 +188,8 @@ fn runtime_snapshot_roundtrips_machine_state() {
 
 #[test]
 fn spectrum_query_provider_lists_supported_paths() {
-    let runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let provider = SpectrumSessionQueryProvider;
 
     let paths = provider.query_paths(&runtime, Some("tape."));
@@ -212,8 +212,8 @@ fn spectrum_query_provider_lists_supported_paths() {
 
 #[test]
 fn spectrum_query_provider_lists_boot_and_screen_text_paths() {
-    let runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let provider = SpectrumSessionQueryProvider;
 
     let boot_paths = provider.query_paths(&runtime, Some("boot."));
@@ -239,8 +239,8 @@ fn spectrum_query_provider_lists_boot_and_screen_text_paths() {
 
 #[test]
 fn spectrum_query_provider_reads_runtime_state() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let tap = minimal_tap();
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, &tap));
@@ -314,7 +314,7 @@ fn spectrum_query_provider_detects_booted_48k_rom() {
         Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
     };
 
-    let mut runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)
         .expect("48K ROM path should contain a valid 16 KiB image");
     let mut frame_sink = RecordingFrameSink::default();
     let mut audio_sink = RecordingAudioSink::default();
@@ -389,7 +389,7 @@ fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
         Err(err) => panic!("failed to read {}: {err}", rom_path.display()),
     };
 
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)
         .expect("48K ROM path should contain a valid 16 KiB image");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -469,8 +469,8 @@ fn runtime_loads_zipped_manic_miner_tzx_media() {
         Err(err) => panic!("failed to read {}: {err}", tape_path.display()),
     };
 
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, &tape.bytes));
 
@@ -506,7 +506,7 @@ fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
         Err(err) => panic!("failed to read {}: {err}", tape_path.display()),
     };
 
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)
         .expect("48K ROM path should contain a valid 16 KiB image");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -565,7 +565,7 @@ fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
         Err(err) => panic!("failed to read {}: {err}", tape_path.display()),
     };
 
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&rom)
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom)
         .expect("48K ROM path should contain a valid 16 KiB image");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -621,8 +621,8 @@ fn runtime_loads_tzx_media_into_tape_slot() {
     // which wasn't covered by the existing TAP-only test. The empty
     // TZX header parses to a zero-span stream — the runtime accepts
     // it without error, which is the path under test.
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let tzx = minimal_tzx();
     let mut media = MediaSet::new();
     media.push(MediaImage::new("tape-1", MediaKind::Tape, &tzx));
@@ -634,8 +634,8 @@ fn runtime_loads_tzx_media_into_tape_slot() {
 
 #[test]
 fn runtime_rejects_malformed_tap_bytes() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     // Two bytes total — claims a 19-byte block but the body is missing.
     let bogus = vec![0x13u8, 0x00];
     let mut media = MediaSet::new();
@@ -649,8 +649,8 @@ fn runtime_rejects_malformed_tap_bytes() {
 
 #[test]
 fn runtime_rejects_malformed_tzx_bytes() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     // ZXTape! header but missing version bytes.
     let bogus: Vec<u8> = b"ZXTape!\x1a".to_vec();
     let mut media = MediaSet::new();
@@ -667,8 +667,8 @@ fn runtime_rejects_disk_slot_on_48k() {
     // 48K has no disk interface; the default `supports_disk_slot`
     // returns false, sending every disk slot down the
     // `UnknownMediaSlot` path.
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let mut media = MediaSet::new();
     media.push(MediaImage::new("disk-a", MediaKind::Disk, &[0u8; 16]));
 
@@ -680,8 +680,8 @@ fn runtime_rejects_disk_slot_on_48k() {
 
 #[test]
 fn runtime_rejects_unsupported_media_kind() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let mut media = MediaSet::new();
     media.push(MediaImage::new("cart-1", MediaKind::Cartridge, &[0u8; 8]));
 
@@ -693,8 +693,8 @@ fn runtime_rejects_unsupported_media_kind() {
 
 #[test]
 fn runtime_reset_clears_time_and_keyboard_matrix() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let inputs = [InputEvent::Key {
         name: "q".into(),
         pressed: true,
@@ -725,8 +725,8 @@ fn runtime_reset_clears_time_and_keyboard_matrix() {
 
 #[test]
 fn runtime_rejects_unknown_transport_slot() {
-    let mut runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let mut runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let err = runtime
         .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
             "tape-9",
@@ -738,8 +738,8 @@ fn runtime_rejects_unknown_transport_slot() {
 
 #[test]
 fn runtime_capabilities_advertise_snapshot_export() {
-    let runtime =
-        Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&[0; 16 * 1024])
+        .expect("dummy ROM should load");
     let caps = runtime.capabilities();
     assert!(caps.contains(&emu198x_shell::known_capability("snapshot-export")));
     assert!(caps.contains(&emu198x_shell::known_capability("tape-input")));
@@ -774,7 +774,7 @@ fn spectrum_jet_set_willy_tzx_path() -> Option<PathBuf> {
 /// reports the failure — a helper that panicked itself would hide which
 /// expectation was not met.
 fn wait_for_line(
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    session: &mut HeadlessSession<SpectrumIssue3Ram48kRuntime, SpectrumSessionQueryProvider>,
     line: usize,
     expected: &str,
     budget: u32,
@@ -793,7 +793,7 @@ fn wait_for_line(
 }
 
 fn screen_text_lines_from_session(
-    session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    session: &HeadlessSession<SpectrumIssue3Ram48kRuntime, SpectrumSessionQueryProvider>,
 ) -> Vec<String> {
     let result = session
         .query("screen.text.lines")

@@ -13,7 +13,8 @@ use emu198x_shell::{
 };
 use emu198x_zilog_z80::z80::Phase;
 use runtime_sinclair_zx_spectrum::{
-    Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumPlus3Runtime,
+    Spectrum128kRuntime, SpectrumIssue3Ram16kRuntime, SpectrumIssue3Ram48kRuntime,
+    SpectrumPlus3Runtime,
 };
 
 const WARMUP: u64 = 50_000;
@@ -68,12 +69,18 @@ fn assert_round_trip<R: MachineCore>(mut runtime: R, mut restored: R) {
 
 #[test]
 fn snapshot_round_trip_16k() {
-    assert_round_trip(Spectrum16kRuntime::blank(), Spectrum16kRuntime::blank());
+    assert_round_trip(
+        SpectrumIssue3Ram16kRuntime::blank(),
+        SpectrumIssue3Ram16kRuntime::blank(),
+    );
 }
 
 #[test]
 fn snapshot_round_trip_48k() {
-    assert_round_trip(Spectrum48kRuntime::blank(), Spectrum48kRuntime::blank());
+    assert_round_trip(
+        SpectrumIssue3Ram48kRuntime::blank(),
+        SpectrumIssue3Ram48kRuntime::blank(),
+    );
 }
 
 #[test]
@@ -88,7 +95,7 @@ fn snapshot_round_trip_plus3() {
 
 #[test]
 fn snapshot_mid_nmi_response_continues_identically() {
-    let mut original = Spectrum48kRuntime::blank();
+    let mut original = SpectrumIssue3Ram48kRuntime::blank();
     original.machine_mut().z80_mut().nmi = true;
 
     let mut accepted = false;
@@ -112,7 +119,7 @@ fn snapshot_mid_nmi_response_continues_identically() {
     let snap = original
         .snapshot()
         .expect("mid-NMI Spectrum runtime should snapshot");
-    let mut restored = Spectrum48kRuntime::blank();
+    let mut restored = SpectrumIssue3Ram48kRuntime::blank();
     restored
         .restore(&snap)
         .expect("mid-NMI Spectrum snapshot should restore");
