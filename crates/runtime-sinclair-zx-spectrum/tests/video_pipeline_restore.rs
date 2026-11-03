@@ -141,7 +141,7 @@ fn legacy_v16_is_rejected_before_payload_decode_without_mutation() {
             ) {
                 18
             } else {
-                17
+                19
             };
             assert!(
                 matches!(error,emu198x_shell::MachineError::InvalidSnapshot {reason} if reason==format!("unsupported snapshot version 16; expected {expected}"))
