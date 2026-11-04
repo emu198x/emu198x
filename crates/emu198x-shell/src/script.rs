@@ -131,9 +131,9 @@ pub struct MemoryWriteEntry {
     pub source: Option<crate::watch::WatchMemorySource>,
 }
 
-/// One shared JSON script step.
+/// One shared JSON script step. Unknown fields are rejected.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ScriptStep {
     /// Load one media image into a named slot.
     LoadMedia {
@@ -279,6 +279,7 @@ pub enum ScriptStep {
     /// explicit steps rather than the `reset_after` boolean. Has no
     /// effect on the start/stop recording path — that uses its own
     /// per-recording offset.
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     ClearAudioCapture,
     /// Switch the live machine to the named variant, loading its
     /// default ROM bundle from the conventional on-disk location.
@@ -342,6 +343,7 @@ pub enum ScriptStep {
     /// Closes the ffmpeg pipe, waits for the video pass, and (when audio has
     /// been captured) runs a second ffmpeg pass to mux audio into the final
     /// MP4. Emits [`ScriptObservation::StopVideoRecording`].
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     StopVideoRecording,
     /// Begin recording emitted audio to a 16-bit PCM WAV file.
     ///
@@ -365,6 +367,7 @@ pub enum ScriptStep {
     /// `StartAudioRecording` to the current end, encodes the result
     /// as 16-bit PCM WAV, and writes it to disk. Emits
     /// [`ScriptObservation::StopAudioRecording`].
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     StopAudioRecording,
     /// Query the AY-3-8912 chip's full register state in one call.
     ///
@@ -380,6 +383,7 @@ pub enum ScriptStep {
     /// `spectrum.ay.selected_register` queries with named fields so
     /// curriculum scripts can assert on chip state without decoding
     /// the 16-byte raw array themselves.
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     QueryAy,
     /// Query the CPU's register file in one call.
     ///
@@ -389,6 +393,7 @@ pub enum ScriptStep {
     /// registers (IX/IY), control (PC/SP/I/R), interrupt state
     /// (IM/IFF1/IFF2), and the decoded F flags (S/Z/5/H/3/P-V/N/C).
     /// Emits [`ScriptObservation::QueryCpu`].
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     QueryCpu,
     /// Run a bounded execution-cost capture and join it to loaded source symbols.
     ProfileCycles {
@@ -530,11 +535,13 @@ pub enum ScriptStep {
     /// System-specific step (binary-dispatched). Errors when the
     /// active variant has no AY (16K / 48K / Spectrum+ / TC2048).
     /// Emits [`ScriptObservation::WatchAyStart`].
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     WatchAyStart,
     /// Stop tracing AY writes and drop the captured log.
     ///
     /// System-specific (binary-dispatched). Emits
     /// [`ScriptObservation::WatchAyClear`].
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     WatchAyClear,
     /// Fetch the captured AY write log.
     ///
@@ -679,6 +686,7 @@ pub enum ScriptStep {
     /// System-specific (binary-dispatched). Emits
     /// [`ScriptObservation::WatchMemoryClear`] with the count of
     /// records that were dropped.
+    #[serde(deserialize_with = "deserialize_fieldless_step")]
     WatchMemoryClear,
     /// Fetch the captured write log.
     ///
@@ -707,6 +715,19 @@ pub enum ScriptStep {
         #[serde(default)]
         cck_max: Option<u64>,
     },
+}
+
+// Serde's internally tagged unit variants discard their remaining fields even
+// with deny_unknown_fields. Deserialize an empty struct to reject them while
+// keeping the public unit variants and their serialized representation.
+fn deserialize_fieldless_step<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<(), D::Error> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct EmptyStep {}
+
+    EmptyStep::deserialize(deserializer).map(|_| ())
 }
 
 /// One JSON script made of ordered shared steps.
@@ -3497,6 +3518,89 @@ mod tests {
         assert_eq!(legacy.source, None);
         let legacy_json = serde_json::to_value(legacy).expect("serialize legacy write");
         assert!(legacy_json.get("source").is_none());
+    }
+
+    #[test]
+    fn headless_script_rejects_unknown_fields() {
+        for (script, field) in [
+            (
+                r#"[{"action":"run_until_pc","addr":32782,"max_ticks":838656}]"#,
+                "max_ticks",
+            ),
+            (r#"[{"action":"step","count":16}]"#, "count"),
+            (r#"[{"frames":2,"action":"step"}]"#, "frames"),
+        ] {
+            let error = HeadlessScript::from_json_str(script)
+                .expect_err("unknown fields must not silently change script behaviour")
+                .to_string();
+            assert!(
+                error.contains(&format!("unknown field `{field}`")),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn fieldless_script_actions_reject_unknown_fields() {
+        for action in [
+            "clear_audio_capture",
+            "stop_video_recording",
+            "stop_audio_recording",
+            "query_ay",
+            "query_cpu",
+            "watch_ay_start",
+            "watch_ay_clear",
+            "watch_memory_clear",
+        ] {
+            let valid = format!(r#"[{{"action":"{action}"}}]"#);
+            let script = HeadlessScript::from_json_str(&valid).expect("fieldless action");
+            assert_eq!(
+                serde_json::to_string(&script).expect("serialize action"),
+                valid
+            );
+            let invalid = format!(r#"[{{"unexpected":true,"action":"{action}"}}]"#);
+            let error = HeadlessScript::from_json_str(&invalid)
+                .expect_err("fieldless actions must reject fields too")
+                .to_string();
+            assert!(
+                error.contains("unknown field `unexpected`"),
+                "{action}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_script_parsing_preserves_optional_fields_and_aliases() {
+        let script = HeadlessScript::from_json_str(
+            r#"[
+                {"max_steps":37,"addr":32782,"action":"run_until_pc"},
+                {"action":"run_until_pc","addr":32782},
+                {"action":"step","instructions":16},
+                {"action":"step"},
+                {"action":"set_machine","model":"spectrum_issue3_48k"}
+            ]"#,
+        )
+        .expect("valid fields, omitted options and aliases must remain accepted");
+        assert_eq!(
+            script.steps,
+            vec![
+                ScriptStep::RunUntilPc {
+                    addr: 32782,
+                    max_steps: Some(37)
+                },
+                ScriptStep::RunUntilPc {
+                    addr: 32782,
+                    max_steps: None
+                },
+                ScriptStep::Step {
+                    instructions: Some(16)
+                },
+                ScriptStep::Step { instructions: None },
+                ScriptStep::SetMachine {
+                    machine: "spectrum_issue3_48k".to_owned()
+                },
+            ]
+        );
     }
 
     #[test]
