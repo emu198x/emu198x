@@ -785,3 +785,11 @@ machine_id = "tatung-einstein"
 crate = "emu198x-tatung-einstein"
 label = "system:einstein"
 milestone = "Tatung Einstein 100%"
+
+[[system]]
+machine_id = "apple-ii-rev0-ntsc"
+machine_crate = "emu198x-machine-apple-ii-rev0-ntsc"
+machine_repository = "emu198x/apple-ii"
+crate = "emu198x-apple-ii"
+label = "system:apple-ii"
+milestone = "Apple II 100%"

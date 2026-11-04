@@ -1395,6 +1395,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-apple-disk-ii"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa4f7d213ddf30e3379a353aca9769b8885e772dc395dadfcd9aaf9ebc1d983f"
+
+[[package]]
+name = "emu198x-apple-ii"
+version = "0.46.2"
+dependencies = [
+ "emu198x-runtime-apple-ii",
+ "emu198x-shell",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-atari-2600"
 version = "0.46.2"
 dependencies = [
@@ -1903,6 +1918,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-machine-apple-ii-rev0-ntsc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fc40c1030a2de128a7ae8faffa9b1e62c7b565307816b14699e517dc4b31767"
+dependencies = [
+ "emu198x-apple-disk-ii",
+ "emu198x-mos-6502",
+ "format198x-apple-ii-woz",
+]
+
+[[package]]
 name = "emu198x-machine-atari-7800"
 version = "0.46.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2353,6 +2379,19 @@ name = "emu198x-ricoh-rp5c01"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "emu198x-runtime-apple-ii"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ceac8d13bf8463d9c1ee0f800ff25fe48e49ad80c365d64e681ad596a7819cab"
+dependencies = [
+ "emu198x-apple-disk-ii",
+ "emu198x-machine-apple-ii-rev0-ntsc",
+ "emu198x-shell",
+ "format198x-apple-ii-woz",
+ "serde_json",
 ]
 
 [[package]]
@@ -3056,6 +3095,12 @@ name = "format198x-amstrad-cpc-dsk"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f77fe6fb0505090e8f5a39b2968cd0ffc7c3ae5e86d0bd3f670e7b48ba0ba9a"
+
+[[package]]
+name = "format198x-apple-ii-woz"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8b0d9fdd144b0f0557de6f629eb0040f03a34b285231d18b96865d87be3b79e"
 
 [[package]]
 name = "format198x-atari-8bit-atr"

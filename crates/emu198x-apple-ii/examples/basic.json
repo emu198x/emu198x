@@ -1,0 +1,6 @@
+[
+  {"action": "wait_for_boot", "max_frames": 120},
+  {"action": "type_string", "text": "\u0002\n10 PRINT 6*7\nRUN\n"},
+  {"action": "wait_for_query_contains", "path": "screen.text", "needle": "42", "max_frames": 120},
+  {"action": "query", "path": "screen.text"}
+]
