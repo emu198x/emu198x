@@ -99,16 +99,15 @@ changes have already merged independently; they do not depend on this design.
   SHA-256 is d9a613f051383a4c637d9b93eb317d99d5173d086f20655ee1c1bf604cd5a719.
   Its complete chip source matches the reviewed implementation, and both
   combined clock regressions and the native save matrix pass against the
-  published chip (the CPU still uses the pending draft override).
+  published chip (the CPU draft override was used for that initial qualification).
 - The Z80's original edge tests fail on rising-edge sampling and missing I/O
   TW decoding time. The corrected core reuses existing phases, with no added
   serialized fields. Workspace tests, all-target Clippy, nine existing bus
   waveforms and the full FUSE corpus pass (1350 exact, six already accepted
-  discrepancies, zero unexpected). Draft zilog-z80#2 is not merged.
-- Patched MSX tests pass. CPC's frozen v5 fresh execution changes. A separate
-  user decision is pending: publish the corrected WAIT contract as Z80 0.9
-  for explicit Spectrum adoption, leaving CPC on 0.8 for its own timing/save
-  qualification, or expand this batch to CPC. Do not silently publish a
+  discrepancies, zero unexpected). Zilog-z80#2 has since merged after user approval (see below).
+- Patched MSX tests pass. CPC's frozen v5 fresh execution changes. The user approved publishing the corrected WAIT contract as Z80 0.9
+  for explicit Spectrum adoption on 2026-11-04, leaving CPC on 0.8 for its own
+  timing/save qualification. Do not silently publish a
   compatible patch which moves the CPC's saved execution.
 - The combined Amstrad regression removes the refresh-bank delay. Each
   accepted memory WAIT adds two CPU edges / five master ticks across all
@@ -138,3 +137,49 @@ the draft CPU source needed by its temporary command-line test override;
 until the CPU compatibility decision and registry consumer qualification are
 complete, then retain final refs/evidence and remove them. No path override is
 to be committed. The finished chip clone can be removed after publication proof.
+
+## Approved CPU adoption — 2026-11-04
+
+The user approved publishing Z80 0.9 and adopting it explicitly in the Spectrum
+family. CPC and other families stay on their current 0.8 dependency until their
+own qualification. Z80 PR #2 passed normal CI and merged at
+2bd62bab0f1661026710f01a40c9939050cbbc31. Use the normal release PR and verify
+the published archive before consumption.
+
+Update the ten Spectrum-family CPU manifests: common-sinclair-zx-spectrum,
+its 48k/128k/amstrad class crates, common-timex-2068, machine-timex-tc2048,
+machine-pentagon-128, machine-scorpion-zs256, runtime-sinclair-zx-spectrum and
+emu198x-spectrum. Resolve both published Z80 versions in Cargo.lock. Confirm
+CPC's actual dependency graph remains 0.8 and its original frozen tests pass.
+
+Run formatting and all-target Clippy for changed packages, Spectrum runtime
+and board suites, native WAIT/save tests and CPC regression controls. Build
+the actual release catalogue from registry dependencies; record source,
+binary and manifest identities and capture all 103 entries with bounded
+per-entry processes and explicit complete coverage. Compare every expected
+frame/audio hash without rewriting the manifest. Explain changed waypoints
+against the retained original captures and independent boot observations.
+
+The approved Z80 0.9 release was prepared directly with `release-plz set-version`
+after automatic preparation attempted to package pre-workspace extraction
+commit 83ca6c0 and failed with "failed to find a workspace root". Normal release
+PR #3 passed all checks, merged at d223bc358b95a2f80a80d31da0681d06dc2acfd3,
+and the ordinary publishing workflow succeeded. Registry archive SHA-256:
+bb7caf1f7f56be3bbbc5315162fda69cf0c30cd32701b75f3a607af612359b99. The complete
+published CPU implementation matches the reviewed source. Both versions are
+now registry dependencies; no path override remains. Dependency graph checks
+prove Spectrum uses only 0.9.0 and CPC only 0.8.0.
+
+Registry-only validation: all 130 runtime unit tests pass; all 60 Spectrum
+integration targets have been exercised across the initial and follow-up runs,
+with obsolete Amstrad v19 assertions updated to the approved boundary. The
+352-comparison frozen baseline retains every original frame/audio oracle and
+checks 24 explicit Amstrad version boundaries. The 28-profile version matrix
+and 296-case native pipeline restore matrix pass. The optional SDS artifact is
+read back and reports v20 across 1024 native cases. All-target Clippy passes,
+including the native GUI consumer. Original CPC v5 saves and three resumed
+fields pass unchanged with CPU 0.8; follow-up #2284 tracks its upgrade.
+
+The full 103-entry capture is running from the registry-only release binary.
+All expected hashes remain unchanged. Results and complete input/binary
+identities will be retained before selecting any oracle change.

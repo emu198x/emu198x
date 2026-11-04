@@ -135,7 +135,11 @@ fn legacy_v16_is_rejected_before_payload_decode_without_mutation() {
             let before = r.snapshot().expect("before");
             // Deliberately no machine payload: version rejection must come first.
             let error = r.restore(&[16]).expect_err("v16 lacks causal state");
-            let expected = if model.physical_board().is_some() {
+            let expected = if model.physical_board().is_some()
+                || matches!(
+                    model,
+                    Model::SpectrumPlus2A | Model::SpectrumPlus2B | Model::SpectrumPlus3
+                ) {
                 20
             } else if matches!(
                 model,

@@ -86,8 +86,11 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// rejected before decoding. 18 is skipped because it is the Timex's.
 const SNAPSHOT_VERSION: u32 = 19;
 // Approved 2026-11-03 after the snow fix: physical owners add an independent
-// board tag at v20. Timex keeps v18; all other profiles keep main's v19.
+// board tag at v20. Amstrad also uses v20 for its physical WAIT state;
+// Timex keeps v18 and other profiles keep v19.
 const PHYSICAL_BOARD_SNAPSHOT_VERSION: u32 = 20;
+// Approved physical WAIT output changes the Amstrad chip payload.
+const AMSTRAD_SNAPSHOT_VERSION: u32 = 20;
 const TIMEX_SNAPSHOT_VERSION: u32 = 18;
 
 fn version_for_profile(profile: &str) -> u32 {
@@ -99,6 +102,11 @@ fn version_for_profile(profile: &str) -> u32 {
         Some(crate::Model::TimexTC2048 | crate::Model::TimexTC2068 | crate::Model::TimexTS2068) => {
             TIMEX_SNAPSHOT_VERSION
         }
+        Some(
+            crate::Model::SpectrumPlus2A
+            | crate::Model::SpectrumPlus2B
+            | crate::Model::SpectrumPlus3,
+        ) => AMSTRAD_SNAPSHOT_VERSION,
         _ => SNAPSHOT_VERSION,
     }
 }
@@ -314,7 +322,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 19")
+                .contains("unsupported snapshot version 5; expected 20")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -1852,8 +1860,11 @@ mod tests {
         // Reuse the optional native-test sink. Only JSON and the synthetic
         // disk are emitted, never firmware or runtime native save states.
         // READ_TRACK_NATIVE_ARTIFACTS is the existing sink name.
+        let fixture_snapshot = fixture.snapshot().expect("SDS native snapshot");
+        let (fixture_version, _) = postcard::take_from_bytes::<u32>(&fixture_snapshot)
+            .expect("SDS snapshot version prefix");
         native_field_artifact("sds-native-boundaries.json", &serde_json::to_vec_pretty(
-            &serde_json::json!({"schema_version":1,"qualified":false,"snapshot_version":SNAPSHOT_VERSION,
+            &serde_json::json!({"schema_version":1,"qualified":false,"snapshot_version":fixture_version,
                 "physical_signal_vectors":"A=s,B=s^31,unwired2=s^31,unwired3=s",
                 "scope":"source-built digital SDS native continuation, not ROM loading or physical timing",
                 "case_count":cases.len(),"cases":cases})
@@ -1956,7 +1967,7 @@ mod tests {
             .restore(&old)
             .expect_err("v12 lacks the Kempston mouse");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 12; expected 19"));
+            if reason == "unsupported snapshot version 12; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1969,7 +1980,7 @@ mod tests {
             .restore(&old)
             .expect_err("v11 carries the FDC's removed enabled flag");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 11; expected 19"));
+            if reason == "unsupported snapshot version 11; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1982,7 +1993,7 @@ mod tests {
             .restore(&old)
             .expect_err("v9 lacks programmed ND state");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 9; expected 19"));
+            if reason == "unsupported snapshot version 9; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1993,7 +2004,7 @@ mod tests {
         let old = postcard::to_allocvec(&15_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v15 has no DivMMC");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 15; expected 19"));
+            if reason == "unsupported snapshot version 15; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -2006,7 +2017,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 19"));
+            if reason == "unsupported snapshot version 8; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -2017,7 +2028,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 19"));
+            if reason == "unsupported snapshot version 7; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -2030,7 +2041,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 19")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 20")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2178,7 +2189,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 19");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 20");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
