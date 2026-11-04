@@ -19,7 +19,8 @@
 
 use std::path::PathBuf;
 
-use common_amstrad_cpc::AmstradCpc;
+use common_amstrad_cpc::{AmstradCpc, CpcModel};
+use emu198x_zilog_z80::Z80Stepper;
 
 /// What pen 0 and the border set to hardware colour 6 render. The control
 /// image renders black — with no CRTC programming there is no raster.
@@ -59,4 +60,38 @@ fn the_control_image_renders_no_raster() {
         0,
         "a machine that never programmed its CRTC cannot show a raster"
     );
+}
+
+/// Starting an injected timing probe must not finish an opcode fetched from
+/// the old PC. The legacy completion flag is true during that fetch (#2284).
+#[test]
+fn injection_waits_for_a_new_execution_instead_of_a_stale_completion_flag() {
+    for model in [CpcModel::Cpc464, CpcModel::Cpc664, CpcModel::Cpc6128] {
+        let mut machine = AmstradCpc::with_model(&[0; 0x8000], model).expect("NOP firmware");
+        machine.advance_tstates(1);
+        assert!(
+            machine.z80().instruction_complete(),
+            "exercise the stale flag"
+        );
+        assert!(
+            !machine.z80().at_execution_boundary(),
+            "an opcode is in flight"
+        );
+        let mut ticks = 0;
+        while !machine.z80().at_execution_boundary() {
+            machine.advance_tstates(1);
+            ticks += 1;
+            assert!(ticks < 256, "no execution boundary");
+        }
+        machine.poke(0x8000, 0xff); // RST $38, unlike the in-flight NOP.
+        machine.z80_mut().regs.pc = 0x8000;
+        machine.z80_mut().regs.sp = 0x7000;
+        let retired = machine.z80().instructions_retired();
+        machine.step_instruction();
+        assert_eq!(machine.z80().instructions_retired(), retired + 1);
+        assert_eq!(machine.z80().regs.pc, 0x0038);
+        assert_eq!(machine.z80().regs.sp, 0x6ffe);
+        assert_eq!(machine.ram_byte(0x6ffe), 0x01);
+        assert_eq!(machine.ram_byte(0x6fff), 0x80);
+    }
 }

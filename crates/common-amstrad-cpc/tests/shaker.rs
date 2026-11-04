@@ -214,13 +214,11 @@ fn boot_and_enter_model(firmware: &[u8], module: &AmsdosFile, model: CpcModel) -
     // in-flight instruction finish against the *new* PC and swallow the
     // injected binary's first bytes — that is #943, on the Spectrum.
     //
-    // An `m1` edge is not a good enough proxy for that boundary. Tried here
-    // across every entry phase, and the `JP` sitting at the entry point never
-    // executed once: `PC` walked byte-by-byte through the module as though it
-    // were NOPs. `instruction_complete()` is the signal that actually means
-    // what is needed, and with it the module takes over cleanly.
+    // The legacy `instruction_complete` flag can remain true during the
+    // following opcode fetch. Only `at_execution_boundary` guarantees that
+    // changing PC cannot leave an opcode from the old address in flight.
     let mut guard = 0;
-    while !cpc.z80().instruction_complete() {
+    while !cpc.z80().at_execution_boundary() {
         cpc.advance_tstates(1);
         guard += 1;
         assert!(guard < 256, "no instruction boundary within 256 t-states");
