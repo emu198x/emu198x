@@ -107,15 +107,21 @@ members = [
     "crates/common-nintendo-nes",
     "crates/machine-nintendo-nes-ntsc",
     "crates/machine-nintendo-nes-pal",
-    "crates/machine-sinclair-zx-spectrum-16k",
-    "crates/machine-sinclair-zx-spectrum-48k",
+    "crates/machine-sinclair-zx-spectrum-issue1",
+    "crates/machine-sinclair-zx-spectrum-issue2",
+    "crates/machine-sinclair-zx-spectrum-issue3",
+    "crates/machine-sinclair-zx-spectrum-issue3b",
+    "crates/machine-sinclair-zx-spectrum-issue4a",
+    "crates/machine-sinclair-zx-spectrum-issue4b",
+    "crates/machine-sinclair-zx-spectrum-issue5-6c001e6",
+    "crates/machine-sinclair-zx-spectrum-issue5-6c001e7",
+    "crates/machine-sinclair-zx-spectrum-issue6a",
     "crates/machine-pentagon-128",
     "crates/machine-scorpion-zs256",
     "crates/machine-timex-tc2048",
     "crates/machine-timex-tc2068",
     "crates/machine-timex-ts2068",
     "crates/machine-sinclair-zx-spectrum-128k",
-    "crates/machine-sinclair-zx-spectrum-plus",
     "crates/machine-sinclair-zx-spectrum-plus2",
     "crates/machine-sinclair-zx-spectrum-plus2a",
     "crates/machine-sinclair-zx-spectrum-plus2b",
@@ -193,6 +199,7 @@ members = [
     "crates/machine-atari-1040st-pal",
     "crates/machine-atari-1040st-ntsc",
     "crates/machine-commodore-pet-2001n-32k",
+    "crates/machine-commodore-pet-2001-320008",
     "crates/machine-commodore-pet-4032",
     "crates/machine-commodore-pet-8032",
     "crates/common-commodore-vic-20",
@@ -320,7 +327,7 @@ exclude = ["tools/m68k-test-gen"]
 [workspace.package]
 homepage = "https://emu198x.github.io/"
 edition = "2024"
-version = "0.46.2"
+version = "0.47.0"
 license = "GPL-2.0-or-later"
 repository = "https://github.com/emu198x/emu198x"
 

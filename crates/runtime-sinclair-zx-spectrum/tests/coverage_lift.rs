@@ -14,16 +14,16 @@ use common_sinclair_zx_spectrum::audio::SpeakerChannel;
 use emu198x_shell::{DebugPrimitives, FamilyRuntime, FirmwareImage, FirmwareSet};
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_timex_tc2048::TimexTC2048;
 use machine_timex_ts2068::TimexTS2068;
 use runtime_sinclair_zx_spectrum::TimexTC2068Runtime;
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumMachine, SpectrumPlus2ARuntime, SpectrumRuntimeKind, TimexTC2048Runtime,
-    TimexTS2068Runtime,
+    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime,
+    SpectrumIssue3Ram48kRuntime, SpectrumMachine, SpectrumPlus2ARuntime, SpectrumRuntimeKind,
+    TimexTC2048Runtime, TimexTS2068Runtime,
 };
 
 const ROM16: usize = 16 * 1024;
@@ -119,9 +119,9 @@ fn timex_ts2068_constructors_cover_every_path() {
 /// plus the exotic clones, so every `frame_halfcycles` match arm runs.
 fn one_kind_per_timing_group() -> Vec<SpectrumRuntimeKind> {
     vec![
-        SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
-            Model::Spectrum48KPal,
-            Spectrum48k::new(),
+        SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::new(
+            Model::SpectrumIssue3Ram48kPal,
+            SpectrumIssue3With48k::new(),
         ))),
         SpectrumRuntimeKind::Spectrum128K(Box::new(Spectrum128kRuntime::new(
             Model::Spectrum128KPal,
@@ -151,14 +151,15 @@ fn family_kind_reports_a_nonzero_frame_length_for_every_variant() {
 
 #[test]
 fn as_48k_mut_is_some_only_for_the_48k_variant() {
-    let mut forty_eight = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
-        Model::Spectrum48KPal,
-        Spectrum48k::new(),
-    )));
-    assert!(forty_eight.as_48k_mut().is_some());
+    let mut forty_eight =
+        SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::new(
+            Model::SpectrumIssue3Ram48kPal,
+            SpectrumIssue3With48k::new(),
+        )));
+    assert!(forty_eight.as_issue3_48k_mut().is_some());
 
     let mut pentagon = SpectrumRuntimeKind::Pentagon128(Box::new(Pentagon128Runtime::blank()));
-    assert!(pentagon.as_48k_mut().is_none());
+    assert!(pentagon.as_issue3_48k_mut().is_none());
 }
 
 /// Build a `SpectrumRuntimeKind` from `(id, bytes)` firmware pairs and
@@ -186,15 +187,15 @@ fn from_firmware_builds_every_model_from_zeroed_roms() {
     let r8: &[u8] = &rom8;
 
     assert_builds(
-        Model::Spectrum16KPal,
+        Model::SpectrumIssue3Ram16kPal,
         &[("sinclair-zx-spectrum-48k-rom", r16)],
     );
     assert_builds(
-        Model::Spectrum48KPal,
+        Model::SpectrumIssue3Ram48kPal,
         &[("sinclair-zx-spectrum-48k-rom", r16)],
     );
     assert_builds(
-        Model::SpectrumPlus,
+        Model::SpectrumIssue3Ram48kPal,
         &[("sinclair-zx-spectrum-48k-rom", r16)],
     );
     assert_builds(
@@ -246,9 +247,9 @@ fn from_firmware_builds_every_model_from_zeroed_roms() {
 
 #[test]
 fn family_kind_debug_surface_round_trips() {
-    let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
-        Model::Spectrum48KPal,
-        Spectrum48k::new(),
+    let mut kind = SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
     )));
 
     // PC + CPU-state JSON read back cleanly.

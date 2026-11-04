@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Qualify the five +3 audio-only catalogue cases after tracing their changed
+  load/clock phase. Preserve their frame hashes and capture settings; replay
+  both AY and speaker inputs to reproduce every original/current PCM sample
+  (#2265). The four remaining +3 frame/audio cases stay unchanged.
+
+- Capture Rainbow Islands (+3) at the midpoint of its first settled BEST 5
+  page, retaining both original hashes. The old waypoint now lands in the
+  credits fade; 442 stable fields and an independent MAME guest-state
+  comparison establish the intended screen (#2265).
+
+- Qualify the six +2A/+2B tape-audio expectations affected by the physical
+  WAIT correction (#2265). Retain their exact screen hashes and music-command
+  sequences; record the changed AY clock phase and write edges. The ten +3
+  disagreements keep their existing expectations pending separate diagnosis.
+
 - `catalogue run` reports an entry that cannot run (missing media or
   firmware, a session error) as `[ERROR] <id>` and carries on with the rest,
   instead of stopping the whole run with an error that names no entry. It

@@ -9,7 +9,7 @@
 //!
 //! ## When to use this vs the concrete runtimes
 //!
-//! - Use the concrete `Spectrum48kRuntime` / `Spectrum128kRuntime` /
+//! - Use the concrete `SpectrumIssue3Ram48kRuntime` / `Spectrum128kRuntime` /
 //!   `…` type aliases when the binary is single-machine (script-mode
 //!   verifier targeting one variant, the UI binary's eager boot path).
 //! - Use [`SpectrumRuntimeKind`] when the binary needs to host any
@@ -18,8 +18,8 @@
 //!
 //! ## Variant coverage
 //!
-//! All 13 Spectrum-family variants — the SOLID 8 (16K, 48K, +, 128K, +2,
-//! +2A, +2B, +3) plus the five exotics (Pentagon 128, Scorpion ZS-256,
+//! All 15 Spectrum-family variants — the SOLID 8 (16K, 48K, +, 128K, +2,
+//! +2A, +2B, +3), the 48K's Issue 1 and Issue 2 boards, and the five exotics (Pentagon 128, Scorpion ZS-256,
 //! Timex TC2048 / TC2068 / TS2068). The Timex 2068 models use distinct fixed board owners and dispatch arms, and
 //! each gets its own catalogue identity through the inner runtime's
 //! profile.
@@ -34,10 +34,16 @@ use common_sinclair_zx_spectrum::io_trace::IoEvent as SpectrumIoEvent;
 use crate::queries::SpectrumSessionQueryProvider;
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 use crate::variants::{
-    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum16kRuntime, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTC2068Runtime,
-    TimexTS2068Runtime,
+    Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime, SpectrumIssue1Ram16kRuntime,
+    SpectrumIssue1Ram48kRuntime, SpectrumIssue2Ram16kRuntime, SpectrumIssue2Ram48kRuntime,
+    SpectrumIssue3BRam16kRuntime, SpectrumIssue3BRam48kRuntime, SpectrumIssue3Ram16kRuntime,
+    SpectrumIssue3Ram48kRuntime, SpectrumIssue4ARam16kRuntime, SpectrumIssue4ARam48kRuntime,
+    SpectrumIssue4BRam16kRuntime, SpectrumIssue4BRam48kRuntime,
+    SpectrumIssue5Ula6c001e6Ram16kRuntime, SpectrumIssue5Ula6c001e6Ram48kRuntime,
+    SpectrumIssue5Ula6c001e7Ram16kRuntime, SpectrumIssue5Ula6c001e7Ram48kRuntime,
+    SpectrumIssue6ARam16kRuntime, SpectrumIssue6ARam48kRuntime, SpectrumPlus2ARuntime,
+    SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, TimexTC2048Runtime,
+    TimexTC2068Runtime, TimexTS2068Runtime,
 };
 use emu198x_shell::display::Display;
 
@@ -261,13 +267,42 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 /// place) to swap machines mid-session; the host clears session-side
 /// state separately.
 pub enum SpectrumRuntimeKind {
-    /// ZX Spectrum 16K.
-    Spectrum16K(Box<Spectrum16kRuntime>),
-    /// ZX Spectrum 48K.
-    Spectrum48K(Box<Spectrum48kRuntime>),
-    /// ZX Spectrum+ (electrically identical to 48K; identity is in the
-    /// profile).
-    SpectrumPlus(Box<SpectrumPlusRuntime>),
+    /// ZX Spectrum Issue 1 (16K, PAL).
+    Issue1Ram16k(Box<SpectrumIssue1Ram16kRuntime>),
+    /// ZX Spectrum Issue 1 (48K, PAL).
+    Issue1Ram48k(Box<SpectrumIssue1Ram48kRuntime>),
+    /// ZX Spectrum Issue 2 (16K, PAL).
+    Issue2Ram16k(Box<SpectrumIssue2Ram16kRuntime>),
+    /// ZX Spectrum Issue 2 (48K, PAL).
+    Issue2Ram48k(Box<SpectrumIssue2Ram48kRuntime>),
+    /// ZX Spectrum Issue 3 (16K, PAL).
+    Issue3Ram16k(Box<SpectrumIssue3Ram16kRuntime>),
+    /// ZX Spectrum Issue 3 (48K, PAL).
+    Issue3Ram48k(Box<SpectrumIssue3Ram48kRuntime>),
+    /// ZX Spectrum Issue 3B (16K, PAL).
+    Issue3BRam16k(Box<SpectrumIssue3BRam16kRuntime>),
+    /// ZX Spectrum Issue 3B (48K, PAL).
+    Issue3BRam48k(Box<SpectrumIssue3BRam48kRuntime>),
+    /// ZX Spectrum Issue 4A (16K, PAL).
+    Issue4ARam16k(Box<SpectrumIssue4ARam16kRuntime>),
+    /// ZX Spectrum Issue 4A (48K, PAL).
+    Issue4ARam48k(Box<SpectrumIssue4ARam48kRuntime>),
+    /// ZX Spectrum Issue 4B (16K, PAL).
+    Issue4BRam16k(Box<SpectrumIssue4BRam16kRuntime>),
+    /// ZX Spectrum Issue 4B (48K, PAL).
+    Issue4BRam48k(Box<SpectrumIssue4BRam48kRuntime>),
+    /// ZX Spectrum Issue 5 / 6C001E-6 (16K, PAL).
+    Issue5Ula6c001e6Ram16k(Box<SpectrumIssue5Ula6c001e6Ram16kRuntime>),
+    /// ZX Spectrum Issue 5 / 6C001E-6 (48K, PAL).
+    Issue5Ula6c001e6Ram48k(Box<SpectrumIssue5Ula6c001e6Ram48kRuntime>),
+    /// ZX Spectrum Issue 5 / 6C001E-7 (16K, PAL).
+    Issue5Ula6c001e7Ram16k(Box<SpectrumIssue5Ula6c001e7Ram16kRuntime>),
+    /// ZX Spectrum Issue 5 / 6C001E-7 (48K, PAL).
+    Issue5Ula6c001e7Ram48k(Box<SpectrumIssue5Ula6c001e7Ram48kRuntime>),
+    /// ZX Spectrum Issue 6A / Ferranti (16K, PAL).
+    Issue6ARam16k(Box<SpectrumIssue6ARam16kRuntime>),
+    /// ZX Spectrum Issue 6A / Ferranti (48K, PAL).
+    Issue6ARam48k(Box<SpectrumIssue6ARam48kRuntime>),
     /// ZX Spectrum 128K.
     Spectrum128K(Box<Spectrum128kRuntime>),
     /// Sinclair-branded Amstrad-built grey +2.
@@ -299,9 +334,12 @@ impl SpectrumRuntimeKind {
     /// at the 48K rate, and the TC2068/TS2068 at their SCLD rate.
     /// Framebuffer pixels emitted per second for the active variant.
     ///
-    /// Two pixels per T-state across the whole family, so this is the CPU
-    /// clock doubled — and the CPU clock is the master crystal over the
-    /// variant's divisor, which is where the classes part company. The 48K
+    /// A 352-pixel frame takes two pixels per T-state, so its clock is the
+    /// CPU clock doubled. The Timex machines' frames are 704 pixels wide in
+    /// every mode, so they take four, and their clock is doubled again;
+    /// counting two would present every Timex picture twice as wide as it
+    /// is. The CPU clock is the master crystal over the variant's divisor,
+    /// which is where the classes part company. The 48K
     /// runs 14 MHz ÷ 4 for 7.00 MHz; the 128K runs four times the PAL colour
     /// subcarrier ÷ 5 for 7.09 MHz. Close enough to look like rounding, far
     /// enough that the picture is a different shape.
@@ -311,11 +349,28 @@ impl SpectrumRuntimeKind {
     #[must_use]
     pub fn pixel_clock_hz(&self) -> f64 {
         use common_sinclair_zx_spectrum::timing::{
-            TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
+            SCREEN_WIDTH, TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
         };
         use machine_timex_ts2068::TIMING_TS2068;
         let timing = match self {
-            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => &TIMING_48K,
+            Self::Issue1Ram16k(_)
+            | Self::Issue1Ram48k(_)
+            | Self::Issue2Ram16k(_)
+            | Self::Issue2Ram48k(_)
+            | Self::Issue3Ram16k(_)
+            | Self::Issue3Ram48k(_)
+            | Self::Issue3BRam16k(_)
+            | Self::Issue3BRam48k(_)
+            | Self::Issue4ARam16k(_)
+            | Self::Issue4ARam48k(_)
+            | Self::Issue4BRam16k(_)
+            | Self::Issue4BRam48k(_)
+            | Self::Issue5Ula6c001e6Ram16k(_)
+            | Self::Issue5Ula6c001e6Ram48k(_)
+            | Self::Issue5Ula6c001e7Ram16k(_)
+            | Self::Issue5Ula6c001e7Ram48k(_)
+            | Self::Issue6ARam16k(_)
+            | Self::Issue6ARam48k(_) => &TIMING_48K,
             Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => &TIMING_128K,
             Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
                 &TIMING_PLUS2A
@@ -325,7 +380,8 @@ impl SpectrumRuntimeKind {
             Self::TimexTC2048(_) | Self::TimexTC2068(_) => &TIMING_48K,
             Self::TimexTS2068(_) => &TIMING_TS2068,
         };
-        timing.master_hz as f64 / f64::from(timing.cpu_divisor) * 2.0
+        let pixels_per_tstate = 2.0 * f64::from(self.frame_width()) / SCREEN_WIDTH as f64;
+        timing.master_hz as f64 / f64::from(timing.cpu_divisor) * pixels_per_tstate
     }
 
     #[must_use]
@@ -335,9 +391,24 @@ impl SpectrumRuntimeKind {
         };
         use machine_timex_ts2068::TIMING_TS2068;
         match self {
-            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => {
-                TIMING_48K.halfcycles_per_frame
-            }
+            Self::Issue1Ram16k(_)
+            | Self::Issue1Ram48k(_)
+            | Self::Issue2Ram16k(_)
+            | Self::Issue2Ram48k(_)
+            | Self::Issue3Ram16k(_)
+            | Self::Issue3Ram48k(_)
+            | Self::Issue3BRam16k(_)
+            | Self::Issue3BRam48k(_)
+            | Self::Issue4ARam16k(_)
+            | Self::Issue4ARam48k(_)
+            | Self::Issue4BRam16k(_)
+            | Self::Issue4BRam48k(_)
+            | Self::Issue5Ula6c001e6Ram16k(_)
+            | Self::Issue5Ula6c001e6Ram48k(_)
+            | Self::Issue5Ula6c001e7Ram16k(_)
+            | Self::Issue5Ula6c001e7Ram48k(_)
+            | Self::Issue6ARam16k(_)
+            | Self::Issue6ARam48k(_) => TIMING_48K.halfcycles_per_frame,
             Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => TIMING_128K.halfcycles_per_frame,
             Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
                 TIMING_PLUS2A.halfcycles_per_frame
@@ -349,13 +420,9 @@ impl SpectrumRuntimeKind {
         }
     }
 
-    /// Returns a mutable reference to the inner 48K runtime when this
-    /// kind is `Spectrum48K`, otherwise `None`. Used by 48K-only
-    /// helpers (`autoload_basic_tape`, `load_basic_program`) on the
-    /// family-MCP path so they keep working when the active variant
-    /// is 48K and gracefully error otherwise.
-    pub fn as_48k_mut(&mut self) -> Option<&mut Spectrum48kRuntime> {
-        if let Self::Spectrum48K(rt) = self {
+    /// Returns the Issue 3 runtime with 48 KiB fitted, if selected.
+    pub fn as_issue3_48k_mut(&mut self) -> Option<&mut SpectrumIssue3Ram48kRuntime> {
+        if let Self::Issue3Ram48k(rt) = self {
             Some(rt)
         } else {
             None
@@ -382,14 +449,67 @@ impl FamilyRuntime for SpectrumRuntimeKind {
         firmware: &FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
         Ok(match model {
-            crate::Model::Spectrum16KPal => {
-                Self::Spectrum16K(build_boxed(|| Spectrum16kRuntime::from_firmware(firmware))?)
+            crate::Model::SpectrumIssue1Ram16kPal => Self::Issue1Ram16k(build_boxed(|| {
+                SpectrumIssue1Ram16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue1Ram48kPal => Self::Issue1Ram48k(build_boxed(|| {
+                SpectrumIssue1Ram48kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue2Ram16kPal => Self::Issue2Ram16k(build_boxed(|| {
+                SpectrumIssue2Ram16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue2Ram48kPal => Self::Issue2Ram48k(build_boxed(|| {
+                SpectrumIssue2Ram48kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue3Ram16kPal => Self::Issue3Ram16k(build_boxed(|| {
+                SpectrumIssue3Ram16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue3Ram48kPal => Self::Issue3Ram48k(build_boxed(|| {
+                SpectrumIssue3Ram48kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue3BRam16kPal => Self::Issue3BRam16k(build_boxed(|| {
+                SpectrumIssue3BRam16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue3BRam48kPal => Self::Issue3BRam48k(build_boxed(|| {
+                SpectrumIssue3BRam48kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue4ARam16kPal => Self::Issue4ARam16k(build_boxed(|| {
+                SpectrumIssue4ARam16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue4ARam48kPal => Self::Issue4ARam48k(build_boxed(|| {
+                SpectrumIssue4ARam48kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue4BRam16kPal => Self::Issue4BRam16k(build_boxed(|| {
+                SpectrumIssue4BRam16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue4BRam48kPal => Self::Issue4BRam48k(build_boxed(|| {
+                SpectrumIssue4BRam48kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue5Ula6c001e6Ram16kPal => {
+                Self::Issue5Ula6c001e6Ram16k(build_boxed(|| {
+                    SpectrumIssue5Ula6c001e6Ram16kRuntime::from_firmware(firmware)
+                })?)
             }
-            crate::Model::Spectrum48KPal => {
-                Self::Spectrum48K(build_boxed(|| Spectrum48kRuntime::from_firmware(firmware))?)
+            crate::Model::SpectrumIssue5Ula6c001e6Ram48kPal => {
+                Self::Issue5Ula6c001e6Ram48k(build_boxed(|| {
+                    SpectrumIssue5Ula6c001e6Ram48kRuntime::from_firmware(firmware)
+                })?)
             }
-            crate::Model::SpectrumPlus => Self::SpectrumPlus(build_boxed(|| {
-                SpectrumPlusRuntime::from_firmware(firmware)
+            crate::Model::SpectrumIssue5Ula6c001e7Ram16kPal => {
+                Self::Issue5Ula6c001e7Ram16k(build_boxed(|| {
+                    SpectrumIssue5Ula6c001e7Ram16kRuntime::from_firmware(firmware)
+                })?)
+            }
+            crate::Model::SpectrumIssue5Ula6c001e7Ram48kPal => {
+                Self::Issue5Ula6c001e7Ram48k(build_boxed(|| {
+                    SpectrumIssue5Ula6c001e7Ram48kRuntime::from_firmware(firmware)
+                })?)
+            }
+            crate::Model::SpectrumIssue6ARam16kPal => Self::Issue6ARam16k(build_boxed(|| {
+                SpectrumIssue6ARam16kRuntime::from_firmware(firmware)
+            })?),
+            crate::Model::SpectrumIssue6ARam48kPal => Self::Issue6ARam48k(build_boxed(|| {
+                SpectrumIssue6ARam48kRuntime::from_firmware(firmware)
             })?),
             crate::Model::Spectrum128KPal => Self::Spectrum128K(build_boxed(|| {
                 Spectrum128kRuntime::from_firmware(firmware)
@@ -484,9 +604,24 @@ impl FamilyRuntime for SpectrumRuntimeKind {
 macro_rules! match_kind {
     ($self:expr, |$rt:ident| $body:expr) => {
         match $self {
-            SpectrumRuntimeKind::Spectrum16K($rt) => $body,
-            SpectrumRuntimeKind::Spectrum48K($rt) => $body,
-            SpectrumRuntimeKind::SpectrumPlus($rt) => $body,
+            SpectrumRuntimeKind::Issue1Ram16k($rt) => $body,
+            SpectrumRuntimeKind::Issue1Ram48k($rt) => $body,
+            SpectrumRuntimeKind::Issue2Ram16k($rt) => $body,
+            SpectrumRuntimeKind::Issue2Ram48k($rt) => $body,
+            SpectrumRuntimeKind::Issue3Ram16k($rt) => $body,
+            SpectrumRuntimeKind::Issue3Ram48k($rt) => $body,
+            SpectrumRuntimeKind::Issue3BRam16k($rt) => $body,
+            SpectrumRuntimeKind::Issue3BRam48k($rt) => $body,
+            SpectrumRuntimeKind::Issue4ARam16k($rt) => $body,
+            SpectrumRuntimeKind::Issue4ARam48k($rt) => $body,
+            SpectrumRuntimeKind::Issue4BRam16k($rt) => $body,
+            SpectrumRuntimeKind::Issue4BRam48k($rt) => $body,
+            SpectrumRuntimeKind::Issue5Ula6c001e6Ram16k($rt) => $body,
+            SpectrumRuntimeKind::Issue5Ula6c001e6Ram48k($rt) => $body,
+            SpectrumRuntimeKind::Issue5Ula6c001e7Ram16k($rt) => $body,
+            SpectrumRuntimeKind::Issue5Ula6c001e7Ram48k($rt) => $body,
+            SpectrumRuntimeKind::Issue6ARam16k($rt) => $body,
+            SpectrumRuntimeKind::Issue6ARam48k($rt) => $body,
             SpectrumRuntimeKind::Spectrum128K($rt) => $body,
             SpectrumRuntimeKind::SpectrumPlus2($rt) => $body,
             SpectrumRuntimeKind::SpectrumPlus2A($rt) => $body,
@@ -502,6 +637,13 @@ macro_rules! match_kind {
 }
 
 impl SpectrumRuntimeKind {
+    /// Pixel width of the active variant's framebuffer: 352, or 704 on the
+    /// Timex machines, whose frame holds the 512-dot high-resolution mode.
+    #[must_use]
+    pub fn frame_width(&self) -> u32 {
+        match_kind!(self, |rt| rt.frame_width())
+    }
+
     /// Flushes any captured tape `SAVE` on the active variant to `.tap` bytes,
     /// or `None` if nothing was recorded (or the variant does not yet capture).
     #[must_use]
@@ -1073,7 +1215,8 @@ mod tests {
 
     #[test]
     fn machine_core_dispatches_to_inner_variants() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let mut kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         // Sanity: profile id starts with the family slug.
         assert!(kind.profile().profile_id.as_str().contains("48k"));
         // Reset is a no-op-ish call but must not panic across the
@@ -1083,7 +1226,8 @@ mod tests {
 
     #[test]
     fn query_provider_dispatches_to_inner_variants() {
-        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         let provider = SpectrumSessionQueryProvider;
         let paths = provider.query_paths(&kind, Some("tape."));
         assert!(
@@ -1094,7 +1238,8 @@ mod tests {
 
     #[test]
     fn step_advances_pc_through_runtime_kind() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let mut kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         // Blank machine: PC=0, RAM/ROM uninitialised → opcodes are 0xFF
         // (RST $38) which pushes PC and jumps to $0038. Single-step
         // should leave PC != 0.
@@ -1108,7 +1253,8 @@ mod tests {
     #[test]
     fn ay_write_watch_dispatches_through_runtime_kind() {
         // 48K has no AY — start should error.
-        let mut k48 = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let mut k48 =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         assert!(k48.start_ay_write_watch().is_err());
         assert!(k48.ay_write_watch_records().is_none());
 
@@ -1136,7 +1282,8 @@ mod tests {
         // border, so we don't round-trip the value through port_read —
         // we only verify both methods reach the inner machine without
         // panic and don't return a fixed sentinel.
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let mut kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         let before = kind.port_read(0x00FE);
         kind.port_write(0x00FE, 5);
         let after = kind.port_read(0x00FE);
@@ -1148,7 +1295,8 @@ mod tests {
 
     #[test]
     fn run_until_pc_returns_within_budget() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let mut kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         // Target an unlikely PC; budget is tiny so we expect timeout.
         let (reached, _hc, _instr) = kind.run_until_pc(0xCAFE, 1000);
         assert!(!reached, "0xCAFE should not be reached in a 1000-hc budget");
@@ -1156,7 +1304,8 @@ mod tests {
 
     #[test]
     fn z80_registers_dispatch_through_runtime_kind() {
-        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         // Fresh Z80 has the well-known boot reset state: PC=0, SP=0xFFFF, AF=0xFFFF.
         let regs = kind.z80_registers();
         assert_eq!(regs.pc, 0x0000);
@@ -1168,7 +1317,8 @@ mod tests {
     #[test]
     fn named_compound_keys_expand_to_capsshift_chords() {
         use emu198x_shell::KeyboardTarget;
-        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
 
         let caps = |s: &str| Some(vec!["CapsShift".to_owned(), s.to_owned()]);
         // The number-row legends, per the Spectrum faceplate.
@@ -1189,7 +1339,8 @@ mod tests {
 
     #[test]
     fn memory_write_watch_dispatches_through_runtime_kind() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let mut kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         assert!(kind.memory_write_watch_range().is_none());
         assert!(kind.memory_write_watch_records().is_none());
 

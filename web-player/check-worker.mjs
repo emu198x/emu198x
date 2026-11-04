@@ -81,7 +81,7 @@ await check('nes',{}, {format:'nes',bytes:fixture('nintendo-nes-logo.nes')});
 if(process.env.SPECTRUM_ROM)await check('spectrum',{rom:read(process.env.SPECTRUM_ROM)},null);
 // A build with the 48K ROM embedded must start the Spectrum with no firmware sent.
 const spectrum=JSON.parse(readFileSync(path.join(dist,'catalog.json'))).find(entry=>entry.id==='sinclair-zx-spectrum');
-if(spectrum.variants.find(variant=>variant.id==='spectrum_48k').firmware.some(firmware=>firmware.bundled))await check('spectrum',{},null);
+if(spectrum.variants.find(variant=>variant.id==='spectrum_issue3_48k').firmware.some(firmware=>firmware.bundled))await check('spectrum',{},null);
 if(process.env.AMIGA_ROM)await check('amiga',{kickstart:read(process.env.AMIGA_ROM)},null);
 if(process.env.C64_ROM_DIR)await check('c64',Object.fromEntries(['kernal','basic','chargen'].map((name,i)=>[name,read(path.join(process.env.C64_ROM_DIR,['kernal_generic.rom','basic_generic.rom','chargen_openroms.rom'][i]))]).concat([['drive',new Uint8Array()]])),null);
 // Independently produced native checkpoints, same input schedule on WASM.

@@ -1,9 +1,9 @@
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use emu198x_shell::{MachineCore, cycle_profile::CycleCounts};
-use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumMachine};
+use runtime_sinclair_zx_spectrum::{SpectrumIssue3Ram48kRuntime, SpectrumMachine};
 
-fn program(address: u16, bytes: &[u8]) -> Spectrum48kRuntime {
-    let mut runtime = Spectrum48kRuntime::new_48k([0; 16 * 1024]);
+fn program(address: u16, bytes: &[u8]) -> SpectrumIssue3Ram48kRuntime {
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new_board([0; 16 * 1024]);
     for (offset, &byte) in bytes.iter().enumerate() {
         runtime.machine_mut().write_byte(
             address + u16::try_from(offset).expect("fixture fits in the address space"),
@@ -75,7 +75,7 @@ fn partial_start_is_not_charged_as_a_complete_instruction() {
 fn interrupt_entry_is_not_charged_to_the_interrupted_pc() {
     let mut rom = [0; 16 * 1024];
     rom[0x38] = 0x76; // handler halts after the IM1 response
-    let mut runtime = Spectrum48kRuntime::new_48k(rom);
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new_board(rom);
     // Align to the real ULA interrupt pulse rather than assuming its raster
     // origin coincides with the driver's initial frame counter.
     let frame = runtime.machine().frame_timing().halfcycles_per_frame;
@@ -123,7 +123,7 @@ fn capture_is_observational_across_contention_frame_wrap_and_snapshot_restore() 
     );
     conserved(&counts);
     let snapshot = profiled.snapshot().expect("capture snapshot");
-    let mut restored = Spectrum48kRuntime::new_48k([0; 16 * 1024]);
+    let mut restored = SpectrumIssue3Ram48kRuntime::new_board([0; 16 * 1024]);
     restored.restore(&snapshot).expect("restore snapshot");
     assert_eq!(
         profiled.profile_cycles(1000).expect("valid capture"),
@@ -265,7 +265,7 @@ fn source_totals_preserve_unmapped_execution() {
 fn nmi_entry_is_a_separate_interval_too() {
     let mut rom = [0; 16 * 1024];
     rom[0x66] = 0x76;
-    let mut runtime = Spectrum48kRuntime::new_48k(rom);
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new_board(rom);
     runtime.machine_mut().z80_mut().nmi = true;
     runtime.machine_mut().z80_mut().regs.sp = 0xff00;
     let counts = runtime

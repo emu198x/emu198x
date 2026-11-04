@@ -30,7 +30,7 @@ fn rom() -> Option<Vec<u8>> {
 fn spectrum(rom: &[u8]) -> SpectrumRuntimeKind {
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new("sinclair-zx-spectrum-48k-rom", rom));
-    SpectrumRuntimeKind::from_firmware(Model::Spectrum48KPal, &firmware)
+    SpectrumRuntimeKind::from_firmware(Model::SpectrumIssue3Ram48kPal, &firmware)
         .expect("the 48K builds from its ROM")
 }
 

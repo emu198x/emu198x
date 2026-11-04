@@ -15,7 +15,7 @@ let spectrumFirmwareID = "sinclair-zx-spectrum-48k-rom"
 
 /// A booted Spectrum 48K running `rom`, with sound at 48 kHz.
 func spectrum(rom: Data = beeperROM()) throws -> Machine {
-    let machine = try Machine(family: "sinclair-zx-spectrum", variant: "spectrum_48k")
+    let machine = try Machine(family: "sinclair-zx-spectrum", variant: "spectrum_issue3_48k")
     try machine.supplyFirmware(id: spectrumFirmwareID, data: rom)
     try machine.boot()
     try machine.configureAudio(sampleRate: 48_000)

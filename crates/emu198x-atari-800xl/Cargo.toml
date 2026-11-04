@@ -25,9 +25,9 @@ ui = ["dep:emu198x-ui"]
 emu198x-shell = { workspace = true }
 emu198x-atari-gtia = { path = "../emu198x-atari-gtia", version = "0.1.1" }
 emu198x-ui = { path = "../emu198x-ui", version = "0.46.0", optional = true }
-machine-atari-800xl = { path = "../machine-atari-800xl", version = "0.46.0" }
+machine-atari-800xl = { path = "../machine-atari-800xl", version = "0.47.0" }
 png = { workspace = true }
-runtime-atari-800xl = { path = "../runtime-atari-800xl", version = "0.46.0" }
+runtime-atari-800xl = { path = "../runtime-atari-800xl", version = "0.47.0" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

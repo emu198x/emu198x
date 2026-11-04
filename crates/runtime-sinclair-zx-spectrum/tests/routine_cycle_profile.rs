@@ -1,9 +1,9 @@
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use emu198x_shell::{HeadlessSession, ScriptObservation, ScriptStep, debug_info::DebugSymbols};
-use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
+use runtime_sinclair_zx_spectrum::SpectrumIssue3Ram48kRuntime;
 
-fn session() -> HeadlessSession<Spectrum48kRuntime> {
-    let mut runtime = Spectrum48kRuntime::new_48k([0; 16384]);
+fn session() -> HeadlessSession<SpectrumIssue3Ram48kRuntime> {
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new_board([0; 16384]);
     for (offset, &byte) in
         include_bytes!("../../../test-data/sinclair/zx-spectrum/routine-profile/calls.bin")
             .iter()
@@ -217,10 +217,10 @@ fn call_at_capture_end_does_not_invent_a_callee_duration() {
 fn interrupt_inside_a_call_suspends_its_cost_without_changing_execution() {
     use common_sinclair_zx_spectrum::driver::SpectrumDriver;
     use emu198x_shell::{MachineCore, call_profile::CallProfiler};
-    fn runtime() -> Spectrum48kRuntime {
+    fn runtime() -> SpectrumIssue3Ram48kRuntime {
         let mut rom = [0; 16384];
         rom[0x38..0x3b].copy_from_slice(&[0xf3, 0xed, 0x4d]); // DI; RETI
-        let mut runtime = Spectrum48kRuntime::new_48k(rom);
+        let mut runtime = SpectrumIssue3Ram48kRuntime::new_board(rom);
         let frame = runtime.machine().frame_timing().halfcycles_per_frame;
         for _ in 0..frame {
             runtime.machine_mut().advance_halfcycles(1);

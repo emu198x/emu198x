@@ -3,7 +3,7 @@ use emu198x_shell::{
     HeadlessSession, MachineCore, ScriptObservation, cycle_profile::CycleCounts,
     debug_info::DebugSymbols,
 };
-use runtime_sinclair_zx_spectrum::{Spectrum16kRuntime, Spectrum48kRuntime, SpectrumPlusRuntime};
+use runtime_sinclair_zx_spectrum::{SpectrumIssue3Ram16kRuntime, SpectrumIssue3Ram48kRuntime};
 
 fn conserved(counts: &CycleCounts) {
     assert!(counts.mapped_addresses.is_empty());
@@ -26,8 +26,8 @@ fn absent_upper_ram_executes_open_bus_on_16k_but_real_ram_on_plus() {
     for address in [0x8000, 0xffff] {
         let mut rom = [0; 16384];
         rom[0x38] = 0x76; // Stop after the $FF (RST $38) read from absent RAM.
-        let mut small = Spectrum16kRuntime::new_16k(rom);
-        let mut plus = SpectrumPlusRuntime::new_plus(rom);
+        let mut small = SpectrumIssue3Ram16kRuntime::new_board(rom);
+        let mut plus = SpectrumIssue3Ram48kRuntime::new_board(rom);
         small.machine_mut().write(address, 0x76);
         plus.machine_mut().write(address, 0x76);
         assert_eq!(small.machine().read(address), 0xff);
@@ -50,7 +50,7 @@ fn absent_upper_ram_executes_open_bus_on_16k_but_real_ram_on_plus() {
 #[test]
 fn last_16k_ram_byte_is_executable_and_capture_preserves_state() {
     let make = || {
-        let mut runtime = Spectrum16kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram16kRuntime::blank();
         runtime.machine_mut().write(0x7fff, 0x76);
         runtime.machine_mut().z80_mut().regs.pc = 0x7fff;
         runtime
@@ -71,7 +71,7 @@ fn last_16k_ram_byte_is_executable_and_capture_preserves_state() {
         serde_json::to_value(ordinary.machine()).expect("serialize ordinary")
     );
     let snapshot = profiled.snapshot().expect("capture snapshot");
-    let mut restored = Spectrum16kRuntime::blank();
+    let mut restored = SpectrumIssue3Ram16kRuntime::blank();
     restored.restore(&snapshot).expect("restore snapshot");
     assert_eq!(
         profiled.profile_cycles(1000).expect("continued capture"),
@@ -82,8 +82,8 @@ fn last_16k_ram_byte_is_executable_and_capture_preserves_state() {
 #[test]
 fn plus_and_48k_measure_the_same_upper_ram_program() {
     let bytes = include_bytes!("../../../test-data/sinclair/zx-spectrum/cycle-profile/loop.bin");
-    let mut baseline = Spectrum48kRuntime::new_48k([0; 16384]);
-    let mut plus = SpectrumPlusRuntime::blank();
+    let mut baseline = SpectrumIssue3Ram48kRuntime::new_board([0; 16384]);
+    let mut plus = SpectrumIssue3Ram48kRuntime::blank();
     for (offset, &byte) in bytes.iter().enumerate() {
         let address = 0xc000 + u16::try_from(offset).expect("small fixture");
         baseline.machine_mut().write(address, byte);
@@ -99,7 +99,7 @@ fn plus_and_48k_measure_the_same_upper_ram_program() {
 
 #[test]
 fn sixteen_k_mcp_joins_the_relocated_assembler_fixture() {
-    let mut runtime = Spectrum16kRuntime::blank();
+    let mut runtime = SpectrumIssue3Ram16kRuntime::blank();
     for (offset, &byte) in
         include_bytes!("../../../test-data/sinclair/zx-spectrum/cycle-profile/loop.bin")
             .iter()

@@ -329,7 +329,7 @@ fn resolve_boot_model(
         }
         (Some(requested), None) => Ok(requested),
         (None, Some(model)) => Ok(snapshot_model_to_model(model)),
-        (None, None) => Ok(Model::Spectrum48KPal),
+        (None, None) => Ok(Model::SpectrumIssue3Ram48kPal),
     }
 }
 
@@ -340,7 +340,7 @@ fn snapshot_model_to_model(model: SnapshotModel) -> Model {
         SnapshotModel::SpectrumPlus2A => Model::SpectrumPlus2A,
         SnapshotModel::SpectrumPlus3 => Model::SpectrumPlus3,
         SnapshotModel::Spectrum48K | SnapshotModel::Pentagon128 | SnapshotModel::Scorpion256 => {
-            Model::Spectrum48KPal
+            Model::SpectrumIssue3Ram48kPal
         }
     }
 }
@@ -455,7 +455,7 @@ mod tests {
     fn boot_model_defaults_to_48k() {
         assert_eq!(
             resolve_boot_model(None, None).expect("no inputs is always valid"),
-            Model::Spectrum48KPal
+            Model::SpectrumIssue3Ram48kPal
         );
     }
 
@@ -468,7 +468,7 @@ mod tests {
     }
 
     /// The exotics are reachable too — `from_script_id` has always
-    /// accepted all 13 variants even though the `set_machine` error
+    /// accepted every variant even though the `set_machine` error
     /// message used to name only the SOLID 8.
     #[test]
     fn machine_flag_accepts_the_exotics() {
@@ -517,11 +517,14 @@ mod tests {
     /// rather than pick a winner.
     #[test]
     fn machine_flag_conflicting_with_the_snapshot_is_refused() {
-        let err = resolve_boot_model(Some("spectrum_48k"), Some(SnapshotModel::Spectrum128K))
-            .expect_err("a contradicted --machine must not be silently overridden");
+        let err = resolve_boot_model(
+            Some("spectrum_issue3_48k"),
+            Some(SnapshotModel::Spectrum128K),
+        )
+        .expect_err("a contradicted --machine must not be silently overridden");
         let message = err.to_string();
         assert!(
-            message.contains("spectrum_48k") && message.contains("spectrum_128k"),
+            message.contains("spectrum_issue3_48k") && message.contains("spectrum_128k"),
             "the error should name both variants, got: {message}"
         );
     }
@@ -598,7 +601,7 @@ mod tests {
     /// the 48K or 128K ROM bundles are absent.
     #[test]
     fn set_machine_step_swaps_variant_in_script_mode() {
-        let kind = match boot_variant(Model::Spectrum48KPal, &FirmwareOverrides::none()) {
+        let kind = match boot_variant(Model::SpectrumIssue3Ram48kPal, &FirmwareOverrides::none()) {
             Ok(rt) => rt,
             Err(_) => {
                 emu198x_test_skip::skip!(

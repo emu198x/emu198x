@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "common-acorn-bbc-micro"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-mos-6502",
@@ -460,14 +460,14 @@ dependencies = [
 
 [[package]]
 name = "common-acorn-cassette"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "common-amstrad-cpc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-amstrad-gate-array",
  "emu198x-gi-ay-3-8912",
@@ -477,7 +477,7 @@ dependencies = [
  "emu198x-tape-playback",
  "emu198x-test-skip",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format-amstrad-cpc-cdt",
  "format-amstrad-dsk",
  "serde",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "common-atari-2600"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-atari-tia",
  "emu198x-mos-6502",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "common-atari-5200"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-atari-antic",
  "emu198x-atari-gtia",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "common-atari-800xl"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-atari-antic",
  "emu198x-atari-gtia",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "common-atari-st"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-atari-st-glue-mmu",
  "emu198x-atari-st-shifter",
@@ -548,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-amiga"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-commodore-agnus-ocs",
  "emu198x-commodore-denise-aga",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-amiga-aga"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga",
  "emu198x-commodore-agnus-aga",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-amiga-ecs"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga",
  "emu198x-commodore-agnus-ecs",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-amiga-ocs"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga",
  "emu198x-commodore-agnus-ecs",
@@ -642,14 +642,14 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-c128"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
  "emu198x-mos-6502",
  "emu198x-mos-cia-6526",
  "emu198x-mos-sid-6581",
  "emu198x-mos-vic-ii",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
  "serde-big-array",
@@ -658,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-c64"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-iec",
  "emu198x-esp-at-modem",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-drive-gcr"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "format198x-commodore-c64-d64",
  "format198x-commodore-c64-g64",
@@ -689,14 +689,14 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-iec"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "common-commodore-iec-drive"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-pet"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-mos-6502",
  "emu198x-mos-pia-6520",
@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "common-commodore-vic-20"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-mos-6502",
  "emu198x-mos-via-6522",
@@ -732,7 +732,7 @@ dependencies = [
 
 [[package]]
 name = "common-dragon"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-mos-acia-6551",
  "emu198x-motorola-6809",
@@ -747,11 +747,11 @@ dependencies = [
 
 [[package]]
 name = "common-mattel-aquarius"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-gi-ay-3-8910",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
  "serde-big-array",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "common-msx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-intel-8255",
@@ -770,14 +770,14 @@ dependencies = [
  "emu198x-yamaha-v9938",
  "emu198x-yamaha-ym2413",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
 ]
 
 [[package]]
 name = "common-nintendo-game-boy"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-nintendo-game-boy-apu",
  "emu198x-nintendo-game-boy-mbc",
@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "common-nintendo-nes"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-mos-6502",
  "emu198x-ricoh-apu-2a03",
@@ -807,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "common-nintendo-snes"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-nintendo-s-ppu",
  "emu198x-sony-s-dsp",
@@ -820,13 +820,13 @@ dependencies = [
 
 [[package]]
 name = "common-sega-master-system"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-sega-315-5124",
  "emu198x-ti-sn76489",
  "emu198x-yamaha-ym2413",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
  "serde-big-array",
@@ -834,12 +834,12 @@ dependencies = [
 
 [[package]]
 name = "common-sega-mega-drive"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-sega-315-5313",
  "emu198x-ti-sn76489",
  "emu198x-yamaha-ym2612",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "motorola-68000",
  "postcard",
  "serde",
@@ -847,12 +847,12 @@ dependencies = [
 
 [[package]]
 name = "common-sega-sg-1000"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-ti-sn76489",
  "emu198x-ti-tms9918",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
  "serde-big-array",
@@ -860,13 +860,13 @@ dependencies = [
 
 [[package]]
 name = "common-sinclair-zx-spectrum"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.2.1",
  "emu198x-tape-playback",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-sinclair-zx-spectrum-snapshot",
  "serde",
  "serde-big-array",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "common-sinclair-zx-spectrum-128k-class"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
@@ -885,30 +885,31 @@ dependencies = [
  "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
  "emu198x-peripheral-sinclair-zx-spectrum-interface1",
  "emu198x-sinclair-ula-7k010e",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "common-sinclair-zx-spectrum-48k-class"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-ferranti-ula-6c001e",
+ "emu198x-mullard-zx8401",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-mouse",
  "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface",
  "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
  "emu198x-peripheral-sinclair-zx-spectrum-interface1",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "common-sinclair-zx-spectrum-amstrad-class"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-amstrad-ula-40077",
@@ -916,19 +917,19 @@ dependencies = [
  "emu198x-nec-upd765a",
  "emu198x-peripheral-romantic-robot-sinclair-zx-spectrum-multiface",
  "emu198x-peripheral-sinclair-zx-spectrum-divmmc",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "common-sinclair-zx80"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-sinclair-zx81-ula",
  "emu198x-test-skip",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-sinclair-zx80-o",
  "png",
  "postcard",
@@ -937,12 +938,12 @@ dependencies = [
 
 [[package]]
 name = "common-sinclair-zx81"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-sinclair-zx81-ula",
  "emu198x-test-skip",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-sinclair-zx81-p",
  "png",
  "postcard",
@@ -951,12 +952,12 @@ dependencies = [
 
 [[package]]
 name = "common-sord-m5"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-ti-sn76489",
  "emu198x-ti-tms9918",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "emu198x-zilog-z80-ctc",
  "postcard",
  "serde",
@@ -965,26 +966,26 @@ dependencies = [
 
 [[package]]
 name = "common-spectravideo-svi-328"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-intel-8255",
  "emu198x-ti-tms9918",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
 ]
 
 [[package]]
 name = "common-timex-2068"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-timex-scld",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-sinclair-zx-spectrum-snapshot",
  "serde",
  "serde-big-array",
@@ -1291,7 +1292,7 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "emu198x-acorn-atom"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-motorola-vdg-6847",
@@ -1305,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-acorn-bbc-micro"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -1317,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-acorn-electron"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -1330,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-amiga"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-mos-cia-8520",
@@ -1348,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-amstrad-cpc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-amstrad-cpc",
  "emu198x-app-icon",
@@ -1367,12 +1368,12 @@ dependencies = [
 
 [[package]]
 name = "emu198x-amstrad-ula-40077"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88864ece41feacc95d26cb73734763c814518ec93338ca7970c423a823e2be7f"
+checksum = "d9a613f051383a4c637d9b93eb317d99d5173d086f20655ee1c1bf604cd5a719"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.2.1",
  "serde",
 ]
 
@@ -1385,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-apple"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-apple",
  "emu198x-fleet-web",
@@ -1402,7 +1403,7 @@ checksum = "fa4f7d213ddf30e3379a353aca9769b8885e772dc395dadfcd9aaf9ebc1d983f"
 
 [[package]]
 name = "emu198x-apple-ii"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-runtime-apple-ii",
  "emu198x-shell",
@@ -1411,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-2600"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-atari-tia",
@@ -1425,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-5200"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-atari-gtia",
@@ -1438,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-7800"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-atari-maria",
@@ -1452,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-800xl"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-atari-gtia",
@@ -1507,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-atari-st"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -1549,7 +1550,7 @@ checksum = "47655193f66d0286491d3f3d8e7155c1e3c01451d3b924aae70bbea5896c3af5"
 
 [[package]]
 name = "emu198x-c64"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
  "emu198x-app-icon",
@@ -1564,7 +1565,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-catalogue"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
  "common-sinclair-zx-spectrum",
@@ -1590,7 +1591,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-colecovision"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-runtime-coleco-colecovision",
@@ -1681,7 +1682,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-pet"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -1693,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-vic-20"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-mos-vic-i",
@@ -1706,7 +1707,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-commodore-web"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
  "emu198x-pointer",
@@ -1742,14 +1743,14 @@ dependencies = [
  "emu198x-ti-sn76489",
  "emu198x-ti-tms9918",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "serde",
  "serde-big-array",
 ]
 
 [[package]]
 name = "emu198x-dragon"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-motorola-vdg-6847",
@@ -1771,25 +1772,25 @@ dependencies = [
 
 [[package]]
 name = "emu198x-esp-at-modem"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "emu198x-ferranti-ula-6c001e"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b04565ea80ae578cfab3848bbfccfdc8fae0d929b0cfa90733e357cfc9e6640"
+checksum = "ea0d16f378f9c598d4a3766c8e693755f99ceedf881abc8f880b642d26c47bbe"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.3.0",
  "serde",
 ]
 
 [[package]]
 name = "emu198x-fleet-web"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-fleet-web",
  "emu198x-pointer",
@@ -1837,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-game-boy"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
  "emu198x-app-icon",
@@ -1850,7 +1851,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-game-boy-web"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-web",
@@ -1879,7 +1880,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-gtk-window"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
@@ -1899,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-jupiter-ace"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -1966,7 +1967,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-mattel-aquarius"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -1979,7 +1980,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-memotech-mtx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2147,7 +2148,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-msx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2157,6 +2158,12 @@ dependencies = [
  "runtime-msx",
  "serde_json",
 ]
+
+[[package]]
+name = "emu198x-mullard-zx8401"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09baff7955e5bc4da46cf6fd5dde205a9cbd775bb34c34a7bcc811fedc9a5fdb"
 
 [[package]]
 name = "emu198x-native-video"
@@ -2191,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-nes"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-nes",
  "emu198x-app-icon",
@@ -2205,7 +2212,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-nes-web"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-web",
@@ -2253,7 +2260,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-oric-atmos"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2271,7 +2278,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "581e4fb1f0ac3b28f889ece3607eb0d572550e46d0e8e6841934650cd916353d"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.2.1",
  "serde",
 ]
 
@@ -2412,16 +2419,16 @@ dependencies = [
 
 [[package]]
 name = "emu198x-runtime-coleco-colecovision"
-version = "0.46.2"
+version = "0.46.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f74840446ed681b19b1156c50c446b6d75a2493d5d543b897b5bdb70a4c97dad"
+checksum = "4c1f8b81c49e40142e5f753f67e0bd5fc854f38ba19b997e4402082f587ce75c"
 dependencies = [
  "emu198x-common-coleco-colecovision",
  "emu198x-machine-coleco-colecovision-ntsc",
  "emu198x-machine-coleco-colecovision-pal",
  "emu198x-shell",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
  "serde_json",
@@ -2434,7 +2441,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e86c948c7bfaa7226a2c2c1128c50d2a509af4142069be730a0361de2b3d0502"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.2.1",
  "serde",
 ]
 
@@ -2457,7 +2464,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sega-game-gear"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2470,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sega-master-system"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-sega-315-5124",
@@ -2484,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sega-mega-drive"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2495,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sega-sg-1000"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-sg-1000",
  "emu198x-app-icon",
@@ -2535,20 +2542,30 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sinclair-ula-7k010e"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff4c7e721eb45cd5b49fa5232347f3ec5d36b4bc84f849db27990f7b53d7bcf"
+checksum = "09fc5019aa93c2fb2d1b6a407d968fa02ba05762913a92e708ad0aac5866dfa5"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.3.0",
  "serde",
 ]
 
 [[package]]
 name = "emu198x-sinclair-zx-spectrum-ula"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fc18c99f84203f0f67bf0c606a826fca08a64969accf54938314169c5c080f1"
+checksum = "eed635aa352bdaf1983393d6c809f19cb7ab04b9a5626b1f8519cae141cefe84"
+dependencies = [
+ "emu198x-bus-sinclair-zx-spectrum",
+ "serde",
+]
+
+[[package]]
+name = "emu198x-sinclair-zx-spectrum-ula"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9a72b3980ba7a0b08f175b9a4affddbd2d7b5d9627fe757236139da59813f89"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
  "serde",
@@ -2556,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sinclair-zx80"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2569,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sinclair-zx81"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2586,7 +2603,7 @@ version = "0.1.0"
 
 [[package]]
 name = "emu198x-snes"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2605,7 +2622,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-snk-neo-geo"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2637,13 +2654,13 @@ dependencies = [
 
 [[package]]
 name = "emu198x-sord-m5"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ti-tms9918",
  "emu198x-ui",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "png",
  "runtime-sord-m5",
  "serde_json",
@@ -2651,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-spectravideo-svi-328"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2664,14 +2681,14 @@ dependencies = [
 
 [[package]]
 name = "emu198x-spectrum"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-szx",
  "format-sinclair-zx-spectrum-z80",
@@ -2684,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-spectrum-web"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-web",
@@ -2710,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-tatung-einstein"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-app-icon",
  "emu198x-shell",
@@ -2747,12 +2764,12 @@ dependencies = [
 
 [[package]]
 name = "emu198x-timex-scld"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d17d4939ffb786395eeda5a06149c2f5b49c278e267fcea11d5fc3f4b19f4cfe"
+checksum = "c33c9bc577d42f08d556d2699c932c73100c8b66eb73b4c9ceaf50633d4e2f7f"
 dependencies = [
  "emu198x-bus-sinclair-zx-spectrum",
- "emu198x-sinclair-zx-spectrum-ula",
+ "emu198x-sinclair-zx-spectrum-ula 0.2.1",
  "serde",
 ]
 
@@ -2787,7 +2804,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-web"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "runtime-sinclair-zx-spectrum",
@@ -2856,6 +2873,15 @@ name = "emu198x-zilog-z80"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8d2e3e41d96d4e0b7ce4f508dc193d394d12cfed9388cd8c74b7f388ade04f5"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "emu198x-zilog-z80"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb7caf1f7f56be3bbbc5315162fda69cf0c30cd32701b75f3a607af612359b99"
 dependencies = [
  "serde",
 ]
@@ -2962,11 +2988,11 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "format-acorn-adfs"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-acorn-uef"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-cassette",
  "flate2",
@@ -2976,7 +3002,7 @@ dependencies = [
 
 [[package]]
 name = "format-amstrad-cpc-cdt"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-tape-playback",
  "format-tzx",
@@ -2984,7 +3010,7 @@ dependencies = [
 
 [[package]]
 name = "format-amstrad-dsk"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-nec-upd765a",
  "format198x-amstrad-cpc-dsk",
@@ -2992,19 +3018,19 @@ dependencies = [
 
 [[package]]
 name = "format-atari-st-msa"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-atari-st-st"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-nintendo-famicom-fds"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-nintendo-game-boy-cartridge"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -3012,19 +3038,19 @@ dependencies = [
 
 [[package]]
 name = "format-nintendo-nes-ines"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-nintendo-snes-sfc"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-mdr"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-sna"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
  "format198x-sinclair-zx-spectrum-sna",
@@ -3032,11 +3058,11 @@ dependencies = [
 
 [[package]]
 name = "format-sinclair-zx-spectrum-snapshot"
-version = "0.46.2"
+version = "0.47.0"
 
 [[package]]
 name = "format-sinclair-zx-spectrum-szx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "flate2",
  "format-sinclair-zx-spectrum-snapshot",
@@ -3045,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "format-sinclair-zx-spectrum-tzx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "format-tzx",
@@ -3053,7 +3079,7 @@ dependencies = [
 
 [[package]]
 name = "format-sinclair-zx-spectrum-z80"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
  "format198x-sinclair-zx-spectrum-z80",
@@ -3061,7 +3087,7 @@ dependencies = [
 
 [[package]]
 name = "format-snk-neo-geo-romset"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "thiserror 2.0.21",
  "zip",
@@ -3069,7 +3095,7 @@ dependencies = [
 
 [[package]]
 name = "format-tzx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-tape-playback",
  "format198x-tzx",
@@ -3116,9 +3142,9 @@ checksum = "521bc83489669ef9fbb8e32846464b7c3b419204b42823323b2e17573b33b4c7"
 
 [[package]]
 name = "format198x-commodore-amiga-adf"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ed288a79912b3af0eafa304afb2ff2ac27668ba88efcce03ef2a1b3ae9c0bca"
+checksum = "5c4569cb4196025141d21f88d23f587a857c094cda82b2f6f656a9b8f433f544"
 
 [[package]]
 name = "format198x-commodore-c128-d71"
@@ -3709,7 +3735,7 @@ dependencies = [
 
 [[package]]
 name = "gvp-a530"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-commodore-amiga-autoconfig",
  "motorola-68k-common",
@@ -3802,15 +3828,15 @@ dependencies = [
 
 [[package]]
 name = "isa198x"
-version = "0.1.0"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b82bc0bf85e1e4d080a687259533265bafc2e16f679064a90e2d0f492f7ad005"
+checksum = "331e786259043ed1af59cc66ea1efd941879b8781fb8f0f90234dd8918224b6b"
 
 [[package]]
 name = "isa198x-disasm"
-version = "0.1.0"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf7c236e49615d4cd41339b60880e4dde1039484f1a8f4cc61f3716a367f509a"
+checksum = "3281b8a30e7b6fc0a1de463d300f0cf0dd5f67324c7160175102a23ab0637763"
 dependencies = [
  "isa198x",
 ]
@@ -4021,7 +4047,7 @@ checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
 name = "machine-acorn-atom"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-intel-8255",
@@ -4036,14 +4062,14 @@ dependencies = [
 
 [[package]]
 name = "machine-acorn-bbc-master-128"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-bbc-micro",
 ]
 
 [[package]]
 name = "machine-acorn-bbc-micro"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-bbc-micro",
  "common-acorn-cassette",
@@ -4052,14 +4078,14 @@ dependencies = [
 
 [[package]]
 name = "machine-acorn-bbc-micro-b-plus"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-bbc-micro",
 ]
 
 [[package]]
 name = "machine-acorn-electron"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-mos-6502",
@@ -4073,70 +4099,70 @@ dependencies = [
 
 [[package]]
 name = "machine-amstrad-cpc464"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-amstrad-cpc",
 ]
 
 [[package]]
 name = "machine-amstrad-cpc6128"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-amstrad-cpc",
 ]
 
 [[package]]
 name = "machine-amstrad-cpc664"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-amstrad-cpc",
 ]
 
 [[package]]
 name = "machine-atari-1040st-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-st",
 ]
 
 [[package]]
 name = "machine-atari-1040st-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-st",
 ]
 
 [[package]]
 name = "machine-atari-130xe-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-800xl",
 ]
 
 [[package]]
 name = "machine-atari-130xe-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-800xl",
 ]
 
 [[package]]
 name = "machine-atari-2600"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-2600",
 ]
 
 [[package]]
 name = "machine-atari-2600-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-2600",
 ]
 
 [[package]]
 name = "machine-atari-5200-ca018087"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-5200",
  "postcard",
@@ -4144,7 +4170,7 @@ dependencies = [
 
 [[package]]
 name = "machine-atari-5200-ca020108"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-5200",
  "postcard",
@@ -4152,7 +4178,7 @@ dependencies = [
 
 [[package]]
 name = "machine-atari-5200-ca021374"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-5200",
  "postcard",
@@ -4160,35 +4186,35 @@ dependencies = [
 
 [[package]]
 name = "machine-atari-520st-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-st",
 ]
 
 [[package]]
 name = "machine-atari-520st-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-st",
 ]
 
 [[package]]
 name = "machine-atari-800xl"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-800xl",
 ]
 
 [[package]]
 name = "machine-atari-800xl-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-800xl",
 ]
 
 [[package]]
 name = "machine-commodore-1541"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
@@ -4203,7 +4229,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-1571"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
@@ -4221,7 +4247,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-1581"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-iec",
  "emu198x-mos-6502",
@@ -4234,147 +4260,155 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-amiga-a1000-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a1000-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a1200-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-aga",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a1200-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-aga",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a2000cr-rev6-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a2000cr-rev6-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a500-plus-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ecs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a500-plus-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ecs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a500-rev5-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a500-rev5-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a500-rev6a-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a500-rev6a-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ocs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a600-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ecs",
 ]
 
 [[package]]
 name = "machine-commodore-amiga-a600-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga-ecs",
 ]
 
 [[package]]
 name = "machine-commodore-c128-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c128",
 ]
 
 [[package]]
 name = "machine-commodore-c128-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c128",
 ]
 
 [[package]]
 name = "machine-commodore-c64-ntsc-breadbin"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
 ]
 
 [[package]]
 name = "machine-commodore-c64-pal-breadbin"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
 ]
 
 [[package]]
 name = "machine-commodore-c64c-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
 ]
 
 [[package]]
 name = "machine-commodore-c64c-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c64",
 ]
 
 [[package]]
+name = "machine-commodore-pet-2001-320008"
+version = "0.47.0"
+dependencies = [
+ "common-commodore-pet",
+ "postcard",
+]
+
+[[package]]
 name = "machine-commodore-pet-2001n-32k"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-pet",
  "postcard",
@@ -4382,7 +4416,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-pet-4032"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-pet",
  "postcard",
@@ -4390,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-pet-8032"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-pet",
  "postcard",
@@ -4398,21 +4432,21 @@ dependencies = [
 
 [[package]]
 name = "machine-commodore-vic-20-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-vic-20",
 ]
 
 [[package]]
 name = "machine-commodore-vic-20-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-vic-20",
 ]
 
 [[package]]
 name = "machine-dragon-32"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-dragon",
  "emu198x-motorola-vdg-6847",
@@ -4421,7 +4455,7 @@ dependencies = [
 
 [[package]]
 name = "machine-dragon-64"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-dragon",
  "emu198x-motorola-vdg-6847",
@@ -4430,17 +4464,17 @@ dependencies = [
 
 [[package]]
 name = "machine-jupiter-ace"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
  "serde",
 ]
 
 [[package]]
 name = "machine-mattel-aquarius"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-mattel-aquarius",
  "postcard",
@@ -4448,7 +4482,7 @@ dependencies = [
 
 [[package]]
 name = "machine-mattel-aquarius-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-mattel-aquarius",
  "postcard",
@@ -4456,12 +4490,12 @@ dependencies = [
 
 [[package]]
 name = "machine-memotech-mtx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-ti-sn76489",
  "emu198x-ti-tms9918",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "emu198x-zilog-z80-ctc",
  "postcard",
  "serde",
@@ -4469,39 +4503,39 @@ dependencies = [
 
 [[package]]
 name = "machine-mitsubishi-ml-f80"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-mitsubishi-ml-fx1"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-nintendo-game-boy"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
 ]
 
 [[package]]
 name = "machine-nintendo-game-boy-advance"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
 ]
 
 [[package]]
 name = "machine-nintendo-game-boy-color"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
  "emu198x-test-skip",
@@ -4510,28 +4544,28 @@ dependencies = [
 
 [[package]]
 name = "machine-nintendo-game-boy-pocket"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
 ]
 
 [[package]]
 name = "machine-nintendo-nes-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-nes",
 ]
 
 [[package]]
 name = "machine-nintendo-nes-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-nes",
 ]
 
 [[package]]
 name = "machine-nintendo-snes-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-snes",
  "postcard",
@@ -4539,7 +4573,7 @@ dependencies = [
 
 [[package]]
 name = "machine-nintendo-snes-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-snes",
  "postcard",
@@ -4547,21 +4581,21 @@ dependencies = [
 
 [[package]]
 name = "machine-nintendo-super-game-boy"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
 ]
 
 [[package]]
 name = "machine-nintendo-super-game-boy-2"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
 ]
 
 [[package]]
 name = "machine-oric-atmos"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-gi-ay-3-8912",
  "emu198x-mos-6502",
@@ -4574,16 +4608,16 @@ dependencies = [
 
 [[package]]
 name = "machine-panasonic-fs-a1"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-pentagon-128"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
@@ -4591,7 +4625,7 @@ dependencies = [
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-sinclair-zx-spectrum-z80",
  "png",
  "serde",
@@ -4599,16 +4633,16 @@ dependencies = [
 
 [[package]]
 name = "machine-philips-vg-8235-00"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-scorpion-zs256"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-gi-ay-3-8912",
@@ -4616,24 +4650,24 @@ dependencies = [
  "emu198x-peripheral-sinclair-zx-spectrum-beta-disk",
  "emu198x-scorpion-ula",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-sinclair-zx-spectrum-z80",
  "serde",
 ]
 
 [[package]]
 name = "machine-sega-game-gear"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "sha2",
 ]
 
 [[package]]
 name = "machine-sega-genesis"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-mega-drive",
  "postcard",
@@ -4641,79 +4675,79 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-mark-iii"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system-1-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system-1-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system-2-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system-2-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system-japan"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-master-system-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sega-mega-drive-europe"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-mega-drive",
  "postcard",
@@ -4721,7 +4755,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-mega-drive-japan"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-mega-drive",
  "postcard",
@@ -4729,7 +4763,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-sg-1000-ii-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-sg-1000",
  "postcard",
@@ -4737,7 +4771,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-sg-1000-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-sg-1000",
  "postcard",
@@ -4745,7 +4779,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sega-sg-1000-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-sg-1000",
  "postcard",
@@ -4753,7 +4787,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-128k"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
@@ -4763,44 +4797,80 @@ dependencies = [
 ]
 
 [[package]]
-name = "machine-sinclair-zx-spectrum-16k"
-version = "0.46.2"
+name = "machine-sinclair-zx-spectrum-issue1"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
- "emu198x-ferranti-ula-6c001e",
- "emu198x-test-skip",
 ]
 
 [[package]]
-name = "machine-sinclair-zx-spectrum-48k"
-version = "0.46.2"
+name = "machine-sinclair-zx-spectrum-issue2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
- "emu198x-ferranti-ula-6c001e",
- "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
- "emu198x-shell",
- "emu198x-test-skip",
- "emu198x-zilog-z80",
- "format198x-sinclair-zx-spectrum-tap",
- "png",
- "serde",
 ]
 
 [[package]]
-name = "machine-sinclair-zx-spectrum-plus"
-version = "0.46.2"
+name = "machine-sinclair-zx-spectrum-issue3"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
- "emu198x-ferranti-ula-6c001e",
- "emu198x-test-skip",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue3b"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue4a"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue4b"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue5-6c001e6"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue5-6c001e7"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
+]
+
+[[package]]
+name = "machine-sinclair-zx-spectrum-issue6a"
+version = "0.47.0"
+dependencies = [
+ "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
 ]
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus2"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
@@ -4809,7 +4879,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus2a"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -4818,7 +4888,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus2b"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -4827,7 +4897,7 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx-spectrum-plus3"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
@@ -4837,32 +4907,32 @@ dependencies = [
 
 [[package]]
 name = "machine-sinclair-zx80"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx80",
 ]
 
 [[package]]
 name = "machine-sinclair-zx80-usa"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx80",
 ]
 
 [[package]]
 name = "machine-sinclair-zx81"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx81",
 ]
 
 [[package]]
 name = "machine-snk-neo-geo"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-snk-lspc2",
  "emu198x-yamaha-ym2610",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "motorola-68000",
  "postcard",
  "serde",
@@ -4870,70 +4940,70 @@ dependencies = [
 
 [[package]]
 name = "machine-sony-hb-10"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sony-hb-10p"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sony-hb-f1"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-sord-m5-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sord-m5",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
 ]
 
 [[package]]
 name = "machine-sord-m5-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sord-m5",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "postcard",
 ]
 
 [[package]]
 name = "machine-spectravideo-svi-328-ntsc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-spectravideo-svi-328",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-spectravideo-svi-328-pal"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-spectravideo-svi-328",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-tandy-coco-1"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-dragon",
  "emu198x-motorola-vdg-6847",
@@ -4942,7 +5012,7 @@ dependencies = [
 
 [[package]]
 name = "machine-tandy-coco-2"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-dragon",
  "emu198x-motorola-vdg-6847",
@@ -4951,14 +5021,14 @@ dependencies = [
 
 [[package]]
 name = "machine-tatung-einstein"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-gi-ay-3-8910",
  "emu198x-test-skip",
  "emu198x-ti-tms9918",
  "emu198x-western-digital-wd1770",
  "emu198x-z80-cadence",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-amstrad-cpc-dsk",
  "postcard",
  "serde",
@@ -4967,13 +5037,13 @@ dependencies = [
 
 [[package]]
 name = "machine-timex-tc2048"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-peripheral-kempston-sinclair-zx-spectrum-joystick",
  "emu198x-test-skip",
  "emu198x-timex-scld",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-sinclair-zx-spectrum-snapshot",
  "png",
  "serde",
@@ -4982,21 +5052,21 @@ dependencies = [
 
 [[package]]
 name = "machine-timex-tc2068"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-timex-2068",
 ]
 
 [[package]]
 name = "machine-timex-ts1000"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx81",
 ]
 
 [[package]]
 name = "machine-timex-ts2068"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-timex-2068",
@@ -5006,20 +5076,20 @@ dependencies = [
 
 [[package]]
 name = "machine-toshiba-hx-10"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
 name = "machine-yamaha-cx5m"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
 ]
 
 [[package]]
@@ -5078,7 +5148,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68000"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "flate2",
  "isa198x-disasm",
@@ -5090,7 +5160,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68010"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-test-skip",
  "flate2",
@@ -5103,7 +5173,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68020"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-test-skip",
  "flate2",
@@ -5118,7 +5188,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68030"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-test-skip",
  "motorola-68000",
@@ -5131,7 +5201,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68040"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-test-skip",
  "motorola-68000",
@@ -5145,7 +5215,7 @@ dependencies = [
 
 [[package]]
 name = "motorola-68k-common"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "serde",
 ]
@@ -5238,7 +5308,7 @@ dependencies = [
 
 [[package]]
 name = "nintendo-nes-cartridge"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-gi-ay-3-8910",
  "emu198x-ricoh-ppu-2c02",
@@ -6073,7 +6143,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-acorn-atom"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-motorola-vdg-6847",
@@ -6088,7 +6158,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-acorn-bbc-micro"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-bbc-micro",
  "common-acorn-cassette",
@@ -6105,7 +6175,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-acorn-electron"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-shell",
@@ -6119,14 +6189,14 @@ dependencies = [
 
 [[package]]
 name = "runtime-amstrad-cpc"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-amstrad-cpc",
  "emu198x-amstrad-gate-array",
  "emu198x-nec-upd765a",
  "emu198x-shell",
  "emu198x-tape-playback",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format-amstrad-cpc-cdt",
  "format-amstrad-dsk",
  "machine-amstrad-cpc464",
@@ -6139,7 +6209,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-2600"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-2600",
  "emu198x-atari-tia",
@@ -6153,7 +6223,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-5200"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-5200",
  "emu198x-atari-gtia",
@@ -6168,7 +6238,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-800xl"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-800xl",
  "emu198x-atari-gtia",
@@ -6186,7 +6256,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-atari-st"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-atari-st",
  "emu198x-shell",
@@ -6203,7 +6273,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-amiga"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-amiga",
  "common-commodore-amiga-aga",
@@ -6245,7 +6315,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-c64"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-c128",
  "common-commodore-c64",
@@ -6280,21 +6350,23 @@ dependencies = [
 
 [[package]]
 name = "runtime-commodore-pet"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-pet",
  "emu198x-shell",
+ "machine-commodore-pet-2001-320008",
  "machine-commodore-pet-2001n-32k",
  "machine-commodore-pet-4032",
  "machine-commodore-pet-8032",
  "postcard",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "runtime-commodore-vic-20"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-commodore-vic-20",
  "emu198x-esp-at-modem",
@@ -6312,7 +6384,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-dragon"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-dragon",
  "emu198x-motorola-vdg-6847",
@@ -6334,10 +6406,10 @@ dependencies = [
 
 [[package]]
 name = "runtime-jupiter-ace"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-jupiter-ace-ace",
  "machine-jupiter-ace",
  "postcard",
@@ -6347,11 +6419,11 @@ dependencies = [
 
 [[package]]
 name = "runtime-mattel-aquarius"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-mattel-aquarius",
  "emu198x-shell",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-mattel-aquarius",
  "machine-mattel-aquarius-pal",
  "postcard",
@@ -6361,11 +6433,11 @@ dependencies = [
 
 [[package]]
 name = "runtime-memotech-mtx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-memotech-mtx",
  "postcard",
  "serde",
@@ -6374,13 +6446,13 @@ dependencies = [
 
 [[package]]
 name = "runtime-msx"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-msx",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-mitsubishi-ml-f80",
  "machine-mitsubishi-ml-fx1",
  "machine-panasonic-fs-a1",
@@ -6393,11 +6465,12 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "runtime-nintendo-game-boy"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-game-boy",
  "emu198x-sharp-lr35902",
@@ -6417,7 +6490,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-nintendo-nes"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-nes",
  "emu198x-ricoh-ppu-2c02",
@@ -6433,7 +6506,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-nintendo-snes"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-nintendo-snes",
  "emu198x-shell",
@@ -6448,7 +6521,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-oric-atmos"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "format198x-tangerine-oric-tap",
@@ -6461,7 +6534,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-game-gear"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "machine-sega-master-system",
@@ -6471,11 +6544,11 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-master-system"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-sega-315-5124",
  "emu198x-shell",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-sega-master-system",
  "postcard",
  "runtime-sega-game-gear",
@@ -6485,12 +6558,12 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-master-system-class"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-master-system",
  "emu198x-sega-315-5124",
  "emu198x-shell",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-sega-game-gear",
  "machine-sega-mark-iii",
  "machine-sega-master-system",
@@ -6507,7 +6580,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-mega-drive"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-mega-drive",
  "emu198x-shell",
@@ -6522,12 +6595,12 @@ dependencies = [
 
 [[package]]
 name = "runtime-sega-sg-1000"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sega-sg-1000",
  "emu198x-shell",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-sega-sg-1000-ii-ntsc",
  "machine-sega-sg-1000-ntsc",
  "machine-sega-sg-1000-pal",
@@ -6538,7 +6611,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-sinclair-zx-spectrum"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
@@ -6554,7 +6627,7 @@ dependencies = [
  "emu198x-shell",
  "emu198x-tape-playback",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.9.0",
  "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-mdr",
  "format-sinclair-zx-spectrum-sna",
@@ -6567,9 +6640,15 @@ dependencies = [
  "machine-pentagon-128",
  "machine-scorpion-zs256",
  "machine-sinclair-zx-spectrum-128k",
- "machine-sinclair-zx-spectrum-16k",
- "machine-sinclair-zx-spectrum-48k",
- "machine-sinclair-zx-spectrum-plus",
+ "machine-sinclair-zx-spectrum-issue1",
+ "machine-sinclair-zx-spectrum-issue2",
+ "machine-sinclair-zx-spectrum-issue3",
+ "machine-sinclair-zx-spectrum-issue3b",
+ "machine-sinclair-zx-spectrum-issue4a",
+ "machine-sinclair-zx-spectrum-issue4b",
+ "machine-sinclair-zx-spectrum-issue5-6c001e6",
+ "machine-sinclair-zx-spectrum-issue5-6c001e7",
+ "machine-sinclair-zx-spectrum-issue6a",
  "machine-sinclair-zx-spectrum-plus2",
  "machine-sinclair-zx-spectrum-plus2a",
  "machine-sinclair-zx-spectrum-plus2b",
@@ -6581,17 +6660,18 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "twox-hash",
 ]
 
 [[package]]
 name = "runtime-sinclair-zx80"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx80",
  "emu198x-shell",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-sinclair-zx80-o",
  "machine-sinclair-zx80",
  "machine-sinclair-zx80-usa",
@@ -6602,12 +6682,12 @@ dependencies = [
 
 [[package]]
 name = "runtime-sinclair-zx81"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sinclair-zx81",
  "emu198x-shell",
  "emu198x-test-skip",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-sinclair-zx81-p",
  "machine-sinclair-zx81",
  "machine-timex-ts1000",
@@ -6618,7 +6698,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-snk-neo-geo"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "format-snk-neo-geo-romset",
@@ -6632,12 +6712,12 @@ dependencies = [
 
 [[package]]
 name = "runtime-sord-m5"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-sord-m5",
  "emu198x-shell",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-sord-m5-ntsc",
  "machine-sord-m5-pal",
  "postcard",
@@ -6647,12 +6727,12 @@ dependencies = [
 
 [[package]]
 name = "runtime-spectravideo-svi-328"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "common-spectravideo-svi-328",
  "emu198x-shell",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "format198x-spectravideo-svi-cas",
  "machine-spectravideo-svi-328-ntsc",
  "machine-spectravideo-svi-328-pal",
@@ -6663,11 +6743,11 @@ dependencies = [
 
 [[package]]
 name = "runtime-tatung-einstein"
-version = "0.46.2"
+version = "0.47.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-ti-tms9918",
- "emu198x-zilog-z80",
+ "emu198x-zilog-z80 0.8.0",
  "machine-tatung-einstein",
  "postcard",
  "serde",
@@ -8030,14 +8110,15 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.1.2"
+version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec2e3161de27091f18a831d9494e9c53378a34833af5c1dda35ad85849da18d6"
+checksum = "eaeb7f16d2605b49aef586996ded29e65642fab7259a3077e537351df6d80426"
 dependencies = [
  "crc32fast",
  "flate2",
  "getrandom 0.4.3",
  "indexmap",
+ "libc",
  "memchr",
  "nix",
  "typed-path",

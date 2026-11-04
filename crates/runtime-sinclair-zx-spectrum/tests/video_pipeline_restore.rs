@@ -119,7 +119,7 @@ fn every_family_profile_resumes_exact_pixels_audio_clock_and_state() {
             }
         }
         assert_eq!(
-            cases, 176,
+            cases, 296,
             "every profile, video mode and phase was exercised"
         );
     });
@@ -135,8 +135,22 @@ fn legacy_v16_is_rejected_before_payload_decode_without_mutation() {
             let before = r.snapshot().expect("before");
             // Deliberately no machine payload: version rejection must come first.
             let error = r.restore(&[16]).expect_err("v16 lacks causal state");
+            let expected = if model.physical_board().is_some()
+                || matches!(
+                    model,
+                    Model::SpectrumPlus2A | Model::SpectrumPlus2B | Model::SpectrumPlus3
+                ) {
+                20
+            } else if matches!(
+                model,
+                Model::TimexTC2048 | Model::TimexTC2068 | Model::TimexTS2068
+            ) {
+                18
+            } else {
+                19
+            };
             assert!(
-                matches!(error,emu198x_shell::MachineError::InvalidSnapshot {reason} if reason=="unsupported snapshot version 16; expected 17")
+                matches!(error,emu198x_shell::MachineError::InvalidSnapshot {reason} if reason==format!("unsupported snapshot version 16; expected {expected}"))
             );
             assert!(
                 before == r.snapshot().expect("after"),
@@ -162,7 +176,7 @@ fn original_complete_v16_envelopes_are_rejected_atomically() {
                 r.write_byte(0x5000, 0xa5);
                 let before = r.snapshot().expect("before");
                 assert!(
-                    matches!(r.restore(&old),Err(emu198x_shell::MachineError::InvalidSnapshot {reason}) if reason=="unsupported snapshot version 16; expected 17")
+                    matches!(r.restore(&old),Err(emu198x_shell::MachineError::InvalidSnapshot {reason}) if reason=="unsupported snapshot version 16; expected 18")
                 );
                 assert!(before == r.snapshot().expect("after"));
             }

@@ -96,7 +96,7 @@ impl Spectrum {
     pub fn create_headless(rom: Vec<u8>) -> Result<Spectrum, JsError> {
         let mut firmware = FirmwareSet::new();
         firmware.push(FirmwareImage::new(ROM_ID, &rom));
-        let runtime = SpectrumRuntimeKind::from_firmware(Model::Spectrum48KPal, &firmware)
+        let runtime = SpectrumRuntimeKind::from_firmware(Model::SpectrumIssue3Ram48kPal, &firmware)
             .map_err(|error| JsError::new(&format!("building the 48K: {error}")))?;
 
         Ok(Spectrum {

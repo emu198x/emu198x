@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- snow, through the Sinclair 7K010E ULA 0.3: a snowed fetch keeps its column and takes the refresh's row, and only the fetch pair a refresh lands on is hit
 - derive tape, recorder, AY and audio cadence from the 128K divide-by-five timebase
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/common-sinclair-zx-spectrum-128k-class-v0.2.0) - 2026-06-04

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--machine spectrum_48k_issue1` and `spectrum_48k_issue2`
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-spectrum-v0.2.0) - 2026-06-04
 
 ### Added

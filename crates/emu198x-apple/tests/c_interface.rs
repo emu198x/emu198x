@@ -93,7 +93,7 @@ fn game_boy_frames_and_audio_match_fleet() {
 
 #[test]
 fn synthetic_spectrum_sound_and_picture_match_fleet() {
-    let (rom_id, model) = ("sinclair-zx-spectrum-48k-rom", "spectrum_48k");
+    let (rom_id, model) = ("sinclair-zx-spectrum-48k-rom", "spectrum_issue3_48k");
     let rom = common::beeper::beeper_rom();
     let mut machine = CMachine::create("sinclair-zx-spectrum", model).expect("compiled variant");
     machine.firmware(rom_id, &rom).expect("firmware");
@@ -120,12 +120,13 @@ fn synthetic_spectrum_sound_and_picture_match_fleet() {
 fn pixel_aspect_comes_from_the_runtime() {
     let rom = common::beeper::beeper_rom();
     let mut spectrum =
-        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+        CMachine::create("sinclair-zx-spectrum", "spectrum_issue3_48k").expect("compiled variant");
     spectrum
         .firmware("sinclair-zx-spectrum-48k-rom", &rom)
         .expect("firmware");
     spectrum.boot().expect("boot");
-    let mut fleet = Fleet::new("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+    let mut fleet =
+        Fleet::new("sinclair-zx-spectrum", "spectrum_issue3_48k").expect("compiled variant");
     fleet
         .firmware("sinclair-zx-spectrum-48k-rom", &rom)
         .expect("firmware");
@@ -155,8 +156,8 @@ fn port_zero_drives_the_spectrum_kempston_joystick() {
     let mut rom = vec![0; 16 * 1024];
     rom[..7].copy_from_slice(&[0xDB, 0x1F, 0x32, 0x00, 0x58, 0x18, 0xF9]);
     let picture = |fire: Option<u8>| {
-        let mut machine =
-            CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+        let mut machine = CMachine::create("sinclair-zx-spectrum", "spectrum_issue3_48k")
+            .expect("compiled variant");
         machine
             .firmware("sinclair-zx-spectrum-48k-rom", &rom)
             .expect("firmware");
@@ -181,7 +182,7 @@ fn port_zero_drives_the_spectrum_kempston_joystick() {
 #[test]
 fn autoload_reaches_the_runtime_and_is_spectrum_only() {
     let mut spectrum =
-        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+        CMachine::create("sinclair-zx-spectrum", "spectrum_issue3_48k").expect("compiled variant");
     spectrum
         .firmware(
             "sinclair-zx-spectrum-48k-rom",
@@ -206,7 +207,7 @@ fn autoload_reaches_the_runtime_and_is_spectrum_only() {
 #[test]
 fn queries_answer_as_fleet_does() {
     let mut spectrum =
-        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+        CMachine::create("sinclair-zx-spectrum", "spectrum_issue3_48k").expect("compiled variant");
     spectrum
         .firmware(
             "sinclair-zx-spectrum-48k-rom",
@@ -255,7 +256,7 @@ fn autoload_starts_a_tape_with_the_real_rom() {
         emu198x_test_skip::skip!("Spectrum 48K ROM not staged (EMU198X_SPECTRUM_48K_ROM)");
     };
     let mut machine =
-        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+        CMachine::create("sinclair-zx-spectrum", "spectrum_issue3_48k").expect("compiled variant");
     machine
         .firmware("sinclair-zx-spectrum-48k-rom", &rom)
         .expect("firmware");
@@ -390,7 +391,11 @@ fn the_catalogue_lists_compiled_variants() {
     let json = String::from_utf8(take(buffer)).expect("UTF-8");
     assert!(json.starts_with('['), "{json}");
     assert!(json.contains("\"family\":\"nintendo-game-boy\""));
-    assert!(json.contains("\"id\":\"spectrum_48k\""));
+    assert!(json.contains("\"id\":\"spectrum_issue3_48k\""));
+    for retired in ["spectrum_16k", "spectrum_48k", "spectrum_plus"] {
+        assert!(!json.contains(&format!("\"id\":\"{retired}\"")));
+        assert!(CMachine::create("sinclair-zx-spectrum", retired).is_err());
+    }
 }
 
 #[test]
@@ -452,7 +457,7 @@ fn spectrum_boots_and_matches_fleet() {
     let Some(rom) = spectrum_rom() else {
         emu198x_test_skip::skip!("Spectrum 48K ROM not staged (EMU198X_SPECTRUM_48K_ROM)");
     };
-    let (rom_id, model) = ("sinclair-zx-spectrum-48k-rom", "spectrum_48k");
+    let (rom_id, model) = ("sinclair-zx-spectrum-48k-rom", "spectrum_issue3_48k");
     let mut machine = CMachine::create("sinclair-zx-spectrum", model).expect("compiled variant");
     machine.firmware(rom_id, &rom).expect("firmware");
     machine.boot().expect("boot");

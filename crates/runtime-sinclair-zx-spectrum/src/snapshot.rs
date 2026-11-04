@@ -80,7 +80,36 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// fetches, border output latch, VidEN and falling-edge phase/address.
 /// Version 16 omits these causal states and cannot resume exact output;
 /// reject it before positional payload decoding.
-const SNAPSHOT_VERSION: u32 = 17;
+/// **Version 19** (approved 2026-11-03): the 48K- and 128K-class ULAs carry
+/// snow state (the row a snowed fetch pair reads, and whether a refresh is
+/// under way), from the shared ULA engine 0.3. Version 17 lacks it and is
+/// rejected before decoding. 18 is skipped because it is the Timex's.
+const SNAPSHOT_VERSION: u32 = 19;
+// Approved 2026-11-03 after the snow fix: physical owners add an independent
+// board tag at v20. Amstrad also uses v20 for its physical WAIT state;
+// Timex keeps v18 and other profiles keep v19.
+const PHYSICAL_BOARD_SNAPSHOT_VERSION: u32 = 20;
+// Approved physical WAIT output changes the Amstrad chip payload.
+const AMSTRAD_SNAPSHOT_VERSION: u32 = 20;
+const TIMEX_SNAPSHOT_VERSION: u32 = 18;
+
+fn version_for_profile(profile: &str) -> u32 {
+    match crate::Model::ALL
+        .into_iter()
+        .find(|model| model.profile_id() == profile)
+    {
+        Some(model) if model.physical_board().is_some() => PHYSICAL_BOARD_SNAPSHOT_VERSION,
+        Some(crate::Model::TimexTC2048 | crate::Model::TimexTC2068 | crate::Model::TimexTS2068) => {
+            TIMEX_SNAPSHOT_VERSION
+        }
+        Some(
+            crate::Model::SpectrumPlus2A
+            | crate::Model::SpectrumPlus2B
+            | crate::Model::SpectrumPlus3,
+        ) => AMSTRAD_SNAPSHOT_VERSION,
+        _ => SNAPSHOT_VERSION,
+    }
+}
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
@@ -118,7 +147,7 @@ pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
     postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV7 {
-        version: SNAPSHOT_VERSION,
+        version: version_for_profile(runtime.profile().profile_id.as_str()),
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
         keyboard_rows: *runtime.keyboard_rows(),
@@ -145,9 +174,10 @@ pub(crate) fn decode<M: SpectrumMachine>(
         }
     })?;
 
-    if version != SNAPSHOT_VERSION {
+    let expected_version = version_for_profile(runtime.profile().profile_id.as_str());
+    if version != expected_version {
         return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+            reason: format!("unsupported snapshot version {version}; expected {expected_version}"),
         });
     }
 
@@ -155,13 +185,22 @@ pub(crate) fn decode<M: SpectrumMachine>(
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
+    debug_assert_eq!(snapshot.version, expected_version);
 
     if snapshot.profile_id != runtime.profile().profile_id.as_str() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
                 "snapshot profile {} does not match runtime profile {}",
                 snapshot.profile_id,
+                runtime.profile().profile_id.as_str()
+            ),
+        });
+    }
+
+    if !runtime.machine().accepts_restored(&snapshot.machine) {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!(
+                "snapshot holds another board's state for profile {}",
                 runtime.profile().profile_id.as_str()
             ),
         });
@@ -190,7 +229,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
 mod tests {
     use super::*;
     use crate::Model;
-    use crate::Spectrum48kRuntime;
+    use crate::SpectrumIssue3Ram48kRuntime;
     use crate::variants::{Spectrum128kRuntime, SpectrumPlus3Runtime};
     use emu198x_shell::MachineCore;
     use machine_sinclair_zx_spectrum_128k::Spectrum128K;
@@ -215,7 +254,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_completely_corrupt_bytes() {
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let err = runtime
             .restore(&[0xFFu8; 8])
             .expect_err("corrupt postcard bytes must not decode");
@@ -243,7 +282,7 @@ mod tests {
     #[test]
     fn decode_rejects_version_2_before_payload_decode() {
         let bytes = postcard::to_allocvec(&2_u32).expect("legacy version should encode");
-        let mut runtime = Spectrum48kRuntime::blank();
+        let mut runtime = SpectrumIssue3Ram48kRuntime::blank();
         let err = runtime
             .restore(&bytes)
             .expect_err("version 2 snapshots must be rejected");
@@ -260,13 +299,13 @@ mod tests {
 
     #[test]
     fn decode_rejects_version_4_before_payload_decode() {
-        let mut runtime = crate::Spectrum48kRuntime::blank();
+        let mut runtime = crate::SpectrumIssue3Ram48kRuntime::blank();
         let bytes = postcard::to_allocvec(&4_u32).expect("version encodes");
         let error = decode(&mut runtime, &bytes).expect_err("old version must be rejected");
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 17")
+                .contains("unsupported snapshot version 4; expected 20")
         );
     }
 
@@ -283,7 +322,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 5; expected 17")
+                .contains("unsupported snapshot version 5; expected 20")
         );
         assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
@@ -1821,8 +1860,11 @@ mod tests {
         // Reuse the optional native-test sink. Only JSON and the synthetic
         // disk are emitted, never firmware or runtime native save states.
         // READ_TRACK_NATIVE_ARTIFACTS is the existing sink name.
+        let fixture_snapshot = fixture.snapshot().expect("SDS native snapshot");
+        let (fixture_version, _) = postcard::take_from_bytes::<u32>(&fixture_snapshot)
+            .expect("SDS snapshot version prefix");
         native_field_artifact("sds-native-boundaries.json", &serde_json::to_vec_pretty(
-            &serde_json::json!({"schema_version":1,"qualified":false,"snapshot_version":SNAPSHOT_VERSION,
+            &serde_json::json!({"schema_version":1,"qualified":false,"snapshot_version":fixture_version,
                 "physical_signal_vectors":"A=s,B=s^31,unwired2=s^31,unwired3=s",
                 "scope":"source-built digital SDS native continuation, not ROM loading or physical timing",
                 "case_count":cases.len(),"cases":cases})
@@ -1925,7 +1967,7 @@ mod tests {
             .restore(&old)
             .expect_err("v12 lacks the Kempston mouse");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 12; expected 17"));
+            if reason == "unsupported snapshot version 12; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1938,7 +1980,7 @@ mod tests {
             .restore(&old)
             .expect_err("v11 carries the FDC's removed enabled flag");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 11; expected 17"));
+            if reason == "unsupported snapshot version 11; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1951,7 +1993,7 @@ mod tests {
             .restore(&old)
             .expect_err("v9 lacks programmed ND state");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 9; expected 17"));
+            if reason == "unsupported snapshot version 9; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1962,7 +2004,7 @@ mod tests {
         let old = postcard::to_allocvec(&15_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v15 has no DivMMC");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 15; expected 17"));
+            if reason == "unsupported snapshot version 15; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1975,7 +2017,7 @@ mod tests {
             .restore(&old)
             .expect_err("v8 lacks independent SDS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 8; expected 17"));
+            if reason == "unsupported snapshot version 8; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1986,7 +2028,7 @@ mod tests {
         let old = postcard::to_allocvec(&7_u32).expect("old version");
         let err = runtime.restore(&old).expect_err("v7 has no TS inputs");
         assert!(matches!(err, MachineError::InvalidSnapshot { reason }
-            if reason == "unsupported snapshot version 7; expected 17"));
+            if reason == "unsupported snapshot version 7; expected 20"));
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
 
@@ -1999,7 +2041,7 @@ mod tests {
             .restore(&old)
             .expect_err("reject old version without payload");
         assert!(
-            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 17")
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason == "unsupported snapshot version 6; expected 20")
         );
         assert_eq!(runtime.snapshot().expect("unchanged"), before);
     }
@@ -2147,7 +2189,7 @@ mod tests {
             .expect_err("version 5 cannot represent current read progress");
         match error {
             MachineError::InvalidSnapshot { reason } => {
-                assert_eq!(reason, "unsupported snapshot version 5; expected 17");
+                assert_eq!(reason, "unsupported snapshot version 5; expected 20");
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }

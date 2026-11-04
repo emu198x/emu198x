@@ -21,8 +21,8 @@ pub const ACTIVE_WIDTH_80: u32 = 640;
 pub const ACTIVE_HEIGHT: u32 = 200;
 
 /// Border thickness around the active text display. The PET's
-/// monochrome P1 phosphor display always shows black around the
-/// green-on-black active region — no programmable border colour.
+/// monochrome display always shows black around the active region; the
+/// original 2001 is white, later owners green. No programmable border colour.
 pub const BORDER_LEFT: u32 = 32;
 pub const BORDER_RIGHT: u32 = 32;
 pub const BORDER_TOP: u32 = 24;
@@ -42,8 +42,7 @@ const AUDIO_SAMPLE_RATE: u64 = 48_000;
 #[derive(Serialize, Deserialize)]
 pub struct Pet {
     cpu: M6502,
-    #[serde(with = "BigArray")]
-    ram: [u8; 0x8000],
+    ram: Vec<u8>,
     #[serde(with = "BigArray")]
     video_ram: [u8; 0x0800],
     basic_rom: Vec<u8>,
@@ -53,6 +52,8 @@ pub struct Pet {
     video: Video,
     board: Board,
     pia: Pia6520,
+    /// Onboard IEEE-488 data/control PIA, including its live IRQ state.
+    pia2: Pia6520,
     via: Via6522,
     keyboard: KeyboardState,
     pressed_keys: Vec<PetKey>,
@@ -107,7 +108,7 @@ impl Pet {
         cpu.reset();
         Self {
             cpu,
-            ram: [0; 0x8000],
+            ram: vec![0; board.ram_bytes()],
             video_ram: [0; 0x0800],
             basic_rom,
             editor_rom,
@@ -116,6 +117,7 @@ impl Pet {
             video,
             board,
             pia: Pia6520::new(),
+            pia2: Pia6520::new(),
             via: Via6522::new(),
             keyboard: KeyboardState::new(),
             pressed_keys: Vec::new(),
@@ -159,17 +161,43 @@ impl Pet {
         self.master_clock += 1;
         self.tick_display();
         let sync = self.video.retrace_level();
-        self.via.pb_in = if sync { 0xff } else { !0x20 };
+        self.update_ieee_lines(sync);
         self.via.tick();
         self.tick_audio();
         self.pia.set_cb1(sync);
-        self.cpu.irq = self.pia.irq_pending() || self.via.irq;
+        self.cpu.irq = self.pia.irq_pending() || self.pia2.irq_pending() || self.via.irq;
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
+            if self.board == Board::Pet2001Original8k {
+                self.cpu.data_in = self.cpu.data; // retain the last driven bus value
+            }
         }
+    }
+
+    /// Resolve the onboard drivers with no external IEEE devices attached.
+    /// Primary: Commodore PET common logic 320130, PIA2/VIA/MC3446 wiring.
+    /// Implementation cross-check: VICE 3.10 petpia2.c and petvia.c.
+    fn update_ieee_lines(&mut self, sync: bool) {
+        let via = self.via.port_b_drive_state();
+        let nrfd = via & 2 != 0;
+        let atn = via & 4 != 0;
+        // Existing PIA supports its firmware-used set/reset outputs. Pulse
+        // and handshake output phases remain a shared chip limitation.
+        let ndac = self.pia2.cra() & 0x20 == 0 || self.pia2.cra() & 8 != 0;
+        let dav = self.pia2.cb2_output().unwrap_or(true);
+        let eoi = self.pia.cra() & 0x20 == 0 || self.pia.cra() & 8 != 0;
+        let data = self.pia2.port_b_output() | !self.pia2.ddr_b();
+        self.pia2.set_port_a_input(data);
+        self.pia2.set_ca1(atn);
+        self.pia2.set_cb1(true); // SRQ released on the disconnected bus
+        self.pia.set_port_a_input(if eoi { 0xff } else { 0xbf });
+        self.via.pb_in = (if ndac { 0xff } else { !1 })
+            & if sync { 0xff } else { !0x20 }
+            & if nrfd { 0xff } else { !0x40 }
+            & if dav { 0xff } else { !0x80 };
     }
 
     /// Sample the piezo speaker into the audio buffer, downsampling the 1 MHz
@@ -204,7 +232,10 @@ impl Pet {
             let code = self.video_ram[address];
             let bank = usize::from(self.via.ca2_out) * 1024;
             let inverse = (code & 0x80 != 0) ^ beam.reverse;
-            let glyph = if !beam.display {
+            let original_blanked = self.board == Board::Pet2001Original8k
+                && self.pia.cra() & 0x20 != 0
+                && self.pia.cra() & 8 == 0;
+            let glyph = if !beam.display || original_blanked {
                 0
             } else if beam.ra < 8 {
                 let byte = self
@@ -226,20 +257,24 @@ impl Pet {
                     break;
                 }
                 let on = glyph & (0x80 >> pixel) != 0;
-                self.framebuffer[(y * self.screen_width_px + x + pixel) as usize] =
-                    if on { 0xff00_ff00 } else { 0xff00_0000 };
+                self.framebuffer[(y * self.screen_width_px + x + pixel) as usize] = if on {
+                    if self.board == Board::Pet2001Original8k {
+                        0xffff_ffff
+                    } else {
+                        0xff00_ff00
+                    }
+                } else {
+                    0xff00_0000
+                };
             }
         }
     }
 
     /// Reject forged board metadata and inconsistent allocations before binding.
     pub fn validate(&self, board: Board) -> Result<(), String> {
-        let basic_len = if board == Board::Pet2001n32k {
-            8192
-        } else {
-            12288
-        };
+        let basic_len = if board.is_discrete() { 8192 } else { 12288 };
         if self.keyboard.rows() != self.contacts().rows()
+            || self.ram.len() != board.ram_bytes()
             || self.board != board
             || !self.video.matches(board)
             || self.screen_chars != board.columns()
@@ -282,10 +317,38 @@ impl Pet {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
+        self.update_ieee_lines(self.video.retrace_level());
+        if self.board == Board::Pet2001Original8k && (0xe800..=0xefff).contains(&addr) {
+            // Common 320130 sheet 1: independent select bits, so more than
+            // one chip can drive a read. No CRTC is fitted on this board.
+            let mut value = 0xff;
+            if addr & 0x10 != 0 {
+                self.update_keyboard();
+                value &= self.pia.read((addr & 3) as u8);
+            }
+            if addr & 0x20 != 0 {
+                value &= self.pia2.read((addr & 3) as u8);
+            }
+            if addr & 0x40 != 0 {
+                value &= self.via.read((addr & 15) as u8);
+            }
+            return if addr & 0x70 == 0 {
+                self.cpu.data_in
+            } else {
+                value
+            };
+        }
         match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize],
+            0x0000..=0x7FFF if usize::from(addr) < self.board.ram_bytes() => {
+                self.ram[addr as usize]
+            }
+            0x0000..=0x7fff => self.cpu.data_in,
+            0x8800..=0x8fff if self.board == Board::Pet2001Original8k => {
+                self.video_ram[usize::from(addr & 0x3ff)]
+            }
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
             0x8800..=0x8FFF => 0xFF,
+            0x9000..=0xbfff if self.board == Board::Pet2001Original8k => self.cpu.data_in,
             0x9000..=0xAFFF => 0xFF,
             0xB000..=0xDFFF => {
                 let Some(offset) = addr.checked_sub(self.board.basic_start()) else {
@@ -302,6 +365,7 @@ impl Pet {
                 self.update_keyboard();
                 self.pia.read((addr & 0x03) as u8)
             }
+            0xE820..=0xE82F => self.pia2.read((addr & 3) as u8),
             0xE840..=0xE84F => self.via.read((addr & 0x0F) as u8),
             0xE880 => self.video.read_status(),
             0xE881 => self.video.read_data(),
@@ -314,10 +378,28 @@ impl Pet {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if self.board == Board::Pet2001Original8k && (0xe800..=0xefff).contains(&addr) {
+            if addr & 0x10 != 0 {
+                self.pia.write((addr & 3) as u8, value);
+            }
+            if addr & 0x20 != 0 {
+                self.pia2.write((addr & 3) as u8, value);
+            }
+            if addr & 0x40 != 0 {
+                self.via.write((addr & 15) as u8, value);
+            }
+            return;
+        }
         match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize] = value,
+            0x0000..=0x7FFF if usize::from(addr) < self.board.ram_bytes() => {
+                self.ram[addr as usize] = value
+            }
+            0x8800..=0x8fff if self.board == Board::Pet2001Original8k => {
+                self.video_ram[usize::from(addr & 0x3ff)] = value
+            }
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()] = value,
             0xE810..=0xE81F => self.pia.write((addr & 0x03) as u8, value),
+            0xE820..=0xE82F => self.pia2.write((addr & 3) as u8, value),
             0xE840..=0xE84F => self.via.write((addr & 0x0F) as u8, value),
             0xE880 => self.video.write_address(value),
             0xE881 => {
@@ -383,7 +465,12 @@ impl Pet {
     #[must_use]
     pub fn peek_memory(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x7FFF => self.ram[addr as usize],
+            0x0000..=0x7FFF if usize::from(addr) < self.board.ram_bytes() => {
+                self.ram[addr as usize]
+            }
+            0x8800..=0x8fff if self.board == Board::Pet2001Original8k => {
+                self.video_ram[usize::from(addr & 0x3ff)]
+            }
             0x8000..=0x87FF => self.video_ram[(addr as usize) & self.board.video_mask()],
             0xB000..=0xDFFF => self
                 .basic_rom

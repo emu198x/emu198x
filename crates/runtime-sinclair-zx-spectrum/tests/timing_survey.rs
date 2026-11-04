@@ -47,7 +47,7 @@ use common_sinclair_zx_spectrum::MemoryBus;
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::screen_text::decode_screen_text;
 use format_sinclair_zx_spectrum_sna::parse_sna;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 
 /// Directory holding `timingTests48k.sna`.
 const SUITE_DIR_ENV: &str = "EMU198X_SPECTRUM_TIMING_SUITE";
@@ -95,7 +95,7 @@ fn suite_path() -> PathBuf {
 }
 
 /// Press and release one key, giving the ROM time to see both edges.
-fn tap_key(machine: &mut Spectrum48k, key: SpectrumKey) {
+fn tap_key(machine: &mut SpectrumIssue3With48k, key: SpectrumKey) {
     let rows = machine.keyboard_mut().rows_mut();
     set_key(rows, key, true);
     for _ in 0..6 {
@@ -108,14 +108,14 @@ fn tap_key(machine: &mut Spectrum48k, key: SpectrumKey) {
     }
 }
 
-fn run_frames(machine: &mut Spectrum48k, frames: usize) {
+fn run_frames(machine: &mut SpectrumIssue3With48k, frames: usize) {
     for _ in 0..frames {
         machine.run_frame();
     }
 }
 
 /// A 48K machine reads glyphs and display file through one flat map.
-fn screen(machine: &Spectrum48k) -> Vec<String> {
+fn screen(machine: &SpectrumIssue3With48k) -> Vec<String> {
     decode_screen_text(|addr| machine.read(addr), |addr| machine.read(addr))
 }
 
@@ -151,7 +151,7 @@ fn timing_survey_records_every_case() {
     );
 
     let rom = std::fs::read(&rom_path).expect("read 48K ROM");
-    let mut machine = Spectrum48k::new();
+    let mut machine = SpectrumIssue3With48k::new();
     machine.load_rom_bytes(&rom).expect("48K ROM should load");
     let snapshot = parse_sna(&suite_bytes).expect("parse timing suite .sna");
     machine.apply_snapshot(&snapshot);
@@ -180,7 +180,7 @@ fn timing_survey_records_every_case() {
     let mut incomplete = Vec::new();
 
     for test_number in 1..=TEST_COUNT {
-        let mut machine = Spectrum48k::new();
+        let mut machine = SpectrumIssue3With48k::new();
         machine.load_rom_bytes(&rom).expect("48K ROM should load");
         machine.apply_snapshot(&snapshot);
         run_frames(&mut machine, BOOT_FRAMES);
@@ -238,7 +238,7 @@ fn timing_survey_records_every_case() {
     let report = serde_json::json!({
         "survey": "zxspectrum4.net-timing-tests-48k",
         "revision": revision,
-        "machine": "sinclair-zx-spectrum-48k",
+        "machine": "sinclair-zx-spectrum-issue3",
         "suite_sha256": actual_sha,
         "suite_file": SUITE_FILE,
         "timing_classification": timing_type,

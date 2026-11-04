@@ -347,6 +347,13 @@ label = "system:c128"
 milestone = "C128 100%"
 
 [[system]]
+machine_id = "commodore-pet-2001-320008"
+machine_crate = "machine-commodore-pet-2001-320008"
+crate = "emu198x-commodore-pet"
+label = "system:pet"
+milestone = "PET 100%"
+
+[[system]]
 machine_id = "commodore-pet-2001n-32k"
 machine_crate = "machine-commodore-pet-2001n-32k"
 crate = "emu198x-commodore-pet"
@@ -695,6 +702,69 @@ milestone = "SG-1000 100%"
 
 [[system]]
 machine_id = "sinclair-zx-spectrum"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue1"
+machine_crate = "machine-sinclair-zx-spectrum-issue1"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue2"
+machine_crate = "machine-sinclair-zx-spectrum-issue2"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue3"
+machine_crate = "machine-sinclair-zx-spectrum-issue3"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue3b"
+machine_crate = "machine-sinclair-zx-spectrum-issue3b"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue4a"
+machine_crate = "machine-sinclair-zx-spectrum-issue4a"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue4b"
+machine_crate = "machine-sinclair-zx-spectrum-issue4b"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue5-6c001e6"
+machine_crate = "machine-sinclair-zx-spectrum-issue5-6c001e6"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue5-6c001e7"
+machine_crate = "machine-sinclair-zx-spectrum-issue5-6c001e7"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum-issue6a"
+machine_crate = "machine-sinclair-zx-spectrum-issue6a"
 crate = "emu198x-spectrum"
 label = "system:spectrum"
 milestone = "Spectrum 100%"

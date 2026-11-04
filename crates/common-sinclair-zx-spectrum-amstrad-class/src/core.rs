@@ -686,6 +686,7 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
 
     #[inline(always)]
     fn tick_cpu_and_bus(&mut self) {
+        self.z80.wait = self.ula.wait_active();
         self.z80.tick();
         self.handle_bus();
     }

@@ -9,21 +9,22 @@
 //! is the whole question of which device a write was aimed at.
 
 use emu198x_shell::DebugPrimitives;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use runtime_sinclair_zx_spectrum::{
-    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum48kRuntime, Spectrum128kRuntime,
-    SpectrumLiveAccess, SpectrumPlus2ARuntime, SpectrumRuntimeKind, TimexTC2048Runtime,
+    Model, Pentagon128Runtime, ScorpionZS256Runtime, Spectrum128kRuntime,
+    SpectrumIssue3Ram48kRuntime, SpectrumLiveAccess, SpectrumPlus2ARuntime, SpectrumRuntimeKind,
+    TimexTC2048Runtime,
 };
 
 fn sinclair_and_amstrad() -> Vec<(&'static str, SpectrumRuntimeKind)> {
     vec![
         (
             "48K",
-            SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
-                Model::Spectrum48KPal,
-                Spectrum48k::new(),
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::new(
+                Model::SpectrumIssue3Ram48kPal,
+                SpectrumIssue3With48k::new(),
             ))),
         ),
         (

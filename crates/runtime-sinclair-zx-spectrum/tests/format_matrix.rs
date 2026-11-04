@@ -26,18 +26,17 @@ use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
 use format_sinclair_zx_spectrum_sna::parse_sna;
 use format_sinclair_zx_spectrum_szx::parse_szx;
 use format_sinclair_zx_spectrum_z80::parse_z80;
-use machine_sinclair_zx_spectrum_16k::Spectrum16K;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
-use machine_sinclair_zx_spectrum_plus::SpectrumPlus;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With16k;
+use machine_sinclair_zx_spectrum_issue3::SpectrumIssue3With48k;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
 use runtime_sinclair_zx_spectrum::{
-    Model, Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumMachine,
-    SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime,
-    SpectrumPlusRuntime,
+    Model, Spectrum128kRuntime, SpectrumIssue3Ram16kRuntime, SpectrumIssue3Ram48kRuntime,
+    SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
+    SpectrumPlus3Runtime,
 };
 
 // ─── Synthetic fixture builders ────────────────────────────────────
@@ -176,7 +175,10 @@ fn load_disk_into<M: SpectrumMachine>(
 
 #[test]
 fn spectrum_16k_loads_tap() {
-    let mut runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let mut runtime = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     load_tape_into(&mut runtime, &minimal_tap());
 }
 
@@ -222,13 +224,19 @@ fn minimal_szx_128k() -> Vec<u8> {
 
 #[test]
 fn spectrum_16k_loads_tzx() {
-    let mut runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let mut runtime = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     load_tape_into(&mut runtime, &minimal_tzx());
 }
 
 #[test]
 fn spectrum_16k_loads_sna_48k() {
-    let mut runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let mut runtime = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     let snap = parse_sna(&minimal_sna_48k()).expect("parse SNA 48K");
     assert_eq!(snap.model, SnapshotModel::Spectrum48K);
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
@@ -236,7 +244,10 @@ fn spectrum_16k_loads_sna_48k() {
 
 #[test]
 fn spectrum_16k_loads_z80_v1() {
-    let mut runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
+    let mut runtime = SpectrumIssue3Ram16kRuntime::new(
+        Model::SpectrumIssue3Ram16kPal,
+        SpectrumIssue3With16k::new(),
+    );
     let snap = parse_z80(&minimal_z80_v1()).expect("parse Z80 v1");
     assert_eq!(snap.model, SnapshotModel::Spectrum48K);
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
@@ -244,52 +255,76 @@ fn spectrum_16k_loads_z80_v1() {
 
 #[test]
 fn spectrum_48k_loads_tap() {
-    let mut runtime = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     load_tape_into(&mut runtime, &minimal_tap());
 }
 
 #[test]
 fn spectrum_48k_loads_tzx() {
-    let mut runtime = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     load_tape_into(&mut runtime, &minimal_tzx());
 }
 
 #[test]
 fn spectrum_48k_loads_sna_48k() {
-    let mut runtime = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     let snap = parse_sna(&minimal_sna_48k()).expect("parse SNA 48K");
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
 }
 
 #[test]
 fn spectrum_48k_loads_z80_v1() {
-    let mut runtime = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     let snap = parse_z80(&minimal_z80_v1()).expect("parse Z80 v1");
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
 }
 
 #[test]
 fn spectrum_plus_loads_tap() {
-    let mut runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     load_tape_into(&mut runtime, &minimal_tap());
 }
 
 #[test]
 fn spectrum_plus_loads_tzx() {
-    let mut runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     load_tape_into(&mut runtime, &minimal_tzx());
 }
 
 #[test]
 fn spectrum_plus_loads_sna_48k() {
-    let mut runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     let snap = parse_sna(&minimal_sna_48k()).expect("parse SNA 48K");
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
 }
 
 #[test]
 fn spectrum_plus_loads_z80_v1() {
-    let mut runtime = SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new());
+    let mut runtime = SpectrumIssue3Ram48kRuntime::new(
+        Model::SpectrumIssue3Ram48kPal,
+        SpectrumIssue3With48k::new(),
+    );
     let snap = parse_z80(&minimal_z80_v1()).expect("parse Z80 v1");
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
 }

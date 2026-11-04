@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-amiga-ecs = { path = "../common-commodore-amiga-ecs", version = "0.46.0" }
+common-commodore-amiga-ecs = { path = "../common-commodore-amiga-ecs", version = "0.47.0" }
 
 [lints]
 workspace = true

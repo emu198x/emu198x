@@ -265,7 +265,7 @@ jobs:
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
 
       - name: Run z80test
-        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test z80test -- --include-ignored --nocapture
+        run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_z80test -- --include-ignored --nocapture
 
   # Floating-bus oracles: Float48K / Float128k (Woody) and floatspy (Ramsoft),
   # the latter byte-compared against Spectron's own reference screens.
@@ -378,7 +378,7 @@ jobs:
           done
 
       - name: Float48K (48K first-display-byte T-state)
-        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test float_bus -- --include-ignored --nocapture
+        run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_float_bus -- --include-ignored --nocapture
 
       - name: Float128k (128K first-display-byte T-state)
         # `float128k_prints_expected_tstate` ran skipped-by-name here while
@@ -391,19 +391,19 @@ jobs:
             --test float_bus -- --include-ignored --nocapture
 
       - name: floatspy (golden + Spectron byte-compare)
-        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture floatspy
+        run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_tape_smoke -- --include-ignored --nocapture floatspy
 
       - name: 128K Spectron screens (FloatSpy, border timing, paging timing, EIHALT)
         run: cargo test --release -p machine-sinclair-zx-spectrum-128k --test tape_smoke -- --include-ignored --nocapture matches_spectron
 
       - name: 48K EIHALT Spectron screen
-        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture eihalt
+        run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_tape_smoke -- --include-ignored --nocapture eihalt
 
       - name: 48K btime and HALT2INT Spectron screens
         # Both compare to Spectron's 48K references, but no job ran them:
         # the steps above filter on `floatspy` and `eihalt`. A comparison
         # nobody runs reports nothing (#10).
-        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture btime halt2int
+        run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_tape_smoke -- --include-ignored --nocapture btime halt2int
 
       - name: Live floating bus vs FUSE, frame-wide (48K)
         # Float48K and floatspy are *programs* reading the bus through the
@@ -415,8 +415,7 @@ jobs:
         # It is what disconfirmed `IDLE_TABLE`/`MEM_TABLE` as floatspy's
         # remaining wrong byte. Cheap: under a second once built.
         run: |
-          cargo test --release -p machine-sinclair-zx-spectrum-48k \
-            --test float_bus_oracle -- --include-ignored --nocapture
+          cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_float_bus_oracle -- --include-ignored --nocapture
 
       - name: Live floating bus vs FUSE, frame-wide (128K)
         # The 128K's second frame anchor. It also asserts that the `/INT`
@@ -522,12 +521,11 @@ jobs:
         # four. That is a live finding, not a flake, and neither the gate
         # nor the reference is being adjusted to hide it.
         run: |
-          cargo test --release -p machine-sinclair-zx-spectrum-48k \
-            --test contention_arming -- --include-ignored --nocapture \
+          cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_contention_arming -- --include-ignored --nocapture \
             --skip io_contention_matches_the_four_fuse_port_classes
 
       - name: I/O contention differential vs FUSE (ratchet)
-        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test io_contention_oracle -- --include-ignored --nocapture
+        run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_io_contention_oracle -- --include-ignored --nocapture
 
       - name: I/O contention differential vs FUSE, 128K page-aware
         # The 128K's own I/O instrument: IN and OUT across banks 0-3 and
@@ -552,8 +550,7 @@ jobs:
       # this job already pays for.
       - name: Memory contention differential vs FUSE, 48K (ratchet 18)
         run: |
-          cargo test --release -p machine-sinclair-zx-spectrum-48k \
-            --test contention_oracle -- --include-ignored --nocapture
+          cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_contention_oracle -- --include-ignored --nocapture
 
       - name: Memory contention differential vs FUSE, 128K (ratchet 17)
         # The 128K's contention phase lives in two constants whose *sum*

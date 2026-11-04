@@ -1,14 +1,54 @@
 use common_mattel_aquarius::{AquariusRegion, AquariusState as Aquarius};
 use emu198x_shell::{HostIo, MachineCore, NullAudioSink, NullFrameSink, NullTraceSink};
 use runtime_mattel_aquarius::{AquariusRuntime, Model};
-use serde::Serialize;
-#[derive(Serialize)]
+use serde::{Deserialize, Serialize};
+#[derive(Serialize, Deserialize)]
 struct Envelope {
     version: u16,
     time: u64,
-    model_id: &'static str,
+    model_id: String,
+    machine: Option<Aquarius>,
+    controller_cache: [[bool; 5]; 2],
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyEnvelope {
+    version: u16,
+    time: u64,
+    model_id: String,
     machine: Option<Aquarius>,
 }
+
+// Test construction from retained hardware only, with explicitly no logical host
+// buttons. This is not a production v4 reader: that version remains rejected.
+fn fixture_hardware_in_v5(original: &[u8]) -> Vec<u8> {
+    let old: LegacyEnvelope = postcard::from_bytes(original).expect("original v4 fixture");
+    assert_eq!(old.version, 4);
+    postcard::to_allocvec(&Envelope {
+        version: 5,
+        time: old.time,
+        model_id: old.model_id,
+        machine: old.machine,
+        controller_cache: [[false; 5]; 2],
+    })
+    .expect("explicit current test envelope")
+}
+
+fn original_metadata_of_current(bytes: &[u8]) -> Vec<u8> {
+    let current: Envelope = postcard::from_bytes(bytes).expect("current v5 envelope");
+    assert_eq!(current.version, 5);
+    assert_eq!(
+        current.controller_cache, [[false; 5]; 2],
+        "this fixture sets hardware directly, with no host button events"
+    );
+    postcard::to_allocvec(&LegacyEnvelope {
+        version: 4,
+        time: current.time,
+        model_id: current.model_id,
+        machine: current.machine,
+    })
+    .expect("only envelope version/cache are normalized")
+}
+
 #[test]
 fn foreign_hardware_under_matching_header_is_rejected_atomically() {
     for (model, foreign) in [
@@ -18,12 +58,28 @@ fn foreign_hardware_under_matching_header_is_rejected_atomically() {
         let mut runtime = AquariusRuntime::new(model, vec![0; 8192]).expect("runtime");
         let before = runtime.snapshot().expect("before");
         let bytes = postcard::to_allocvec(&Envelope {
-            version: 4,
+            version: 5,
             time: 123,
-            model_id: model.model_id(),
+            model_id: model.model_id().to_owned(),
             machine: Some(Aquarius::new(vec![0; 8192], 0, foreign)),
+            controller_cache: [[false; 5]; 2],
         })
         .expect("foreign state");
+        let expected_region = match model {
+            Model::Aquarius => AquariusRegion::Ntsc,
+            Model::AquariusPal => AquariusRegion::Pal,
+        };
+        let control = postcard::to_allocvec(&Envelope {
+            version: 5,
+            time: 123,
+            model_id: model.model_id().to_owned(),
+            machine: Some(Aquarius::new(vec![0; 8192], 0, expected_region)),
+            controller_cache: [[false; 5]; 2],
+        })
+        .expect("matching hardware control");
+        AquariusRuntime::blank(model)
+            .restore(&control)
+            .expect("the current test envelope is accepted for its matching board");
         assert!(
             runtime.restore(&bytes).is_err(),
             "foreign hardware must not run under a matching header"
@@ -32,7 +88,7 @@ fn foreign_hardware_under_matching_header_is_rejected_atomically() {
     }
 }
 #[test]
-fn original_ntsc_runtime_envelope_is_unchanged() {
+fn original_ntsc_hardware_bytes_are_unchanged_in_the_v5_envelope() {
     let rom = include_bytes!("../../../test-data/synthetic-firmware/mattel-aquarius.rom").to_vec();
     let mut runtime = AquariusRuntime::new(Model::Aquarius, rom).expect("runtime");
     runtime.set_char_rom(vec![0xff; 2048]).expect("characters");
@@ -51,22 +107,11 @@ fn original_ntsc_runtime_envelope_is_unchanged() {
         })
         .expect("frame");
     let saved = runtime.snapshot().expect("snapshot");
-    if let Some(dir) = std::env::var_os("EMU198X_AQUARIUS_CAPTURE") {
-        use std::io::Write;
-        std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(std::path::PathBuf::from(dir).join("ntsc-runtime.state"))
-            .expect("new capture")
-            .write_all(&saved)
-            .expect("capture");
-        return;
-    }
     let original =
         include_bytes!("../../../test-data/mattel-aquarius/board-split-v4/ntsc-runtime.state");
-    assert_eq!(saved.as_slice(), original);
+    assert_eq!(original_metadata_of_current(&saved).as_slice(), original);
     let mut restored = AquariusRuntime::blank(Model::Aquarius);
-    restored.restore(original).expect("original v4 snapshot");
+    restored.restore(&saved).expect("current v5 snapshot");
     assert_eq!(restored.snapshot().expect("roundtrip"), saved);
 }
 
@@ -76,7 +121,9 @@ fn restored_firmware_cartridge_and_expansion_survive_reset() {
     let original =
         include_bytes!("../../../test-data/mattel-aquarius/board-split-v4/ntsc-runtime.state");
     let mut restored = AquariusRuntime::blank(Model::Aquarius);
-    restored.restore(original).expect("restore");
+    restored
+        .restore(&fixture_hardware_in_v5(original))
+        .expect("current envelope around retained hardware");
     assert_eq!(
         restored.expansion_kb(),
         16,
@@ -106,12 +153,13 @@ fn both_runtime_profiles_continue_original_partial_fields_exactly() {
         .expect("raw state");
         let time = raw.cpu_tstates();
         let bytes = postcard::to_allocvec(&Envelope {
-            version: 4,
+            version: 5,
             time,
-            model_id: model.model_id(),
+            model_id: model.model_id().to_owned(),
             machine: Some(raw),
+            controller_cache: [[false; 5]; 2],
         })
-        .expect("v4 envelope");
+        .expect("v5 test envelope");
         let expected = std::fs::read(root.join(format!("{name}.output"))).expect("output");
         let (frames, final_state): (Frames, Vec<u8>) =
             postcard::from_bytes(&expected).expect("expected output");

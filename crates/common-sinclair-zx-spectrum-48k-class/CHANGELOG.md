@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- the 16K, 48K and Spectrum+ keyboards ghost, as the diode-less matrix does: Q, P and O held read Q and W on the Q to T half-row
+- snow, through the Ferranti ULA 0.3: a snowed fetch keeps its column and takes the refresh's row, and only the fetch pair a refresh lands on is hit, as on a real 48K
+
+### Added
+
+- `Variant48kClass::SPIDER`, true by default: without the spider, the ULA holds up every I/O cycle, not just its own port's
+- `Spectrum48kIssue1Marker` and `Spectrum48kIssue2Marker`
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/common-sinclair-zx-spectrum-48k-class-v0.2.0) - 2026-06-04
 
 ### Other

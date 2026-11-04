@@ -74,3 +74,7 @@ Builds that contain these files are for your own devices. Do not commit
 them or distribute such a build: `knowledge/decisions/test-rom-policy.md`
 allows the 48K ROM only in the published browser builds, and game
 software stays its authors' property.
+
+The persisted library key `spectrum_48k` selects the 48K software version. The
+app runs that version on the explicit Issue 3 / 48 KiB runtime profile
+`spectrum_issue3_48k`; `spectrum_48k` is no longer a runtime selector.

@@ -76,7 +76,7 @@ pub fn run(model: Model, rom_specs: &[String]) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest};
-    use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumRuntimeKind};
+    use runtime_sinclair_zx_spectrum::{SpectrumIssue3Ram48kRuntime, SpectrumRuntimeKind};
     use serde_json::{Value, json};
 
     /// Every MCP tool the launch curriculum pipeline may call by name.
@@ -134,7 +134,8 @@ mod tests {
     fn full_surface_publishes_every_curriculum_tool() {
         // Registration reads the family catalogue, not the live machine,
         // so a zero-filled ROM is enough to stand in for the boot 48K.
-        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
+        let kind =
+            SpectrumRuntimeKind::Issue3Ram48k(Box::new(SpectrumIssue3Ram48kRuntime::blank()));
         let frame_halfcycles = u64::from(kind.frame_halfcycles());
         let session = HeadlessSession::new_with_query_provider(
             kind,
@@ -192,7 +193,7 @@ mod tests {
     #[test]
     fn mcp_tools_drive_a_real_boot() {
         let kind = match boot_variant(
-            Model::Spectrum48KPal,
+            Model::SpectrumIssue3Ram48kPal,
             &emu198x_shell::FirmwareOverrides::none(),
         ) {
             Ok(rt) => rt,
@@ -276,7 +277,7 @@ mod tests {
     #[test]
     fn load_snapshot_routes_portable_sna_not_postcard() {
         let kind = match boot_variant(
-            Model::Spectrum48KPal,
+            Model::SpectrumIssue3Ram48kPal,
             &emu198x_shell::FirmwareOverrides::none(),
         ) {
             Ok(rt) => rt,
@@ -397,7 +398,7 @@ mod tests {
     #[test]
     fn load_snapshot_runs_from_the_sna_pc_after_any_previous_state() {
         let kind = match boot_variant(
-            Model::Spectrum48KPal,
+            Model::SpectrumIssue3Ram48kPal,
             &emu198x_shell::FirmwareOverrides::none(),
         ) {
             Ok(rt) => rt,
@@ -489,7 +490,7 @@ mod tests {
     #[test]
     fn save_snapshot_round_trips_running_and_halted_cpu() {
         let kind = match boot_variant(
-            Model::Spectrum48KPal,
+            Model::SpectrumIssue3Ram48kPal,
             &emu198x_shell::FirmwareOverrides::none(),
         ) {
             Ok(rt) => rt,

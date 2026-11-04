@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::{HeadlessSession, MachineCore};
 use runtime_sinclair_zx_spectrum::{
-    Spectrum48kRuntime, SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
+    SpectrumIssue3Ram48kRuntime, SpectrumLiveAccess, SpectrumRuntimeKind,
+    SpectrumSessionQueryProvider,
 };
 
 #[test]
@@ -16,9 +17,9 @@ fn shared_basic_native_loader_preserves_rom_editor_bytes_and_runs() {
                 .join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom")
         });
     let rom = std::fs::read(path).expect("provision the genuine 48K ROM");
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&rom).expect("48K ROM");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom).expect("48K ROM");
     let mut session = HeadlessSession::new_with_query_provider(
-        SpectrumRuntimeKind::Spectrum48K(Box::new(runtime)),
+        SpectrumRuntimeKind::Issue3Ram48k(Box::new(runtime)),
         u64::from(TIMING_48K.halfcycles_per_frame),
         SpectrumSessionQueryProvider,
     );
@@ -48,9 +49,9 @@ fn shared_basic_native_loader_preserves_rom_editor_bytes_and_runs() {
 
     // The native loader waits for the cold-boot banner on each call. Exercise
     // RUN from a fresh machine, as the loader's host entry point expects.
-    let runtime = Spectrum48kRuntime::from_rom_bytes(&rom).expect("48K ROM");
+    let runtime = SpectrumIssue3Ram48kRuntime::from_rom_bytes(&rom).expect("48K ROM");
     let mut session = HeadlessSession::new_with_query_provider(
-        SpectrumRuntimeKind::Spectrum48K(Box::new(runtime)),
+        SpectrumRuntimeKind::Issue3Ram48k(Box::new(runtime)),
         u64::from(TIMING_48K.halfcycles_per_frame),
         SpectrumSessionQueryProvider,
     );

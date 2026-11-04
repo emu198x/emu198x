@@ -31,7 +31,7 @@ static int check_machine(void) {
     emu198x_buffer_free(commands);
 
     Emu198xMachine *machine = NULL;
-    if (emu198x_machine_create("sinclair-zx-spectrum", "spectrum_48k", &machine) != EMU198X_OK) {
+    if (emu198x_machine_create("sinclair-zx-spectrum", "spectrum_issue3_48k", &machine) != EMU198X_OK) {
         return fail("create a Spectrum 48K");
     }
     /* No firmware was supplied, so boot must refuse and say why. */

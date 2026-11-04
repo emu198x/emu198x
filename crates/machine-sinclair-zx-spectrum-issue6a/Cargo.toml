@@ -1,0 +1,15 @@
+[package]
+name = "machine-sinclair-zx-spectrum-issue6a"
+description = "Fixed Sinclair ZX Spectrum issue6a board owner with RAM population profiles"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.47.0" }
+common-sinclair-zx-spectrum-48k-class = { path = "../common-sinclair-zx-spectrum-48k-class", version = "0.47.0" }
+
+[lints]
+workspace = true
