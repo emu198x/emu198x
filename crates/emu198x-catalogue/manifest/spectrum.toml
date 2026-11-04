@@ -1815,7 +1815,7 @@ frame_hash = "xxh64:1838727d99e21182"
 from_frame = 100
 secs = 2.0
 # Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
-# The music command sequence is one field earlier in this capture window.
+# New field 1 matches old field 0; all 99 overlapping command fields agree.
 # Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
 hash = "xxh64:b9409931fe776915"
 
@@ -2043,7 +2043,7 @@ frame_hash = "xxh64:1838727d99e21182"
 from_frame = 100
 secs = 2.0
 # Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
-# The music command sequence is one field earlier in this capture window.
+# New field 1 matches old field 0; all 99 overlapping command fields agree.
 # Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
 hash = "xxh64:b9409931fe776915"
 
