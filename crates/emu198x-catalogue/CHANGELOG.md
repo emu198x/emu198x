@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Capture Rainbow Islands (+3) at the midpoint of its first settled BEST 5
+  page, retaining both original hashes. The old waypoint now lands in the
+  credits fade; 442 stable fields and an independent MAME guest-state
+  comparison establish the intended screen (#2265).
+
 - Qualify the six +2A/+2B tape-audio expectations affected by the physical
   WAIT correction (#2265). Retain their exact screen hashes and music-command
   sequences; record the changed AY clock phase and write edges. The ten +3
