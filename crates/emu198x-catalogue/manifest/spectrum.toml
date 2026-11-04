@@ -1769,7 +1769,10 @@ frame_hash = "xxh64:587a604f94d1ff74"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d175d0946abcd29d"
+# Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
+# The same per-field commands now land at corrected CPU clock edges.
+# Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
+hash = "xxh64:75dc5b625c861ae6"
 
 [[entry]]
 id = "operation-wolf-plus2a"
@@ -1811,7 +1814,10 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:56e8f046d843cf21"
+# Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
+# The music command sequence is one field earlier in this capture window.
+# Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
+hash = "xxh64:b9409931fe776915"
 
 [[entry]]
 id = "rainbow-islands-plus2a"
@@ -1874,7 +1880,10 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:72247e53c91f6a20"
+# Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
+# The same per-field commands now land at corrected CPU clock edges.
+# Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
+hash = "xxh64:520fd8f8ff2724d4"
 
 [[entry]]
 id = "total-eclipse-plus2a"
@@ -1988,7 +1997,10 @@ frame_hash = "xxh64:587a604f94d1ff74"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d175d0946abcd29d"
+# Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
+# The same per-field commands now land at corrected CPU clock edges.
+# Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
+hash = "xxh64:75dc5b625c861ae6"
 
 [[entry]]
 id = "operation-wolf-plus2b"
@@ -2030,7 +2042,10 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:56e8f046d843cf21"
+# Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
+# The music command sequence is one field earlier in this capture window.
+# Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
+hash = "xxh64:b9409931fe776915"
 
 [[entry]]
 id = "rainbow-islands-plus2b"
@@ -2093,7 +2108,10 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:72247e53c91f6a20"
+# Physical WAIT (#2265): menu frame unchanged; AY music commands retained.
+# The same per-field commands now land at corrected CPU clock edges.
+# Phase/negative-control evidence: emu198x/docs, plans/2026-11-04-amstrad-audio-phase.
+hash = "xxh64:520fd8f8ff2724d4"
 
 [[entry]]
 id = "total-eclipse-plus2b"
