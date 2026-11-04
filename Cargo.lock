@@ -1794,6 +1794,7 @@ version = "0.47.0"
 dependencies = [
  "emu198x-fleet-web",
  "emu198x-pointer",
+ "emu198x-runtime-apple-ii",
  "emu198x-runtime-atari-7800",
  "emu198x-runtime-coleco-colecovision",
  "emu198x-shell",

@@ -17,8 +17,8 @@
 //! samples; only a machine with no sound path emits none.
 //!
 //! The fleet list below is checked against both the compiled catalogue and
-//! `docs/status/systems.toml`, so a new system cannot join the fleet without
-//! being probed here.
+//! `docs/status/systems.toml`, so every shipping system is probed here,
+//! including suite-only runtimes that have no browser binding yet.
 //!
 //! See emu198x/emu198x#1369 and `knowledge/decisions/tools-follow-the-machine-spec.md`.
 
@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use emu198x_shell::capability::ids::AUDIO_OUTPUT;
 use emu198x_shell::{
     AudioPacket, AudioSink, FamilyRuntime, FirmwareImage, FirmwareSet, FramePacket, FrameSink,
-    HostIo, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullTraceSink,
+    HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullTraceSink,
     known_capability,
 };
 
@@ -74,8 +74,11 @@ impl AudioSink for Samples<'_> {
     }
 }
 
-fn run_frames<R: FamilyRuntime>(runtime: &mut R, counter: &mut Counter) -> Result<(), String> {
-    let ticks = runtime.native_frame_ticks();
+fn run_frames<R: MachineCore>(
+    runtime: &mut R,
+    counter: &mut Counter,
+    ticks: u64,
+) -> Result<(), String> {
     let mut samples = 0;
     let mut frames = Counter::default();
     for _ in 0..FRAMES {
@@ -202,9 +205,11 @@ fn observe_where<R: FamilyRuntime>(
             let profile = R::profile_for(model);
             let mut runtime = build::<R>(model).map_err(|e| format!("{id}: {e}"))?;
             let mut counter = Counter::default();
-            run_frames(&mut runtime, &mut counter).map_err(|e| format!("{id}: {e}"))?;
+            let ticks = runtime.native_frame_ticks();
+            run_frames(&mut runtime, &mut counter, ticks).map_err(|e| format!("{id}: {e}"))?;
             if counter.frames == 0 && insert_cartridge(&mut runtime) {
-                run_frames(&mut runtime, &mut counter).map_err(|e| format!("{id}: {e}"))?;
+                let ticks = runtime.native_frame_ticks();
+                run_frames(&mut runtime, &mut counter, ticks).map_err(|e| format!("{id}: {e}"))?;
             }
             Ok(Observation {
                 variant: (*id).to_owned(),
@@ -358,6 +363,29 @@ fn fleet() -> Vec<(&'static str, Vec<Result<Observation, String>>)> {
     ]
 }
 
+/// Suite-only boards participate in the same behavioural audit even before
+/// they acquire browser bindings. This constructs a real published runtime;
+/// no registry row is exempted and no samples are supplied by the test.
+fn observe_apple_ii() -> Result<Observation, String> {
+    use emu198x_runtime_apple_ii::{AppleIIRuntime, profiles};
+    let mut firmware = FirmwareSet::new();
+    firmware.push(FirmwareImage::new(profiles::FIRMWARE[0], &[0; 8192]));
+    firmware.push(FirmwareImage::new(profiles::FIRMWARE[1], &[0; 512]));
+    let mut runtime = AppleIIRuntime::from_firmware(&firmware).map_err(|e| e.to_string())?;
+    let profile = profiles::profile();
+    let mut counter = Counter::default();
+    run_frames(&mut runtime, &mut counter, profiles::FRAME_TICKS)?;
+    let audio = known_capability(AUDIO_OUTPUT);
+    Ok(Observation {
+        variant: profile.profile_id.as_str().to_owned(),
+        machine_id: profile.machine_id.as_str().to_owned(),
+        profile_declares: profile.capabilities.contains(&audio),
+        live_declares: runtime.capabilities().contains(&audio),
+        frames: counter.frames,
+        samples: counter.samples,
+    })
+}
+
 /// Machine ids in the system registry, the list CI already holds every
 /// profile to.
 fn registry_machine_ids() -> BTreeSet<String> {
@@ -377,9 +405,13 @@ fn registry_machine_ids() -> BTreeSet<String> {
 fn audio_output_is_declared_exactly_when_samples_are_emitted() {
     let mut problems = Vec::new();
     let mut machine_ids = BTreeSet::new();
-    let mut families = BTreeSet::new();
-    for (family, observations) in fleet() {
-        families.insert(family.to_owned());
+    let fleet = fleet();
+    let families: BTreeSet<String> = fleet
+        .iter()
+        .map(|(family, _)| (*family).to_owned())
+        .collect();
+    let suite_only = [("apple-ii", vec![observe_apple_ii()])];
+    for (family, observations) in fleet.into_iter().chain(suite_only) {
         for observation in observations {
             let o = match observation {
                 Ok(o) => o,
