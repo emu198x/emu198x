@@ -1,4 +1,4 @@
-//! Original complete v4 saves and native continuation before board extraction.
+//! Frozen CPC saves and exact native continuation across the CPU adoption boundary.
 use crate::{AmstradCpcRuntime, Model};
 use emu198x_shell::{
     AudioCapture, HostIo, LatestFrameCapture, MachineCore, MachineTime, NullTraceSink, ResetKind,
@@ -120,12 +120,12 @@ fn output(r: &mut AmstradCpcRuntime) -> Vec<u8> {
     }
     postcard::to_allocvec(&(fields, r.snapshot().expect("final native save"))).expect("output")
 }
-/// Version 5 saves, which carry the monitor's scan: a restore resumes exactly,
+/// Version 6 saves, which carry the monitor's scan: a restore resumes exactly,
 /// including the specimen's free-running monitor, which has no vertical sync
 /// to re-lock to.
 #[test]
 fn boards_keep_exact_saves_and_first_three_resumed_fields() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/amstrad-cpc/save-v5");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/amstrad-cpc/save-v6");
     for model in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
         let name = model.model_id();
         let mut live = specimen(model);
@@ -147,7 +147,7 @@ fn boards_keep_exact_saves_and_first_three_resumed_fields() {
             continue;
         }
         let original = std::fs::read(root.join(format!("{name}.state"))).expect("saved state");
-        assert!(saved == original, "{name}: full v5 state");
+        assert!(saved == original, "{name}: full v6 state");
         let reference = std::fs::read(root.join(format!("{name}.output"))).expect("saved output");
         assert!(expected == reference, "{name}: direct output");
         let mut restored = AmstradCpcRuntime::blank(model);
@@ -162,27 +162,35 @@ fn boards_keep_exact_saves_and_first_three_resumed_fields() {
         );
     }
 }
-/// The original version 4 saves, from before the board split and before the
-/// monitor's scan joined the save, still restore and run. Their monitor's
-/// phase is unknown, so it re-locks; once saved again as version 5, a restore
-/// resumes exactly.
+/// CPU 0.9 changes the meaning of in-flight WAIT phases. Old complete saves
+/// remain evidence; neither their full payload nor a version-only prefix may
+/// be accepted as corrected execution. Rejection must leave live state intact.
 #[test]
-fn original_v4_saves_still_restore_and_run() {
-    let root =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/amstrad-cpc/board-split-v4");
-    for model in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
-        let name = model.model_id();
-        let original = std::fs::read(root.join(format!("{name}.state"))).expect("original save");
-        let mut restored = AmstradCpcRuntime::blank(model);
-        restored.restore(&original).expect("restore original v4");
-        let resaved = restored.snapshot().expect("save as v5");
-        let continued = output(&mut restored);
-        let mut again = AmstradCpcRuntime::blank(model);
-        again.restore(&resaved).expect("restore v5");
-        assert!(
-            output(&mut again) == continued,
-            "{name}: a v4 save, saved again as v5, resumes exactly"
-        );
+fn original_v4_and_v5_saves_are_rejected_before_decoding_without_mutation() {
+    for (version, folder) in [(4_u16, "board-split-v4"), (5_u16, "save-v5")] {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/amstrad-cpc")
+            .join(folder);
+        for model in [Model::Cpc464, Model::Cpc664, Model::Cpc6128] {
+            let original = std::fs::read(root.join(format!("{}.state", model.model_id())))
+                .expect("original complete specimen");
+            let prefix = postcard::to_allocvec(&version).expect("version-only prefix");
+            for mut runtime in [AmstradCpcRuntime::blank(model), specimen(model)] {
+                let before = runtime.snapshot().expect("before rejection");
+                for bytes in [&original, &prefix] {
+                    let err = runtime
+                        .restore(bytes)
+                        .expect_err("old execution must reject");
+                    assert!(
+                        format!("{err}").contains(&format!(
+                            "unsupported snapshot version {version}; expected 6"
+                        )),
+                        "{err}"
+                    );
+                    assert!(runtime.snapshot().expect("after rejection") == before);
+                }
+            }
+        }
     }
 }
 #[test]

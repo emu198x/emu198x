@@ -61,7 +61,7 @@ fn boot_with_field(firmware: &[u8], code: &[u8]) -> AmstradCpc {
     cpc.poke(addr + 2, (CODE >> 8) as u8);
 
     let mut guard = 0;
-    while !cpc.z80().instruction_complete() {
+    while !cpc.z80().at_execution_boundary() {
         cpc.advance_tstates(1);
         guard += 1;
         assert!(guard < 256, "no instruction boundary within 256 t-states");

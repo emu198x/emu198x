@@ -12,22 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::AmstradCpcRuntime;
 
-// Bumped to 5: the envelope carries the monitor's scan beside the machine
-// (emu198x/emu198x#2229), so a restore resumes mid-scan as the live machine
-// would. A version 4 save still loads; its monitor re-locks at the next
-// vertical sync.
-//
-// Bumped to 4: the machine carries the 664 and 6128's µPD765A and drive-motor
-// latch.
-//
-// Bumped to 3: the 8255 began modelling its port directions and input lines, which changes its serialised fields.
-//
-// Bumped to 2: the 6845 now carries its interlace field (#163). postcard is
-// not self-describing, so a field added to the CRTC shifts every byte after
-// it.
-const SNAPSHOT_VERSION: u16 = 5;
-/// The version before the monitor's scan joined the envelope.
-const SNAPSHOT_VERSION_WITHOUT_MONITOR: u16 = 4;
+// CPU 0.9 samples I/O WAIT after its automatic TW, changing execution of
+// complete v4/v5 CPC saves despite the unchanged CPU field layout (#2284).
+// Approved policy: v6 only; reject older execution before decoding its payload.
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -49,15 +37,6 @@ struct CpcRuntimeSnapshotV2 {
     monitor: Option<MonitorScan>,
 }
 
-/// A version 4 save, from before the monitor's scan joined the envelope.
-#[derive(Deserialize)]
-struct CpcRuntimeSnapshotV1 {
-    version: u16,
-    time: u64,
-    model_id: String,
-    machine: Option<common_amstrad_cpc::AmstradCpc>,
-}
-
 pub(crate) fn encode(runtime: &AmstradCpcRuntime) -> Result<Vec<u8>, MachineError> {
     let snapshot = CpcRuntimeSnapshotRefV2 {
         version: SNAPSHOT_VERSION,
@@ -72,7 +51,7 @@ pub(crate) fn encode(runtime: &AmstradCpcRuntime) -> Result<Vec<u8>, MachineErro
 }
 
 pub(crate) fn decode(runtime: &mut AmstradCpcRuntime, bytes: &[u8]) -> Result<(), MachineError> {
-    // Read the version alone first, so a future snapshot is rejected by
+    // Read the version alone first, so incompatible execution is rejected by
     // version rather than by a confusing payload-shape error.
     let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
         MachineError::InvalidSnapshot {
@@ -82,28 +61,12 @@ pub(crate) fn decode(runtime: &mut AmstradCpcRuntime, bytes: &[u8]) -> Result<()
     let undecodable = |reason: postcard::Error| MachineError::InvalidSnapshot {
         reason: format!("decode failed: {reason}"),
     };
-    let snapshot = match version {
-        SNAPSHOT_VERSION => {
-            postcard::from_bytes::<CpcRuntimeSnapshotV2>(bytes).map_err(undecodable)?
-        }
-        SNAPSHOT_VERSION_WITHOUT_MONITOR => {
-            let old = postcard::from_bytes::<CpcRuntimeSnapshotV1>(bytes).map_err(undecodable)?;
-            CpcRuntimeSnapshotV2 {
-                version: old.version,
-                time: old.time,
-                model_id: old.model_id,
-                machine: old.machine,
-                monitor: None,
-            }
-        }
-        _ => {
-            return Err(MachineError::InvalidSnapshot {
-                reason: format!(
-                    "unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"
-                ),
-            });
-        }
-    };
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
+    let snapshot = postcard::from_bytes::<CpcRuntimeSnapshotV2>(bytes).map_err(undecodable)?;
     debug_assert_eq!(snapshot.version, version);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {

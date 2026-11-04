@@ -82,7 +82,8 @@ fn firmware_path() -> PathBuf {
 /// The boundary matters: `run_frame` stops on a frame boundary, which says
 /// nothing about where the CPU is inside an instruction, and writing `PC`
 /// mid-instruction lets the in-flight instruction finish against the new `PC`.
-/// That is #943.
+/// That is #943. `instruction_complete` can also remain true in the next
+/// fetch; only `at_execution_boundary` establishes the entry point.
 fn boot_with(firmware: &[u8], code: &[u8]) -> AmstradCpc {
     let mut cpc = AmstradCpc::new(firmware).expect("build machine");
     for _ in 0..BOOT_FRAMES {
@@ -92,7 +93,7 @@ fn boot_with(firmware: &[u8], code: &[u8]) -> AmstradCpc {
         cpc.poke(CODE.wrapping_add(u16::try_from(i).expect("fits")), b);
     }
     let mut guard = 0;
-    while !cpc.z80().instruction_complete() {
+    while !cpc.z80().at_execution_boundary() {
         cpc.advance_tstates(1);
         guard += 1;
         assert!(guard < 256, "no instruction boundary within 256 t-states");
