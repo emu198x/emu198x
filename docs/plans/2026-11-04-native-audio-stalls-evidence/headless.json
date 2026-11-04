@@ -1,0 +1,20 @@
+[
+  {
+    "wall_seconds": 1.5119537501595914,
+    "frames_run": 600,
+    "master_ticks": 143366386,
+    "machine_time": 143366386
+  },
+  {
+    "wall_seconds": 1.4568619159981608,
+    "frames_run": 600,
+    "master_ticks": 143366386,
+    "machine_time": 143366386
+  },
+  {
+    "wall_seconds": 1.4431104171089828,
+    "frames_run": 600,
+    "master_ticks": 143366386,
+    "machine_time": 143366386
+  }
+]
