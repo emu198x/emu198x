@@ -161,3 +161,13 @@ Stop and re-read this record if you find yourself:
 Related: [`machine-binaries-share-a-launcher.md`](machine-binaries-share-a-launcher.md)
 (the `register_mcp_tools` hook), [`debug-surface-tiers.md`](debug-surface-tiers.md)
 (the shared `DebugTarget` tier this extends), and RULES.md rule 30.
+
+
+## New machine control surfaces
+
+Confirmed by Steve on 2026-11-04 while adding Apple II control: new machines
+use the shared shell for JSON scripts and stdio MCP together. The runtime
+provides hardware-specific input, queries, media and debug primitives; the
+shared executor and capability-based tool registration provide the common
+verbs. Do not introduce a separate script dialect or MCP control loop for a
+new machine. Validate equivalent scripted and MCP operations end to end.
