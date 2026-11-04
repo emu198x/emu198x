@@ -200,7 +200,7 @@ fn original_basic_runs_through_scripts_and_live_mcp() {
     ];
     let steps = json!([
         {"action":"wait_for_boot","max_frames":120},
-        {"action":"type_string","text":"\u{2}\n10 PRINT 6*7\nRUN\n"},
+        {"action":"type_string","text":"\u{2}\n10 PRINT 6*7\n20 END\nRUN\n"},
         {"action":"wait_for_query_contains","path":"screen.text","needle":"42","max_frames":120},
         {"action":"query","path":"screen.text"}
     ]);
@@ -227,6 +227,12 @@ fn original_basic_runs_through_scripts_and_live_mcp() {
         assert_eq!(observation(response), report["observations"][i]);
     }
     let screen = observation(responses.last().expect("screen"));
+    assert!(
+        !screen["result"]["value"]
+            .as_str()
+            .expect("text")
+            .contains(" ERR")
+    );
     assert!(
         screen["result"]["value"]
             .as_str()
