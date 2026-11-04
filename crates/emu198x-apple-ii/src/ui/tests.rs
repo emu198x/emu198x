@@ -6,8 +6,12 @@ use emu198x_shell::{
 
 fn runtime() -> AppleIIRuntime {
     // Authored loop toggles the speaker; it never consumes the keyboard latch.
+    runtime_with_program(&[0xa9, 42, 0x8d, 0, 4, 0xad, 0x30, 0xc0, 0x4c, 5, 0xe0])
+}
+
+fn runtime_with_program(program: &[u8]) -> AppleIIRuntime {
     let mut rom = [0xea; 8192];
-    rom[..11].copy_from_slice(&[0xa9, 42, 0x8d, 0, 4, 0xad, 0x30, 0xc0, 0x4c, 5, 0xe0]);
+    rom[..program.len()].copy_from_slice(program);
     rom[0x1ffc..0x1ffe].copy_from_slice(&[0, 0xe0]);
     let mut firmware = FirmwareSet::new();
     firmware.push(FirmwareImage::new(profiles::FIRMWARE[0], &rom));
@@ -23,17 +27,52 @@ fn deliver(runtime: &mut AppleIIRuntime, names: &[String]) {
             pressed: true,
         })
         .collect();
+    deliver_events(runtime, &events);
+}
+
+fn deliver_events(runtime: &mut AppleIIRuntime, events: &[InputEvent]) {
     runtime
         .run_ticks(
             1000,
             &mut HostIo {
-                input_events: &events,
+                input_events: events,
                 frame_sink: &mut NullFrameSink,
                 audio_sink: &mut NullAudioSink,
                 trace_sink: &mut NullTraceSink,
             },
         )
         .expect("UI key delivery");
+}
+
+#[test]
+fn releasing_target_ctrl_restores_plain_letters_after_rom_acknowledgement() {
+    // Read strobed keys into consecutive RAM bytes, acknowledging each through
+    // C010. The second key must travel through the real ROM-driven latch path.
+    let mut target = runtime_with_program(&[
+        0xa2, 0, 0xad, 0, 0xc0, 0x10, 0xfb, 0x9d, 0, 2, 0xe8, 0x2c, 0x10, 0xc0, 0x4c, 2, 0xe0,
+    ]);
+    deliver(&mut target, &["ctrl".into(), "b".into()]);
+    deliver_events(
+        &mut target,
+        &[
+            InputEvent::Key {
+                name: "b".into(),
+                pressed: false,
+            },
+            InputEvent::Key {
+                name: "ctrl".into(),
+                pressed: false,
+            },
+        ],
+    );
+    let plain_b = AppleIISystem.host_character_keys(&target, 'b').expect("B");
+    deliver(&mut target, &plain_b);
+    assert_eq!(target.machine().peek(0x200), 0x82, "Ctrl+B");
+    assert_eq!(target.machine().peek(0x201), 0xc2, "plain uppercase B");
+    assert!(
+        !target.machine().key_pending(),
+        "ROM acknowledged both bytes"
+    );
 }
 
 #[test]
@@ -105,6 +144,56 @@ impl AudioSink for Audio {
         assert_eq!((packet.sample_rate, packet.channels), (48000, 1));
         self.0.extend_from_slice(packet.samples);
         Ok(())
+    }
+}
+
+#[test]
+fn speaker_delay_loop_produces_a_one_khz_waveform_at_the_native_sample_rate() {
+    // LDA C030; LDY #100; DEY/BNE; JMP E000. The delay makes the tone audible,
+    // unlike the earlier fast-toggle smoke test. C020 is the silent control.
+    for (address, expected_tone) in [(0x30, true), (0x20, false)] {
+        let mut target = runtime_with_program(&[
+            0xad, address, 0xc0, 0xa0, 100, 0x88, 0xd0, 0xfd, 0x4c, 0, 0xe0,
+        ]);
+        let mut audio = Audio::default();
+        target
+            .run_ticks(
+                profiles::FRAME_TICKS * 20,
+                &mut HostIo {
+                    input_events: &[],
+                    frame_sink: &mut NullFrameSink,
+                    audio_sink: &mut audio,
+                    trace_sink: &mut NullTraceSink,
+                },
+            )
+            .expect("twenty native frames");
+        let clock = target.profile().clock.rate;
+        assert_eq!(
+            audio.0.len() as u64,
+            target.time().get() * 48_000 / clock.numerator_hz
+        );
+        assert!(
+            audio
+                .0
+                .iter()
+                .all(|s| s.is_finite() && (-0.25..=0.25).contains(s))
+        );
+        let crossings = audio
+            .0
+            .windows(2)
+            .filter(|s| s[0] <= 0.0 && s[1] > 0.0)
+            .count();
+        let frequency = crossings as f64 * 48_000.0 / audio.0.len() as f64;
+        if expected_tone {
+            assert!(
+                (990.0..1020.0).contains(&frequency),
+                "tone is {frequency} Hz"
+            );
+            assert!(audio.0.iter().any(|s| *s > 0.2));
+            assert!(audio.0.iter().any(|s| *s < -0.2));
+        } else {
+            assert_eq!(crossings, 0, "unrelated I/O must not sound the speaker");
+        }
     }
 }
 
