@@ -3,7 +3,7 @@
 
 # Current system usability
 
-Every machine this repository ships, and where the evidence for each one lives. 116 machines across 34 shipping crates.
+Every machine this repository ships, and where the evidence for each one lives. 117 machines across 35 shipping crates.
 
 ## How to read this
 
@@ -23,6 +23,7 @@ Every machine this repository ships, and where the evidence for each one lives. 
 | `amstrad-cpc464` | `emu198x-amstrad-cpc` | 1 | 13 | [system:cpc](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acpc) | [Amstrad CPC 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amstrad+CPC+100%25%22) |
 | `amstrad-cpc6128` | `emu198x-amstrad-cpc` | 1 | 13 | [system:cpc](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acpc) | [Amstrad CPC 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amstrad+CPC+100%25%22) |
 | `amstrad-cpc664` | `emu198x-amstrad-cpc` | 1 | 13 | [system:cpc](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Acpc) | [Amstrad CPC 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Amstrad+CPC+100%25%22) |
+| `apple-ii-rev0-ntsc` | `emu198x-apple-ii` | 0 (board tests in [emu198x/apple-ii](https://github.com/emu198x/apple-ii)) | 2 | [system:apple-ii](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aapple-ii) | [Apple II 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Apple+II+100%25%22) |
 | `atari-1040st-ntsc` | `emu198x-atari-st` | 1 | 14 | [system:atari-st](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-st) | [Atari ST 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+ST+100%25%22) |
 | `atari-1040st-pal` | `emu198x-atari-st` | 1 | 14 | [system:atari-st](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-st) | [Atari ST 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+ST+100%25%22) |
 | `atari-130xe-ntsc` | `emu198x-atari-800xl` | 1 | 12 | [system:atari-800xl](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+label%3Asystem%3Aatari-800xl) | [Atari 800XL 100%](https://github.com/emu198x/emu198x/issues?q=is%3Aissue+is%3Aopen+milestone%3A%22Atari+800XL+100%25%22) |
