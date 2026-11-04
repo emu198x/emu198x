@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-shell"
-version = "0.44.2"
+version = "0.44.3"
 dependencies = [
  "cpal",
  "debug198x",
