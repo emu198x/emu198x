@@ -22,12 +22,15 @@ impl MachineApp for AppleII {
     --p6 PATH          optional Disk II sequencer PROM (256 bytes; requires P5)
     --disk PATH        drive 1 WOZ image (read-only)
     --disk-2 PATH      drive 2 WOZ image (read-only)
-    Explicit firmware is required in both script and MCP modes.
+    Explicit firmware is required in window, script and MCP modes.
     Writable work copies use the shared load_media operation.";
     const CONTROLS: &'static str =
-        "    Shared type_string and press_key tools encode the original keyboard.
+        "    Host-layout typing encodes the original keyboard; letters become uppercase.
+    Left Alt/Option holds Apple Ctrl (Left Alt+B, Return enters Integer BASIC).
+    Machine menu: Pause/Resume and Reset; shared View menu controls presentation.
+    Shared type_string and press_key tools encode the original keyboard.
     ASCII letters become uppercase; Ctrl+B enters Integer BASIC from Monitor.
-    RESET preserves RAM/media; save states and a native window are not available.";
+    RESET preserves RAM/media; save states are not available.";
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         let target = match flag {
             "--rom" => &mut self.firmware[0],

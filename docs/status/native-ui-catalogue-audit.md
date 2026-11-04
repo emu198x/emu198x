@@ -92,6 +92,27 @@ Game Boy's SGB entries describe post-boot machine profiles, not a complete
 Super Game Boy host implementation. Spectrum and Amiga catalogues also include
 limited or research profiles. Menu presence is not evidence of boot usability.
 
+## Apple II native window (2026-11-04)
+
+The [Apple II adapter](../../crates/emu198x-apple-ii/src/ui.rs) now uses the
+shared native UI with published runtime 0.1.1. This is one original NTSC
+revision-0 board with 48 KB, not a menu of later Apple II boards. Colour video,
+host-layout characters, speaker packets, pause/reset and startup WOZ mounting
+use the existing runtime and host. The default `ui` feature can be disabled for
+headless builds; scripts and MCP retain their shared executor.
+
+A macOS window check reached Integer BASIC, printed `42`, displayed lo-res,
+mixed and hi-res output, paused/resumed and reset through the shared menu, then
+booted DOS 3.3 from the startup disk and printed quoted text. The UI automation
+tool supplies an aggregate Alt flag without a physical left-Alt event, so
+native Alt+B was not qualified by that check. Adapter tests verify the target
+Ctrl chord; shared keyboard tests verify physical modifier ownership. Host
+audio opened with desktop access; audible device output was not measured.
+See the [family verification record](https://github.com/emu198x/apple-ii/blob/main/docs/verification.md).
+
+Save states remain unsupported; the inherited State menu reports that runtime
+limitation. The native check does not extend qualification to later boards.
+
 ## Remaining work
 
 All 30 registered binaries now boot through the runtime-owned catalogue.
