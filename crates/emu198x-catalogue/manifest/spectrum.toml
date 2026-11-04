@@ -2257,7 +2257,11 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Rainbow Islands - The Story of Bubble B
 # "BEST 5" score table after the CPU-timing changes of 2026-08-10 to
 # 2026-09-24. (An earlier version of this comment named Graftgold's
 # credits page, which neither capture shows.)
-wait_frames = 6000
+# BEST 5 high-score table: midpoint of the first settled page.
+# Original-code milestone and independent MAME screen RAM agree byte-for-byte.
+# Native fields 1535–1976 are pixel-identical; frame/audio goldens stay intact.
+# See emu198x/docs: plans/2026-11-04-rainbow-guest-state-alignment.md.
+wait_frames = 1755
 frame_hash = "xxh64:9c88024738effebd"
 
 [entry.audio]
