@@ -4,6 +4,37 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.48.0] - 2026-11-04
+
+
+### Added
+
+- Run the Spectrum 48K Issue 1 and Issue 2 boards
+- **Breaking** — Give Spectrum PCB issues fixed owners and v20 saves
+- Ship Apple II scripts and MCP through the shared launcher
+- Open Apple II in the shared native UI
+
+
+### Fixed
+
+- **Breaking** — Show Spectrum snow the way a real 48K does. Spectrum saves at version 17 are rejected before decoding.
+- Validate composite video with the explicit Spectrum board
+- Select explicit Spectrum boards through native host bridges
+- Show Timex pictures at their true width
+- Select only library targets for CI doctests
+- Preserve held Aquarius controllers across save restore
+- Preserve M5 cartridges saved before firmware loading
+- Use the published staged-cartridge ColecoVision runtime
+- **Breaking** — *(spectrum)* Keep Amstrad clocks running through physical WAIT. +2A/+2B/+3 native saves require v20. Their v19 payloads lack the physical WAIT output and are rejected. Other Spectrum profile versions remain unchanged.
+- Let the 48K's keyboard ghost, as its diode-less matrix does
+- Capture Rainbow Islands on its settled high-score page
+- Qualify five Spectrum +3 audio capture phases
+- Qualify the final Spectrum +3 catalogue cases
+- Reject unknown script fields before execution
+- Version the corrected script parser for publication
+- Preserve platform dependency selections during shell version bump
+- Keep player model controls within narrow screens
+
 ## [0.47.0] - 2026-11-03
 
 
