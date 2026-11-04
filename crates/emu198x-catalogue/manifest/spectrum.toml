@@ -2288,17 +2288,18 @@ slot = "disk-a"
 path = "Sinclair/ZX Spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)(Hewson Consultants)(+3).zip"
 
 [entry.boot]
-# Captures the in-game main menu: title logo, "BY RAFFAELE CECCO /
-# MUSIC BY DAVE ROGERS", and the five-option control menu
-# ("1 START GAME / 2 DEFINE KEYS / 3 INTERFACE 2 / 4 KEMPSTON /
-# S SOUND ON/OFF").
+# Cybernoid logo and six-option control menu. The border bitmap rotates
+# and the option colours cycle under the original guest program. The
+# exact frame records their phase at this fixed native-field waypoint.
 wait_frames = 6000
-frame_hash = "xxh64:e3379987c3c223df"
+frame_hash = "xxh64:5a92a361551b3961"
 
 [entry.audio]
+# Qualified from the reproduced original producer and exact PCM replay.
+# See emu198x/docs: plans/2026-11-04-plus3-final-four.md.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:41c9777709cb116f"
+hash = "xxh64:2117ceda81474346"
 
 [[entry]]
 id = "cybernoid-2-plus3"
@@ -2409,21 +2410,18 @@ slot = "disk-a"
 path = "Sinclair/ZX Spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3).zip"
 
 [entry.boot]
-# Captures the title / control-select screen: "hewson presents
-# s.t.o.r.m.l.o.r.d" with sun / moon decoration, "I keyboard /
-# II interface II / III kempston / fire to start" options, and
-# the row of sprite art (sphinx, plants, mushroom, skull) at the
-# bottom. The exact framebuffer hash depends on the +3 BIOS
-# autoload's 20-frame settle delay after ENTER — the survey
-# (which doesn't replicate that delay) hashes a slightly earlier
-# frame of the title-screen animation.
+# Stormlord title / control-select page, with keyboard / interface II /
+# Kempston choices and decorative sprites. Option colours and sprite
+# detail animate; the attract sequence also visits the credits page.
 wait_frames = 6000
-frame_hash = "xxh64:fab02300caa68380"
+frame_hash = "xxh64:3cee50fc8c327c09"
 
 [entry.audio]
+# Qualified from the reproduced original producer and exact PCM replay.
+# See emu198x/docs: plans/2026-11-04-plus3-final-four.md.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:8f0493c37029a296"
+hash = "xxh64:11e62250c0cb3a26"
 
 [[entry]]
 id = "starglider-2-plus3"
@@ -2578,17 +2576,18 @@ slot = "disk-a"
 path = "Sinclair/ZX Spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
 
 [entry.boot]
-# Captures the Mirrorsoft title screen: rainbow-coloured "TETRIS"
-# logo, "MIRROR Soft PRESSENTS" banner, scrolling credits ribbon
-# at the bottom. The ribbon text at this waypoint follows CPU timing:
-# "0 FOR OPTIONS" at the 2026-08-10 capture, "SPACE TO" since.
+# Mirrorsoft logo, multicoloured TETRIS title and scrolling credits
+# ribbon. Both the rainbow attribute phase and the ribbon glyph offset
+# are animated by the original guest program.
 wait_frames = 6000
-frame_hash = "xxh64:0116d9b1a459a4bb"
+frame_hash = "xxh64:cfa3bf1290e416aa"
 
 [entry.audio]
+# Qualified from the reproduced original producer and exact PCM replay.
+# See emu198x/docs: plans/2026-11-04-plus3-final-four.md.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4b1a41a4f2feeae8"
+hash = "xxh64:53e4ede68348fb44"
 
 # ─── Speedlock-6 cluster ────────────────────────────────────────
 # Four titles that share Ocean's Speedlock-6 protection: a weak-
@@ -2703,18 +2702,19 @@ slot = "disk-a"
 path = "Sinclair/ZX Spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagine)(+3).zip"
 
 [entry.boot]
-# Captures the framed control-selection menu: red "DRAGON-NINJA"
-# banner, options "0 START GAME / 1 KEYBOARD / 2 KEMPSTON /
-# 3 CURSOR KEYS / 4 SINCLAIR / 5 REDEFINE KEYS" with "WRITTEN BY
-# PAUL OWENS" credit. The dragon-decorated frame border is the
-# tell — Imagine's standard title-screen styling.
+# Framed Dragon-Ninja control menu and WRITTEN BY PAUL OWENS credit.
+# A band of sixteen attributes is repainted during each video field;
+# the exact picture includes those write times, even when boundary RAM
+# is identical. The recorded old/current times reproduce all pixels.
 wait_frames = 6000
-frame_hash = "xxh64:188ca8e8398eb8b5"
+frame_hash = "xxh64:5befda7713e336ff"
 
 [entry.audio]
+# Qualified from the reproduced original producer and exact PCM replay.
+# See emu198x/docs: plans/2026-11-04-plus3-final-four.md.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:051d6003230710b4"
+hash = "xxh64:c6aa83617ef4f88f"
 
 # ─── 16K entries ────────────────────────────────────────────────
 # 1982-83 titles small enough to fit in 16K of RAM. All use the same
