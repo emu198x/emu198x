@@ -1407,6 +1407,7 @@ version = "0.47.0"
 dependencies = [
  "emu198x-runtime-apple-ii",
  "emu198x-shell",
+ "emu198x-ui",
  "serde_json",
 ]
 
@@ -2391,9 +2392,9 @@ dependencies = [
 
 [[package]]
 name = "emu198x-runtime-apple-ii"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ceac8d13bf8463d9c1ee0f800ff25fe48e49ad80c365d64e681ad596a7819cab"
+checksum = "60a1ca5151239c851fc92457515193886642efdda1b3b28c6c614a27315d9b1e"
 dependencies = [
  "emu198x-apple-disk-ii",
  "emu198x-machine-apple-ii-rev0-ntsc",

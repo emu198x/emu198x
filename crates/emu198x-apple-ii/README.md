@@ -1,11 +1,29 @@
-# Apple II control
+# Apple II
 
-Headless original NTSC revision-0 Apple II with 48 KB RAM. Uses the published
-family runtime and the shared shell for JSON scripts and live stdio MCP.
-No firmware or disks ship with the binary. A native window is future work.
+Original NTSC revision-0 Apple II with 48 KB RAM. The native window, JSON
+scripts and live stdio MCP use the same published family runtime. The window
+uses the existing shared UI for video, audio, input and menus.
+No firmware or disks ship with the binary.
 
 Supply an original E000 Monitor/Integer BASIC ROM (8192 bytes) and normalized
 64-glyph bitmap (512 bytes):
+
+```sh
+cargo run -p emu198x-apple-ii -- \
+  --rom /path/original-e000.rom --characters /path/characters-64.bin
+```
+
+This opens the native colour window. Type using the host keyboard layout;
+letters become uppercase and shifted punctuation keeps its host meaning.
+Left Alt/Option holds Apple Ctrl: Left Alt+B, then Return enters Integer BASIC.
+Alternatively, type `E000G` and Return at the Monitor prompt. Try `PRINT 6*7`.
+Use the shared Machine menu for Pause/Resume and Reset, and View for scaling
+and filters. Audio uses the host output device; `--no-audio` runs silently.
+Display geometry and frame pacing come from the NTSC raster and runtime clock.
+The initial inverse characters reflect uncleared RAM; the original board also
+retains colour burst in text, producing the modelled colour fringes.
+
+For automation:
 
 ```sh
 cargo run -p emu198x-apple-ii -- \
@@ -18,6 +36,7 @@ The example waits for Monitor, enters Integer BASIC, runs a program and waits
 for `42`. `--frames 0` leaves execution to the script. For live control, use the
 same firmware flags with `--mcp`; tools include typing, queries, exact ticks,
 frames, bounded waits, RAM/CPU inspection, stepping, captures and media export.
+`--no-default-features` builds the headless binary without the UI dependency.
 
 Disk II needs both `--p5` and `--p6` (256 bytes each). `--disk` / `--disk-2`
 mount read-only WOZ disks in `floppy-0` / `floppy-1`. From Monitor, type `C600G`
