@@ -130,13 +130,13 @@ The combined machine-clock test also fails against registry Z80 0.8.0 with
 control demonstrates why the corrected CPU is required rather than optional.
 The old-CPU test is retained as evidence, not as an ignored or weakened test.
 
-Remaining active workspaces: /private/tmp/198x-runtime-state-correctness holds
-the uncommitted runtime implementation; /private/tmp/198x-z80-wait-edges holds
-the draft CPU source needed by its temporary command-line test override;
-/private/tmp/198x-runtime-state-target is their reusable build cache. Keep these
-until the CPU compatibility decision and registry consumer qualification are
-complete, then retain final refs/evidence and remove them. No path override is
-to be committed. The finished chip clone can be removed after publication proof.
+The active runtime task worktree is /private/tmp/198x-runtime-state-correctness;
+its reusable build cache is /private/tmp/198x-runtime-state-target. Chip and CPU
+clones have been removed after their fix/release refs and published packages
+were verified. No temporary path override is committed. The first private
+recovery archive is in the primary emulator repository's `.git/recovery/`,
+`2026-11-03-runtime-state-correctness-wait.tar.gz`; its 319 files were read back
+and verified. Final capture evidence must also be retained before cleanup.
 
 ## Approved CPU adoption — 2026-11-04
 
@@ -170,7 +170,7 @@ published CPU implementation matches the reviewed source. Both versions are
 now registry dependencies; no path override remains. Dependency graph checks
 prove Spectrum uses only 0.9.0 and CPC only 0.8.0.
 
-Registry-only validation: all 130 runtime unit tests pass; all 60 Spectrum
+Registry-only validation: all 130 runtime unit tests pass; all 60 then-existing Spectrum
 integration targets have been exercised across the initial and follow-up runs,
 with obsolete Amstrad v19 assertions updated to the approved boundary. The
 352-comparison frozen baseline retains every original frame/audio oracle and
@@ -180,6 +180,32 @@ read back and reports v20 across 1024 native cases. All-target Clippy passes,
 including the native GUI consumer. Original CPC v5 saves and three resumed
 fields pass unchanged with CPU 0.8; follow-up #2284 tracks its upgrade.
 
-The full 103-entry capture is running from the registry-only release binary.
-All expected hashes remain unchanged. Results and complete input/binary
-identities will be retained before selecting any oracle change.
+The full 103-entry capture uses the registry-only release binary with all
+expected hashes unchanged. Results and complete input/binary identities are
+tracked in #2265; they must be retained before selecting any oracle change.
+
+Add `crates/runtime-sinclair-zx-spectrum/tests/plus3_wait_disk.rs` as an explicitly
+fixture-gated strict original-firmware regression. Verify full SHA-256 identities
+of all four ROM pages and decoded disk, boot through the ordinary runtime and
+ENTER key, then compare all 49152 fast-loader bytes with the independently
+observed MAME execution stream (SHA-256
+f55ada06cff6f6f87f501f9acd3fea7525f7a87dec0bd1021619ec0e0cc188ff).
+No injected code, memory patch, relaxed FDC deadline or new dependency is used.
+Bound guest frames and drain host I/O traces every field. Explicit execution
+must fail on missing/mismatched inputs. The default CI lacks private inputs, so
+the new test follows the existing explicitly ignored real-ROM convention.
+
+The new strict real-input test passes in release mode against the published
+CPU and chip: every one of the 49152 observed fast-loader bytes matches MAME's
+independent stream. A one-byte ROM mutation rejects before guest execution;
+the temporary input is removed afterwards. The test is the 61st Spectrum
+integration target and introduces no dependency.
+
+Additional MAME observations cover the ten original failing inputs without
+patching memory or media. Nine native capture sets were produced; six show
+recognizable game/title/menu content at 120 seconds. RoboCop, Where Time Stood
+Still and Dragon Ninja still show striped loader-like displays in that reference,
+so those captures do not establish successful reference boot. Rainbow Islands'
+unchanged 45-track image is refused by MAME's configured 42-track drive. Keep
+these limitations explicit; none of these observations authorizes a new pixel
+or audio oracle.
