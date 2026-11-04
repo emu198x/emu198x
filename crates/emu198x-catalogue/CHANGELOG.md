@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Qualify the last four +3 catalogue frame/audio pairs from their original
+  guest animations and complete sound inputs. Dragon Ninja's attribute-write
+  timing reproduces all 104,192 pixels, including the 45 changed pixels;
+  all four retain their fixed capture settings (#2265).
+
 - Qualify the five +3 audio-only catalogue cases after tracing their changed
   load/clock phase. Preserve their frame hashes and capture settings; replay
   both AY and speaker inputs to reproduce every original/current PCM sample
