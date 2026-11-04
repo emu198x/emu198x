@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Advance `run_frames` one native boundary at a time so fractional frame
   lengths cannot accumulate into a missing frame on large requests
 
+## [0.44.3] - 2026-11-04
+
+### Fixed
+
+- Reject unknown script fields, including fields on actions with no arguments,
+  so misspelled optional limits cannot silently fall back to defaults
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-shell-v0.2.0) - 2026-06-04
 
 ### Added
