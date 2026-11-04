@@ -189,7 +189,7 @@ fn waits_and_missing_firmware_fail_and_capture_is_a_real_png() {
     }
 }
 #[test]
-#[ignore = "external original firmware; set EMU198X_APPLE_II_ROM and EMU198X_APPLE_II_CHARS"]
+#[ignore = "FIXTURE: external original firmware; set EMU198X_APPLE_II_ROM and EMU198X_APPLE_II_CHARS"]
 fn original_basic_runs_through_scripts_and_live_mcp() {
     let mut f = Fixture::authored();
     f.flags = vec![
@@ -243,7 +243,7 @@ fn original_basic_runs_through_scripts_and_live_mcp() {
 }
 
 #[test]
-#[ignore = "external original ROMs, P5/P6 and DOS WOZ; see family docs/verification.md"]
+#[ignore = "FIXTURE: external original ROMs, P5/P6 and DOS WOZ; see family docs/verification.md"]
 fn dos_work_disk_exports_then_reloads_in_a_fresh_mcp_process() {
     let mut f = Fixture::authored();
     f.flags = vec![
