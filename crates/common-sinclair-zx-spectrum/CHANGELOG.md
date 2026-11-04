@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ghosted_rows`: the keyboard's half-rows as its wires read them, with ghosting: three keys held at a rectangle's corners make the fourth read as pressed (Smith, pp. 245–246)
 - schedule two ULA/Z80 half-cycle edges per configured CPU divisor instead of overclocking divide-by-five machines by 25 percent
 - advance the Spectrum frame and audio routing epochs so stale 128K-family catalogue captures fail explicitly
 

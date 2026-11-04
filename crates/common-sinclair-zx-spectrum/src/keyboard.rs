@@ -227,6 +227,54 @@ impl KeyboardMatrix {
     }
 }
 
+/// The half-rows as the keyboard's wires read them, with ghosting.
+///
+/// The 48K's keyboard has no diodes, so with three keys held at the
+/// corners of a rectangle, current finds a path through all three to the
+/// fourth, and that key reads as pressed too. Chris Smith's example
+/// (*The ZX Spectrum ULA*, pp. 245–246): "If the user pressed Q, P and O
+/// simultaneously, the read of keyboard half-row Q to T would incorrectly
+/// indicate that Q and W were being pressed."
+///
+/// Rows and columns joined by pressed keys form groups. A row reads every
+/// column in its group as pressed, so AND-ing whichever rows a port read
+/// selects gives exactly what the wires would. The result is computed from
+/// the raw rows, which stay as they were for saving and restoring.
+#[must_use]
+pub fn ghosted_rows(rows: &[u8; 8]) -> [u8; 8] {
+    // Pressed keys as a 5-bit column mask per row (1 = pressed).
+    let pressed: [u8; 8] = rows.map(|r| !r & ROW_MASK);
+    let mut out = *rows;
+    for start in 0..8 {
+        if pressed[start] == 0 {
+            continue;
+        }
+        // Grow the group from this row until it stops changing.
+        let mut group_rows = 1u8 << start;
+        let mut columns = pressed[start];
+        loop {
+            let mut grown = group_rows;
+            for (row, &cols) in pressed.iter().enumerate() {
+                if cols & columns != 0 {
+                    grown |= 1 << row;
+                }
+            }
+            let grown_columns = pressed
+                .iter()
+                .enumerate()
+                .filter(|(row, _)| grown & (1 << row) != 0)
+                .fold(0, |acc, (_, &cols)| acc | cols);
+            if grown == group_rows && grown_columns == columns {
+                break;
+            }
+            group_rows = grown;
+            columns = grown_columns;
+        }
+        out[start] = (rows[start] & !ROW_MASK) | (!columns & ROW_MASK);
+    }
+    out
+}
+
 impl Default for KeyboardMatrix {
     fn default() -> Self {
         Self::new()
@@ -265,6 +313,40 @@ mod tests {
 
         keyboard.release_key(SpectrumKey::Q);
         assert_eq!(keyboard.rows()[2] & 0x01, 0x01);
+    }
+
+    /// Smith's example: Q, P and O held, and the Q to T half-row reads Q
+    /// and W. Q (row 2, bit 0) and P (row 5, bit 0) share a column; P and
+    /// O (row 5, bit 1) share a row; so W (row 2, bit 1) is reached too.
+    #[test]
+    fn three_keys_at_a_rectangles_corners_ghost_the_fourth() {
+        let mut keyboard = KeyboardMatrix::new();
+        for key in [SpectrumKey::Q, SpectrumKey::P, SpectrumKey::O] {
+            keyboard.press_key(key);
+        }
+        let wires = ghosted_rows(keyboard.rows());
+        assert_eq!(wires[2] & ROW_MASK, 0b11100, "Q and W read as pressed");
+        assert_eq!(
+            keyboard.rows()[2] & ROW_MASK,
+            0b11110,
+            "only Q is really held"
+        );
+        assert_eq!(wires[5] & ROW_MASK, 0b11100, "P and O, and no more");
+    }
+
+    /// Two keys can't make a path to a third, and keys on separate rows
+    /// and columns don't reach each other.
+    #[test]
+    fn without_a_path_there_is_no_ghost() {
+        let mut keyboard = KeyboardMatrix::new();
+        keyboard.press_key(SpectrumKey::Q);
+        keyboard.press_key(SpectrumKey::P);
+        assert_eq!(ghosted_rows(keyboard.rows()), *keyboard.rows());
+        let mut apart = KeyboardMatrix::new();
+        apart.press_key(SpectrumKey::Q);
+        apart.press_key(SpectrumKey::O);
+        assert_eq!(ghosted_rows(apart.rows()), *apart.rows());
+        assert_eq!(ghosted_rows(&[0xFF; 8]), [0xFF; 8]);
     }
 
     #[test]

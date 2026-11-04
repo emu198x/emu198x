@@ -11,7 +11,7 @@ use common_sinclair_zx_spectrum::audio::{
 };
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::error::RomImageError;
-use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
+use common_sinclair_zx_spectrum::keyboard::{KeyboardMatrix, ghosted_rows};
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
 use common_sinclair_zx_spectrum::peripheral::{MemoryIntercept, Peripheral};
 use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80_registers};
@@ -562,7 +562,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// (p. 222), far short of reaching the 0.714 V threshold.
     #[must_use]
     pub fn read_fe(&self, port: u16) -> u8 {
-        let mut value = self.ula.read_fe(port, self.keyboard.rows());
+        // The 48K's keyboard has no diodes, so held keys can ghost others.
+        let wires = ghosted_rows(self.keyboard.rows());
+        let mut value = self.ula.read_fe(port, &wires);
         if let Some(level) = self.current_tape_level() {
             let high = level || self.ula.speaker();
             value = (value & !0x40) | if high { 0x40 } else { 0x00 };
