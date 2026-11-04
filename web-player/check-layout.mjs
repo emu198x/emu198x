@@ -76,10 +76,11 @@ try {
   for (const width of [320, 390, 1280]) for (const theme of ['light', 'dark']) {
     await call('Emulation.setDeviceMetricsOverride', {width, height: 900, deviceScaleFactor: 1, mobile: false});
     await call('Emulation.setEmulatedMedia', {features: [{name: 'prefers-color-scheme', value: theme}]});
-    await call('Page.navigate', {url: `http://127.0.0.1:${server.address().port}/web-player/check-layout.html${process.argv.includes('--negative') ? '?negative=1' : ''}`});
+    const url = `http://127.0.0.1:${server.address().port}/web-player/check-layout.html?width=${width}&theme=${theme}${process.argv.includes('--negative') ? '&negative=1' : ''}`;
+    await call('Page.navigate', {url});
     let ready = false;
     for (let attempt = 0; attempt < 100; attempt++) {
-      ready = await evaluate('document.readyState === "complete" && Boolean(window.ready)');
+      ready = await evaluate(`location.href === ${JSON.stringify(url)} && document.readyState === "complete" && Boolean(window.ready)`);
       if (ready) break;
       await delay(20);
     }
