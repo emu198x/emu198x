@@ -9,14 +9,16 @@ Supply an original E000 Monitor/Integer BASIC ROM (8192 bytes) and normalized
 64-glyph bitmap (512 bytes):
 
 ```sh
-cargo run -p emu198x-apple-ii -- \
+cargo run --release -p emu198x-apple-ii -- \
   --rom /path/original-e000.rom --characters /path/characters-64.bin
 ```
 
 This opens the native colour window. Type using the host keyboard layout;
 letters become uppercase and shifted punctuation keeps its host meaning.
 Left Alt/Option holds Apple Ctrl: Left Alt+B, then Return enters Integer BASIC.
-Alternatively, type `E000G` and Return at the Monitor prompt. Try `PRINT 6*7`.
+Alternatively, type `E000G` and Return at the Monitor prompt. At the BASIC
+`>` prompt, type `CALL -936` and Return to clear the startup screen, then
+`PRINT 6*7` and Return; the result is `42`.
 Use the shared Machine menu for Pause/Resume and Reset, and View for scaling
 and filters. Audio uses the host output device; `--no-audio` runs silently.
 Display geometry and frame pacing come from the NTSC raster and runtime clock.
