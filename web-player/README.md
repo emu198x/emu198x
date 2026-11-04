@@ -63,6 +63,13 @@ the clean CI checkout then supplies the corresponding public source revision.
 
 ## Validation
 
+`node web-player/check-layout.mjs` checks the production model/media controls
+in Chrome at 320, 390 and 1280 pixels in light and dark themes, including
+document overflow, control bounds and native keyboard selection. It needs no
+WASM build or firmware. `--negative` restores the old sizing constraints and
+must fail with document overflow. Set `CHROME_BIN` to select another Chrome
+executable; `PLAYER_LAYOUT_SCREENSHOTS` saves captures to an existing folder.
+
 ```sh
 cargo test -p emu198x-game-boy-web -p runtime-nintendo-game-boy
 cargo clippy -p emu198x-game-boy-web -p emu198x-nes-web --all-targets --no-deps -- -D warnings
