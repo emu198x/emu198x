@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the 16K, 48K and Spectrum+ keyboards ghost, as the diode-less matrix does: Q, P and O held read Q and W on the Q to T half-row
 - snow, through the Ferranti ULA 0.3: a snowed fetch keeps its column and takes the refresh's row, and only the fetch pair a refresh lands on is hit, as on a real 48K
 
 ### Added
