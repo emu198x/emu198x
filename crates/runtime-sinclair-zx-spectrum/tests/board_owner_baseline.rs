@@ -3,6 +3,9 @@
 //! timestamps, dimensions, palette, pixels and audio sample bits. Synthetic
 //! firmware is DI; JP with patterned display RAM. Preserve both immutable sets;
 //! only envelope identity/version and the new board tag are normalized.
+//! Amstrad v20 adds physical WAIT state and rejects v19: its old byte-preservation
+//! assertion is replaced by that approved boundary, while every frozen native
+//! output comparison and exact current continuation remains enforced.
 use emu198x_shell::{
     AudioCapture, FamilyRuntime, FirmwareImage, FirmwareSet, HostIo, LatestFrameCapture,
     MachineCore, NullTraceSink,
@@ -154,6 +157,7 @@ fn original_profiles_keep_frozen_native_output_and_exact_continuation() {
         let mut exercised = std::collections::BTreeSet::new();
         let mut routed = std::collections::BTreeSet::new();
         let mut comparisons = 0;
+        let mut amstrad_boundaries = 0;
 
         for case in baseline.cases {
             assert!(exercised.insert(case.id.clone()), "duplicate frozen case");
@@ -217,7 +221,25 @@ fn original_profiles_keep_frozen_native_output_and_exact_continuation() {
                         b.ula_family()
                             == common_sinclair_zx_spectrum_48k_class::UlaRevision::Ferranti5C
                     }));
-                if matching_old_population {
+                let amstrad_wait_boundary = matches!(
+                    model,
+                    Model::SpectrumPlus2A | Model::SpectrumPlus2B | Model::SpectrumPlus3
+                );
+                if amstrad_wait_boundary {
+                    amstrad_boundaries += 1;
+                    let (version, _) =
+                        postcard::take_from_bytes::<u32>(&state).expect("Amstrad version prefix");
+                    assert_eq!(version, 20, "{}: physical WAIT state", case.id);
+                    let mut rejected = state.clone();
+                    rejected[0] = 19;
+                    let error = r.restore(&rejected).expect_err("v19 rejects before decode");
+                    assert!(
+                        error
+                            .to_string()
+                            .contains("unsupported snapshot version 19; expected 20")
+                    );
+                    assert_eq!(r.snapshot().expect("atomic v19 rejection"), state);
+                } else if matching_old_population {
                     assert_hash(
                         &legacy_metadata(&state, model, &case.profile),
                         &case.state_sha256,
@@ -245,7 +267,11 @@ fn original_profiles_keep_frozen_native_output_and_exact_continuation() {
                     "complete native output",
                 );
                 let final_state = r.snapshot().expect("final state");
-                if matching_old_population {
+                if amstrad_wait_boundary {
+                    let (version, _) = postcard::take_from_bytes::<u32>(&final_state)
+                        .expect("continued Amstrad version");
+                    assert_eq!(version, 20, "{}: continued physical WAIT state", case.id);
+                } else if matching_old_population {
                     assert_hash(
                         &legacy_metadata(&final_state, model, &case.profile),
                         &case.final_sha256,
@@ -261,6 +287,7 @@ fn original_profiles_keep_frozen_native_output_and_exact_continuation() {
                 );
             }
         }
+        assert_eq!(amstrad_boundaries, 24, "every Amstrad mode/phase boundary");
         assert_eq!(exercised.len(), 192);
         assert_eq!(comparisons, 352);
         assert_eq!(

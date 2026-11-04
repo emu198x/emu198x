@@ -37,3 +37,13 @@ has been explained and qualified.
 
 Reconsult this decision before gating an Amstrad CPU clock, fitting a delay
 mask to a loader, changing WAIT sampling or weakening a disk overrun check.
+
+## CPU adoption boundary
+
+Approved 2026-11-04: the Spectrum family explicitly consumes published Z80
+0.9.0 with the corrected WAIT sampling; the 40077 is published as 0.3.0.
+Other families retain their existing 0.8 requirement. CPC's frozen v5 execution
+changes under the correction, so its upgrade requires independent timing and
+save-policy qualification in #2284. The existing approval does not authorize a
+CPC save-layout or legacy-reader change. Dependency-graph checks must prove the
+intended separation rather than relying on manifest text alone.

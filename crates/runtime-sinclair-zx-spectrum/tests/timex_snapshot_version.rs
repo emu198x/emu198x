@@ -1,4 +1,4 @@
-//! Physical boards use v20; Timex retains v18 and the other profiles retain v19.
+//! Physical boards and Amstrad use v20; Timex retains v18 and the others v19.
 use emu198x_shell::{MachineCore, MachineError};
 use runtime_sinclair_zx_spectrum::*;
 fn check<M: MachineCore>(mut r: M, expected: u32) -> String {
@@ -50,9 +50,9 @@ fn every_current_profile_keeps_its_selected_save_version() {
                 check(TimexTS2068Runtime::blank(), 18),
                 check(Spectrum128kRuntime::blank(), 19),
                 check(SpectrumPlus2Runtime::blank(), 19),
-                check(SpectrumPlus2ARuntime::blank(), 19),
-                check(SpectrumPlus2BRuntime::blank(), 19),
-                check(SpectrumPlus3Runtime::blank(), 19),
+                check(SpectrumPlus2ARuntime::blank(), 20),
+                check(SpectrumPlus2BRuntime::blank(), 20),
+                check(SpectrumPlus3Runtime::blank(), 20),
                 check(Pentagon128Runtime::blank(), 19),
                 check(ScorpionZS256Runtime::blank(), 19),
             ];
