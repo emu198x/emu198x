@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player layout regression</title>
+<style>
+  body { margin: 0; padding: 24px; font: 16px Arial, sans-serif; background: Canvas; color: CanvasText; }
+</style>
+<emu198x-player system="commodore-amiga"></emu198x-player>
+<script type="module">
+// The production template and CSS in their actual shadow-root context. No
+// firmware or WASM is needed to exercise native model and media controls.
+window.ready = (async () => {
+  const [template, css, models] = await Promise.all([
+    fetch('./src/template.html').then(response => response.text()),
+    fetch('./src/player.css').then(response => response.text()),
+    fetch('./layout-models.json').then(response => response.json()),
+  ]);
+  const root = document.querySelector('emu198x-player').attachShadow({mode: 'open'});
+  root.innerHTML = template;
+  const style = document.createElement('style');
+  style.textContent = css;
+  root.prepend(style);
+  for (const [id, names] of [['variant', models], ['slot', ['Floppy drive 0', 'Floppy drive 1']]]) {
+    root.getElementById(`${id}-label`).hidden = false;
+    const select = root.getElementById(id);
+    for (const name of names) select.add(new Option(name, name));
+  }
+  root.getElementById('variant').value = 'Commodore Amiga 500 + A501 trapdoor (OCS PAL)';
+  window.changes = 0;
+  root.getElementById('variant').addEventListener('change', () => window.changes++);
+  // Only diagnostic runs request this control. It restores the original
+  // constraints so a green regression also proves that it catches the bug.
+  if (new URL(location.href).searchParams.has('negative')) {
+    style.textContent += '.model-controls label { min-width: auto; max-width: none; } .model-controls select { min-width: auto; }';
+  }
+})();
+</script>
