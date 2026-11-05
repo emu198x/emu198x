@@ -125,7 +125,9 @@ jobs:
           echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
       - name: Install generated formulae and check output
         shell: bash
-        run: python3 scripts/test-linux-packages.py target/package-test-manifest.json "$PACKAGE_TARGET"
+        run: |
+          python3 -m unittest discover -s scripts -p test_linux_packages.py
+          python3 scripts/test-linux-packages.py target/package-test-manifest.json "$PACKAGE_TARGET"
 
   windows-startup-regression:
     name: Windows Spectrum startup and package-to-boot regression

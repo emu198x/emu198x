@@ -44,6 +44,9 @@ jobs:
           echo "crates=${crates}" >> "$GITHUB_OUTPUT"
           echo "$crates" | jq .
 
+      - name: Install native library build dependencies
+        run: bash scripts/ci/apt-install.sh pkg-config libasound2-dev libudev-dev
+
       - name: Package publishable crates
         if: inputs.dry_run
         env:
