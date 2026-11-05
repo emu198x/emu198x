@@ -72,6 +72,9 @@ def main() -> None:
                     text = text.replace(url, f"{base}/{file}")
                 (tap / name).write_text(text)
                 formula = f"198x/package-test/{Path(name).stem}"
+                # Authorise only this build's generated formula. Homebrew's
+                # tap-trust gate must not mask the checksum rejection below.
+                run("brew", "trust", "--formula", formula)
                 # Prove Homebrew rejects damaged bytes before trusting a pass.
                 original = (directory / archive).read_bytes()
                 (directory / archive).write_bytes(b"invalid release archive")
@@ -107,6 +110,7 @@ def main() -> None:
                 run("brew", "uninstall", formula)
         finally:
             server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":
