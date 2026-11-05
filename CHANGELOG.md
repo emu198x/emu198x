@@ -4,6 +4,15 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.48.3] - 2026-11-05
+
+
+### Fixed
+
+- Preserve corrected CPC WAIT execution in version 6 saves
+- Reset readable DMG LY before the final VBlank line ends
+- Give the corrected Game Boy PPU a patch release version
+
 ## [0.48.2] - 2026-11-05
 
 
