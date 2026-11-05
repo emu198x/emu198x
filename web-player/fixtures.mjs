@@ -22,7 +22,7 @@ export function fixtures(profiles,romRoot=process.env.PLAYER_TEST_ROM_ROOT) {
   const firmware={};let unavailable=false;
   for(const source of p.sources) {
    const candidates=romRoot?p.romDirs.flatMap(dir=>source.candidates.map(name=>path.join(romRoot,dir,name))):[];
-   const syntheticName=p.family==='commodore-pet' && source.id==='commodore-pet-basic' && p.id!=='commodore-pet-2001n-32k'?'commodore-pet-basic-4.rom':synthetic[source.id];
+   const syntheticName=p.family==='commodore-pet' && source.id==='commodore-pet-basic' && ['commodore-pet-40col','commodore-pet-80col'].includes(p.id)?'commodore-pet-basic-4.rom':synthetic[source.id];
    if(syntheticName)candidates.push(path.join(root,'test-data/synthetic-firmware',syntheticName));
    const file=candidates.find(existsSync);
    if(file)firmware[source.id]=file;

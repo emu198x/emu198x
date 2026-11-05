@@ -770,6 +770,9 @@ jobs:
           cargo check --target wasm32-unknown-unknown \
             -p emu198x-shell -p emu198x-web
 
+      - name: Browser publication fixtures match every PET runtime
+        run: node web-player/check-pet-fixtures.mjs
+
       # A release binary rather than `cargo install wasm-pack --locked`, which
       # rebuilds it from source whenever the cache misses. Same action
       # maintain-release.yml and the npm publish workflow use, and dependabot
