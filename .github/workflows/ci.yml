@@ -763,12 +763,14 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
-      # No apt packages: the wasm build carries neither cpal nor gilrs, so it
-      # needs none of the native audio or input libraries the other jobs do.
+      # The wasm check itself needs no native audio or input libraries.
       - name: Check the browser crates build for wasm
         run: |
           cargo check --target wasm32-unknown-unknown \
             -p emu198x-shell -p emu198x-web
+
+      - name: Install native fixture probe dependencies
+        run: bash scripts/ci/apt-install.sh pkg-config libasound2-dev libudev-dev
 
       - name: Browser publication fixtures match every PET runtime
         run: node web-player/check-pet-fixtures.mjs
