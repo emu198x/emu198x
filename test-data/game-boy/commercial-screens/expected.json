@@ -52,6 +52,29 @@
           "sha256": "9459ed345937e52f62eb7ad00401aeeac8f7f2ea222fcf54dd6b37eb830eaeed"
         }
       ]
+    },
+    {
+      "id": "kirby",
+      "title": "Kirby's Dream Land Rev 0 (1992, HAL Laboratory, EU-US)",
+      "rom": {
+        "file": "kirby.gb",
+        "bytes": 262144,
+        "sha256": "0f6dba94fae248d419083001c42c02a78be6bd3dff679c895517559e72c98d58"
+      },
+      "checkpoints": [
+        {
+          "frames": 240,
+          "sha256": "c168d4a4543eb4eac204131dd06022449b6b357329aef3e232660adbaadab4a7"
+        },
+        {
+          "frames": 480,
+          "sha256": "bacfef29ef6622ee7a57c2db0ba994869b790ec540b63c053f4fa3a382c9b061"
+        },
+        {
+          "frames": 720,
+          "sha256": "b632c142b55f88f1b6663f80b46fdffa46c661eb1c6b9839d05258e3342afbe2"
+        }
+      ]
     }
   ]
 }

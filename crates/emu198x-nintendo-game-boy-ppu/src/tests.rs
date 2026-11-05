@@ -312,3 +312,41 @@ fn window_enable_with_wy_zero_advances_window_y() {
         "window_y should have advanced"
     );
 }
+
+// SameBoy DMG-B's readable LY=153 interval lasts four LCD dots, while
+// the remainder of that scanline stays in mode 1. Internal LY stays 153.
+#[test]
+fn dmg_ly_resets_early_without_ending_the_last_vblank_line() {
+    let mut ppu = Ppu::new_post_bootrom_with_phase(152, 455);
+    let vram = blank_vram();
+    let oam = blank_oam();
+    ppu.tick(&vram, &oam);
+    assert_eq!((ppu.ly, ppu.dot(), ppu.read_ly()), (153, 0, 153));
+    for dot in 0..456 {
+        assert_eq!((ppu.ly, ppu.dot()), (153, dot));
+        assert_eq!(ppu.mode(), 1, "readable LY zero must remain VBlank");
+        assert_eq!(ppu.read_ly(), if dot < 4 { 153 } else { 0 }, "dot {dot}");
+        assert!(!ppu.consume_frame_ready());
+        assert!(!ppu.consume_vblank_irq());
+        ppu.tick(&vram, &oam);
+    }
+    assert_eq!((ppu.ly, ppu.dot(), ppu.read_ly(), ppu.mode()), (0, 0, 0, 2));
+}
+
+#[test]
+fn final_line_ly_read_keeps_cgb_modes_outside_the_dmg_fix() {
+    for colour_game in [false, true] {
+        let mut ppu = Ppu::new_post_bootrom_with_phase(153, 4);
+        ppu.set_cgb(colour_game);
+        assert_eq!(ppu.read_ly(), 153);
+    }
+}
+
+#[test]
+fn lcd_disable_clears_internal_and_readable_final_line_ly() {
+    let mut ppu = Ppu::new_post_bootrom_with_phase(153, 424);
+    assert_eq!((ppu.ly, ppu.read_ly(), ppu.mode()), (153, 0, 1));
+    ppu.write_lcdc(ppu.lcdc & !lcdc::ENABLE);
+    run_dots(&mut ppu, &blank_vram(), &blank_oam(), 456);
+    assert_eq!((ppu.ly, ppu.dot(), ppu.read_ly(), ppu.mode()), (0, 0, 0, 0));
+}

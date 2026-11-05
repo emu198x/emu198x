@@ -587,9 +587,16 @@ impl Ppu {
 
     /// Reads LY ($FF44). Near the end of a visible scanline, the CPU
     /// observes the next line before the internal dot counter wraps.
+    /// On a DMG, the final VBlank line reads zero after its first four
+    /// dots, while the internal scanline and mode remain in VBlank.
     #[must_use]
     pub fn read_ly(&self) -> u8 {
-        if self.cpu_visible_next_ly() {
+        // SameBoy 1.0.3 display.c, "Lines 153": DMG readable LY=153
+        // lasts four dots. This is the CPU read path, not the separately
+        // timed LYC comparator. CGB revision/speed timing is outside this fix.
+        if !self.cgb && self.ly == 153 && self.dot >= 4 {
+            0
+        } else if self.cpu_visible_next_ly() {
             self.ly.wrapping_add(1)
         } else {
             self.ly
