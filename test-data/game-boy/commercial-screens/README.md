@@ -1,7 +1,7 @@
 # Commercial Game Boy screen checks
 
-Two fixture-gated tests compare Tetris Rev 1 (EU-US) and Super Mario Land Rev 1
-with independently captured SameBoy 1.0.3 output. The strict `expected.json`
+Three fixture-gated tests compare Tetris Rev 1 (EU-US), Super Mario Land Rev 1
+and Kirby's Dream Land Rev 0 (EU-US) with independently captured SameBoy 1.0.3 output. The strict `expected.json`
 identifies every complete game image and the original DMG boot ROM by SHA-256
 and length. No game, firmware, snapshot or screenshot bytes are distributed.
 
@@ -13,8 +13,8 @@ EMU198X_GB_BOOT_ROM_DIR=/path/to/firmware \
 cargo test -p runtime-nintendo-game-boy --test commercial_screens --locked -- --ignored
 ```
 
-The directories must contain `tetris.gb`, `mario.gb` and `dmg_boot.bin` with the
-identities in the manifest. These tests are ignored by default because the
+The directories must contain `tetris.gb`, `mario.gb`, `kirby.gb` and
+`dmg_boot.bin` with the identities in the manifest. These tests are ignored by default because the
 fixtures cannot be distributed. An explicit run fails for missing paths,
 missing files or different bytes; it cannot silently skip a configured case.
 
@@ -32,7 +32,9 @@ harnesses, all nine comparisons, a second independent capture run and negative
 controls. Expected hashes came from SameBoy, not from accepting Emu198x output.
 This is reference-emulator agreement, not a physical-hardware capture claim.
 
-Kirby's Dream Land Rev 0 was also measured, but differs by 201/135/177 pixels
-at those fields. Its hashes were not accepted as goldens. Coordinates and both
-engines' shade values are retained separately for investigation; the cause is
-not yet established.
+Kirby's first LY read exposed the missing early readable-LY reset on the
+DMG's final VBlank scanline (#2182). Correcting the CPU read, while retaining
+the internal scanline and frame clock, matches the original independently
+captured SameBoy hashes at all three checkpoints. The
+[retained diagnosis](https://github.com/emu198x/docs/tree/main/plans/2026-11-05-kirby-first-divergence)
+records the original 201/135/177-pixel disagreement and causal read.

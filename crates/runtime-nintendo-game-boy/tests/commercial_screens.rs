@@ -204,3 +204,9 @@ fn tetris_real_game_screens_match_sameboy_and_replay() -> Result<(), Box<dyn Err
 fn mario_real_game_screens_match_sameboy_and_replay() -> Result<(), Box<dyn Error>> {
     run_case("mario")
 }
+
+#[test]
+#[ignore = "FIXTURE: identified Kirby Rev 0 and original DMG boot ROM; see commercial-screens README"]
+fn kirby_real_game_screens_match_sameboy_and_replay() -> Result<(), Box<dyn Error>> {
+    run_case("kirby")
+}
