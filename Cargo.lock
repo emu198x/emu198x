@@ -2238,7 +2238,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-nintendo-game-boy-ppu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde-big-array",

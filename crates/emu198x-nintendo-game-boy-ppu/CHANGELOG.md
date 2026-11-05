@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.1.1
+
+### Fixed
+
+- Reset CPU-readable DMG LY to zero after four dots of the final VBlank
+  scanline, so games waiting for VBlank after boot start at the correct time.
+  Internal scanline/frame timing stays intact. CGB and LYC/STAT timing remain
+  outside this correction.
+
 ## 0.1.0
 
 ### Added

@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-nintendo-game-boy-ppu = { path = "../emu198x-nintendo-game-boy-ppu", version = "0.1.0" }
+emu198x-nintendo-game-boy-ppu = { path = "../emu198x-nintendo-game-boy-ppu", version = "0.1.1" }
 serde = { workspace = true }
 
 format-nintendo-game-boy-cartridge = { path = "../format-nintendo-game-boy-cartridge", version = "0.48.0" }
