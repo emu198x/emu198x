@@ -53,13 +53,24 @@ fn boot_server(rom_bytes: Vec<u8>) -> (Server<AmigaMcpSession>, AmigaMcpSession)
     (server, session)
 }
 
+fn local_rom_path(name: &str) -> Option<PathBuf> {
+    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
+        emu198x_test_skip::record(&format!(
+            "Amiga {name} ROM unavailable: neither HOME nor USERPROFILE is set"
+        ));
+        return None;
+    };
+    Some(
+        PathBuf::from(home)
+            .join(".emu198x/roms/commodore-amiga")
+            .join(name),
+    )
+}
+
 fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
     let path = match std::env::var("EMU198X_KS31_A1200_ROM") {
         Ok(p) => PathBuf::from(p),
-        Err(_) => {
-            let home = std::env::var("HOME").expect("HOME is set");
-            PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick31a1200.rom")
-        }
+        Err(_) => local_rom_path("kick31a1200.rom")?,
     };
     if !path.exists() {
         emu198x_test_skip::record(&format!(
@@ -181,8 +192,9 @@ fn set_machine_swaps_the_live_variant() {
     let Some((rom_bytes, _rom_path)) = load_rom() else {
         emu198x_test_skip::skip!("Amiga Kickstart ROM not staged");
     };
-    let home = std::env::var("HOME").expect("HOME is set");
-    let a500_rom = PathBuf::from(&home).join(".emu198x/roms/commodore-amiga/kick13.rom");
+    let Some(a500_rom) = local_rom_path("kick13.rom") else {
+        return;
+    };
     if !a500_rom.exists() {
         emu198x_test_skip::skip!("skipping: A500 Kickstart missing at {}", a500_rom.display());
     }

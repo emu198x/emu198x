@@ -13,13 +13,11 @@
 
 #[allow(dead_code)]
 mod support;
-use std::path::PathBuf;
 #[allow(unused_imports)]
 use support::*;
 
 fn load_kickstart() -> Option<Vec<u8>> {
-    let home = std::env::var("HOME").expect("HOME is set");
-    let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
+    let path = support::home_fixture_path(".emu198x/roms/commodore-amiga/kick13.rom")?;
     if !path.exists() {
         emu198x_test_skip::record(&format!(
             "skipping: Kickstart 1.3 ROM missing at {}",

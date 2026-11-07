@@ -28,7 +28,13 @@ fn load_ks31_rom() -> Option<Vec<u8>> {
     let path = match std::env::var("EMU198X_KS31_A1200_ROM") {
         Ok(p) => PathBuf::from(p),
         Err(_) => {
-            let home = std::env::var("HOME").expect("HOME is set");
+            let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+            else {
+                emu198x_test_skip::record(
+                    "KS 3.1 A1200 ROM unavailable: set EMU198X_KS31_A1200_ROM, HOME or USERPROFILE",
+                );
+                return None;
+            };
             PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick31a1200.rom")
         }
     };
