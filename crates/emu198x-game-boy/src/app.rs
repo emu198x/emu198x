@@ -394,6 +394,61 @@ mod tests {
     }
 
     #[test]
+    fn headless_script_fits_one_megabyte_stack_for_all_profiles() {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("game-boy-stack-budget-{}", std::process::id()));
+        fs::create_dir(&directory).expect("new synthetic fixture directory");
+        let fixture = Fixture(directory);
+        let rom = fixture.0.join("game.gb");
+        let save = fixture.0.join("game.sav");
+        let script = fixture.0.join("script.json");
+        fs::write(&rom, battery_ram_rom()).expect("synthetic cartridge");
+        fs::write(&save, vec![0x5a; 8192]).expect("synthetic battery save");
+        std::thread::Builder::new()
+            .name("game-boy-native-stack-budget".to_owned())
+            .stack_size(1024 * 1024)
+            .spawn(move || {
+                for model in Model::ALL {
+                    fs::write(
+                        &script,
+                        serde_json::json!([
+                            {"action":"set_machine","machine":model.profile_id()},
+                            {"action":"poke_byte","addr":0,"value":10},
+                            {"action":"memory_read","addr":40960,"len":1}
+                        ])
+                        .to_string(),
+                    )
+                    .expect("observation script");
+                    let app = GameBoy {
+                        model,
+                        ..cartridge(&rom)
+                    };
+                    let common = CommonCli {
+                        script: Some(script.clone()),
+                        ..CommonCli::default()
+                    };
+                    let report = script_report(&app, &common).expect("bounded-stack script");
+                    assert_eq!(report["observations"][0]["profile_id"], model.profile_id());
+                    assert_eq!(report["cartridge_loaded"], true);
+                    assert_eq!(
+                        report["observations"][2]["bytes"],
+                        serde_json::json!([0x5a])
+                    );
+                }
+            })
+            .expect("bounded-stack thread")
+            .join()
+            .expect("bounded-stack execution");
+        assert_eq!(fs::read(save).expect("preserved save"), vec![0x5a; 8192]);
+    }
+
+    #[test]
     fn flags_set_model_rom_and_capture_flags() {
         let (app, common, mode) = parsed(&[
             "--model",

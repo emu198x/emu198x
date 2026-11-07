@@ -27,7 +27,7 @@ pub trait GameBoyBoard {
 /// This type deliberately has no standalone `Deserialize` implementation:
 /// the old payload cannot identify every board without its envelope profile.
 pub struct GameBoyCore<B: GameBoyBoard> {
-    state: GameBoyState,
+    state: Box<GameBoyState>,
     board: std::marker::PhantomData<B>,
 }
 impl<B: GameBoyBoard> Clone for GameBoyCore<B> {
@@ -47,7 +47,10 @@ impl<B: GameBoyBoard> GameBoyCore<B> {
     /// Construct this board from its normal skipped-boot state.
     pub fn new(cartridge: Cartridge) -> Self {
         Self {
-            state: GameBoyState::new_with_boot_profile(cartridge, B::DEFAULT_BOOT_PROFILE),
+            state: Box::new(GameBoyState::new_with_boot_profile(
+                cartridge,
+                B::DEFAULT_BOOT_PROFILE,
+            )),
             board: std::marker::PhantomData,
         }
     }
@@ -57,7 +60,7 @@ impl<B: GameBoyBoard> GameBoyCore<B> {
             (
                 h,
                 Self {
-                    state,
+                    state: Box::new(state),
                     board: std::marker::PhantomData,
                 },
             )
@@ -95,7 +98,7 @@ impl<B: GameBoyBoard> GameBoyCore<B> {
         }
         state.validate_boot_state(profile)?;
         Ok(Self {
-            state,
+            state: Box::new(state),
             board: std::marker::PhantomData,
         })
     }
