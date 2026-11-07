@@ -747,6 +747,10 @@ jobs:
           {
             echo "EMU198X_CPC_ROM=${root}/roms/cpc464.rom"
             echo "EMU198X_CPC_6128_ROM=${root}/roms/cpc6128.rom"
+            # firmware_disc reads the unseparated names and boots the 664 too.
+            echo "EMU198X_CPC6128_ROM=${root}/roms/cpc6128.rom"
+            echo "EMU198X_CPC664_ROM=${root}/roms/cpc664.rom"
+            echo "EMU198X_CPC_AMSDOS_ROM=${root}/roms/cpcados.rom"
             echo "EMU198X_CPC_ROM_DIR=${root}/roms"
             echo "EMU198X_CPC_SHAKER_DSK=${root}/shaker26.dsk"
             echo "EMU198X_CPC_CDT=${root}/ascend.cdt"
