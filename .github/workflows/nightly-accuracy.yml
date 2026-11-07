@@ -795,6 +795,13 @@ jobs:
         with:
           shared-key: nightly-accuracy-vic20
 
+      - name: Install Linux build dependencies
+        # The survey runs through runtime-commodore-vic-20, which depends on
+        # emu198x-shell and so on the host audio/input stack (cpal -> alsa,
+        # gilrs -> libudev). Mirrors the main ci.yml install.
+        run: |
+          bash scripts/ci/apt-install.sh pkg-config libasound2-dev libudev-dev
+
       - name: Provision corpus from store
         env:
           GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
