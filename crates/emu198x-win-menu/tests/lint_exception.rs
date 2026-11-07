@@ -62,7 +62,12 @@ fn only_the_attach_module_uses_unsafe() {
     }
     let lib = std::fs::read_to_string(src.join("lib.rs")).expect("lib.rs");
     assert_eq!(allows, 1, "one allow, on the attach module");
-    assert!(lib.contains("#[allow(unsafe_code)]\nmod attach;"));
+    assert!(
+        lib.lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|lines| lines == ["#[allow(unsafe_code)]", "mod attach;"])
+    );
     // The attach module holds exactly one unsafe block: the call to muda.
     let attach = std::fs::read_to_string(src.join("attach.rs")).expect("attach.rs");
     assert_eq!(attach.matches("unsafe {").count(), 1, "one unsafe block");
