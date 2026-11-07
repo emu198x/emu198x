@@ -823,7 +823,8 @@ pub trait Board {
 }
 /// Shared wiring statically bound to one board.
 pub struct BbcCore<B: Board> {
-    state: BbcState,
+    // Keep the 32 KiB RAM out of by-value board/runtime/launcher stack frames.
+    state: Box<BbcState>,
     board: std::marker::PhantomData<B>,
 }
 impl BbcState {
@@ -842,7 +843,7 @@ impl<B: Board> BbcCore<B> {
             return Err("snapshot hardware does not match this BBC board");
         }
         let mut machine = Self {
-            state,
+            state: Box::new(state),
             board: std::marker::PhantomData,
         };
         machine.finish_restore();
@@ -871,7 +872,7 @@ impl<B: Board> BbcCore<B> {
         let mut crtc = Crtc6845::new();
         crtc.set_variant(Crtc6845Variant::Hd6845s);
         let mut machine = Self {
-            state: BbcState {
+            state: Box::new(BbcState {
                 cpu,
                 crtc,
                 video_ula: VideoUla::new(),
@@ -914,7 +915,7 @@ impl<B: Board> BbcCore<B> {
                 serial_ula: 0,
                 cassette: CassetteReceiver::new(),
                 deck_running: true,
-            },
+            }),
             board: std::marker::PhantomData,
         };
         for bank in 0..16 {
@@ -1371,7 +1372,7 @@ impl<B: Board> BbcCore<B> {
         }
         let ns = cost * NS_PER_MASTER_TICK;
         // Disjoint borrows: the receiver drives the ACIA register it feeds.
-        let BbcState { cassette, acia, .. } = &mut self.state;
+        let BbcState { cassette, acia, .. } = self.state.as_mut();
         cassette.advance(ns, &mut |event| match event {
             CassetteEvent::ByteReady(byte) => {
                 acia.rx_data = byte;
