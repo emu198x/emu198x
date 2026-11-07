@@ -2825,7 +2825,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-win-menu"
-version = "0.46.2"
+version = "0.46.3"
 dependencies = [
  "muda",
  "winit",

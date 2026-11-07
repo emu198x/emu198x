@@ -5,7 +5,7 @@ edition.workspace = true
 # Versioned on its own since 2026-11-02, when the platform crates were
 # first published for the family repositories
 # (knowledge/decisions/workspace-shape.md, § Amendment 2026-11-02).
-version = "0.46.2"
+version = "0.46.3"
 license.workspace = true
 repository.workspace = true
 
