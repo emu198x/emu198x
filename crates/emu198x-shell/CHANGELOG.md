@@ -25,12 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Advance `run_frames` one native boundary at a time so fractional frame
+  lengths cannot accumulate into a missing frame on large requests
+
+## [0.44.4] - 2026-11-07
+
+### Fixed
+
 - Prime native playback with up to 50 ms of audio after startup, clear and
   underrun so brief packet-delivery delays do not insert gaps; retain whole
   channel frames and bound storage before accepting oversized packets
-
-- Advance `run_frames` one native boundary at a time so fractional frame
-  lengths cannot accumulate into a missing frame on large requests
 
 ## [0.44.3] - 2026-11-04
 

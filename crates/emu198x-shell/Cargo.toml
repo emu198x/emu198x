@@ -8,7 +8,7 @@ edition.workspace = true
 # the family repositories since 2026-11-02 (knowledge/decisions/
 # workspace-shape.md, § Amendment 2026-11-02). Started at the version it
 # already carried in-tree.
-version = "0.44.3"
+version = "0.44.4"
 license.workspace = true
 repository.workspace = true
 
