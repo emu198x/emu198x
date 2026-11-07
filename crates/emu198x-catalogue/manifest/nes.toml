@@ -41,7 +41,8 @@ path = "nintendo/nes/Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes"
 # Nintendo title with "1 PLAYER GAME / 2 PLAYER GAME" by ~frame 240.
 # Captures the canonical "SUPER MARIO BROS. / ©1985 NINTENDO" title.
 wait_frames = 240
-frame_hash = "xxh64:45173ac7294ac723"
+# Corrected scanline-tail background alignment (#1748); see the 2026-11-07 plan.
+frame_hash = "xxh64:1d51307237226514"
 
 [entry.audio]
 # 2 s of silence: the title screen plays no music (the theme starts

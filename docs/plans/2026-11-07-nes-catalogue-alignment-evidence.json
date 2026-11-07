@@ -1,0 +1,133 @@
+{
+  "entry": "super-mario-bros",
+  "source_commit": "01b2f3af8573038ef3a66d3b2803ed30c5dd5e43",
+  "cause_commit": "79f4e422565b3079604ef2aba9f03555a057949d",
+  "media": {
+    "name": "Super Mario Bros. (1985-09-13)(Nintendo)(JP-US).nes",
+    "sha256": "f61548fdf1670cffefcc4f0b7bdcdd9eaba0c226e3b74f8666071496988248de"
+  },
+  "capture": {
+    "frames": 240,
+    "old_frame_hash": "xxh64:45173ac7294ac723",
+    "current_frame_hash": "xxh64:1d51307237226514",
+    "audio_hash_unchanged": "xxh64:76717e4f51db9bbc",
+    "old_png_sha256": "1ac58fa296052a1e773c4302e6d69286ebd70f96d92c230d779dd03737d516f0",
+    "current_png_sha256": "172ab688e55a405db19243b1ed1afe376a85228f1f9b8f1c676e370a48226300",
+    "current_matches_previous_postfix_capture": true
+  },
+  "pixel_comparison": {
+    "total_pixels": 61440,
+    "changed_pixels": 168,
+    "unchanged_pixels": 61272,
+    "changed_columns": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "changed_row_range": [
+      196,
+      239
+    ],
+    "bottom32_rows_first8_columns_vs_next16pixel_tile": {
+      "old_mismatches": 128,
+      "current_mismatches": 0
+    }
+  },
+  "independent_oracle": {
+    "kind": "previous qualification, not a new FCEUX run",
+    "issue": "https://github.com/emu198x/emu198x/issues/1748",
+    "fix_pr": "https://github.com/emu198x/emu198x/pull/1749",
+    "qualification": "https://github.com/stevehill1981/198x/tree/5e8b60fc/ops/qualification/evidence/2026-10-13-nes",
+    "reference": "FCEUX 2.6.6_12; Mesen2 revision fabc9a62174f8734a113df6d244f5539ef6b8fcf",
+    "frames": [
+      120,
+      121,
+      240
+    ],
+    "reference_pixel_mismatches": [
+      0,
+      0,
+      0
+    ],
+    "old_emu_pixel_mismatches": [
+      8,
+      0,
+      8
+    ],
+    "fixed_emu_pixel_mismatches": [
+      0,
+      0,
+      0
+    ],
+    "asymmetric_finescroll_assertions": 1474560
+  },
+  "fresh_reference_attempt": {
+    "version": "FCEUX 2.7.0",
+    "binary_sha256": "95eae7e80d51f4a18705e1a9c08ad74410d10d99fa738a5ae79e67ad1ea6ceb8",
+    "captures_written": 0,
+    "attempts": [
+      "Sandbox: Could not initialize SDL: The video driver did not add any displays.",
+      "Offscreen/dummy: exit -11, no observations.",
+      "Native: subprocess.TimeoutExpired after 45 seconds, no observations."
+    ],
+    "accepted_as_evidence": false
+  },
+  "scope": {
+    "changed": "SMB frame hash only",
+    "unchanged": [
+      "all audio hashes",
+      "Contra",
+      "Zelda II",
+      "frame waits",
+      "routing versions",
+      "PPU implementation"
+    ]
+  },
+  "ppu_tests": {
+    "passed": 112,
+    "failed": 0
+  },
+  "catalogue_verification": {
+    "before": {
+      "exit_code": 1,
+      "entry_failures": [
+        "super-mario-bros"
+      ]
+    },
+    "after": {
+      "exit_code": 0,
+      "entry_passes": [
+        "super-mario-bros"
+      ]
+    },
+    "wrong_hash_control": {
+      "expected": "xxh64:0000000000000000",
+      "exit_code": 1,
+      "entry_failures": [
+        "super-mario-bros"
+      ]
+    },
+    "full_nes_catalogue": {
+      "exit_code": 1,
+      "passes": [
+        "super-mario-bros",
+        "tetris",
+        "tmnt-2-arcade"
+      ],
+      "unchanged_failures": [
+        "contra",
+        "zelda-2"
+      ]
+    }
+  },
+  "catalogue_crate_tests": {
+    "passed": 45,
+    "failed": 0,
+    "ignored": 2
+  }
+}
