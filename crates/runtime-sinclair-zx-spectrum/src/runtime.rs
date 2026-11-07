@@ -767,11 +767,12 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         }
 
         // A recorded block's `data` is the full on-tape stream (flag, payload,
-        // checksum); a TAP block stores only the payload, so strip both ends.
+        // checksum); retain its parity separately from the payload.
         let tap_blocks: Vec<_> = blocks
             .into_iter()
             .map(|block| format198x_sinclair_zx_spectrum_tap::TapBlock {
                 flag: block.flag,
+                stored_parity: block.data.get(1..).and_then(|bytes| bytes.last()).copied(),
                 data: block
                     .data
                     .get(1..block.data.len().saturating_sub(1))
@@ -1261,17 +1262,9 @@ fn tap_blocks_to_tape_blocks(
 ) -> Vec<TapeBlock> {
     blocks
         .into_iter()
-        .map(|block| {
-            let mut full = Vec::with_capacity(block.data.len() + 2);
-            full.push(block.flag);
-            full.extend_from_slice(&block.data);
-            let checksum = full.iter().fold(0u8, |acc, &byte| acc ^ byte);
-            full.push(checksum);
-
-            TapeBlock {
-                flag: block.flag,
-                data: full,
-            }
+        .map(|block| TapeBlock {
+            flag: block.flag,
+            data: block.tape_bytes(),
         })
         .collect()
 }
@@ -1308,14 +1301,14 @@ mod tests {
         assert!(!is_tzx(b"NOT_TZX!"), "completely wrong magic");
     }
 
-    /// `tap_blocks_to_tape_blocks` re-attaches the per-block flag byte
-    /// and XOR checksum that the TAP decoder strips, so the tape player
-    /// sees the same byte stream the original cassette delivered.
+    /// Constructed blocks gain parity; decoded blocks retain the bytes the
+    /// original cassette delivered, even when its parity is wrong.
     #[test]
     fn tap_blocks_to_tape_blocks_round_trip_with_checksum() {
         let blocks = vec![TapBlock {
             flag: 0xFF,
             data: vec![0x01, 0x02, 0x03],
+            stored_parity: None,
         }];
         let out = tap_blocks_to_tape_blocks(blocks);
         assert_eq!(out.len(), 1);
@@ -1323,6 +1316,16 @@ mod tests {
         // Full re-encoded form: flag + data + XOR checksum.
         let expected_checksum = 0xFF ^ 0x01 ^ 0x02 ^ 0x03;
         assert_eq!(out[0].data, vec![0xFF, 0x01, 0x02, 0x03, expected_checksum]);
+    }
+
+    #[test]
+    fn tap_playback_preserves_damaged_block_bytes() {
+        // Flag $FF, payload $42, and deliberately wrong parity $00.
+        let tape = [3, 0, 0xFF, 0x42, 0];
+        let decoded = format198x_sinclair_zx_spectrum_tap::decode(&tape)
+            .expect("damaged parity does not prevent insertion");
+        let blocks = tap_blocks_to_tape_blocks(decoded);
+        assert_eq!(blocks[0].data, tape[2..]);
     }
 
     /// `tap_blocks_to_tape_blocks` returns an empty vector for an

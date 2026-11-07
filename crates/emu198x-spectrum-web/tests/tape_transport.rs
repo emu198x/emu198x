@@ -320,3 +320,44 @@ fn a_missed_block_can_be_found_again_by_block_search() {
     );
     assert!(tape_seek_block(&mut machine, "drive-1", BlockSeek::Next).is_err());
 }
+
+/// The physical tape's parity must reach the ROM unchanged. A host decoder
+/// must not silently repair a damaged CODE block before playing its pulses.
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn damaged_tap_data_reaches_the_rom_tape_error_path() {
+    for damaged in [false, true] {
+        let loader = format198x_sinclair_zx_spectrum_bas::tokenise_listing(&format!(
+            "10 LOAD \"\"CODE\n30 PRINT PEEK {CODE_AT}"
+        ))
+        .expect("loader tokenises")
+        .bytes;
+        let length = u16::try_from(loader.len()).expect("small loader");
+        let mut tape = encode(&[
+            Header::new(HeaderKind::Program, "loader", length, 10, length).block(),
+            TapBlock::data(loader),
+            Header::new(HeaderKind::Code, "code", 1, CODE_AT, NO_AUTORUN).block(),
+            TapBlock::data(vec![CODE_BYTE]),
+        ]);
+        if damaged {
+            // The last block is length + flag + one data byte + parity.
+            let data_at = tape.len() - 2;
+            tape[data_at] ^= 1;
+        }
+        let mut machine = machine();
+        machine
+            .load_media_bytes("tape-1", MediaKind::Tape, &tape)
+            .expect("a damaged tape still inserts");
+        autoload_tape(&mut machine, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("LOAD and play");
+        let expected = if damaged {
+            "R Tape loading error"
+        } else {
+            "0 OK, 30:1"
+        };
+        assert!(
+            run_until_screen_shows(&mut machine, expected, 5_000),
+            "damaged={damaged}: expected {expected}, got {:?}",
+            screen_lines(&machine)
+        );
+    }
+}
