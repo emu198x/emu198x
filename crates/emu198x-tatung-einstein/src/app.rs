@@ -108,6 +108,48 @@ mod tests {
     }
 
     #[test]
+    fn headless_script_fits_one_megabyte_stack() {
+        use emu198x_shell::launch::{CommonCli, script_report};
+        use runtime_tatung_einstein::ROM_FIRMWARE_ID;
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("einstein-stack-budget-{}", std::process::id()));
+        std::fs::create_dir(&directory).expect("new synthetic fixture directory");
+        let fixture = Fixture(directory);
+        let mos = fixture.0.join("mos.rom");
+        let script = fixture.0.join("script.json");
+        std::fs::write(&mos, vec![0x76; 8192]).expect("synthetic MOS");
+        std::fs::write(&script, r#"[{"action":"memory_read","addr":0,"len":1}]"#)
+            .expect("observation script");
+        std::thread::Builder::new()
+            .name("einstein-native-stack-budget".to_owned())
+            .stack_size(1024 * 1024)
+            .spawn(move || {
+                let mut app = Einstein::default();
+                app.firmware.pin(ROM_FIRMWARE_ID, mos);
+                let common = CommonCli {
+                    script: Some(script),
+                    ..CommonCli::default()
+                };
+                let report = script_report(&app, &common).expect("bounded-stack script");
+                assert_eq!(report["mos_loaded"], true);
+                assert_eq!(
+                    report["observations"][0]["bytes"],
+                    serde_json::json!([0x76])
+                );
+            })
+            .expect("bounded-stack thread")
+            .join()
+            .expect("bounded-stack execution");
+    }
+
+    #[test]
     fn parse_cli_defaults() {
         let Parsed::Run { app, .. } = parse::<Einstein>(&[]).expect("parses") else {
             panic!("expected a run");

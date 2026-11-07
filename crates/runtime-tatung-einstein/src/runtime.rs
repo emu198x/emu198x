@@ -49,7 +49,7 @@ static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboa
 pub struct EinsteinRuntime {
     profile: MachineProfile,
     model: Model,
-    machine: Option<Einstein>,
+    machine: Option<Box<Einstein>>,
     rom_bytes: Option<Vec<u8>>,
     floppy0_bytes: Option<Vec<u8>>,
     time: MachineTime,
@@ -123,11 +123,11 @@ impl EinsteinRuntime {
 
     #[must_use]
     pub fn machine(&self) -> Option<&Einstein> {
-        self.machine.as_ref()
+        self.machine.as_deref()
     }
 
     pub fn machine_mut(&mut self) -> Option<&mut Einstein> {
-        self.machine.as_mut()
+        self.machine.as_deref_mut()
     }
 
     #[must_use]
@@ -151,7 +151,7 @@ impl EinsteinRuntime {
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         }
-        self.machine = machine;
+        self.machine = machine.map(Box::new);
         self.update_rgba_framebuffer();
     }
 
@@ -171,7 +171,7 @@ impl EinsteinRuntime {
         self.rgba_width = width;
         self.rgba_height = height;
         self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
-        self.machine = Some(machine);
+        self.machine = Some(Box::new(machine));
         self.update_rgba_framebuffer();
     }
 
