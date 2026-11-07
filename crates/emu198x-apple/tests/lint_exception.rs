@@ -62,5 +62,10 @@ fn only_the_ffi_module_uses_unsafe() {
     }
     let lib = std::fs::read_to_string(src.join("lib.rs")).expect("lib.rs");
     assert_eq!(allows, 1, "one allow, on the ffi module");
-    assert!(lib.contains("#[allow(unsafe_code)]\npub mod ffi;"));
+    assert!(
+        lib.lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|lines| lines == ["#[allow(unsafe_code)]", "pub mod ffi;"])
+    );
 }
