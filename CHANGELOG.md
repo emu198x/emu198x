@@ -4,6 +4,15 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.48.4] - 2026-11-07
+
+
+### Fixed
+
+- Keep native audio playing through brief delivery delays
+- Give the native audio reserve its own shell release
+- Let the Spectrum ROM reject damaged TAP blocks
+
 ## [0.48.3] - 2026-11-05
 
 
