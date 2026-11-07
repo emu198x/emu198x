@@ -117,9 +117,9 @@ Generate native checkpoints from the workspace root, using the same firmware
 that will be supplied to WASM:
 
 ```sh
-cargo run --release -p emu198x-commodore-web --example parity -- \
+cargo run --release -p emu198x-commodore-web --example commodore_web_parity -- \
   c64 PATH_TO_KERNAL PATH_TO_BASIC PATH_TO_CHARGEN > /tmp/c64-native.json
-cargo run --release -p emu198x-commodore-web --example parity -- \
+cargo run --release -p emu198x-commodore-web --example commodore_web_parity -- \
   amiga PATH_TO_KICKSTART > /tmp/amiga-native.json
 ```
 

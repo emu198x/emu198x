@@ -507,6 +507,9 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
+      - name: Check workspace example output filenames are distinct
+        run: python3 scripts/check-example-output-names.py --self-test
+
       - name: Check the test selection never skips a reachable crate
         run: |
           python3 scripts/ci/test_affected_packages.py

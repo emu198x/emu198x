@@ -25,3 +25,7 @@ sha2 = { workspace = true }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "vic_20_board_baseline"
+path = "examples/board_baseline.rs"

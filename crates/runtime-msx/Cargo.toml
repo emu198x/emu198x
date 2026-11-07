@@ -31,3 +31,7 @@ emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "msx_board_baseline"
+path = "examples/board_baseline.rs"

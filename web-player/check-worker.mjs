@@ -85,7 +85,7 @@ if(spectrum.variants.find(variant=>variant.id==='spectrum_issue3_48k').firmware.
 if(process.env.AMIGA_ROM)await check('amiga',{kickstart:read(process.env.AMIGA_ROM)},null);
 if(process.env.C64_ROM_DIR)await check('c64',Object.fromEntries(['kernal','basic','chargen'].map((name,i)=>[name,read(path.join(process.env.C64_ROM_DIR,['kernal_generic.rom','basic_generic.rom','chargen_openroms.rom'][i]))]).concat([['drive',new Uint8Array()]])),null);
 // Independently produced native checkpoints, same input schedule on WASM.
-const native=execFileSync('cargo',['run','--quiet','--release','-p','emu198x-game-boy-web','--example','parity','--',path.join(root,'test-data/synthetic-cartridges/nintendo-game-boy-logo.gb')],{cwd:root,encoding:'utf8'}).trim().split('\n').map(line=>line.split(' ').map(Number));
+const native=execFileSync('cargo',['run','--quiet','--release','-p','emu198x-game-boy-web','--example','game_boy_web_parity','--',path.join(root,'test-data/synthetic-cartridges/nintendo-game-boy-logo.gb')],{cwd:root,encoding:'utf8'}).trim().split('\n').map(line=>line.split(' ').map(Number));
 const {default:init,GameBoy}=await import(pathToFileURL(path.join(dist,'modules/game-boy/emu198x_game_boy_web.js')));
 await init({module_or_path:read(path.join(dist,'modules/game-boy/emu198x_game_boy_web_bg.wasm'))});
 for(let repeat=0;repeat<2;repeat++) {

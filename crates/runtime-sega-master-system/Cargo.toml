@@ -21,3 +21,7 @@ emu198x-zilog-z80 = "0.8.0"
 
 [lints]
 workspace = true
+
+[[example]]
+name = "master_system_board_baseline"
+path = "examples/board_baseline.rs"
