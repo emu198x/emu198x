@@ -74,16 +74,9 @@ fn system_tests_dir() -> PathBuf {
 fn tap_blocks_to_tape_blocks(blocks: Vec<TapBlock>) -> Vec<TapeBlock> {
     blocks
         .into_iter()
-        .map(|block| {
-            let mut full = Vec::with_capacity(block.data.len() + 2);
-            full.push(block.flag);
-            full.extend_from_slice(&block.data);
-            let checksum = full.iter().fold(0u8, |acc, &byte| acc ^ byte);
-            full.push(checksum);
-            TapeBlock {
-                flag: block.flag,
-                data: full,
-            }
+        .map(|block| TapeBlock {
+            flag: block.flag,
+            data: block.tape_bytes(),
         })
         .collect()
 }

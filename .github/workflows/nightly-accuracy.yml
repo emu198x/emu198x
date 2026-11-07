@@ -264,6 +264,9 @@ jobs:
           echo "EMU198X_Z80TEST_DIR=$(pwd)/z80test-1.2a" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
 
+      - name: Damaged TAP reaches the ROM tape error
+        run: cargo test --release -p emu198x-spectrum-web --test tape_transport damaged_tap_data_reaches_the_rom_tape_error_path -- --ignored --nocapture
+
       - name: Run z80test
         run: cargo test --release -p runtime-sinclair-zx-spectrum --test legacy_spectrum_48k_z80test -- --include-ignored --nocapture
 

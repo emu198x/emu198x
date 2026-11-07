@@ -3273,9 +3273,9 @@ dependencies = [
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-tap"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
+checksum = "a5a9465b3aea0ab68acbdad54efd6da3b7da567ff51fc1c279330d684f20d538"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-z80"

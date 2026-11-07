@@ -77,6 +77,15 @@ fn save_captures_a_reloadable_tap() {
         .flush_tape_image()
         .expect("a SAVE should have produced a tape image");
     let blocks = decode(&tap).expect("the flushed image should parse as a .tap");
+    let recorded = session.machine().machine().recorded_tape_blocks();
+    assert_eq!(blocks.len(), recorded.len(), "flushing retains every block");
+    for (decoded, captured) in blocks.iter().zip(&recorded) {
+        assert_eq!(
+            decoded.tape_bytes(),
+            captured.data,
+            "flushing retains the captured bytes"
+        );
+    }
 
     assert!(
         blocks.len() >= 2,
