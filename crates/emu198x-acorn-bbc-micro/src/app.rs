@@ -238,6 +238,57 @@ mod tests {
     use super::*;
     use emu198x_shell::launch::{Mode, Parsed, parse};
 
+    #[test]
+    fn headless_script_fits_one_megabyte_stack_for_all_boards() {
+        use emu198x_shell::launch::{CommonCli, script_report};
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("bbc-stack-budget-{}", std::process::id()));
+        std::fs::create_dir(&directory).expect("new synthetic fixture directory");
+        let fixture = Fixture(directory);
+        let mos = fixture.0.join("mos.rom");
+        let script = fixture.0.join("script.json");
+        std::fs::write(&mos, vec![0x4c; 16384]).expect("synthetic MOS");
+        std::fs::write(
+            &script,
+            r#"[{"action":"memory_read","addr":49152,"len":1}]"#,
+        )
+        .expect("observation script");
+
+        std::thread::Builder::new()
+            .name("bbc-native-stack-budget".to_owned())
+            .stack_size(1024 * 1024)
+            .spawn(move || {
+                for model in Model::ALL {
+                    let mut app = Bbc {
+                        model,
+                        ..Bbc::default()
+                    };
+                    app.firmware.pin(model.mos_firmware_id(), mos.clone());
+                    let common = CommonCli {
+                        script: Some(script.clone()),
+                        ..CommonCli::default()
+                    };
+                    let report = script_report(&app, &common).expect("bounded-stack script");
+                    assert_eq!(report["model"], model.profile_id());
+                    assert_eq!(report["mos_loaded"], true);
+                    assert_eq!(
+                        report["observations"][0]["bytes"],
+                        serde_json::json!([0x4c])
+                    );
+                }
+            })
+            .expect("bounded-stack thread")
+            .join()
+            .expect("script must complete on the native stack budget");
+    }
+
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
     }
