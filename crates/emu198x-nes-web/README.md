@@ -18,7 +18,7 @@ matching Cargo.lock (currently 0.2.127):
 ```sh
 wasm-pack build crates/emu198x-nes-web --target web --release --out-dir pkg --no-opt
 cargo clippy -p emu198x-nes-web --all-targets --no-deps -- -D warnings
-cargo run --release -p emu198x-nes-web --example parity -- HEARTBEAT.nes READ-PAD.nes
+cargo run --release -p emu198x-nes-web --example nes_web_parity -- HEARTBEAT.nes READ-PAD.nes
 node crates/emu198x-nes-web/scripts/check-parity.mjs HEARTBEAT.nes READ-PAD.nes
 ```
 
