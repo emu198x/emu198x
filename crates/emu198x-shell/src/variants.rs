@@ -357,7 +357,8 @@ pub fn resolve_firmware<M: FamilyRuntime>(
 }
 
 /// The ROM directory for the family: the override, else the environment
-/// variable, else the first conventional directory that exists.
+/// variable, else the first conventional directory that exists. `HOME` wins
+/// over `USERPROFILE`; the latter is consulted only when `HOME` is absent.
 fn rom_dir<M: FamilyRuntime>(
     dir_override: Option<&Path>,
     machine: &str,
@@ -373,7 +374,7 @@ fn rom_dir<M: FamilyRuntime>(
     {
         return Ok(PathBuf::from(dir));
     }
-    let Some(home) = std::env::var_os("HOME") else {
+    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
         return Err(FirmwareResolveError::HomeUnset);
     };
     let root = PathBuf::from(home).join(".emu198x/roms");
@@ -804,13 +805,119 @@ mod tests {
 
     #[test]
     fn without_a_rom_directory_the_error_names_what_was_tried() {
-        let err = resolve_firmware::<Fam>(FamModel::One, &FirmwareOverrides::none())
-            .expect_err("no fam directory exists");
-        let message = err.to_string();
-        assert!(
-            message.contains("fam-that-does-not-exist") && message.contains("EMU198X_FAM_TEST"),
-            "{message}"
+        let test = crate::test_environment::Environment::new(
+            "variants::tests::without_a_rom_directory_the_error_names_what_was_tried",
         );
+        test.case(
+            "home",
+            &[("HOME", test.root.clone().into_os_string())],
+            |_| {
+                let err = resolve_firmware::<Fam>(FamModel::One, &FirmwareOverrides::none())
+                    .expect_err("no fam directory exists");
+                let message = err.to_string();
+                assert!(
+                    message.contains("fam-that-does-not-exist")
+                        && message.contains("EMU198X_FAM_TEST"),
+                    "{message}"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn firmware_home_priority_and_directory_overrides() {
+        let test = crate::test_environment::Environment::new(
+            "variants::tests::firmware_home_priority_and_directory_overrides",
+        );
+        for (name, variables, selected) in [
+            (
+                "home",
+                vec![("HOME", test.root.join("home").into_os_string())],
+                Some("home"),
+            ),
+            (
+                "profile",
+                vec![("USERPROFILE", test.root.join("profile").into_os_string())],
+                Some("profile"),
+            ),
+            (
+                "both",
+                vec![
+                    ("HOME", test.root.join("home").into_os_string()),
+                    ("USERPROFILE", test.root.join("profile").into_os_string()),
+                ],
+                Some("home"),
+            ),
+            (
+                "family-env",
+                vec![
+                    ("HOME", test.root.join("home").into_os_string()),
+                    (
+                        "EMU198X_FAM_TEST_ROM_DIR_THAT_NOBODY_SETS",
+                        test.root
+                            .join("explicit/.emu198x/roms/fam-that-does-not-exist")
+                            .into_os_string(),
+                    ),
+                ],
+                Some("explicit"),
+            ),
+            (
+                "empty-home",
+                vec![
+                    ("HOME", "".into()),
+                    ("USERPROFILE", test.root.join("profile").into_os_string()),
+                ],
+                Some(""),
+            ),
+            ("neither", vec![], None),
+        ] {
+            test.case(name, &variables, |root| {
+                for (dir, bytes) in [
+                    ("home", b"home".as_slice()),
+                    ("profile", b"profile".as_slice()),
+                    ("explicit", b"explicit".as_slice()),
+                    ("forced", b"forced".as_slice()),
+                ] {
+                    let target = root.join(dir).join(".emu198x/roms/fam-that-does-not-exist");
+                    std::fs::create_dir_all(&target).expect("firmware dir");
+                    std::fs::write(target.join("one.rom"), bytes).expect("authored ROM");
+                }
+                let overrides = FirmwareOverrides::none();
+                if selected == Some("") {
+                    assert!(matches!(
+                        resolve_firmware::<Fam>(FamModel::One, &overrides),
+                        Err(FirmwareResolveError::NoRomDir { .. })
+                    ));
+                } else if let Some(selected) = selected {
+                    let images = read_firmware::<Fam>(FamModel::One, &overrides)
+                        .expect("conventional firmware");
+                    assert_eq!(images[0].1, selected.as_bytes());
+                } else {
+                    assert!(matches!(
+                        resolve_firmware::<Fam>(FamModel::One, &overrides),
+                        Err(FirmwareResolveError::HomeUnset)
+                    ));
+                }
+                let explicit = root.join("forced/.emu198x/roms/fam-that-does-not-exist");
+                assert_eq!(
+                    read_firmware::<Fam>(FamModel::One, &in_dir(&explicit))
+                        .expect("explicit directory")[0]
+                        .1,
+                    b"forced"
+                );
+                let mut pinned = FirmwareOverrides::none();
+                pinned.pin("only", explicit.join("one.rom"));
+                assert_eq!(
+                    read_firmware::<Fam>(FamModel::One, &pinned).expect("fully pinned")[0].1,
+                    b"forced"
+                );
+                pinned.pin("unknown", explicit.join("one.rom"));
+                assert!(matches!(
+                    resolve_firmware::<Fam>(FamModel::One, &pinned),
+                    Err(FirmwareResolveError::UnknownRomId { .. })
+                ));
+            });
+        }
     }
 
     #[test]
