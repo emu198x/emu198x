@@ -4,6 +4,18 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.48.5] - 2026-11-08
+
+
+### Fixed
+
+- *(bbc)* Prevent debug CLI stack overflow
+- *(game-boy)* Fit native construction within a small stack
+- *(einstein)* Fit native construction within a small stack
+- Preserve exact oracle fixture bytes across checkouts
+- Preserve registered fixture checksums across checkouts
+- Keep Oric CLI construction within the native stack budget
+
 ## [0.48.4] - 2026-11-07
 
 ### Fixed
