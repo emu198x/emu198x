@@ -1,6 +1,13 @@
 # Producer receipts compare checkout lock bytes with the committed Git blob.
 /Cargo.lock text eol=lf
 
+# Generated text is compared byte-for-byte with these reviewed reference files.
+/crates/emu198x-nintendo-s-ppu/tests/oracle/golden/*.txt text eol=lf
+/crates/emu198x-yamaha-ym2610/tests/oracle/golden/*.txt text eol=lf
+/crates/emu198x-yamaha-ym2413/tests/oracle/golden/*.txt text eol=lf
+/crates/emu198x-yamaha-ym2612/tests/oracle/golden/*.txt text eol=lf
+/crates/emu198x-shell/tests/snapshots/isa-disasm-*.txt text eol=lf
+
 # Frozen postcard state is binary even when its opening ROM bytes have no NUL.
 /test-data/dragon/board-split-v2/*.state binary
 /test-data/dragon/board-split-v2/*.frames binary
