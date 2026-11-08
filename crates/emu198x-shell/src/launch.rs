@@ -161,7 +161,8 @@ impl Args {
 }
 
 /// The conventional location of a firmware image: `$env_var` when set and
-/// non-empty, else `~/.emu198x/roms/<relative>`.
+/// non-empty, else `~/.emu198x/roms/<relative>`. `HOME` takes precedence;
+/// `USERPROFILE` is used only when `HOME` is absent.
 ///
 /// Every machine looked in the same two places with its own copy of this
 /// function; the ROM directory layout is a family convention, so it lives
@@ -173,7 +174,10 @@ pub fn conventional_rom_path(env_var: &str, relative: &str) -> Option<PathBuf> {
     {
         return Some(PathBuf::from(path));
     }
-    let home = env::var("HOME").ok()?;
+    let home = match env::var("HOME") {
+        Err(env::VarError::NotPresent) => env::var("USERPROFILE").ok()?,
+        value => value.ok()?,
+    };
     Some(PathBuf::from(home).join(".emu198x/roms").join(relative))
 }
 
@@ -806,16 +810,113 @@ mod tests {
 
     #[test]
     fn conventional_path_falls_back_to_the_rom_directory() {
-        // Mutating the environment is unsafe in edition 2024 and this
-        // workspace forbids unsafe code, so the test relies on a name no
-        // environment sets.
-        let key = "EMU198X_LAUNCH_TEST_ROM_THAT_NOBODY_SETS";
-        assert!(env::var(key).is_err());
-        let path = conventional_rom_path(key, "family/rom.bin").expect("HOME is set");
-        assert!(
-            path.ends_with(".emu198x/roms/family/rom.bin"),
-            "{}",
-            path.display()
+        let test = crate::test_environment::Environment::new(
+            "launch::tests::conventional_path_falls_back_to_the_rom_directory",
         );
+        test.case(
+            "home",
+            &[("HOME", test.root.clone().into_os_string())],
+            |root| {
+                assert_eq!(
+                    conventional_rom_path(
+                        "EMU198X_LAUNCH_TEST_ROM_THAT_NOBODY_SETS",
+                        "family/rom.bin"
+                    ),
+                    Some(root.join(".emu198x/roms/family/rom.bin"))
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn firmware_home_priority_and_explicit_paths() {
+        let test = crate::test_environment::Environment::new(
+            "launch::tests::firmware_home_priority_and_explicit_paths",
+        );
+        let home = test.root.join("home");
+        let profile = test.root.join("profile");
+        let key = "EMU198X_LAUNCH_TEST_ROM_THAT_NOBODY_SETS";
+        for (name, variables, expected) in [
+            (
+                "home",
+                vec![("HOME", home.clone().into_os_string())],
+                Some(home.clone()),
+            ),
+            (
+                "profile",
+                vec![("USERPROFILE", profile.clone().into_os_string())],
+                Some(profile.clone()),
+            ),
+            (
+                "both",
+                vec![
+                    ("HOME", home.clone().into_os_string()),
+                    ("USERPROFILE", profile.clone().into_os_string()),
+                ],
+                Some(home),
+            ),
+            ("neither", vec![], None),
+            (
+                "empty-home",
+                vec![
+                    ("HOME", "".into()),
+                    ("USERPROFILE", profile.into_os_string()),
+                ],
+                Some(PathBuf::new()),
+            ),
+        ] {
+            test.case(name, &variables, |_| {
+                let expected = expected.map(|p| p.join(".emu198x/roms/family/rom.bin"));
+                assert_eq!(conventional_rom_path(key, "family/rom.bin"), expected);
+                if expected.is_none() {
+                    assert!(resolve_rom(None, key, "family/rom.bin").is_err());
+                }
+                let explicit = Path::new("explicit.rom");
+                assert_eq!(
+                    resolve_rom(Some(explicit), key, "family/rom.bin").expect("explicit file"),
+                    explicit
+                );
+            });
+        }
+        test.case("read-controls", &[], |root| {
+            let file = root.join("authored.rom");
+            std::fs::write(&file, [0x12, 0x34]).expect("authored ROM");
+            assert_eq!(
+                read_rom(&file, "test ROM").expect("read authored bytes"),
+                [0x12, 0x34]
+            );
+            assert!(
+                read_rom(root, "test ROM").is_err(),
+                "a directory is not firmware"
+            );
+        });
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            test.case(
+                "non-unicode-home",
+                &[
+                    ("HOME", std::ffi::OsString::from_vec(vec![0xff])),
+                    ("USERPROFILE", test.root.clone().into_os_string()),
+                ],
+                |_| {
+                    assert_eq!(
+                        conventional_rom_path(key, "family/rom.bin"),
+                        None,
+                        "a present invalid HOME must not silently fall through"
+                    );
+                },
+            );
+        }
+        test.case("file-override", &[(key, "file-env.rom".into())], |_| {
+            assert_eq!(
+                resolve_rom(None, key, "unused").expect("file variable"),
+                Path::new("file-env.rom")
+            );
+            assert_eq!(
+                resolve_rom(Some(Path::new("explicit.rom")), key, "unused").expect("explicit wins"),
+                Path::new("explicit.rom")
+            );
+        });
     }
 }

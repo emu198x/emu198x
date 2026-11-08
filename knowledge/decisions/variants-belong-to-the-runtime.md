@@ -46,6 +46,14 @@ runtime implements as one call. The tool registers from the
 `variant-switch` capability, as the other tiers do under
 [`tools-follow-the-machine-spec.md`](tools-follow-the-machine-spec.md).
 
+The conventional firmware root uses `HOME`, falling back to `USERPROFILE`
+only when `HOME` is absent (approved 2026-11-08). Explicit file pins and
+ROM-directory overrides retain their precedence, and fully pinned required
+firmware needs neither home variable. Present-empty values and each resolver's
+existing path-encoding behaviour are unchanged. If neither home variable is
+available, the existing missing-home error remains; there is no new directory
+fallback. This applies to shared launch and runtime variant resolution.
+
 `FirmwareOverrides` carries what a flag can add: a ROM directory, and
 pins by firmware id. The Spectrum's `--rom ID=PATH` semantics moved with
 it and apply to every family: a pin replaces exactly one image, an id

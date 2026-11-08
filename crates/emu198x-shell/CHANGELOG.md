@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Find conventional firmware through USERPROFILE when HOME is absent, preserving
+  HOME priority and explicit ROM overrides for launch and variant switching.
+
 ### Added
 
 - Add optional typed CPU, blitter and disk-DMA provenance to shared
