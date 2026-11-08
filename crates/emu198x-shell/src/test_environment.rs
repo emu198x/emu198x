@@ -16,14 +16,17 @@ pub(crate) struct Environment {
 
 impl Environment {
     pub(crate) fn new(test: &'static str) -> Self {
-        let root = std::env::var_os(ROOT).map_or_else(
-            || {
-                std::env::temp_dir()
-                    .join(format!("emu198x-home-{}-{test}", std::process::id()).replace("::", "-"))
-            },
-            PathBuf::from,
-        );
-        std::fs::create_dir_all(&root).expect("test root");
+        let root = if std::env::var_os(CASE).is_some() {
+            let root = PathBuf::from(std::env::var_os(ROOT).expect("isolated child root"));
+            assert!(root.is_dir(), "isolated child root exists");
+            root
+        } else {
+            let root = std::env::temp_dir()
+                .join(format!("emu198x-home-{}-{test}", std::process::id()).replace("::", "-"));
+            // Only remove a root this parent created, never an inherited path.
+            std::fs::create_dir(&root).expect("create owned test root");
+            root
+        };
         Self {
             test,
             root,
