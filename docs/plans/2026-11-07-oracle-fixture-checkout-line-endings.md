@@ -1,6 +1,6 @@
 # Keep byte-exact text oracles unchanged across checkouts
 
-Engineering-frontier reliability. Windows main CI 42417133790 fails the S-PPU ares oracle: all 70 cases differ despite matching line diagnostics. The unchanged test passes against Git's LF blobs, then fails against actual Git core.autocrlf=true fixture checkouts. ORACLE_DUMP proves all 70 differences are exclusively inserted CR bytes. For brightness_blank, byte 24 is LF in output and CR in checkout; output/blob is 5758 bytes, checkout 5992. The test's exact comparator is correct; its lines-based diagnostic hides the representation difference.
+Windows main CI 42417133790 fails the S-PPU ares oracle: all 70 cases differ despite matching line diagnostics. The unchanged test passes against Git's LF blobs, then fails against actual Git core.autocrlf=true fixture checkouts. ORACLE_DUMP proves all 70 differences are exclusively inserted CR bytes. For brightness_blank, byte 24 is LF in output and CR in checkout; output/blob is 5758 bytes, checkout 5992. The test's exact comparator is correct; its lines-based diagnostic hides the representation difference.
 
 The sibling audit finds the same exact generated-text contract in YM2610, YM2413, YM2612 and shell ISA-disassembly snapshots. Sony S-DSP compares parsed lines; NES/Atari/Amiga fixtures are parsed records, JSON or binary snapshots. Those remain outside this correction. No chip accuracy, reference output, golden content, comparator, source-line semantic assertion or release version changes are intended.
 
