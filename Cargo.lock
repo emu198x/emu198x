@@ -3836,9 +3836,9 @@ checksum = "331e786259043ed1af59cc66ea1efd941879b8781fb8f0f90234dd8918224b6b"
 
 [[package]]
 name = "isa198x-disasm"
-version = "0.1.7"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3281b8a30e7b6fc0a1de463d300f0cf0dd5f67324c7160175102a23ab0637763"
+checksum = "2d2a84ea6a5c6b77b041f07a6c40c22a9d849b6c3833e31bb82ec3cb7ae16381"
 dependencies = [
  "isa198x",
 ]
