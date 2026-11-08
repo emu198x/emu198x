@@ -62,7 +62,7 @@ static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboa
 pub struct OricRuntime {
     profile: MachineProfile,
     model: Model,
-    machine: Option<OricAtmos>,
+    machine: Option<Box<OricAtmos>>,
     bios_bytes: Option<Vec<u8>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
@@ -135,11 +135,11 @@ impl OricRuntime {
 
     #[must_use]
     pub fn machine(&self) -> Option<&OricAtmos> {
-        self.machine.as_ref()
+        self.machine.as_deref()
     }
 
     pub fn machine_mut(&mut self) -> Option<&mut OricAtmos> {
-        self.machine.as_mut()
+        self.machine.as_deref_mut()
     }
 
     #[must_use]
@@ -174,7 +174,7 @@ impl OricRuntime {
     /// Drain the bytes the Oric has sent through the serial card.
     pub fn drain_serial_output(&mut self) -> Vec<u8> {
         self.machine
-            .as_mut()
+            .as_deref_mut()
             .map(OricAtmos::drain_serial_output)
             .unwrap_or_default()
     }
@@ -202,7 +202,7 @@ impl OricRuntime {
         if let Some(machine) = &machine {
             self.serial_card = machine.has_serial_port();
         }
-        self.machine = machine;
+        self.machine = machine.map(Box::new);
         self.update_rgba_framebuffer();
     }
 
@@ -220,7 +220,7 @@ impl OricRuntime {
             machine.insert_tape(bytes.clone());
         }
         machine.set_serial_card(self.serial_card);
-        self.machine = Some(machine);
+        self.machine = Some(Box::new(machine));
         self.update_rgba_framebuffer();
     }
 

@@ -135,6 +135,58 @@ mod tests {
     }
 
     #[test]
+    fn headless_script_fits_one_megabyte_stack() {
+        use emu198x_shell::launch::{CommonCli, script_report};
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("oric-stack-budget-{}", std::process::id()));
+        std::fs::create_dir(&directory).expect("new synthetic fixture directory");
+        let fixture = Fixture(directory);
+        let rom = fixture.0.join("monitor.rom");
+        let script = fixture.0.join("script.json");
+        std::fs::write(&rom, vec![0x5a; 16384]).expect("synthetic monitor");
+        std::fs::write(
+            &script,
+            r#"[{"action":"memory_read","addr":49152,"len":1}]"#,
+        )
+        .expect("observation script");
+        for model in Model::ALL {
+            let rom = rom.clone();
+            let script = script.clone();
+            std::thread::Builder::new()
+                .name(format!("oric-native-stack-budget-{}", model.variant_id()))
+                .stack_size(1024 * 1024)
+                .spawn(move || {
+                    let mut app = Oric {
+                        model,
+                        ..Oric::default()
+                    };
+                    app.firmware.pin(model.firmware_id(), rom);
+                    let common = CommonCli {
+                        script: Some(script),
+                        ..CommonCli::default()
+                    };
+                    let report = script_report(&app, &common).expect("bounded-stack script");
+                    assert_eq!(report["rom_loaded"], true);
+                    assert_eq!(report["model"], model.variant_id());
+                    assert_eq!(
+                        report["observations"][0]["bytes"],
+                        serde_json::json!([0x5a])
+                    );
+                })
+                .expect("bounded-stack thread")
+                .join()
+                .expect("bounded-stack execution");
+        }
+    }
+
+    #[test]
     fn parse_cli_defaults() {
         let Parsed::Run { app, .. } = parse::<Oric>(&[]).expect("parses") else {
             panic!("expected a run");
