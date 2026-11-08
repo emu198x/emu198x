@@ -13,7 +13,7 @@ machine-timex-ts1000 = {path="../machine-timex-ts1000",version="0.48.0"}
 emu198x-shell = { workspace = true }
 format198x-sinclair-zx81-p = "0.1.0"
 machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.48.0" }
-emu198x-zilog-z80 = "0.8.0"
+emu198x-zilog-z80 = "0.9.0"
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

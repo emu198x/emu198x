@@ -13,7 +13,7 @@ emu198x-gi-ay-3-8910 = "0.6.0"
 emu198x-ti-tms9918 = "0.1.0"
 emu198x-z80-cadence = "0.1.0"
 emu198x-western-digital-wd1770 = "0.1.0"
-emu198x-zilog-z80 = "0.8.0"
+emu198x-zilog-z80 = "0.9.0"
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

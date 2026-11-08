@@ -11,7 +11,7 @@ repository.workspace = true
 common-sord-m5 = { path = "../common-sord-m5", version = "0.48.0" }
 
 [dev-dependencies]
-emu198x-zilog-z80 = "0.8.0"
+emu198x-zilog-z80 = "0.9.0"
 emu198x-z80-cadence = "0.1.0"
 postcard = { workspace = true }
 

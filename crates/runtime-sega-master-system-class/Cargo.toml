@@ -20,7 +20,7 @@ machine-sega-master-system-2-ntsc = { path = "../machine-sega-master-system-2-nt
 machine-sega-master-system-2-pal = { path = "../machine-sega-master-system-2-pal", version = "0.48.0" }
 machine-sega-mark-iii = { path = "../machine-sega-mark-iii", version = "0.48.0" }
 machine-sega-game-gear = { path = "../machine-sega-game-gear", version = "0.48.0" }
-emu198x-zilog-z80 = "0.8.0"
+emu198x-zilog-z80 = "0.9.0"
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
