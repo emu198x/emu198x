@@ -163,13 +163,18 @@ button = "left"
 # Captures the canonical "BARBARIAN" title (Palace logo + score
 # header + snake-coiled tree pillars) during its demonstration loop.
 wait_frames = 4999
-frame_hash = "xxh64:599943fa3c6836bb"
+# Re-recorded for the 68000 timing corrections of 22-23 October (bbb1919b3
+# onward): the same scene, reached at a slightly different moment.
+frame_hash = "xxh64:5d492f4183ddbf78"
 
 [entry.audio]
 # The demonstration loop is audibly active at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:aafeb70c3a5299cd"
+# Re-recorded for the Paula loop-request fix (#1777, e858e9b4f) and the 68000
+# timing corrections of 22-23 October (bbb1919b3 onward): the demonstration
+# fight's sounds now fall at different moments.
+hash = "xxh64:4d3d9022476f6391"
 
 [[entry]]
 id = "1943"
@@ -295,7 +300,9 @@ key = "return"
 wait_frames = 7999
 # Actual Imagine DRAGON NINJA title/credits sequence after leaving both the
 # release screen and trainer menu. This is the ECS real-software waypoint.
-frame_hash = "xxh64:6960ab0c86578a58"
+# Re-recorded for the 68000 timing corrections of 22-23 October (bbb1919b3
+# onward): the same scene, reached at a slightly different moment.
+frame_hash = "xxh64:396509334f54ab05"
 
 [entry.audio]
 # The title sequence is silent at this measured window.
@@ -365,7 +372,9 @@ frame_hash = "xxh64:4ee6197e2dee4e3b"
 # The Banshee preview soundtrack is active in stereo at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:49aa27d3f82af1ab"
+# Re-recorded for the 68000 timing corrections of 22-23 October (bbb1919b3
+# onward): the same soundtrack, at a shifted position.
+hash = "xxh64:efa7b74d343b320e"
 
 [[entry]]
 id = "state-of-the-art"
@@ -386,13 +395,17 @@ wait_frames = 6000
 # The October reference run confirms the fractured dancer and EHB noise
 # are part of this effect. Retains BPL6PTL and the integrated timing fixes;
 # the exact pose is a compatibility waypoint, not a reference RGB match.
-frame_hash = "xxh64:63d2dff5ec502f7e"
+# Re-recorded for the 68000 timing corrections of 22-23 October (bbb1919b3
+# onward): the same scene, reached at a slightly different moment.
+frame_hash = "xxh64:879eb03894504624"
 
 [entry.audio]
 # The demo soundtrack is active in stereo at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:5aaa87d7a7bc566c"
+# Re-recorded for the 68000 timing corrections of 22-23 October (bbb1919b3
+# onward): the same soundtrack, at a shifted position.
+hash = "xxh64:e72d95e76a6aaafe"
 
 [[entry]]
 id = "alien-syndrome-ntsc"
@@ -416,4 +429,6 @@ frame_hash = "xxh64:da93ac91600d23da"
 # Title music is active in stereo at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4d35188959001911"
+# Re-recorded for the 68000 timing corrections of 22-23 October (bbb1919b3
+# onward): the same soundtrack, at a shifted position.
+hash = "xxh64:e315682f5961004c"
