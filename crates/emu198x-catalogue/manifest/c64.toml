@@ -286,7 +286,11 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:70969d644b703e35"
+# Re-recorded for b5b2a7dcb: Bomb Jack reads VIC-II register $3A a few
+# hundred times on the way to its title. It used to get the retained DMA
+# byte ($20); unused registers now return $FF, as VICE does on every chip
+# model. Same tune in the same window; the boot frame is unchanged.
+hash = "xxh64:bc05ceac101f6e42"
 
 [[entry]]
 id = "thing-on-a-spring"
