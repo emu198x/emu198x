@@ -67,7 +67,9 @@ path = "nintendo/nes/Contra (1988-02)(Konami)(US).nes"
 [entry.boot]
 # UxROM mapper — different bank-switching path to NROM.
 # Captures the canonical KONAMI / CONTRA title with "PLAY SELECT".
-wait_frames = 240
+# Native frames count the power-on partial field since b17918fe2, so
+# frame 241 is the moment the original frame-240 capture recorded.
+wait_frames = 241
 frame_hash = "xxh64:929fb589e81e0143"
 
 [entry.audio]
@@ -90,8 +92,11 @@ path = "nintendo/nes/Zelda II - The Adventure of Link (1988-12)(Nintendo)(US).ne
 [entry.boot]
 # MMC1 mapper + battery save (PRG-RAM at $6000-$7FFF).
 # Captures the iconic sword-in-the-pedestal attract sequence.
-wait_frames = 240
-frame_hash = "xxh64:b5bb85e96c59462b"
+# Native frames count the power-on partial field since b17918fe2, so
+# frame 241 is the moment the original frame-240 capture recorded.
+wait_frames = 241
+# Corrected scanline-tail background alignment (#1748): only columns 0-7 changed.
+frame_hash = "xxh64:5a37224525388f83"
 
 [entry.audio]
 from_frame = 60
