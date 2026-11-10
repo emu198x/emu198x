@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.48.6] - 2026-11-10
+
+
+### Fixed
+
+- Discover firmware through USERPROFILE when HOME is absent
+
 ## [0.48.5] - 2026-11-08
 
 
