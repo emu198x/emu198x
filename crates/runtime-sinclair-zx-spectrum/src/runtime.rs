@@ -732,7 +732,7 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         let drive = microdrive_index(slot).ok_or_else(|| MachineError::UnknownMediaSlot {
             slot: slot.to_owned(),
         })?;
-        let image = format_sinclair_zx_spectrum_mdr::MdrImage::parse(bytes).map_err(|err| {
+        let image = format198x_sinclair_zx_spectrum_mdr::MdrImage::parse(bytes).map_err(|err| {
             MachineError::InvalidMedia {
                 slot: slot.to_owned(),
                 reason: err.to_string(),
@@ -1235,12 +1235,12 @@ pub const SD_CARD_SLOT: &str = "sd-card-1";
 /// if it ever does not.
 fn mdr_image(
     tape: &emu198x_peripheral_sinclair_zx_spectrum_interface1::MicrodriveTape,
-) -> format_sinclair_zx_spectrum_mdr::MdrImage {
+) -> format198x_sinclair_zx_spectrum_mdr::MdrImage {
     let mut bytes = tape.sectors().to_vec();
     bytes.push(u8::from(tape.write_protected));
-    format_sinclair_zx_spectrum_mdr::MdrImage::parse(&bytes).unwrap_or_else(|_| {
-        format_sinclair_zx_spectrum_mdr::MdrImage::blank(
-            tape.sectors().len() / format_sinclair_zx_spectrum_mdr::SECTOR_LEN,
+    format198x_sinclair_zx_spectrum_mdr::MdrImage::parse(&bytes).unwrap_or_else(|_| {
+        format198x_sinclair_zx_spectrum_mdr::MdrImage::blank(
+            tape.sectors().len() / format198x_sinclair_zx_spectrum_mdr::SECTOR_LEN,
         )
     })
 }

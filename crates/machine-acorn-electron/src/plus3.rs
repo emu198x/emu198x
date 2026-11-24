@@ -264,14 +264,14 @@ impl Plus3 {
 /// # Errors
 ///
 /// Returns the format crate's error for an empty or oversized image.
-pub fn adfs_disk(image: &[u8], writable: bool) -> Result<Disk, format_acorn_adfs::Error> {
-    let format = format_acorn_adfs::detect(image)?;
+pub fn adfs_disk(image: &[u8], writable: bool) -> Result<Disk, format198x_acorn_adfs::Error> {
+    let format = format198x_acorn_adfs::detect(image)?;
     Ok(Disk::new(
-        format_acorn_adfs::padded(image, format),
+        format198x_acorn_adfs::padded(image, format),
         format.tracks(),
         format.sides(),
-        format_acorn_adfs::SECTORS_PER_TRACK,
-        format_acorn_adfs::SECTOR_SIZE,
+        format198x_acorn_adfs::SECTORS_PER_TRACK,
+        format198x_acorn_adfs::SECTOR_SIZE,
     )
     .with_first_sector_id(0)
     .write_protected(!writable))
@@ -280,7 +280,7 @@ pub fn adfs_disk(image: &[u8], writable: bool) -> Result<Disk, format_acorn_adfs
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_acorn_adfs::Format;
+    use format198x_acorn_adfs::Format;
 
     fn settle(p: &mut Plus3) {
         for _ in 0..1000 {
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn a_sector_reads_through_the_latch_and_registers() {
-        let mut image = format_acorn_adfs::blank(Format::L, "T");
+        let mut image = format198x_acorn_adfs::blank(Format::L, "T");
         // Stamp track 3, side 1, sector 9: an .adl interleaves the sides.
         let off = ((3 * 2 + 1) * 16 + 9) * 256;
         image[off..off + 4].copy_from_slice(b"ELK3");
@@ -385,7 +385,7 @@ mod tests {
         let mut p = Plus3::new(Vec::new());
         p.insert_disk(
             0,
-            adfs_disk(&format_acorn_adfs::blank(Format::M, "T"), true).expect("disc"),
+            adfs_disk(&format198x_acorn_adfs::blank(Format::M, "T"), true).expect("disc"),
         );
         p.write(0xFCC0, 0x20); // MR released, no drive
         p.write(0xFCC6, 0);

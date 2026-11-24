@@ -1537,7 +1537,7 @@ mod tests {
         os[0x3FFD] = 0x10; // reset vector -> &1000
         let mut sys = AcornElectron::new(os, basic);
         sys.fit_plus3(Vec::new());
-        let image = format_acorn_adfs::blank(format_acorn_adfs::Format::M, "POLL");
+        let image = format198x_acorn_adfs::blank(format198x_acorn_adfs::Format::M, "POLL");
         sys.insert_disk(0, adfs_disk(&image, true).expect("disc"));
         let program: &[u8] = &[
             0xA9, 0x21, 0x8D, 0xC0, 0xFC, // LDA #&21: STA &FCC0 (drive 0, MR high)
