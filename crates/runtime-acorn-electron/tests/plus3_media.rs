@@ -5,7 +5,7 @@ use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink, ResetKind, SessionQueryProvider,
 };
-use format_acorn_adfs::{Format, blank};
+use format198x_acorn_adfs::{Format, blank};
 use runtime_acorn_electron::{ElectronRuntime, ElectronSessionQueryProvider, Model};
 
 fn plus3() -> ElectronRuntime {

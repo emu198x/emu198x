@@ -2989,10 +2989,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
-name = "format-acorn-adfs"
-version = "0.48.5"
-
-[[package]]
 name = "format-acorn-uef"
 version = "0.48.5"
 dependencies = [
@@ -3047,10 +3043,6 @@ name = "format-nintendo-snes-sfc"
 version = "0.48.5"
 
 [[package]]
-name = "format-sinclair-zx-spectrum-mdr"
-version = "0.48.5"
-
-[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.48.5"
 dependencies = [
@@ -3102,6 +3094,12 @@ dependencies = [
  "emu198x-tape-playback",
  "format198x-tzx",
 ]
+
+[[package]]
+name = "format198x-acorn-adfs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f80eba7bb2de31519aedeb06b62bbf75539f2ea26e59559ef9ffa95598cf9969"
 
 [[package]]
 name = "format198x-acorn-atom-atm"
@@ -3255,6 +3253,12 @@ name = "format198x-sinclair-zx-spectrum-bas"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b454ee397e33f200d79a874639aeff1fe4d990e68438076f3dc05054c94126f"
+
+[[package]]
+name = "format198x-sinclair-zx-spectrum-mdr"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d66190387ebf90ef3232bc7134f2baaa08d056079f8e5fc2e03c89d00f7e92b"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-sna"
@@ -4092,8 +4096,8 @@ dependencies = [
  "common-acorn-cassette",
  "emu198x-mos-6502",
  "emu198x-western-digital-wd1770",
- "format-acorn-adfs",
  "format-acorn-uef",
+ "format198x-acorn-adfs",
  "postcard",
  "serde",
  "serde-big-array",
@@ -6181,8 +6185,8 @@ version = "0.48.5"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-shell",
- "format-acorn-adfs",
  "format-acorn-uef",
+ "format198x-acorn-adfs",
  "machine-acorn-electron",
  "postcard",
  "serde",
@@ -6631,13 +6635,13 @@ dependencies = [
  "emu198x-test-skip",
  "emu198x-zilog-z80 0.9.0",
  "format-amstrad-dsk",
- "format-sinclair-zx-spectrum-mdr",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-snapshot",
  "format-sinclair-zx-spectrum-szx",
  "format-sinclair-zx-spectrum-tzx",
  "format-sinclair-zx-spectrum-z80",
  "format198x-sinclair-zx-spectrum-bas",
+ "format198x-sinclair-zx-spectrum-mdr",
  "format198x-sinclair-zx-spectrum-tap",
  "machine-pentagon-128",
  "machine-scorpion-zs256",

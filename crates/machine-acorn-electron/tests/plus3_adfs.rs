@@ -45,7 +45,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use format_acorn_adfs::{Format, SECTOR_SIZE, blank};
+use format198x_acorn_adfs::{Format, SECTOR_SIZE, blank};
 use machine_acorn_electron::{AcornElectron, adfs_disk};
 
 fn rom(env_var: &str, file: &str) -> Option<Vec<u8>> {
@@ -88,9 +88,9 @@ fn hello_disc() -> Vec<u8> {
     let free = Format::M.total_sectors() - 8;
     image[SECTOR_SIZE] = (free & 0xFF) as u8;
     image[SECTOR_SIZE + 1] = (free >> 8) as u8;
-    image[0xFF] = format_acorn_adfs::map_checksum(&image[..SECTOR_SIZE]);
+    image[0xFF] = format198x_acorn_adfs::map_checksum(&image[..SECTOR_SIZE]);
     image[SECTOR_SIZE + 0xFF] =
-        format_acorn_adfs::map_checksum(&image[SECTOR_SIZE..2 * SECTOR_SIZE]);
+        format198x_acorn_adfs::map_checksum(&image[SECTOR_SIZE..2 * SECTOR_SIZE]);
     image
 }
 
