@@ -9,6 +9,6 @@ repository.workspace = true
 [dependencies]
 common-spectravideo-svi-328 = { path = "../common-spectravideo-svi-328", version = "0.48.0" }
 [dev-dependencies]
-emu198x-zilog-z80 = "0.8.0"
+emu198x-zilog-z80 = "0.9.0"
 [lints]
 workspace = true

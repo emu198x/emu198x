@@ -20,7 +20,7 @@ machine-sony-hb-10 = { path = "../machine-sony-hb-10", version = "0.48.0" }
 machine-philips-vg-8235-00 = { path = "../machine-philips-vg-8235-00", version = "0.48.0" }
 machine-sony-hb-f1 = { path = "../machine-sony-hb-f1", version = "0.48.0" }
 machine-panasonic-fs-a1 = { path = "../machine-panasonic-fs-a1", version = "0.48.0" }
-emu198x-zilog-z80 = "0.8.0"
+emu198x-zilog-z80 = "0.9.0"
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
