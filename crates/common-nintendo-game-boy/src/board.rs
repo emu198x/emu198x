@@ -1,7 +1,7 @@
 //! Statically bound physical Game Boy owners over the legacy state engine.
 use crate::{
-    ApuChannel, AudioControls, BootProfile, Cartridge, CartridgeHeader, GameBoyState, HeaderError,
-    JoypadButton, MemoryBus, Sm83,
+    ApuChannel, AudioControls, BootProfile, Cartridge, CartridgeHeader, CartridgeLoadError,
+    GameBoyState, JoypadButton, MemoryBus, Sm83,
 };
 use serde::Serialize;
 /// Physical board identity; implemented execution surfaces are described by profiles.
@@ -55,7 +55,10 @@ impl<B: GameBoyBoard> GameBoyCore<B> {
         }
     }
     /// Parse a cartridge for this fixed board.
-    pub fn from_rom(rom: Vec<u8>) -> Result<(CartridgeHeader, Self), HeaderError> {
+    ///
+    /// # Errors
+    /// Rejects a malformed header or a cartridge controller that is not implemented.
+    pub fn from_rom(rom: Vec<u8>) -> Result<(CartridgeHeader, Self), CartridgeLoadError> {
         GameBoyState::from_rom_with_boot_profile(rom, B::DEFAULT_BOOT_PROFILE).map(|(h, state)| {
             (
                 h,

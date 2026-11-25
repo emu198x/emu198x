@@ -784,7 +784,7 @@ dependencies = [
  "emu198x-nintendo-game-boy-ppu",
  "emu198x-nintendo-game-boy-timer",
  "emu198x-sharp-lr35902",
- "format-nintendo-game-boy-cartridge",
+ "format198x-nintendo-game-boy-cartridge",
  "png",
  "postcard",
  "serde",
@@ -3027,14 +3027,6 @@ name = "format-nintendo-famicom-fds"
 version = "0.48.5"
 
 [[package]]
-name = "format-nintendo-game-boy-cartridge"
-version = "0.48.5"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.48.5"
 dependencies = [
@@ -3239,6 +3231,12 @@ name = "format198x-jupiter-ace-ace"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50109e958fce3d6cd0bb65dacbfe03117f1cf98443bfa0017f77e3af3d7e38f"
+
+[[package]]
+name = "format198x-nintendo-game-boy-cartridge"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96f7365b33aacfafc8286042bef2ff7490f113d6f4c8f20ce0a7de829a790637"
 
 [[package]]
 name = "format198x-nintendo-nes-ines"

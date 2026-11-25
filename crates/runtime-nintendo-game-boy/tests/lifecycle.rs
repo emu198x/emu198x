@@ -348,6 +348,57 @@ fn load_media_rejects_unparseable_cartridge_bytes() {
     }
 }
 
+#[test]
+fn unsupported_cartridge_does_not_replace_a_running_game() {
+    let mut runtime = GameBoyRuntime::blank(Model::Dmg);
+    let original = battery_ram_rom();
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        "cartridge",
+        MediaKind::Cartridge,
+        &original,
+    ));
+    runtime.load_media(&media).expect("load MBC1 cartridge");
+
+    let save = vec![0x5A; 0x2000];
+    runtime.restore_cartridge_ram(&save).expect("seed save RAM");
+    let (mut frame_sink, mut audio_sink, mut trace_sink) = null_host_buffers();
+    let mut host = HostIo {
+        input_events: &[],
+        frame_sink: &mut frame_sink,
+        audio_sink: &mut audio_sink,
+        trace_sink: &mut trace_sink,
+    };
+    runtime
+        .run_until(MachineTime::new(u64::from(MCYCLES_PER_FRAME)), &mut host)
+        .expect("advance the running game");
+    let before = runtime.snapshot().expect("snapshot before replacement");
+
+    let mut huc1 = battery_ram_rom();
+    huc1[0x0147] = 0xFF;
+    huc1[0x014D] = huc1[0x0134..=0x014C]
+        .iter()
+        .fold(0u8, |sum, &byte| sum.wrapping_sub(byte).wrapping_sub(1));
+    let mut replacement = MediaSet::new();
+    replacement.push(MediaImage::new("cartridge", MediaKind::Cartridge, &huc1));
+    match runtime
+        .load_media(&replacement)
+        .expect_err("HuC1 is not implemented")
+    {
+        MachineError::InvalidMedia { slot, reason } => {
+            assert_eq!(slot, "cartridge");
+            assert_eq!(reason, "unsupported cartridge type $FF (HuC1+RAM+BATTERY)");
+        }
+        other => panic!("expected InvalidMedia, got {other:?}"),
+    }
+
+    assert_eq!(runtime.cartridge_ram(), Some(save.as_slice()));
+    assert_eq!(
+        runtime.snapshot().expect("snapshot after rejection"),
+        before
+    );
+}
+
 /// `reset` on a blank runtime drives `rebuild_machine` through the
 /// no-cartridge-bytes branch — the machine stays `None`, the time
 /// resets to zero, and no panic occurs.
