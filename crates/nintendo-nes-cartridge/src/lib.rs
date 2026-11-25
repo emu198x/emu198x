@@ -1,7 +1,7 @@
 //! NES cartridge boards: the [`Mapper`] trait, nametable [`Mirroring`],
 //! the supported boards, and loading one from an iNES / NES 2.0 file.
 //!
-//! The file layout itself is read by `format-nintendo-nes-ines`; this crate
+//! The file layout itself is read by `format198x-nintendo-nes-ines`; this crate
 //! is the hardware the file describes.
 //!
 //! # Scope of this port
