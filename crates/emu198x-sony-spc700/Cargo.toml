@@ -15,9 +15,9 @@ categories = ["emulators"]
 serde = { workspace = true }
 
 [dev-dependencies]
-# Path-only on purpose: a dev-dependency carrying a version must resolve on
-# the registry at publish time, and the test helper stays unpublished.
-emu198x-test-skip = { path = "../emu198x-test-skip" }
+# Use the workspace copy here, and keep the published helper available to
+# the corpus test when Cargo packages this crate without its sibling.
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.1.0" }
 serde_json = { workspace = true }
 
 [lints]
