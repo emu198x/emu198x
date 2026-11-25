@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import re
 import tempfile
@@ -11,6 +13,7 @@ import textwrap
 import tomllib
 import unittest
 import unittest.mock
+import urllib.error
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CRATES_IO_NAME_LIMIT = 64
@@ -53,6 +56,35 @@ class UnreleasedSiblings(unittest.TestCase):
             with unittest.mock.patch.object(extract_repo, "ROOT", pathlib.Path(workspace)):
                 siblings = extract_repo.unreleased_siblings(pathlib.Path(tmp))
             self.assertEqual(siblings, {"emu198x-atari-gtia", "emu198x-mos-6502"})
+
+
+class VerificationMode(unittest.TestCase):
+    def check(self, registry_has_helper: bool) -> tuple[str, list[tuple[str, ...]]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            crate = root / "crates/emu198x-test-skip"
+            crate.mkdir(parents=True)
+            (crate / "Cargo.toml").write_text('[package]\nversion = "0.1.0"\n')
+            output = io.StringIO()
+            with (
+                contextlib.redirect_stdout(output),
+                unittest.mock.patch.object(extract_repo, "ROOT", root),
+                unittest.mock.patch.object(extract_repo, "published", return_value=registry_has_helper),
+                unittest.mock.patch.object(extract_repo, "run") as run,
+            ):
+                extract_repo.verify(root / "extracted")
+            return output.getvalue(), [call.args for call in run.call_args_list]
+
+    def test_local_checks_are_labelled_and_skip_publication_dry_run(self) -> None:
+        output, commands = self.check(False)
+        self.assertIn("emu198x-test-skip; not registry-only", output)
+        self.assertEqual([args[1] for args in commands], ["fmt", "clippy", "test"])
+        self.assertIn("--config", commands[-1])
+
+    def test_checks_without_local_overrides_attempt_publication_dry_run(self) -> None:
+        output, commands = self.check(True)
+        self.assertIn("no temporary path overrides", output)
+        self.assertEqual(commands[-1], ("cargo", "publish", "--dry-run", "--workspace"))
 
 
 class RewriteManifest(unittest.TestCase):
@@ -144,6 +176,36 @@ class WorkspaceDependencies(unittest.TestCase):
     def test_a_registry_dependency_is_left_alone(self) -> None:
         for spec in ('"1"', '{ version = "1", features = ["derive"] }'):
             self.assertEqual(extract_repo.registry_spec("serde", spec), spec)
+
+    def test_an_inherited_path_reports_its_exact_registry_version_without_rewriting_it(self) -> None:
+        specs = {
+            "shell": '{ path = "crates/emu198x-shell", package = "emu198x-shell", version = "0.44.4" }',
+            "unused": '{ path = "crates/unused", version = "0.1.0" }',
+            "serde": '"1"',
+            "range": '{ path = "crates/range", version = ">=0.1, <0.2" }',
+        }
+        with unittest.mock.patch.object(extract_repo, "published", return_value=False) as published:
+            warnings = extract_repo.inherited_registry_warnings(specs, {"shell", "serde", "range"})
+        published.assert_called_once_with("emu198x-shell", "0.44.4")
+        self.assertEqual(warnings, [
+            "workspace dependency shell (emu198x-shell): exact crates.io version "
+            "0.44.4 was not found; Cargo may still resolve a compatible version"
+        ])
+        self.assertEqual(
+            extract_repo.registry_spec("shell", specs["shell"]),
+            '{ package = "emu198x-shell", version = "0.44.4" }',
+        )
+
+    def test_a_registry_outage_does_not_mean_the_inherited_version_is_missing(self) -> None:
+        spec = '{ path = "crates/emu198x-shell", version = "0.44.4" }'
+        error = urllib.error.HTTPError("https://crates.io", 503, "unavailable", {}, None)
+        with unittest.mock.patch.object(extract_repo.urllib.request, "urlopen", side_effect=error):
+            warnings = extract_repo.inherited_registry_warnings(
+                {"emu198x-shell": spec}, {"emu198x-shell"},
+            )
+        self.assertEqual(warnings, [
+            "workspace dependency emu198x-shell: could not check crates.io for emu198x-shell 0.44.4"
+        ])
 
     def test_a_path_without_a_version_cannot_move(self) -> None:
         with self.assertRaises(SystemExit):

@@ -23,6 +23,11 @@ Nothing here changes this workspace. Switching it to the published versions
 and deleting the crates is the follow-up pull request, once they are on
 crates.io.
 
+A publish dry run checks the generated workspace, not its filtered history.
+If release-plz cannot package an old commit that predates the workspace root,
+see the reviewed first-update bootstrap in emu198x/zilog-z80#3:
+https://github.com/emu198x/zilog-z80/pull/3. Do not rewrite the filtered history.
+
 Requires `git-filter-repo` (`pip install git-filter-repo`).
 """
 
@@ -128,8 +133,37 @@ def published(name: str, version: str) -> bool:
     try:
         with urllib.request.urlopen(request, timeout=30):
             return True
-    except urllib.error.HTTPError:
-        return False
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+
+
+def inherited_registry_warnings(specs: dict[str, str], used: set[str]) -> list[str]:
+    """Report missing exact versions without second-guessing Cargo's resolver."""
+    warnings = []
+    for key in sorted(used & specs.keys()):
+        spec = tomllib.loads(f"dep = {specs[key]}")["dep"]
+        if not isinstance(spec, dict) or not spec.get("path", "").startswith("crates/"):
+            continue
+        version = spec.get("version", "")
+        # Ranges and partial versions are requirements, not lookup keys.
+        if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+            continue
+        name = spec.get("package", key)
+        try:
+            present = published(name, version)
+        except (urllib.error.URLError, TimeoutError):
+            present = None
+        if present is False:
+            label = key if key == name else f"{key} ({name})"
+            warnings.append(
+                f"workspace dependency {label}: exact crates.io version "
+                f"{version} was not found; Cargo may still resolve a compatible version"
+            )
+        elif present is None:
+            warnings.append(f"workspace dependency {key}: could not check crates.io for {name} {version}")
+    return warnings
 
 
 def rewrite_manifest(path: pathlib.Path, moving: set[str], used: set[str]) -> list[str]:
@@ -467,6 +501,7 @@ def extract(repo: str, ref: str = "main") -> tuple[pathlib.Path, dict, list[str]
     for crate in crates:
         warnings += rewrite_manifest(repo_dir / "crates" / crate / "Cargo.toml", moving, used)
     skeleton(entry, repo_dir, crates, used)
+    warnings += inherited_registry_warnings(workspace_dependencies(), used)
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
@@ -509,13 +544,19 @@ def verify(repo_dir: pathlib.Path) -> None:
     the repository.
     """
     patches = []
+    local = []
     for name in sorted(set(PUBLISHED_HELPERS) | unreleased_siblings(repo_dir)):
         manifest = ROOT / "crates" / name / "Cargo.toml"
         version = re.search(r'^version = "([^"]+)"', manifest.read_text(), re.M)
         if not version:
             sys.exit(f"{name} still takes the suite version here, so it can't stand in for its release")
         if not published(name, version.group(1)):
+            local.append(name)
             patches += ["--config", f'patch.crates-io.{name}.path="{manifest.parent}"']
+    if local:
+        print(f"verification uses local path overrides for {', '.join(local)}; not registry-only", flush=True)
+    else:
+        print("verification uses no temporary path overrides", flush=True)
     run("cargo", "fmt", "--all", "--check", cwd=repo_dir)
     run("cargo", "clippy", *patches, "--workspace", "--all-targets", "--", "-D", "warnings", cwd=repo_dir)
     run("cargo", "test", *patches, "--workspace", cwd=repo_dir)
