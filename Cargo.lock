@@ -813,7 +813,7 @@ dependencies = [
  "emu198x-sony-s-dsp",
  "emu198x-sony-spc700",
  "emu198x-wdc-65c816",
- "format-nintendo-snes-sfc",
+ "format198x-nintendo-snes-sfc",
  "postcard",
  "serde",
 ]
@@ -3039,10 +3039,6 @@ name = "format-nintendo-nes-ines"
 version = "0.48.5"
 
 [[package]]
-name = "format-nintendo-snes-sfc"
-version = "0.48.5"
-
-[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.48.5"
 dependencies = [
@@ -3247,6 +3243,12 @@ name = "format198x-jupiter-ace-ace"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50109e958fce3d6cd0bb65dacbfe03117f1cf98443bfa0017f77e3af3d7e38f"
+
+[[package]]
+name = "format198x-nintendo-snes-sfc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af8f2cb89f45ae8ec9696daf9cf4ae3575adf4caeb1c50abe08ed78dccac44b"
 
 [[package]]
 name = "format198x-sinclair-zx-spectrum-bas"
@@ -6516,7 +6518,7 @@ version = "0.48.5"
 dependencies = [
  "common-nintendo-snes",
  "emu198x-shell",
- "format-nintendo-snes-sfc",
+ "format198x-nintendo-snes-sfc",
  "isa198x-disasm",
  "machine-nintendo-snes-ntsc",
  "machine-nintendo-snes-pal",

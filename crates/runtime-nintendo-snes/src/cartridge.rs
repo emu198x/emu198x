@@ -39,12 +39,12 @@ pub fn board(image: &[u8]) -> Result<Cartridge, CartridgeError> {
 /// headerless image's zero byte would read as Japan.
 #[must_use]
 pub fn destination(image: &[u8]) -> Option<(u8, bool)> {
-    let parsed = format_nintendo_snes_sfc::parse(image).ok()?;
+    let parsed = format198x_nintendo_snes_sfc::parse(image).ok()?;
     let header = &parsed.header;
     if !header.checksum_pair_valid() && header.map_mode_byte & 0xE0 != 0x20 {
         return None;
     }
-    let pal = parsed.header.video_standard() == format_nintendo_snes_sfc::VideoStandard::Pal;
+    let pal = parsed.header.video_standard() == format198x_nintendo_snes_sfc::VideoStandard::Pal;
     Some((parsed.header.destination, pal))
 }
 

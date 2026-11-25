@@ -16,7 +16,7 @@ fn runtime() -> SnesRuntime {
     let mut rom = common::headed_cartridge(1);
     rom[0x7fd8] = 1;
     rom[0x7fd6] = 2;
-    let sum = format_nintendo_snes_sfc::compute_checksum(&rom);
+    let sum = format198x_nintendo_snes_sfc::compute_checksum(&rom);
     rom[0x7fdc..0x7fde].copy_from_slice(&(!sum).to_le_bytes());
     rom[0x7fde..0x7fe0].copy_from_slice(&sum.to_le_bytes());
     r.insert_cartridge(rom).expect("cartridge");

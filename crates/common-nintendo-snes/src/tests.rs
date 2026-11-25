@@ -583,7 +583,7 @@ mod cartridge {
         rom[base + 0x18] = 0x01;
         rom[base + 0x19] = 0x02;
         rom[base + 0x3C..base + 0x3E].copy_from_slice(&0x8000u16.to_le_bytes());
-        let checksum = format_nintendo_snes_sfc::compute_checksum(&rom);
+        let checksum = format198x_nintendo_snes_sfc::compute_checksum(&rom);
         rom[base + 0x1C..base + 0x1E].copy_from_slice(&(!checksum).to_le_bytes());
         rom[base + 0x1E..base + 0x20].copy_from_slice(&checksum.to_le_bytes());
         let cart = Cartridge::from_image(&rom).expect("valid");

@@ -15,7 +15,7 @@
 //! Coprocessor boards (DSP, SuperFX, SA-1 and the rest) are refused: none is
 //! modelled yet.
 
-use format_nintendo_snes_sfc::{MapMode, SfcError, VideoStandard};
+use format198x_nintendo_snes_sfc::{MapMode, SfcError, VideoStandard};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -90,7 +90,7 @@ impl Cartridge {
     /// [`CartridgeError`] when the image has no header, or its board has a
     /// coprocessor.
     pub fn from_image(file: &[u8]) -> Result<Self, CartridgeError> {
-        let image = format_nintendo_snes_sfc::parse(file).map_err(CartridgeError::Image)?;
+        let image = format198x_nintendo_snes_sfc::parse(file).map_err(CartridgeError::Image)?;
         let header = &image.header;
         if let Some(name) = header.chipset.coprocessor_name() {
             return Err(CartridgeError::UnsupportedCoprocessor(name));

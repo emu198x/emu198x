@@ -181,7 +181,7 @@ fn media_goes_into_the_cartridge_slot_only() {
     // A SuperFX board is refused.
     let mut superfx = rom.clone();
     superfx[0x7FD6] = 0x13;
-    let checksum = format_nintendo_snes_sfc::compute_checksum(&superfx);
+    let checksum = format198x_nintendo_snes_sfc::compute_checksum(&superfx);
     superfx[0x7FDC..0x7FDE].copy_from_slice(&(!checksum).to_le_bytes());
     superfx[0x7FDE..0x7FE0].copy_from_slice(&checksum.to_le_bytes());
     let mut media = MediaSet::new();
