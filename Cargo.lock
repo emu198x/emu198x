@@ -799,7 +799,7 @@ dependencies = [
  "emu198x-ricoh-apu-2a03",
  "emu198x-ricoh-ppu-2c02",
  "emu198x-test-skip",
- "format-nintendo-famicom-fds",
+ "format198x-nintendo-famicom-fds",
  "nintendo-nes-cartridge",
  "serde",
  "serde-big-array",
@@ -3023,10 +3023,6 @@ name = "format-atari-st-st"
 version = "0.48.5"
 
 [[package]]
-name = "format-nintendo-famicom-fds"
-version = "0.48.5"
-
-[[package]]
 name = "format-sinclair-zx-spectrum-sna"
 version = "0.48.5"
 dependencies = [
@@ -3231,6 +3227,12 @@ name = "format198x-jupiter-ace-ace"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50109e958fce3d6cd0bb65dacbfe03117f1cf98443bfa0017f77e3af3d7e38f"
+
+[[package]]
+name = "format198x-nintendo-famicom-fds"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d99d27cc2986c350447fae7df2956c544e5af81ea2e2584ab7ed4d4c6fcabd"
 
 [[package]]
 name = "format198x-nintendo-game-boy-cartridge"
@@ -5321,7 +5323,7 @@ dependencies = [
  "emu198x-gi-ay-3-8910",
  "emu198x-ricoh-ppu-2c02",
  "emu198x-yamaha-ym2413",
- "format-nintendo-famicom-fds",
+ "format198x-nintendo-famicom-fds",
  "format198x-nintendo-nes-ines",
  "serde",
  "serde-big-array",

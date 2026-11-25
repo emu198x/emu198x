@@ -104,7 +104,7 @@ fn flipping_the_disk_reads_side_b_after_a_reset() {
     // side A back in the drive.
     runtime.reset(ResetKind::Hard);
     assert_eq!(runtime.inserted_disk_side(), Some(0));
-    assert_eq!(runtime.disk_image(), Some(disk()));
+    assert_eq!(runtime.disk_image().expect("encode disk"), Some(disk()));
 }
 
 #[test]
@@ -122,6 +122,60 @@ fn a_snapshot_keeps_the_disk_and_drive() {
     run_frames(&mut restored, 5);
     let actual: Vec<u8> = (0..16).map(|i| ram(&restored, 0x0300 + i)).collect();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn written_disk_bytes_survive_export_restore_and_reset() {
+    for header_len in [0, 16] {
+        let mut runtime = runtime_with_bios();
+        let file = disk();
+        let original = if header_len == 0 { &file[16..] } else { &file };
+        load_disk(&mut runtime, original).expect("disk loads");
+        let mapper = runtime.machine_mut().expect("live machine").mapper_mut();
+
+        // Consume the start mark and the 15 bytes preceding the first filler.
+        mapper.cpu_write(0x4025, 0x45); // read, ready, motor on
+        for _ in 0..16 {
+            let ready = (0..750_000).any(|_| {
+                mapper.cpu_tick();
+                mapper.cpu_read(0x4030) & 0x02 != 0
+            });
+            assert!(ready, "disk byte arrived");
+            mapper.cpu_read_expansion(0x4031).expect("disk register");
+        }
+        // The next byte on the track differs from the initially loaded file.
+        mapper.cpu_write(0x4025, 0x41); // write, ready, motor on
+        mapper.cpu_write(0x4024, 0x67);
+        assert!((0..1000).any(|_| {
+            mapper.cpu_tick();
+            mapper.cpu_read(0x4030) & 0x02 != 0
+        }));
+        mapper.cpu_write(0x4025, 0); // stop without touching later bytes
+
+        let mut expected = original.to_vec();
+        expected[header_len + 15] = 0x67;
+        assert_ne!(expected, original);
+        let exported = runtime.disk_image().expect("encode disk");
+        assert!(
+            exported.as_deref() == Some(expected.as_slice()),
+            "write is exported"
+        );
+
+        let saved = runtime.snapshot().expect("live disk snapshot");
+        let mut restored = NesRuntime::blank(Model::NesNtsc);
+        restored.restore(&saved).expect("restore written disk");
+        let exported = restored.disk_image().expect("encode restored disk");
+        assert!(
+            exported.as_deref() == Some(expected.as_slice()),
+            "restore retains the write"
+        );
+        restored.reset(ResetKind::Hard);
+        let exported = restored.disk_image().expect("encode after reset");
+        assert!(
+            exported.as_deref() == Some(expected.as_slice()),
+            "reset retains the write"
+        );
+    }
 }
 
 #[test]

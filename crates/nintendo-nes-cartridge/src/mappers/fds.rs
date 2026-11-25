@@ -47,7 +47,7 @@
 //! for behaviour only). Mesen2's automatic disk insertion and fast-forward
 //! are emulator conveniences and are not modelled.
 
-use format_nintendo_famicom_fds::{SIDE_LEN, Side, parse, write};
+use format198x_nintendo_famicom_fds::{SIDE_LEN, Side, parse, write};
 use serde::{Deserialize, Serialize};
 
 use super::fds_audio::FdsAudio;
@@ -421,13 +421,21 @@ impl DiskDrive for Fds {
         self.side = None;
     }
 
-    fn image(&self) -> Vec<u8> {
+    fn image(&self) -> Result<Vec<u8>, String> {
+        // Normal file loading limits a headered disk to the count byte, but a
+        // snapshot carries the header flag and tracks independently.
+        if self.file_header && self.tracks.len() > usize::from(u8::MAX) {
+            return Err(
+                format198x_nintendo_famicom_fds::FdsError::TooManySides(self.tracks.len())
+                    .to_string(),
+            );
+        }
         let sides: Vec<Vec<u8>> = self
             .tracks
             .iter()
             .map(|track| track_to_side(track))
             .collect();
-        write(&sides, self.file_header)
+        write(&sides, self.file_header).map_err(|error| error.to_string())
     }
 }
 
@@ -552,7 +560,7 @@ impl Mapper for Fds {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use format_nintendo_famicom_fds::DISK_SIGNATURE;
+    use format198x_nintendo_famicom_fds::DISK_SIGNATURE;
 
     /// A side with a disk info block, a file amount, and one file.
     fn side(data: &[u8]) -> Vec<u8> {
@@ -728,16 +736,16 @@ mod tests {
         assert_eq!(fds.inserted(), Some(1));
         fds.eject();
         assert_eq!(fds.inserted(), None);
-        assert_eq!(fds.image(), sides.concat());
+        assert_eq!(fds.image().expect("export"), sides.concat());
     }
 
     #[test]
     fn a_file_loads_with_side_a_inserted_and_keeps_its_header() {
-        let file = write(&[side(b"a"), side(b"b")], true);
+        let file = write(&[side(b"a"), side(b"b")], true).expect("encode");
         let fds = Fds::from_file(&[], &file).expect("load");
         assert_eq!(fds.inserted(), Some(0));
         assert_eq!(fds.side_count(), 2);
-        assert_eq!(fds.image(), file);
+        assert_eq!(fds.image().expect("export"), file);
         assert!(Fds::from_file(&[], &[0; 16]).is_err());
     }
 

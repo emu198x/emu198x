@@ -148,12 +148,19 @@ impl NesRuntime {
 
     /// The loaded disk set with everything the program has written to it,
     /// as an `.fds` file in the layout it was loaded from.
-    #[must_use]
-    pub fn disk_image(&self) -> Option<Vec<u8>> {
+    ///
+    /// # Errors
+    /// Returns `InvalidMedia` when the loaded disk cannot be encoded.
+    pub fn disk_image(&self) -> Result<Option<Vec<u8>>, MachineError> {
         self.machine
             .as_ref()
             .and_then(|machine| machine.mapper().disk_drive())
             .map(|drive| drive.image())
+            .transpose()
+            .map_err(|reason| MachineError::InvalidMedia {
+                slot: FDS_DISK_SLOT.to_owned(),
+                reason,
+            })
     }
 
     /// What is plugged into the controller ports.
@@ -342,30 +349,24 @@ impl NesRuntime {
 
     /// Reset with a disk set loaded: the disks keep what was written to
     /// them, as real disks would.
-    fn rebuild_disk_machine(&mut self) {
-        let image = self
-            .disk_image()
-            .or_else(|| self.cartridge_bytes.clone())
+    fn rebuild_disk_machine(&mut self) -> Result<(), MachineError> {
+        let live = self.disk_image()?;
+        let bytes = live
+            .as_deref()
+            .or(self.cartridge_bytes.as_deref())
             .unwrap_or_default();
-        match self.disk_board(FDS_DISK_SLOT, &image) {
-            Ok(board) => {
-                let mut machine = Nes::new_with_region(board, self.model.machine_region());
-                machine.set_input_devices(self.input_devices);
-                if let Some(previous) = &self.machine {
-                    machine.set_audio_controls(previous.audio_controls());
-                }
-                self.machine = Some(machine);
-            }
-            Err(_) => self.machine = None,
+        let board = self.disk_board(FDS_DISK_SLOT, bytes)?;
+        let mut machine = Nes::new_with_region(board, self.model.machine_region());
+        machine.set_input_devices(self.input_devices);
+        if let Some(previous) = &self.machine {
+            machine.set_audio_controls(previous.audio_controls());
         }
+        self.machine = Some(machine);
         self.rgba_framebuffer.fill(0);
+        Ok(())
     }
 
     fn rebuild_loaded_machine(&mut self) {
-        if self.cartridge_mapper == Some(FDS_MAPPER_NUMBER) {
-            self.rebuild_disk_machine();
-            return;
-        }
         let Some(bytes) = self.cartridge_bytes.as_deref() else {
             self.machine = None;
             self.cartridge_mapper = None;
@@ -450,7 +451,12 @@ impl emu198x_shell::FamilyRuntime for NesRuntime {
         let mut replacement = Self::from_firmware(model, firmware)?;
         replacement.input_devices = self.input_devices;
         if self.has_disk() {
-            let image = self.disk_image().unwrap_or_default();
+            let image = self
+                .disk_image()?
+                .ok_or_else(|| MachineError::InvalidMedia {
+                    slot: FDS_DISK_SLOT.to_owned(),
+                    reason: "no live disk image to carry across the model change".into(),
+                })?;
             replacement.load_disk_bytes(FDS_DISK_SLOT, &image)?;
             if let (Some(controls), Some(fresh)) = (self.audio_controls(), &mut replacement.machine)
             {
@@ -595,7 +601,15 @@ impl MachineCore for NesRuntime {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        self.rebuild_loaded_machine();
+        if self.cartridge_mapper == Some(FDS_MAPPER_NUMBER) {
+            // The shell reset has no error channel. If the live disk cannot
+            // be carried forward, leave the machine and its writes intact.
+            if self.rebuild_disk_machine().is_err() {
+                return;
+            }
+        } else {
+            self.rebuild_loaded_machine();
+        }
         self.time = MachineTime::default();
     }
 

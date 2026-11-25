@@ -181,5 +181,7 @@ pub trait DiskDrive {
 
     /// The disk set as it stands now, writes included, in the file
     /// layout it was loaded from.
-    fn image(&self) -> Vec<u8>;
+    ///
+    /// Returns an error if the live disk cannot be represented in that layout.
+    fn image(&self) -> Result<Vec<u8>, String>;
 }
