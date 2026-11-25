@@ -1,6 +1,6 @@
 //! Loading a board from an iNES / NES 2.0 file.
 //!
-//! `format-nintendo-nes-ines` reads the file's layout; this module picks the
+//! `format198x-nintendo-nes-ines` reads the file's layout; this module picks the
 //! board its mapper number names and fills it with the file's ROM.
 //!
 //! Both iNES 1.0 and NES 2.0 files map onto [`CartridgeHeader`]; the
@@ -8,7 +8,7 @@
 //! and the extended PRG/CHR sizes are reported via the byte counts the
 //! parser passes to each mapper constructor.
 
-use format_nintendo_nes_ines::HeaderMirroring;
+use format198x_nintendo_nes_ines::HeaderMirroring;
 
 use crate::mapper::{Mapper, Mirroring};
 use crate::mappers::{
@@ -71,7 +71,7 @@ pub struct ParsedCartridge {
 /// - The mapper number is not supported by this port — see the
 ///   crate-level doc comment for the current scope.
 pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
-    let image = format_nintendo_nes_ines::parse(data).map_err(|error| error.to_string())?;
+    let image = format198x_nintendo_nes_ines::parse(data).map_err(|error| error.to_string())?;
     let mirroring = match image.header.mirroring {
         HeaderMirroring::Horizontal => Mirroring::Horizontal,
         HeaderMirroring::Vertical => Mirroring::Vertical,

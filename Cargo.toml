@@ -50,7 +50,6 @@ members = [
     "crates/format-nintendo-game-boy-cartridge",
     "crates/format-nintendo-famicom-fds",
     "crates/format-snk-neo-geo-romset",
-    "crates/format-nintendo-nes-ines",
     "crates/nintendo-nes-cartridge",
     "crates/common-nintendo-snes",
     "crates/machine-nintendo-snes-ntsc",
