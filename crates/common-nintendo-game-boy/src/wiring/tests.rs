@@ -11,8 +11,8 @@
 
 use super::*;
 use emu198x_nintendo_game_boy_mbc::CartType;
-use format_nintendo_game_boy_cartridge::CartridgeHeader;
-use format_nintendo_game_boy_cartridge::CartridgeType;
+use format198x_nintendo_game_boy_cartridge::CartridgeHeader;
+use format198x_nintendo_game_boy_cartridge::CartridgeType;
 
 /// Build a 32 KiB ROM with NOPs and a valid header.
 fn nop_rom() -> Vec<u8> {
@@ -868,7 +868,7 @@ fn every_header_board_maps_to_its_controller() {
         ),
     ];
     for (header, controller) in cases {
-        assert_eq!(board(header), controller);
+        assert_eq!(board(header, 0).unwrap(), controller);
     }
 }
 
@@ -884,9 +884,48 @@ fn construction_rejects_bad_header() {
     // Truncated ROM — header parser rejects.
     match GameBoyState::from_rom(vec![0u8; 100]) {
         Ok(_) => panic!("expected header error"),
-        Err(format_nintendo_game_boy_cartridge::HeaderError::TooShort { .. }) => {}
+        Err(CartridgeLoadError::Header(HeaderError::TooShort { .. })) => {}
         Err(other) => panic!("unexpected error: {other}"),
     }
+}
+
+#[test]
+fn construction_distinguishes_unsupported_boards_from_unknown_types() {
+    let mut rom = nop_rom();
+    for (byte, expected) in [
+        (
+            0xFF,
+            CartridgeLoadError::UnsupportedCartridgeType {
+                byte: 0xFF,
+                name: "HuC1+RAM+BATTERY",
+            },
+        ),
+        (
+            0x04,
+            CartridgeLoadError::Header(HeaderError::UnknownCartridgeType { byte: 0x04 }),
+        ),
+    ] {
+        rom[0x0147] = byte;
+        rom[0x0149] = 0x02;
+        rom[0x014D] = rom[0x0134..=0x014C]
+            .iter()
+            .fold(0u8, |sum, &val| sum.wrapping_sub(val).wrapping_sub(1));
+        match GameBoyState::from_rom(rom.clone()) {
+            Err(actual) => assert_eq!(actual, expected),
+            Ok(_) => panic!("cartridge type ${byte:02X} should be rejected"),
+        }
+    }
+    // A documented board with a corrupt header is a format error, not a
+    // valid but unsupported cartridge.
+    let mut corrupt = nop_rom();
+    corrupt[0x0147] = 0xFF;
+    let error = GameBoyState::from_rom(corrupt);
+    assert!(matches!(
+        error,
+        Err(CartridgeLoadError::Header(
+            HeaderError::HeaderChecksumMismatch { .. }
+        ))
+    ));
 }
 
 #[test]

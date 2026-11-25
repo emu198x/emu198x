@@ -26,7 +26,8 @@ mod wiring;
 pub use board::{GameBoyBoard, GameBoyCore, GameBoyHardware};
 pub use emu198x_nintendo_game_boy_mbc::Cartridge;
 pub use emu198x_sharp_lr35902::Sm83;
-pub use format_nintendo_game_boy_cartridge::{CartridgeHeader, HeaderError};
+pub use format198x_nintendo_game_boy_cartridge::{CartridgeHeader, HeaderError};
 pub use wiring::{
-    ApuChannel, AudioControls, BootProfile, GameBoyState, GameBoyV3, MONO_BOOT_ROM_SIZE, cgb,
+    ApuChannel, AudioControls, BootProfile, CartridgeLoadError, GameBoyState, GameBoyV3,
+    MONO_BOOT_ROM_SIZE, cgb,
 };

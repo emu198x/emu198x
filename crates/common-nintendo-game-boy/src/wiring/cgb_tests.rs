@@ -8,8 +8,7 @@ use super::*;
 
 /// The cartridge a ROM image describes, as `GameBoyState::from_rom` builds it.
 fn cartridge(rom: Vec<u8>) -> Cartridge {
-    let header = CartridgeHeader::parse(&rom).unwrap();
-    Cartridge::new(rom, board(header.cart_type), header.ram_size)
+    parse_cartridge(rom).unwrap().1
 }
 
 /// A 32 KiB ROM with `code` at `$0100` and the given CGB flag.

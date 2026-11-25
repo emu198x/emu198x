@@ -22,9 +22,38 @@
 //!   itself is paced and OAM access is blocked, but full CPU bus gating
 //!   is still deferred.
 
+/// Why the emulator could not build a cartridge from a ROM image.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CartridgeLoadError {
+    /// The file's header could not be decoded.
+    Header(HeaderError),
+    /// The file identifies a board that the emulator does not implement.
+    UnsupportedCartridgeType { byte: u8, name: &'static str },
+}
+
+impl std::fmt::Display for CartridgeLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Header(error) => error.fmt(f),
+            Self::UnsupportedCartridgeType { byte, name } => {
+                write!(f, "unsupported cartridge type ${byte:02X} ({name})")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CartridgeLoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Header(error) => Some(error),
+            Self::UnsupportedCartridgeType { .. } => None,
+        }
+    }
+}
+
 /// The memory bank controller a header's cartridge type names.
-fn board(kind: CartridgeType) -> CartType {
-    match kind {
+fn board(kind: CartridgeType, type_byte: u8) -> Result<CartType, CartridgeLoadError> {
+    let controller = match kind {
         CartridgeType::RomOnly { battery } => CartType::RomOnly { battery },
         CartridgeType::Mbc1 { ram, battery } => CartType::Mbc1 { ram, battery },
         CartridgeType::Mbc2 { battery } => CartType::Mbc2 { battery },
@@ -38,7 +67,35 @@ fn board(kind: CartridgeType) -> CartType {
             battery,
             rumble,
         },
-    }
+        unsupported @ (CartridgeType::Mmm01 { .. }
+        | CartridgeType::Mbc6
+        | CartridgeType::Mbc7
+        | CartridgeType::PocketCamera
+        | CartridgeType::BandaiTama5
+        | CartridgeType::HuC3
+        | CartridgeType::HuC1) => {
+            // Retain the emulator's established diagnostics for these boards.
+            let name = match unsupported {
+                CartridgeType::Mbc7 => "MBC7+SENSOR+RUMBLE+RAM+BATTERY",
+                CartridgeType::PocketCamera => "POCKET CAMERA",
+                CartridgeType::BandaiTama5 => "BANDAI TAMA5",
+                CartridgeType::HuC1 => "HuC1+RAM+BATTERY",
+                other => other.name(),
+            };
+            return Err(CartridgeLoadError::UnsupportedCartridgeType {
+                byte: type_byte,
+                name,
+            });
+        }
+    };
+    Ok(controller)
+}
+
+fn parse_cartridge(rom: Vec<u8>) -> Result<(CartridgeHeader, Cartridge), CartridgeLoadError> {
+    let header = CartridgeHeader::parse(&rom).map_err(CartridgeLoadError::Header)?;
+    let controller = board(header.cart_type, header.cart_type_byte)?;
+    let cartridge = Cartridge::new(rom, controller, header.ram_size);
+    Ok((header, cartridge))
 }
 
 pub mod cgb;
@@ -67,7 +124,9 @@ use emu198x_nintendo_game_boy_mbc::{CartType, Cartridge};
 use emu198x_nintendo_game_boy_ppu::Ppu;
 use emu198x_nintendo_game_boy_timer::Timer;
 use emu198x_sharp_lr35902::{PostBootCpuState, Sm83};
-use format_nintendo_game_boy_cartridge::{CartridgeHeader, CartridgeType, CgbSupport, HeaderError};
+use format198x_nintendo_game_boy_cartridge::{
+    CartridgeHeader, CartridgeType, CgbSupport, HeaderError,
+};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -419,8 +478,8 @@ impl GameBoyState {
     ///
     /// # Errors
     ///
-    /// Forwards any [`HeaderError`] from the cartridge format crate.
-    pub fn from_rom(rom: Vec<u8>) -> Result<(CartridgeHeader, Self), HeaderError> {
+    /// Returns [`CartridgeLoadError`] for a malformed header or unsupported board.
+    pub fn from_rom(rom: Vec<u8>) -> Result<(CartridgeHeader, Self), CartridgeLoadError> {
         Self::from_rom_with_boot_profile(rom, BootProfile::DmgAbc)
     }
 
@@ -429,13 +488,12 @@ impl GameBoyState {
     ///
     /// # Errors
     ///
-    /// Forwards any [`HeaderError`] from the cartridge format crate.
+    /// Returns [`CartridgeLoadError`] for a malformed header or unsupported board.
     pub fn from_rom_with_boot_profile(
         rom: Vec<u8>,
         boot_profile: BootProfile,
-    ) -> Result<(CartridgeHeader, Self), HeaderError> {
-        let header = CartridgeHeader::parse(&rom)?;
-        let cart = Cartridge::new(rom, board(header.cart_type), header.ram_size);
+    ) -> Result<(CartridgeHeader, Self), CartridgeLoadError> {
+        let (header, cart) = parse_cartridge(rom)?;
         Ok((header, Self::new_with_boot_profile(cart, boot_profile)))
     }
 
@@ -461,14 +519,13 @@ impl GameBoyState {
     ///
     /// # Errors
     ///
-    /// Forwards any [`HeaderError`] from the cartridge format crate.
+    /// Returns [`CartridgeLoadError`] for a malformed header or unsupported board.
     pub fn from_rom_with_boot_rom(
         rom: Vec<u8>,
         boot_profile: BootProfile,
         boot_rom: Option<Vec<u8>>,
-    ) -> Result<(CartridgeHeader, Self), HeaderError> {
-        let header = CartridgeHeader::parse(&rom)?;
-        let cart = Cartridge::new(rom, board(header.cart_type), header.ram_size);
+    ) -> Result<(CartridgeHeader, Self), CartridgeLoadError> {
+        let (header, cart) = parse_cartridge(rom)?;
         Ok((
             header,
             Self::new_with_boot_rom(cart, boot_profile, boot_rom),
@@ -530,8 +587,7 @@ impl GameBoyState {
         boot_profile: BootProfile,
         boot_rom: Option<Vec<u8>>,
     ) -> Result<(CartridgeHeader, Self), String> {
-        let header = CartridgeHeader::parse(&rom).map_err(|error| error.to_string())?;
-        let cart = Cartridge::new(rom, board(header.cart_type), header.ram_size);
+        let (header, cart) = parse_cartridge(rom).map_err(|error| error.to_string())?;
         let machine = Self::try_new_with_boot_rom(cart, boot_profile, boot_rom)?;
         Ok((header, machine))
     }
