@@ -3,7 +3,7 @@
 //! disk image is needed.
 
 use common_nintendo_nes::Nes;
-use format_nintendo_famicom_fds::{DISK_SIGNATURE, SIDE_LEN};
+use format198x_nintendo_famicom_fds::{DISK_SIGNATURE, SIDE_LEN};
 use nintendo_nes_cartridge::{DiskDrive, Fds};
 
 /// A side holding only a disk info block.

@@ -102,6 +102,51 @@ mod fidelity_tests {
     use common_nintendo_nes::{Nes, NesSnapshot};
     use nintendo_nes_cartridge::{Mirroring, Nrom};
     #[test]
+    fn unencodable_live_disk_never_falls_back_to_original_bytes() {
+        use super::{NesRuntime, NesRuntimeSnapshotRefV1, SNAPSHOT_VERSION};
+        use crate::{FDS_DISK_SLOT, FDS_MAPPER_NUMBER, Model};
+        use emu198x_shell::{
+            FamilyRuntime, FirmwareSet, MachineCore, MachineError, MachineTime, ResetKind,
+        };
+        use nintendo_nes_cartridge::Fds;
+
+        // A headered .fds cannot hold 256 sides. Postcard records the flag
+        // separately from the tracks, so construct that inconsistent state.
+        let mut original = b"FDS\x1A\x01".to_vec();
+        original.resize(16 + 65_500, 0);
+        let mapper = Fds::from_file(&[0; 8192], &original).expect("valid original disk");
+        let machine = Nes::new(Box::new(mapper));
+        let mut state = serde_json::to_value(machine.snapshot()).expect("snapshot value");
+        state["mapper"]["Fds"]["tracks"] = serde_json::json!(vec![vec![0u8]; 256]);
+        let state: NesSnapshot = serde_json::from_value(state).expect("crafted snapshot state");
+        let saved = postcard::to_allocvec(&NesRuntimeSnapshotRefV1 {
+            version: SNAPSHOT_VERSION,
+            time: 123,
+            cartridge_mapper: Some(FDS_MAPPER_NUMBER),
+            cartridge_bytes: Some(&original),
+            machine: Some(state),
+        })
+        .expect("encode the crafted state");
+
+        let mut runtime = NesRuntime::blank(Model::NesNtsc);
+        runtime
+            .restore(&saved)
+            .expect("restore preserves the live disk state");
+        let before = runtime.snapshot().expect("live state");
+        assert_eq!(runtime.time(), MachineTime::new(123));
+        assert!(
+            matches!(runtime.disk_image(), Err(MachineError::InvalidMedia { ref slot, ref reason }) if slot == FDS_DISK_SLOT && reason.contains("256"))
+        );
+        assert!(
+            matches!(runtime.replacement(Model::NesNtsc, &FirmwareSet::new()), Err(MachineError::InvalidMedia { ref slot, ref reason }) if slot == FDS_DISK_SLOT && reason.contains("256"))
+        );
+
+        runtime.reset(ResetKind::Hard);
+        assert_eq!(runtime.time(), MachineTime::new(123));
+        assert_eq!(runtime.snapshot().expect("live state after reset"), before);
+    }
+
+    #[test]
     fn malformed_output_buffers_are_rejected_by_snapshot_decode() {
         let live = Nes::new(Box::new(Nrom::new(
             vec![0xea; 16_384],
