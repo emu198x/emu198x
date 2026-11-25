@@ -45,7 +45,7 @@ pub fn headed_cartridge(destination: u8) -> Vec<u8> {
     rom[base + 0x15] = 0x20;
     rom[base + 0x17] = 0x05;
     rom[base + 0x19] = destination;
-    let checksum = format_nintendo_snes_sfc::compute_checksum(&rom);
+    let checksum = format198x_nintendo_snes_sfc::compute_checksum(&rom);
     rom[base + 0x1C..base + 0x1E].copy_from_slice(&(!checksum).to_le_bytes());
     rom[base + 0x1E..base + 0x20].copy_from_slice(&checksum.to_le_bytes());
     rom

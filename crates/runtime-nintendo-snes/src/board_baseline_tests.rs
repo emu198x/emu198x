@@ -178,7 +178,7 @@ fn original_v1_states_and_three_native_fields_remain_exact() {
                 let dir = PathBuf::from(dir);
                 std::fs::create_dir_all(&dir).expect("directory");
                 let mut rom = live.machine().expect("loaded").cart.rom().to_vec();
-                let sum = format_nintendo_snes_sfc::compute_checksum(&rom);
+                let sum = format198x_nintendo_snes_sfc::compute_checksum(&rom);
                 rom[0x7fdc..0x7fde].copy_from_slice(&(!sum).to_le_bytes());
                 rom[0x7fde..0x7fe0].copy_from_slice(&sum.to_le_bytes());
                 std::fs::OpenOptions::new()
