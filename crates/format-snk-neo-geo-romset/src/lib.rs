@@ -1,193 +1,28 @@
-//! Neo Geo cartridge ROM sets, as MAME names and lays them out.
-//!
-//! A Neo Geo cartridge is not one image but a set of chips, each dumped to
-//! its own file: P-ROMs for the 68000, an S-ROM of fix-layer tiles, an
-//! M-ROM for the Z80, V-ROMs of ADPCM samples and C-ROMs of sprite tiles.
-//! This crate takes those files, by name, and builds the one region per bus
-//! a machine reads.
-//!
-//! A file's role and order come from its extension, or failing that the end
-//! of its stem: `201-p1.p1` and `201-p1.bin` are both P-ROM 1. The layout
-//! follows MAME's `neogeo.cpp` (BSD-3-Clause):
-//!
-//! - P-ROMs are stored with each 16-bit word byte-swapped; they are swapped
-//!   back to the 68000's order and joined, P1 first. A single 2 MiB P1
-//!   with no lower-half recognition code and a complete upper-half header
-//!   has its two 1 MiB halves exchanged before mapping.
-//! - V-ROMs with one digit (`v1`, `v2`) feed ADPCM-A, which ADPCM-B shares.
-//!   Two digits (`v11`, `v21`) name the region first: `v1x` for ADPCM-A,
-//!   `v2x` for ADPCM-B, as on the first boards that kept them apart.
-//! - C-ROMs pair up, C1 with C2, C3 with C4, and each pair interleaves a
-//!   byte at a time, the odd ROM in even bytes.
-//!
-//! Files that fit no role, a BIOS or a readme in the same archive, are left
-//! out. Other bank wiring and encrypted sets are not inferred here.
+//! ZIP adapter for Neo Geo named-file cartridge sets.
 
 use std::io::{Cursor, Read};
 
+pub use format198x_snk_neo_geo_romset::RomSet;
+use format198x_snk_neo_geo_romset::from_files;
 use thiserror::Error;
 
-/// The ROMs of one cartridge, in the layout each bus reads.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct RomSet {
-    /// P-ROM, big-endian.
-    pub p: Vec<u8>,
-    /// S-ROM.
-    pub s: Vec<u8>,
-    /// M-ROM.
-    pub m: Vec<u8>,
-    /// V-ROM for ADPCM-A (and ADPCM-B when `v_b` is empty).
-    pub v_a: Vec<u8>,
-    /// V-ROM for ADPCM-B, when the board keeps it apart.
-    pub v_b: Vec<u8>,
-    /// C-ROM pairs, each interleaved.
-    pub c: Vec<u8>,
-}
-
-/// Why a ROM set could not be built.
+/// Why a Neo Geo cartridge archive could not be loaded.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum RomSetError {
-    /// No P-ROM: there is nothing for the 68000 to run.
-    #[error("no P-ROM (a file named like p1)")]
-    NoProgramRom,
-    /// Two files claim the same role and number.
-    #[error("two files are {role}{index}: {first} and {second}")]
-    Duplicate {
-        role: char,
-        index: u8,
-        first: String,
-        second: String,
-    },
-    /// A C-ROM is missing its partner, or the two differ in size.
-    #[error("C-ROM {index} has no partner of the same size")]
-    UnpairedSpriteRom { index: u8 },
-    /// The archive could not be read.
+    /// The ZIP archive or one of its entries could not be read.
     #[error("not a readable zip archive: {0}")]
     Zip(String),
+    /// The named files do not form a valid cartridge ROM set.
+    #[error(transparent)]
+    Layout(#[from] format198x_snk_neo_geo_romset::RomSetError),
 }
 
-/// What part a file plays: its role letter and its number.
-fn classify(name: &str) -> Option<(char, u8)> {
-    let base = name.rsplit(['/', '\\']).next()?.to_ascii_lowercase();
-    let (stem, extension) = base.rsplit_once('.').unwrap_or((&base, ""));
-    tag(extension).or_else(|| {
-        let tail = stem.rsplit(['-', '_']).next()?;
-        tag(tail)
-    })
-}
-
-/// `p1`, `c12`, `v21` and the like.
-fn tag(text: &str) -> Option<(char, u8)> {
-    let mut chars = text.chars();
-    let role = chars.next()?;
-    if !matches!(role, 'p' | 's' | 'm' | 'v' | 'c') {
-        return None;
-    }
-    let digits = chars.as_str();
-    if digits.is_empty() || digits.len() > 2 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let index: u8 = digits.parse().ok()?;
-    (index > 0).then_some((role, index))
-}
-
-/// Build a ROM set from `(file name, contents)` pairs.
+/// Build a ROM set from a ZIP archive's bytes, as MAME keeps one game.
 ///
 /// # Errors
 ///
-/// Returns an error if there is no P-ROM, two files claim one role, or a
-/// C-ROM has no partner of its size.
-pub fn from_files(
-    files: impl IntoIterator<Item = (String, Vec<u8>)>,
-) -> Result<RomSet, RomSetError> {
-    let mut roles: Vec<(char, u8, String, Vec<u8>)> = Vec::new();
-    for (name, bytes) in files {
-        let Some((role, index)) = classify(&name) else {
-            continue;
-        };
-        if let Some((_, _, first, _)) = roles.iter().find(|r| r.0 == role && r.1 == index) {
-            return Err(RomSetError::Duplicate {
-                role,
-                index,
-                first: first.clone(),
-                second: name,
-            });
-        }
-        roles.push((role, index, name, bytes));
-    }
-    roles.sort_by_key(|r| (r.0, r.1));
-    let of = |role: char| roles.iter().filter(move |r| r.0 == role);
-
-    let mut set = RomSet::default();
-    let program_parts = of('p').count();
-    for (_, index, _, bytes) in of('p') {
-        set.p
-            .extend(bytes.chunks(2).flat_map(|w| w.iter().rev().copied()));
-        if program_parts == 1 && *index == 1 {
-            normalise_p1_halves(&mut set.p);
-        }
-    }
-    if set.p.is_empty() {
-        return Err(RomSetError::NoProgramRom);
-    }
-    if let Some((_, _, _, bytes)) = of('s').next() {
-        set.s.clone_from(bytes);
-    }
-    if let Some((_, _, _, bytes)) = of('m').next() {
-        set.m.clone_from(bytes);
-    }
-    for (_, index, _, bytes) in of('v') {
-        if *index >= 20 {
-            set.v_b.extend_from_slice(bytes);
-        } else {
-            set.v_a.extend_from_slice(bytes);
-        }
-    }
-    let c: Vec<_> = of('c').collect();
-    for pair in c.chunks(2) {
-        match pair {
-            [(_, odd_index, _, odd), (_, even_index, _, even)]
-                if *even_index == odd_index + 1 && odd.len() == even.len() =>
-            {
-                set.c.reserve(odd.len() * 2);
-                for (&a, &b) in odd.iter().zip(even) {
-                    set.c.push(a);
-                    set.c.push(b);
-                }
-            }
-            [(_, index, _, _), ..] => {
-                return Err(RomSetError::UnpairedSpriteRom { index: *index });
-            }
-            [] => {}
-        }
-    }
-    Ok(set)
-}
-
-// SNK's Hardware Specification (1989), System Program p.6: recognition
-// code at $100, version at $107, nonzero game ID at $108, ROM size at $10A.
-// MAME neogeo.cpp::mslug loads a single 2 MiB P1's first MiB at $100000,
-// continuing at $000000. Recognise that layout by the header, not a game name.
-// Never override a header already in the fixed bank, or infer other layouts.
-fn normalise_p1_halves(program: &mut [u8]) {
-    const HALF: usize = 0x100000;
-    if program.len() != 2 * HALF || &program[0x100..0x107] == b"NEO-GEO" {
-        return;
-    }
-    let header = &program[HALF + 0x100..HALF + 0x10e];
-    if &header[..8] == b"NEO-GEO\0"
-        && header[8..10] != [0, 0]
-        && header[10..14] == (program.len() as u32).to_be_bytes()
-    {
-        program.rotate_left(HALF);
-    }
-}
-
-/// Build a ROM set from a zip archive's bytes, as MAME keeps one game.
-///
-/// # Errors
-///
-/// Returns an error if the archive cannot be read, or as [`from_files`].
+/// Returns an error if the archive cannot be read or its named files do
+/// not form a valid ROM set.
 pub fn from_zip(bytes: &[u8]) -> Result<RomSet, RomSetError> {
     let zip_error = |err: zip::result::ZipError| RomSetError::Zip(err.to_string());
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(zip_error)?;
@@ -197,24 +32,90 @@ pub fn from_zip(bytes: &[u8]) -> Result<RomSet, RomSetError> {
         if entry.is_dir() {
             continue;
         }
+        // The format crate alone decides which names represent ROMs.
         let name = entry.name().map_err(zip_error)?.into_owned();
-        if classify(&name).is_none() {
-            continue;
-        }
-        let mut contents = Vec::with_capacity(entry.size() as usize);
+        let mut contents = Vec::new();
         entry
             .read_to_end(&mut contents)
             .map_err(|err| RomSetError::Zip(err.to_string()))?;
         files.push((name, contents));
     }
-    from_files(files)
+    Ok(from_files(files)?)
 }
 
-/// Whether `bytes` start like a zip archive.
+/// Whether `bytes` start like a ZIP archive.
 #[must_use]
 pub fn is_zip(bytes: &[u8]) -> bool {
     bytes.starts_with(b"PK\x03\x04")
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use std::io::Write;
+
+    use format198x_snk_neo_geo_romset::RomSetError as LayoutError;
+
+    use super::{Cursor, RomSetError, from_zip, is_zip};
+
+    fn archive(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for &(name, bytes) in files {
+            writer.start_file(name, options).expect("entry");
+            writer.write_all(bytes).expect("contents");
+        }
+        writer.add_directory("empty/", options).expect("directory");
+        writer.finish().expect("ZIP").into_inner()
+    }
+
+    #[test]
+    fn a_zip_archive_reads_like_its_files() {
+        let bytes = archive(&[
+            ("game/1-p1.p1", &[1, 2]),
+            ("game/1-c1.c1", &[3]),
+            ("game/1-c2.c2", &[4]),
+            ("readme.txt", b"hello"),
+        ]);
+        assert!(is_zip(&bytes));
+        let set = from_zip(&bytes).expect("ROM set");
+        assert_eq!(set.p, [2, 1]);
+        assert_eq!(set.c, [3, 4]);
+        assert!(!is_zip(b"NEO"));
+    }
+
+    #[test]
+    fn a_zip_archive_keeps_samurai_shodowns_second_program_rom() {
+        const BANK: usize = 1024 * 1024;
+        let mut p1 = vec![0; BANK];
+        p1[0x100..0x108].copy_from_slice(b"NEO-GEO\0");
+        for word in p1.as_chunks_mut::<2>().0 {
+            word.swap(0, 1);
+        }
+        let p2 = [0x12, 0x34].repeat(BANK / 2);
+
+        let bytes = archive(&[("045-pg2.sp2", &p2), ("045-p1.p1", &p1)]);
+        let set = from_zip(&bytes).expect("ROM set");
+        assert_eq!(set.p.len(), 2 * BANK);
+        assert_eq!(&set.p[0x100..0x108], b"NEO-GEO\0");
+        assert!(
+            set.p[BANK..]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .all(|word| *word == [0x34, 0x12])
+        );
+    }
+
+    #[test]
+    fn archive_and_rom_layout_errors_are_distinct() {
+        assert!(matches!(
+            from_zip(b"PK\x03\x04junk"),
+            Err(RomSetError::Zip(_))
+        ));
+        assert_eq!(
+            from_zip(&archive(&[("readme.txt", b"no ROMs")])),
+            Err(RomSetError::Layout(LayoutError::NoProgramRom))
+        );
+    }
+}
