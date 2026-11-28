@@ -157,7 +157,7 @@ where
 {
     registry.register(Box::new(ScriptStepTool::common(
         "run_frames",
-        "Run the machine for a number of native video frames.",
+        "Run up to the requested number of native video frames. Check stop_reason for an early stop, including NoFrame when video is temporarily inactive.",
         json!({
             "type": "object",
             "properties": { "frames": { "type": "integer", "minimum": 0 } },

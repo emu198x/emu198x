@@ -195,6 +195,25 @@ Emu198x does not ship commercial firmware, ROMs, disks, tapes, or cartridges. Pr
 
 The status docs record which local assets each smoke test expects.
 
+### Game Boy startup in headless runs
+
+With default DMG settings, a cartridge starts at `$0100` in the skipped-boot
+state when no firmware resolves. The native launcher also looks for
+`dmg_boot.bin` in `~/.emu198x/roms/nintendo-game-boy` or the directory named by
+`EMU198X_GB_ROM_DIR`. `EMU198X_GB_DMG_BOOT_ROM` pins a file in preference to
+either directory. If a boot ROM resolves, execution starts at `$0000`. For
+repeatable skipped-boot probes, point `EMU198X_GB_ROM_DIR` at an empty directory
+and unset the model's per-file override. The cartridge path supplied to
+`--rom` is independent of firmware lookup.
+
+A cartridge can disable the LCD during startup while its CPU keeps running.
+Check the `run_frames` result's `stop_reason`. A `NoFrame` result ends that
+batch early. If a test knows a guest readiness marker, use a bounded
+`run_until_mem_change` on its address or `run_until_pc` on the ready routine.
+Check `changed` or `reached` before sampling input or counting frames. For
+example, the [input-loop pattern](https://github.com/code198x/code-samples/tree/main/nintendo-game-boy/patterns/assembly/framework/input-loop)
+increments the byte at `$C002` when its first input-sampling frame begins.
+
 ## Verification strategy
 
 Emu198x does not treat “boots one thing” as sufficient proof. Verification is layered:

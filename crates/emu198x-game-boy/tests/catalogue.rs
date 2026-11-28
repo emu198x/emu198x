@@ -63,9 +63,8 @@ fn output(command: &mut Command) -> Value {
     serde_json::from_slice(&output.stdout).expect("JSON report")
 }
 
-fn mcp(fixture: &Fixture, args: &[&str], requests: &[Value]) -> Vec<Value> {
-    let mut child = fixture
-        .command()
+fn mcp(command: &mut Command, args: &[&str], requests: &[Value]) -> Vec<Value> {
+    let mut child = command
         .arg("--mcp")
         .args(args)
         .stdin(Stdio::piped())
@@ -128,7 +127,7 @@ fn script_selects_every_profile_and_keeps_the_loaded_save() {
 fn mcp_loads_the_cartridge_and_save_once_and_exposes_selection() {
     let fixture = Fixture::new();
     let responses = mcp(
-        &fixture,
+        &mut fixture.command(),
         &[
             "--rom",
             fixture.0.join("game.gb").to_str().expect("path"),
@@ -153,4 +152,99 @@ fn mcp_loads_the_cartridge_and_save_once_and_exposes_selection() {
         tool_body(&responses[4])["result"]["value"],
         "nintendo-super-game-boy-2"
     );
+}
+
+fn call(id: u32, name: &str, arguments: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0", "id": id, "method": "tools/call",
+        "params": {"name": name, "arguments": arguments}
+    })
+}
+
+#[test]
+fn native_dmg_startup_distinguishes_boot_firmware_from_a_cartridge() {
+    let fixture = Fixture::new();
+    let cartridge = fixture.0.join("game.gb");
+    let args = ["--rom", cartridge.to_str().expect("path")];
+    let conventional = fixture.0.join(".emu198x/roms/nintendo-game-boy");
+    let empty = fixture.0.join("empty");
+    std::fs::create_dir_all(&conventional).expect("firmware directory");
+    std::fs::create_dir(&empty).expect("empty firmware directory");
+    let mut firmware = [0; 256];
+    firmware[..3].copy_from_slice(&[0xc3, 0xfc, 0]); // JP $00FC
+    firmware[0xfc..].copy_from_slice(&[0x3e, 1, 0xe0, 0x50]); // unmap at $0100
+    std::fs::write(conventional.join("dmg_boot.bin"), firmware).expect("synthetic firmware");
+
+    let requests = [
+        call(1, "query_cpu", json!({})),
+        call(2, "memory_read", json!({"addr": 0xff50, "len": 1})),
+    ];
+    let implicit_firmware = mcp(fixture.command().env("HOME", &fixture.0), &args, &requests);
+    assert_eq!(tool_body(&implicit_firmware[0])["registers"]["pc"], "$0000");
+    assert_eq!(tool_body(&implicit_firmware[1])["bytes"], json!([0xfe]));
+
+    let skipped = mcp(
+        fixture
+            .command()
+            .env("HOME", &fixture.0)
+            .env("EMU198X_GB_ROM_DIR", &empty),
+        &args,
+        &requests,
+    );
+    let regs = &tool_body(&skipped[0])["registers"];
+    assert_eq!(regs["pc"], "$0100");
+    assert_eq!(regs["sp"], "$FFFE");
+    assert_eq!(regs["hl"], "$014D");
+    assert_eq!(tool_body(&skipped[1])["bytes"], json!([0xff]));
+}
+
+#[test]
+fn mcp_waits_for_guest_readiness_across_an_lcd_off_interval() {
+    let fixture = Fixture::new();
+    let cartridge = fixture.0.join("game.gb");
+    let mut rom = std::fs::read(&cartridge).expect("synthetic cartridge");
+    rom[0x100..0x103].copy_from_slice(&[0xc3, 0x50, 1]); // JP $0150
+    let program = [
+        0xf0, 0x44, // LDH A, (LY)
+        0xfe, 0x90, // CP 144
+        0x38, 0xfa, // JR C back to LY
+        0xaf, // XOR A
+        0xe0, 0x40, // LDH (LCDC), A: LCD off during VBlank
+        0x01, 0x00, 0x40, // LD BC, $4000
+        0x0b, // DEC BC
+        0x78, // LD A, B
+        0xb1, // OR C
+        0x20, 0xfb, // JR NZ back to DEC BC (longer than one frame attempt)
+        0x3e, 0x91, // LD A, $91
+        0xe0, 0x40, // LDH (LCDC), A: LCD on
+        0xea, 0x00, 0xc0, // LD ($C000), A: readiness sentinel
+        0x18, 0xfe, // JR $
+    ];
+    rom[0x150..0x150 + program.len()].copy_from_slice(&program);
+    std::fs::write(&cartridge, rom).expect("startup program");
+
+    let responses = mcp(
+        &mut fixture.command(),
+        &["--rom", cartridge.to_str().expect("path")],
+        &[
+            call(1, "query_cpu", json!({})),
+            call(2, "run_frames", json!({"frames": 30})),
+            call(3, "query", json!({"path": "run.last.stop_reason"})),
+            call(4, "memory_read", json!({"addr": 0xc000, "len": 1})),
+            call(
+                5,
+                "run_until_mem_change",
+                json!({"addrs": [0xc000], "max_steps": 100_000}),
+            ),
+            call(6, "run_frames", json!({"frames": 2})),
+        ],
+    );
+    assert_eq!(tool_body(&responses[0])["registers"]["pc"], "$0100");
+    assert_eq!(tool_body(&responses[2])["result"]["value"], "no_frame");
+    assert_eq!(tool_body(&responses[3])["bytes"], json!([0]));
+    let ready = tool_body(&responses[4]);
+    assert_eq!(ready["changed"], true);
+    assert_eq!(ready["changed_addr"], 0xc000);
+    assert_eq!(ready["new"], 0x91);
+    assert_eq!(tool_body(&responses[5])["stop_reason"], "ReachedTarget");
 }
